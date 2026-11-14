@@ -12,6 +12,14 @@ $Ready = Join-Path $Scratch 'ready'
 $Processes = @()
 $Catalog = @()
 function Check($Condition, $Message) { if (-not $Condition) { throw $Message } }
+function Start-FixtureProcess($Image, $Arguments) {
+    $Start = New-Object Diagnostics.ProcessStartInfo
+    $Start.FileName = $Image
+    $Start.Arguments = $Arguments
+    $Start.UseShellExecute = $false
+    $Start.CreateNoWindow = $true
+    [Diagnostics.Process]::Start($Start)
+}
 # Register only children this fixture started (or its verified job leaves).
 # Cleanup admission is separate: a rejected discovered process must never be
 # stopped by finally. Callers retain only direct children or verified job leaves.
@@ -64,10 +72,21 @@ function Run-Helper($Action, $Built='', [int]$UnreadableProcessId=0, [switch]$Pr
     if ($Built) { $Arguments += @('-Built',$Built) }
     if ($UnreadableProcessId) { $Arguments += @('-UnreadableProcessId',$UnreadableProcessId) }
     if ($ProbeOutsideCatalog) { $Arguments += '-ProbeOutsideCatalog' }
-    $ErrorActionPreference = 'Continue'
-    $Output = & powershell.exe @Arguments 2>&1
-    $ErrorActionPreference = 'Stop'
-    [pscustomobject]@{ Code=$LASTEXITCODE; Text=($Output -join "`n") }
+    $Start = New-Object Diagnostics.ProcessStartInfo
+    $Start.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    # All values are fixture file paths, fixed switches or decimal PIDs.
+    $Start.Arguments = ($Arguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    $Start.UseShellExecute = $false
+    $Start.CreateNoWindow = $true
+    $Start.RedirectStandardOutput = $true
+    $Start.RedirectStandardError = $true
+    $Child = [Diagnostics.Process]::Start($Start)
+    try {
+        $Output = $Child.StandardOutput.ReadToEndAsync()
+        $Errors = $Child.StandardError.ReadToEndAsync()
+        $Child.WaitForExit()
+        [pscustomobject]@{ Code=$Child.ExitCode; Text=($Output.Result + $Errors.Result) }
+    } finally { $Child.Dispose() }
 }
 try {
     New-Item -ItemType Directory -Force -Path (Split-Path $OwnedBin),(Split-Path $OtherBin) | Out-Null
@@ -102,9 +121,15 @@ function Get-CimInstance {
     param($ClassName, $Filter)
     if ($ClassName -ne 'Win32_Process') { throw 'Unexpected fixture CIM class' }
     if ($Filter -eq "Name='susi.exe' OR Name='susi-engine.exe'") {
-        foreach ($Entry in $FixtureCatalog) {
-            $Row = Fixture-Row $Entry.ProcessId
-            if (-not $Row) { continue }
+        # Enumerate the fixture in one native query. The explicit stop path
+        # still rechecks a single PID's identity immediately before use.
+        if (-not $FixtureCatalog.Count) { return }
+        $PidFilter = ($FixtureCatalog | ForEach-Object { "ProcessId=$([int]$_.ProcessId)" }) -join ' OR '
+        foreach ($Row in CimCmdlets\Get-CimInstance Win32_Process -Filter $PidFilter) {
+            $Entry = Fixture-Entry $Row.ProcessId
+            if ($Row.CreationDate -ne $Entry.CreationDate -or $Row.ExecutablePath -ne $Entry.ExecutablePath) {
+                throw "Fixture identity changed: $($Row.ProcessId)"
+            }
             if ($Row.ProcessId -eq $UnreadableProcessId) {
                 # Only this explicit negative case changes real process metadata.
                 [pscustomobject]@{ ProcessId=$Row.ProcessId; CreationDate=$Row.CreationDate; ExecutablePath=$null; CommandLine=$Row.CommandLine }
@@ -224,16 +249,16 @@ public class SusiPromotionFixture {
     $NewHash = (Get-FileHash $Candidate).Hash
     New-Item -ItemType Directory -Force -Path $Ready | Out-Null
     $env:SUSI_FIXTURE_READY = $Ready
-    $Other = Start-Process $OtherBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
+    $Other = Start-FixtureProcess $OtherBin 'daemon-start'
     $Processes += $Other
     Register-Fixture $Other
-    $Daemon = Start-Process $OwnedBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
+    $Daemon = Start-FixtureProcess $OwnedBin 'daemon-start'
     $Processes += $Daemon
     Register-Fixture $Daemon
-    $Client = Start-Process $OwnedBin -ArgumentList 'mission daemon-start' -WindowStyle Hidden -PassThru
+    $Client = Start-FixtureProcess $OwnedBin 'mission daemon-start'
     $Processes += $Client
     Register-Fixture $Client
-    $OtherClient = Start-Process $OtherBin -ArgumentList 'mission daemon-start' -WindowStyle Hidden -PassThru
+    $OtherClient = Start-FixtureProcess $OtherBin 'mission daemon-start'
     $Processes += $OtherClient
     Register-Fixture $OtherClient
     $OtherLeaf = Wait-Leaf $Other

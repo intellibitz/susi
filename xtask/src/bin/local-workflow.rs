@@ -811,7 +811,7 @@ fn finish_phases(root: &Path, command: &str, outcome: &str, elapsed: std::time::
     }
 }
 
-use susi_build_policy as vendor_regressions;
+use susi_build_os_ucrt::policy as vendor_regressions;
 
 fn valid_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())

@@ -58,8 +58,8 @@ mod trusted_sysroot;
 mod upstream_notices;
 #[path = "../worktree_admin.rs"]
 mod worktree_admin;
+use susi_build_os_ucrt::policy as vendor_regressions;
 use susi_build_os_ucrt::{native_link, pe_imports};
-use susi_build_policy as vendor_regressions;
 
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())

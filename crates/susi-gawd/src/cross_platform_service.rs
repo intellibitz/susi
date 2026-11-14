@@ -92,7 +92,7 @@ impl ServiceManagerKind {
                 }
             }
             PlatformKind::Windows => {
-                let has_schtasks = Command::new("schtasks.exe")
+                let has_schtasks = susi_paths::console::background_command("schtasks.exe")
                     .arg("/?")
                     .output()
                     .is_ok_and(|out| out.status.success());
@@ -270,12 +270,14 @@ impl ServiceConfig {
 /// under least privilege (`-RunLevel Limited`, matching `install.ps1`).
 #[must_use]
 pub fn render_windows_schtasks_cmd(binary_path: &Path) -> String {
+    let executable = binary_path.display().to_string().replace('\'', "''");
     format!(
-        "$action = New-ScheduledTaskAction -Execute '{}' -Argument 'daemon'; \
+        "$bin = '{executable}'; $launcher = Join-Path (Split-Path -Parent $bin) 'susi-background.exe'; \
+         if (Test-Path -LiteralPath $launcher -PathType Leaf) {{ $action = New-ScheduledTaskAction -Execute $launcher; $logon = 'Interactive' }} \
+         else {{ $action = New-ScheduledTaskAction -Execute $bin -Argument 'start'; $logon = 'S4U' }}; \
          $trigger = New-ScheduledTaskTrigger -AtLogOn; \
-         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Limited; \
-         Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Principal $principal -Force",
-        binary_path.display()
+         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType $logon -RunLevel Limited; \
+         Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Principal $principal -Force"
     )
 }
 

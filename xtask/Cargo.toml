@@ -7,8 +7,7 @@ publish = false
 default-run = "xtask"
 
 [dependencies]
-susi-build-os-ucrt = { workspace = true, features = ["link-map"] }
-susi-build-policy = { workspace = true }
+susi-build-os-ucrt = { workspace = true, features = ["link-map", "policy"] }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
 serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
 susi-config = { workspace = true }

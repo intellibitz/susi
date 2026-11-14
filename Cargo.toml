@@ -5,7 +5,6 @@ members = [
     "crates/susi-abi",
     "crates/susi-paths",
     "crates/susi-build-os-ucrt",
-    "crates/susi-build-policy",
     "crates/susi-cli-defs",
     "crates/susi-windows-runtime",
     "crates/susi-error",
@@ -53,6 +52,7 @@ exclude = ["vendor"]
 
 [package]
 name = "susi"
+default-run = "susi"
 version = "0.21.67"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
@@ -103,7 +103,6 @@ complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
-susi-build-policy = { path = "crates/susi-build-policy" }
 susi-cli-defs = { path = "crates/susi-cli-defs" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }

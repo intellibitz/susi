@@ -22,7 +22,7 @@ use std::io::{self};
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
-#[cfg(any(unix, target_os = "windows"))]
+#[cfg(unix)]
 use std::process::Command;
 
 use susi::SUSI_VERSION;
@@ -514,12 +514,12 @@ fn uninstall(global_dir: &Path) {
     }
     #[cfg(target_os = "windows")]
     {
-        let has_task = Command::new("schtasks")
+        let has_task = susi_paths::console::background_command("schtasks")
             .args(["/Query", "/TN", "susi-daemon"])
             .output()
             .is_ok_and(|out| out.status.success());
         if has_task
-            && Command::new("schtasks")
+            && susi_paths::console::background_command("schtasks")
                 .args(["/Delete", "/TN", "susi-daemon", "/F"])
                 .status()
                 .is_ok_and(|s| s.success())

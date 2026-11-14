@@ -98,7 +98,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
     ("susi-build-os-ucrt", 0),
-    ("susi-build-policy", 0),
     ("susi-cli-defs", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),

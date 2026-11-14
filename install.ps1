@@ -164,6 +164,9 @@ if (-not $BuildProfile -or $BuildProfile -notmatch $Safe -or $Features -notmatch
     throw "releases/$Tag.json has no usable build profile or features."
 }
 $CargoArgs = @('build', '--locked', '--profile', $BuildProfile, '-p', 'susi', '--bin', 'susi')
+$InstallService = $Service -and -not $IsolatedInstall
+$HasBackgroundLauncher = Test-Path -LiteralPath (Join-Path $Src 'src\bin\susi-background.rs') -PathType Leaf
+if ($InstallService -and $HasBackgroundLauncher) { $CargoArgs += @('--bin', 'susi-background') }
 if ($Features) { $CargoArgs += @('--features', $Features) }
 $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $GlobalDir 'build-cache\release-sync' }
 New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
@@ -241,13 +244,22 @@ if (-not $IsolatedInstall -and $GlobalBinDir -notin ($UserPath -split ';')) {
 if ($GlobalBinDir -notin ($env:Path -split ';')) { $env:Path = "$GlobalBinDir;$env:Path" }
 
 # 4. Optional Service Registration
-if ($Service -and -not $IsolatedInstall) {
+if ($InstallService) {
     Write-Host "[susi] Registering Windows Scheduled Task for background daemon service..." -ForegroundColor Cyan
     try {
         $TaskName = "susi-daemon"
-        $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "start"
+        if ($HasBackgroundLauncher) {
+            $ServiceExe = Join-Path $GlobalBinDir 'susi-background.exe'
+            Copy-Item -LiteralPath (Join-Path $TargetDir "$OutDir\susi-background.exe") -Destination $ServiceExe -Force
+            $Action = New-ScheduledTaskAction -Execute $ServiceExe
+        } else {
+            # Older release tags have only the console engine. Run their logon
+            # task on the scheduler's noninteractive desktop.
+            $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "start"
+        }
         $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Limited
+        $Logon = if ($HasBackgroundLauncher) { 'Interactive' } else { 'S4U' }
+        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType $Logon -RunLevel Limited
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
         Write-Host "  Registered Susi to start at logon." -ForegroundColor Green
     } catch {

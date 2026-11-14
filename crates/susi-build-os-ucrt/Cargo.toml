@@ -10,6 +10,8 @@ description = "OS-UCRT and native linker boundary configuration for Susi build s
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2", optional = true }
 
 [features]
+# Shared regression gates for the release workflow and GAWD repository checks.
+policy = []
 # The linker-map inspector, for release tooling and tests; build scripts
 # never enable it, so they gain no dependency.
 link-map = ["dep:sha2"]

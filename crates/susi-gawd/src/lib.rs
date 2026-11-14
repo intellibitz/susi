@@ -43,10 +43,8 @@ pub mod swarm {
     }
 }
 
-pub use susi_error;
-
 pub use susi_config;
-
+pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
 // One compiled native-service client; Wasmer remains isolated in the service.
@@ -288,25 +286,5 @@ pub fn swarm_pool_threads() -> usize {
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-mod inline_tests {
-    use super::*;
-
-    #[test]
-    fn swarm_pool_threads_reports_positive_worker_count() {
-        assert!(swarm_pool_threads() >= 1);
-    }
-
-    #[test]
-    fn init_hooks_is_idempotent_across_repeated_invocations() {
-        init_hooks();
-        init_hooks();
-        assert!(swarm_pool_threads() >= 1);
-    }
-
-    #[test]
-    fn ama_facade_sanitize_input_accepts_benign_prompt_and_wires_hooks() {
-        let cleaned = ama::SusiMasterAgent::sanitize_input("check cluster health")
-            .expect("benign input should pass");
-        assert!(cleaned.contains("check cluster health"));
-    }
-}
+#[path = "tests/composition_unit.rs"]
+mod inline_tests;

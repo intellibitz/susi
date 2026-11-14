@@ -20,6 +20,9 @@
 pub mod native_link;
 /// Inventory a linked PE image's imports against the OS boundary.
 pub mod pe_imports;
+/// Workspace release gates and regression commands for standalone platform adapters.
+#[cfg(feature = "policy")]
+pub mod policy;
 
 use std::{
     env, fs, io,

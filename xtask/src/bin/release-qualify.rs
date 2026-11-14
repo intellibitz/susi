@@ -1,6 +1,6 @@
 //! Native exact-tree release qualification (`docs/releases.md`).
 //!
-//! `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--from-distill <name>]
+//! `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z [--from-distill <name>]
 //! [--jobs N] [--verify-only]`, from a clean checkout of the release tree whose
 //! package version is X.Y.Z. With `--from-distill <name>` the tree must be the
 //! accept-verified distilled candidate `release/<name>` plus only its version

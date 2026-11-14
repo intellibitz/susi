@@ -3,7 +3,7 @@
 #[cfg(windows)]
 #[test]
 fn windows_local_channel_completes_governed_file_goal() -> std::io::Result<()> {
-    let output = std::process::Command::new("powershell.exe")
+    let output = susi_paths::console::background_command("powershell.exe")
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
