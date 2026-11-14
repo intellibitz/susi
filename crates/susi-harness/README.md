@@ -144,6 +144,12 @@ ingress, set `SUSI_HARNESS_GATEWAY_ORIGIN` on the runner and set
 The harness resolves that credential on each request, including retries.
 Each task on a billing-scoped mission gets one attempt. An explicit per-task provider must match that class.
 
+For JSON missions, `harness-mission mission.json` applies the same
+single-dispatch rule to `candidates: ["byok:auto"]`, `auto` and native
+subscription selectors. A timeout or a lost response ends that task with
+the original failure. The rule also covers an enrolled workload's named
+models. Legacy local model ladders retain their configured retry policy.
+
 ### Providers
 
 | Provider | Key | Models |

@@ -37,6 +37,15 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
+/// These models select or pin exactly one billing route for a turn. A failed
+/// run may already have charged the account or modified the workspace.
+#[must_use]
+pub fn single_dispatch(model: &str) -> bool {
+    crate::workload::enabled()
+        || matches!(model.trim(), "auto" | "byok:auto")
+        || crate::adaptive::subscription_spec(model)
+}
+
 /// One task in a mission.
 #[derive(Debug, Clone)]
 pub struct TaskSpec {
@@ -533,6 +542,10 @@ fn run_task(
         );
         attempts.push(attempt_result);
         if succeeded {
+            break;
+        }
+        if single_dispatch(&attempt.model) {
+            stopped = Some(TaskStop::Ladder(StopReason::Exhausted));
             break;
         }
         if let Some(next) = ladder.current_model() {

@@ -31,7 +31,9 @@ use susi_harness::executor::{self, ExecutorConfig, NativeWorker, RunOutcome};
 use susi_harness::ledger::spent_for;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::{Policy, UsageProfile};
-use susi_harness::scheduler::{run_mission, AttemptOutcome, MissionConfig, TaskSpec};
+use susi_harness::scheduler::{
+    run_mission, single_dispatch, AttemptOutcome, MissionConfig, TaskSpec,
+};
 
 #[derive(Deserialize)]
 struct MissionFile {
@@ -214,6 +216,10 @@ impl AgentRunner for SusiRunner {
                 accepted: true,
                 cost,
             }),
+            Ok(RunOutcome::Failed { message }) if single_dispatch(&spec.model) => Err(message),
+            Ok(RunOutcome::TimedOut) if single_dispatch(&spec.model) => {
+                Err(format!("timed out after {}s", self.timeout.as_secs()))
+            }
             Ok(RunOutcome::Failed { message }) => Ok(AgentOutcome {
                 summary: message,
                 accepted: false,

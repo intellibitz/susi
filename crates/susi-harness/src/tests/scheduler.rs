@@ -388,3 +388,14 @@ fn panicking_runner_is_caught_releases_budget_and_lets_sibling_tasks_succeed() {
     let t3 = report.results.iter().find(|r| r.task == "t-3").unwrap();
     assert!(t3.succeeded);
 }
+
+#[test]
+fn a_failed_monthly_pin_does_not_reach_a_byok_sibling_or_retry() {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let mut config = mission(dir.path(), 1, vec!["monthly:codex", "cheap"]);
+    config.tasks.truncate(1);
+    let mock = runner(vec!["monthly:codex"]);
+    let result = run_mission(&config, &mock).unwrap();
+    assert_eq!(result.failed, 1);
+    assert_eq!(*mock.calls.lock().unwrap(), ["monthly:codex"]);
+}
