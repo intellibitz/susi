@@ -37,6 +37,68 @@ pub fn pid_alive(pid: u32) -> Option<bool> {
     }
 }
 
+/// Check the exit of our child without reaping it. Its process group ID
+/// remains reserved until the supervisor has terminated its descendants.
+#[cfg(unix)]
+pub fn child_exited_unreaped(child: &std::process::Child) -> std::io::Result<bool> {
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly"
+    ))]
+    {
+        // SAFETY: siginfo_t is a C output buffer. It is zeroed so si_pid
+        // stays zero for WNOHANG when nothing has exited. WNOWAIT preserves
+        // the child's wait status for Child::wait after group teardown.
+        #[allow(unsafe_code)]
+        unsafe {
+            let mut info: libc::siginfo_t = std::mem::zeroed();
+            if libc::waitid(
+                libc::P_PID,
+                child.id() as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            ) < 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(info.si_pid() != 0)
+        }
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly"
+    )))]
+    {
+        let _ = child;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "non-reaping child poll unavailable",
+        ))
+    }
+}
+
+/// Kill the group whose leader the caller created and has not yet reaped.
+#[cfg(unix)]
+pub fn kill_child_group(pid: u32) -> std::io::Result<()> {
+    let group = i32::try_from(pid)
+        .ok()
+        .filter(|pid| *pid > 1)
+        .ok_or_else(|| std::io::Error::other("invalid child group"))?;
+    // SAFETY: negative PGID names a process group and SIGKILL is a valid
+    // signal. No pointer or mutable process-wide configuration is involved.
+    #[allow(unsafe_code)]
+    if unsafe { libc::kill(-group, libc::SIGKILL) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Resident memory of a running `pid` in KiB: `VmRSS` from
 /// `/proc/<pid>/status` on Linux, the working set on Windows. `None` when the
 /// process is gone, cannot be read, or this platform cannot tell.

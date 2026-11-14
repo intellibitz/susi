@@ -28,6 +28,7 @@ workspace = true
 susi-build-os-ucrt = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 susi-windows-runtime = { workspace = true }
 windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 

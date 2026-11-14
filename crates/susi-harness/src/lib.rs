@@ -112,6 +112,7 @@ pub mod verify;
 pub mod workflow;
 pub mod workflow_runner;
 mod workload;
+mod workload_process;
 
 /// The std HTTP/1.1 server the gateway, the ingress and the harness API
 /// run on (it moved to `susi-http-transport`, shared with the A2A port and

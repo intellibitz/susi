@@ -17,3 +17,5 @@ pub mod detached;
 pub mod environment;
 #[cfg(windows)]
 pub mod host;
+#[cfg(windows)]
+pub mod process_job;

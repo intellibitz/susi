@@ -27,9 +27,14 @@ fn origin(base: &str) -> Option<&str> {
     Some(base)
 }
 
-fn post(base: &str, endpoint: &str, body: &[u8]) -> Option<susi_http_transport::HttpCall> {
+fn post(
+    base: &str,
+    endpoint: &str,
+    body: &[u8],
+    timeout: u64,
+) -> Option<susi_http_transport::HttpCall> {
     let path = PathBuf::from(env::var_os(TOKEN_FILE)?);
-    if !path.is_absolute() {
+    if !path.is_absolute() || !path.is_file() {
         return None;
     }
     let mut text = String::new();
@@ -52,7 +57,7 @@ fn post(base: &str, endpoint: &str, body: &[u8]) -> Option<susi_http_transport::
             ("content-type", "application/json"),
         ],
         Some(body),
-        10,
+        timeout,
         0,
     )
     .ok()?;
@@ -63,8 +68,12 @@ pub(crate) fn lookup(name: &str) -> Option<String> {
     let base = env::var(GATEWAY).ok()?;
     let base = origin(&base)?;
     let body = serde_json::to_vec(&serde_json::json!({ "name": name })).ok()?;
-    post(base, "enroll", b"{}")?;
-    let response = post(base, "credential", &body)?.into_bytes(LIMIT).ok()?;
+    post(base, "enroll", b"{}", 10)?;
+    credential(base, &body)
+}
+
+fn credential(base: &str, body: &[u8]) -> Option<String> {
+    let response = post(base, "credential", body, 10)?.into_bytes(LIMIT).ok()?;
     let mut json: serde_json::Value = serde_json::from_slice(&response).ok()?;
     match json.get_mut("value")?.take() {
         serde_json::Value::String(value)
@@ -102,6 +111,48 @@ const PLAN_TOKEN: &str = "SUSI_CHATGPT_PLAN_ACCESS_TOKEN";
 const CODEX_RULE: &str = "OPENAI_FEDERATION_RULE_ID";
 const CODEX_TOKEN_FILE: &str = "OPENAI_IDENTITY_TOKEN_FILE";
 
+/// A particular grant instance. Recreating the same named grant does not
+/// authorize processes that were started under its previous generation.
+pub(crate) struct Lease {
+    base: String,
+    request: Vec<u8>,
+    generation: String,
+}
+
+impl Lease {
+    fn begin(name: &str) -> Option<Self> {
+        let base = env::var(GATEWAY).ok()?;
+        let base = origin(&base)?.to_owned();
+        let request = serde_json::to_vec(&serde_json::json!({"name": name})).ok()?;
+        post(&base, "enroll", b"{}", 10)?;
+        let generation = Self::generation(&base, &request)?;
+        Some(Self {
+            base,
+            request,
+            generation,
+        })
+    }
+
+    fn generation(base: &str, request: &[u8]) -> Option<String> {
+        let bytes = post(base, "lease", request, 2)?.into_bytes(4096).ok()?;
+        let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let value = json.get("generation")?.as_str()?;
+        (value.len() == 64
+            && value
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+        .then(|| value.to_owned())
+    }
+
+    pub(crate) fn valid(&self) -> bool {
+        Self::generation(&self.base, &self.request).as_ref() == Some(&self.generation)
+    }
+
+    fn credential(&self) -> Option<crate::secrets::ApiKey> {
+        credential(&self.base, &self.request).map(crate::secrets::ApiKey::from_workload)
+    }
+}
+
 /// Either the customer's native ChatGPT workspace federation rule or a
 /// delegated plan token for a provider-authorized, self-hosted application.
 pub(crate) enum CodexGrant {
@@ -113,11 +164,12 @@ pub(crate) enum CodexGrant {
 }
 
 impl CodexGrant {
-    pub(crate) fn resolve() -> Result<Self, &'static str> {
+    pub(crate) fn resolve() -> Result<(Self, Lease), &'static str> {
         if env::var_os(CODEX_TOKEN_FILE).is_none() && env::var_os(CODEX_RULE).is_none() {
-            return crate::secrets::lookup(PLAN_TOKEN)
-                .map(Self::Plan)
-                .ok_or("ChatGPT plan credential unavailable for this workload");
+            let error = "ChatGPT plan credential unavailable for this workload";
+            let lease = Lease::begin(PLAN_TOKEN).ok_or(error)?;
+            let token = lease.credential().ok_or(error)?;
+            return Ok((Self::Plan(token), lease));
         }
         let error =
             "Codex federation requires its own absolute identity token file and an approved rule";
@@ -130,11 +182,15 @@ impl CodexGrant {
         {
             return Err(error);
         }
-        let rule = crate::secrets::lookup(CODEX_RULE).ok_or(error)?;
-        Ok(Self::Federation {
-            rule,
-            token_file: file,
-        })
+        let lease = Lease::begin(CODEX_RULE).ok_or(error)?;
+        let rule = lease.credential().ok_or(error)?;
+        Ok((
+            Self::Federation {
+                rule,
+                token_file: file,
+            },
+            lease,
+        ))
     }
 
     pub(crate) fn configure_args(&self, args: &mut Vec<String>) {

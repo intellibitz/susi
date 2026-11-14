@@ -41,6 +41,10 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 pub struct ApiKey(String);
 
 impl ApiKey {
+    pub(crate) fn from_workload(value: String) -> Self {
+        Self(value)
+    }
+
     /// The key text, for a request header. Do not format it into a log, an
     /// error or a file.
     #[must_use]

@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXHARNESSID-2",
+  "title": "Stop active harness subscriptions when workload grants lapse",
+  "goal": "Stop active monthly workloads and their worker processes after a revoked grant, including recreation under the same name.",
+  "size": "m",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Susi process probes, the existing Win32 job-object supervisor, the locked winapi and libc facades, the gateway workload credential handler and native HTTP transport."
+  },
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "workload"
+    ]
+  },
+  "created_by": "CODEXHARNESSID",
+  "created_unix": 1794652063
+}

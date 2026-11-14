@@ -83,6 +83,14 @@ Other subscription CLIs currently require provider support for managed
 unattended credentials. See
 [OpenAI's token-sharing program](https://developers.openai.com/siwc/token-sharing-open-source).
 
+During a managed Codex turn, the harness rechecks the individual grant every
+second. The broker has two seconds to answer each check. Revocation, replacement
+of a grant with the same name, or loss of contact terminates the supervised
+provider process and its workers. Windows uses a per-turn Job Object. Unix
+uses the process group created for the provider. The same checks protect both
+Codex credential routes. Separately issued vendor sessions and previously
+disclosed provider keys follow the vendor's own expiry and revocation rules.
+
 ### Providers
 
 | Provider | Key | Models |

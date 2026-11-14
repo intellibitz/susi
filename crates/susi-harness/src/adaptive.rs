@@ -600,7 +600,7 @@ impl CliSubRunner {
         let Some(program) = find_in_dirs(kind, &dirs) else {
             return failed("codex is not installed on the operator PATH");
         };
-        let grant = match crate::workload::CodexGrant::resolve() {
+        let (grant, lease) = match crate::workload::CodexGrant::resolve() {
             Ok(grant) => grant,
             Err(reason) => return failed(reason),
         };
@@ -637,7 +637,7 @@ impl CliSubRunner {
             &config.prompt,
             config.timeout,
             self.poll_interval,
-            Some((&grant, home.path())),
+            Some((&grant, home.path(), &lease)),
         ) {
             PipedRun::Finished(outcome) => outcome,
             PipedRun::NotFound => failed("codex could not be started"),
@@ -679,7 +679,7 @@ fn run_piped_with(
     prompt: &str,
     timeout: Duration,
     poll_interval: Duration,
-    subscription: Option<(&crate::workload::CodexGrant, &Path)>,
+    subscription: Option<(&crate::workload::CodexGrant, &Path, &crate::workload::Lease)>,
 ) -> PipedRun {
     let program = invocation.program.as_path();
     let args = invocation.args.as_slice();
@@ -708,7 +708,7 @@ fn run_piped_with(
         .current_dir(workspace);
     if crate::workload::enabled() {
         crate::workload::clean_environment(&mut command);
-        if let Some((grant, home)) = subscription {
+        if let Some((grant, home, _)) = subscription {
             grant.configure_env(&mut command);
             for name in [
                 "CODEX_HOME",
@@ -730,8 +730,21 @@ fn run_piped_with(
     }
     susi_paths::console::apply_non_interactive_env(&mut command);
     command.env("SUSI_UNATTENDED", "1");
-    let mut child = match command.spawn() {
-        Ok(child) => child,
+    let revoked = || {
+        PipedRun::Finished(RunOutcome::Failed {
+            message: "workload subscription grant is no longer available".into(),
+        })
+    };
+    if subscription.is_some_and(|(_, _, lease)| !lease.valid()) {
+        return revoked();
+    }
+    let spawned = if subscription.is_some() {
+        crate::workload_process::spawn(&mut command).map(|(child, tree)| (child, Some(tree)))
+    } else {
+        command.spawn().map(|child| (child, None))
+    };
+    let (mut child, mut tree) = match spawned {
+        Ok(spawned) => spawned,
         Err(error) if error.kind() == ErrorKind::NotFound => return PipedRun::NotFound,
         Err(error) => {
             return PipedRun::Finished(RunOutcome::Failed {
@@ -740,6 +753,12 @@ fn run_piped_with(
         }
     };
 
+    // Check the same generation after spawning and before providing the mission.
+    if subscription.is_some_and(|(_, _, lease)| !lease.valid()) {
+        drop(tree.take());
+        reap(&mut child);
+        return revoked();
+    }
     if let Some(mut stdin) = child.stdin.take() {
         let prompt = prompt.to_string();
         // The writer owns stdin and drops it when done, which closes the pipe
@@ -754,11 +773,24 @@ fn run_piped_with(
     let stderr = drain(child.stderr.take());
 
     let deadline = Instant::now() + timeout;
+    const LEASE_INTERVAL: Duration = Duration::from_secs(1);
+    let mut next_check = Instant::now() + LEASE_INTERVAL;
     let status = loop {
-        match child.try_wait() {
+        if let Some((_, _, lease)) = subscription {
+            if Instant::now() >= next_check {
+                if !lease.valid() {
+                    drop(tree.take());
+                    reap(&mut child);
+                    return revoked();
+                }
+                next_check = Instant::now() + LEASE_INTERVAL;
+            }
+        }
+        match crate::workload_process::try_wait(&mut tree, &mut child) {
             Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(error) => {
+                drop(tree.take());
                 reap(&mut child);
                 return PipedRun::Finished(RunOutcome::Failed {
                     message: format!("wait {}: {error}", program.display()),
@@ -769,17 +801,28 @@ fn run_piped_with(
         if now >= deadline {
             // Readers are not joined after a kill: a grandchild can inherit
             // the pipe and hold it open long after the child is gone.
+            drop(tree.take());
             reap(&mut child);
             return PipedRun::Finished(RunOutcome::TimedOut);
         }
-        thread::sleep(poll_interval.min(deadline.saturating_duration_since(now)));
+        let wake = if subscription.is_some() {
+            deadline.min(next_check)
+        } else {
+            deadline
+        };
+        thread::sleep(poll_interval.min(wake.saturating_duration_since(now)));
     };
+    // A provider that exits may still have workers holding its credential.
+    drop(tree);
+    if subscription.is_some_and(|(_, _, lease)| !lease.valid()) {
+        return revoked();
+    }
     // A grandchild that inherited the pipes can hold them open after the
     // child exits; whatever arrived within the grace window is kept.
     let grace = Instant::now() + DRAIN_GRACE;
     let mut stdout = stdout.collect(grace);
     let mut stderr = stderr.collect(grace);
-    if let Some((grant, _)) = subscription {
+    if let Some((grant, _, _)) = subscription {
         stdout = stdout.replace(grant.value(), "<redacted>");
         stderr = stderr.replace(grant.value(), "<redacted>");
     }
