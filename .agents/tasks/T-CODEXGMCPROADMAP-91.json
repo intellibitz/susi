@@ -22,5 +22,22 @@
   },
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Core serves the server role only on the byte-pipe transport SPI; the client role, named pipes and WebSocket have no adapter in core and are not claimed.",
+    "Windows x86_64 exercises the in-process and stdio adapters only; Unix-domain socket parity runs on Unix targets (#[cfg(unix)])."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "The transport SPI (Transport/IntoTransport), StdioGate, BoundedLines, SusiConfig validation, and MCP CLI/ledger surfaces already exist; only small fail-closed stdio config/startup diagnostics were added in crates/susi-gmcp/src/server.rs while reusing existing adapters and ops helpers.",
+    "searched": "Susi Core: crates/susi-gmcp/src/server.rs (GmcpServer::run_stdio, http_service), crates/susi-gmcp/src/mcp/transport.rs (Transport, IntoTransport), crates/susi-gmcp/src/stdio.rs (BoundedLines), crates/susi-gmcp/src/jsonrpc_gate.rs (StdioGate), crates/susi-config/src/validate.rs (validate_dir), src/cli/mcp_cli.rs, docs/gmcp/contract-203-{002,004,005,006,007}.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-config, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "crates/susi-gmcp/src/server.rs",
+    "docs/gmcp/contract-203-007.md",
+    "tests/gmcp_requirements.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-91.json"
+  ]
 }

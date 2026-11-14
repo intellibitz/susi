@@ -1054,6 +1054,7 @@ impl AcpEngine {
             "history_bounds": bounds,
             "next_seq": next_seq,
             "has_more": has_more,
+            "replay_complete": !has_more,
         }))
     }
 
@@ -1082,6 +1083,7 @@ impl AcpEngine {
             "history_bounds": bounds,
             "next_seq": next_seq,
             "has_more": has_more,
+            "replay_complete": !has_more,
         }))
     }
 

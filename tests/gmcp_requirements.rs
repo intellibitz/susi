@@ -16386,3 +16386,388 @@ fn gmcp_req_203_007_05_interop() {
     }
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// GMCP-203-007-06: operations, configuration validation, diagnostics, runbook
+/// and drift detection for the transport adapter SPI and embedded operation.
+#[test]
+fn gmcp_req_203_007_06_operations() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::susi_config::validate::{validate_dir, ConfigIssueKind};
+
+    let (_lock, _env, home) = gmcp_http_home_guard("007-ops");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    let op_home = scratch.join("home");
+    std::fs::create_dir_all(&op_home).unwrap();
+
+    // 1. Inspectable CLI state: ledger report & `susi mcp status` / `ledger`.
+    let report = ledger_report(root);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+    assert!(
+        report["vectors"].as_u64().unwrap_or(0) >= 1 && report["rows"].as_u64().unwrap_or(0) >= 80,
+        "ledger must report verified vector/row counts: {report}"
+    );
+
+    let cli_ledger = susi_json(root, &op_home, &["mcp", "ledger"]);
+    assert_eq!(cli_ledger["verified"], true);
+    assert_eq!(cli_ledger["rows"], report["rows"]);
+    assert_eq!(cli_ledger["vectors"], report["vectors"]);
+
+    let status_out = susi_command(root, &op_home, &["mcp", "status"])
+        .output()
+        .expect("susi mcp status must execute");
+    assert!(
+        status_out.status.success(),
+        "susi mcp status failed: {}",
+        String::from_utf8_lossy(&status_out.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&status_out.stdout)
+            .trim()
+            .is_empty(),
+        "susi mcp status must emit inspectable state"
+    );
+
+    // 2. Inspectable API state across transport adapters (embedded in-process,
+    // Unix-domain socket on Unix, and served stdio): identical identity,
+    // discovery metadata, and `ledger_verify` tool report.
+    let runtime = adapter_runtime(&home);
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    let discover_probe = |client: &mut AdapterClient, label: &str| {
+        let resp = client.call(
+            &format!("discover-{label}"),
+            "server/discover",
+            adapter_modern_meta(),
+        );
+        assert!(
+            resp.get("error").is_none_or(serde_json::Value::is_null),
+            "{label} server/discover must succeed: {resp}"
+        );
+        resp["result"].clone()
+    };
+    let embedded_discover = discover_probe(&mut embedded, "embedded");
+    assert_eq!(
+        embedded_discover["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "susi-gmcp"
+    );
+    assert!(embedded_discover["ttlMs"].is_number());
+    adapter_handshake(&mut embedded, "ops-embedded");
+    let embedded_tool = embedded.call(
+        "verify-embedded",
+        "tools/call",
+        serde_json::json!({
+            "name": "ledger_verify",
+            "arguments": {},
+            "_meta": adapter_modern_meta()["_meta"]
+        }),
+    );
+    let embedded_tool_report = call_tool_report(&embedded_tool["result"]);
+    assert_eq!(embedded_tool_report["verified"], true);
+    assert_eq!(embedded_tool_report["rows"], report["rows"]);
+    assert_eq!(embedded_tool_report["vectors"], report["vectors"]);
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "in-process");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, socket_session) = socket_adapter(&runtime, root);
+        let socket_discover = discover_probe(&mut socket, "socket");
+        assert_eq!(
+            socket_discover, embedded_discover,
+            "Unix socket and in-process adapters must expose identical discovery state"
+        );
+        drop(socket);
+        adapter_session_ended(&runtime, socket_session, "unix socket");
+    }
+
+    let mut served = StdioSession::spawn_raw(root, &op_home);
+    let served_discover = served
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "discover-stdio",
+                "method": "server/discover",
+                "params": adapter_modern_meta(),
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("served stdio server/discover must answer");
+    assert_eq!(
+        served_discover["result"], embedded_discover,
+        "served stdio and in-process adapters must expose identical discovery state"
+    );
+    drop(served);
+
+    // 3. Configuration validation & bounded diagnostics on transport limits.
+    let invalid_cli = susi_command(
+        root,
+        &op_home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid_cli.status.success());
+
+    let cfg_home = scratch.join("cfg-valid");
+    let cfg_susi = cfg_home.join(".susi");
+    std::fs::create_dir_all(&cfg_susi).unwrap();
+    std::fs::write(
+        cfg_susi.join("config.json"),
+        r#"{"max_rpc_body_bytes": 1024}"#,
+    )
+    .unwrap();
+    let valid_cfg = validate_dir(&cfg_susi).expect("valid config must validate");
+    assert!(
+        !valid_cfg.has_blocking(),
+        "numeric max_rpc_body_bytes must have no blocking schema issues: {:?}",
+        valid_cfg.issues
+    );
+
+    let bad_type_home = scratch.join("cfg-bad-type");
+    let bad_type_susi = bad_type_home.join(".susi");
+    std::fs::create_dir_all(&bad_type_susi).unwrap();
+    std::fs::write(
+        bad_type_susi.join("config.json"),
+        r#"{"max_rpc_body_bytes": "huge"}"#,
+    )
+    .unwrap();
+    let bad_type_report = validate_dir(&bad_type_susi).expect("typed mismatch must report");
+    assert!(bad_type_report.has_blocking());
+    assert!(bad_type_report.issues.iter().any(|issue| {
+        issue.path == "max_rpc_body_bytes" && issue.kind == ConfigIssueKind::TypeMismatch
+    }));
+
+    // Zero frame limit is refused loudly on stderr with zero corrupt bytes on stdout.
+    let zero_home = scratch.join("cfg-zero");
+    let zero_susi = zero_home.join(".susi");
+    std::fs::create_dir_all(&zero_susi).unwrap();
+    std::fs::write(
+        zero_susi.join("config.json"),
+        r#"{"max_rpc_body_bytes": 0}"#,
+    )
+    .unwrap();
+    let mut zero_child = susi_command(root, &zero_home, &["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn stdio with zero limit");
+    drop(zero_child.stdin.take());
+    let zero_out = zero_child
+        .wait_with_output()
+        .expect("zero limit stdio exit");
+    let zero_stderr = String::from_utf8_lossy(&zero_out.stderr);
+    assert!(
+        zero_out.stdout.is_empty(),
+        "refused zero-limit startup must emit zero stdout bytes, got: {}",
+        String::from_utf8_lossy(&zero_out.stdout)
+    );
+    assert!(
+        zero_stderr.contains("max_rpc_body_bytes") && zero_stderr.contains("must be > 0"),
+        "zero-limit startup must diagnose invalid max_rpc_body_bytes on stderr, got: {zero_stderr}"
+    );
+
+    // Corrupt config logs a diagnostic on stderr and falls back safely to defaults
+    // while keeping stdout strictly valid newline-delimited JSON-RPC.
+    let corrupt_home = scratch.join("cfg-corrupt");
+    let corrupt_susi = corrupt_home.join(".susi");
+    std::fs::create_dir_all(&corrupt_susi).unwrap();
+    std::fs::write(corrupt_susi.join("config.json"), b"{corrupt").unwrap();
+    let mut corrupt_child = susi_command(root, &corrupt_home, &["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn stdio with corrupt config");
+    {
+        use std::io::Write;
+        let stdin = corrupt_child.stdin.as_mut().unwrap();
+        writeln!(
+            stdin,
+            "{}",
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "ops-corrupt-ping",
+                "method": "ping",
+                "params": adapter_modern_meta()
+            })
+        )
+        .unwrap();
+    }
+    drop(corrupt_child.stdin.take());
+    let corrupt_out = corrupt_child
+        .wait_with_output()
+        .expect("corrupt config stdio exit");
+    let corrupt_stderr = String::from_utf8_lossy(&corrupt_out.stderr);
+    assert!(
+        corrupt_stderr.contains("Config load failed"),
+        "corrupt config must emit diagnostic on stderr, got: {corrupt_stderr}"
+    );
+    assert!(
+        corrupt_stderr.contains("max_rpc_body_bytes="),
+        "startup stderr must report active max_rpc_body_bytes bound, got: {corrupt_stderr}"
+    );
+    let stdout_text = String::from_utf8(corrupt_out.stdout).expect("stdout must be UTF-8");
+    let lines: Vec<&str> = stdout_text.lines().collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "stdout must contain only MCP JSON-RPC: {stdout_text}"
+    );
+    let ping_resp: serde_json::Value =
+        serde_json::from_str(lines[0]).expect("every stdout line must parse as JSON-RPC");
+    assert_eq!(ping_resp["id"], "ops-corrupt-ping");
+    assert!(ping_resp["result"].is_object());
+
+    // 4. Deterministic drift detection invalidates stale proof for BOTH pinned
+    // VC-203-007 transport specifications.
+    let clean = susi_json(
+        root,
+        &op_home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    let pinned_docs = [
+        "docs/specification/2025-11-25/basic/transports.mdx",
+        "docs/specification/2026-07-28/basic/transports/index.mdx",
+    ];
+    for (idx, transport_doc) in pinned_docs.iter().enumerate() {
+        let refetched = scratch.join(format!("refetched-{idx}"));
+        copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+        let victim = refetched.join(transport_doc);
+        let mut bytes = std::fs::read(&victim).unwrap();
+        bytes.push(b'!');
+        std::fs::write(&victim, &bytes).unwrap();
+        let drifted = susi_command(
+            root,
+            &op_home,
+            &[
+                "mcp",
+                "ledger",
+                "--drift",
+                "--refetched",
+                refetched.to_str().unwrap(),
+            ],
+        )
+        .output()
+        .unwrap();
+        assert!(!drifted.status.success());
+        let drift_report: serde_json::Value =
+            serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+        assert_eq!(drift_report["verified"], false);
+        assert!(drift_report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["document"] == *transport_doc && f["kind"] == "hash_drift"));
+
+        std::fs::remove_file(&victim).unwrap();
+        let missing = susi_command(
+            root,
+            &op_home,
+            &[
+                "mcp",
+                "ledger",
+                "--drift",
+                "--refetched",
+                refetched.to_str().unwrap(),
+            ],
+        )
+        .output()
+        .unwrap();
+        assert!(!missing.status.success());
+        let missing_report: serde_json::Value =
+            serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+        assert!(missing_report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["document"] == *transport_doc && f["kind"] == "unfetchable"));
+    }
+
+    // 5. Contract carries the complete operations, examples, and incident runbook.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-007.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Configuration validation",
+        "Bounded metrics, logs and traces",
+        "Diagnostics and incident triage",
+        "Incident triage",
+        "Examples",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "max_rpc_body_bytes",
+        "BoundedLines",
+        "StdioGate",
+        "-32600",
+        "-32700",
+        "2025-11-25/basic/transports.mdx",
+        "2026-07-28/basic/transports/index.mdx",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // 6. Reproducible evidence artifacts & ledger binding: every VC-203-007 row
+    // points to `.agents/gmcp/evidence/VC-203-007.jsonl`, the recorder script
+    // is present, and existing retained evidence records match the schema.
+    let ledger_raw = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger: serde_json::Value = serde_json::from_slice(&ledger_raw).unwrap();
+    let vc_rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-007")
+        .collect();
+    assert_eq!(vc_rows.len(), 80);
+    assert!(vc_rows
+        .iter()
+        .all(|row| { row["trace"]["evidence"] == ".agents/gmcp/evidence/VC-203-007.jsonl" }));
+    let recorder = std::fs::read_to_string(root.join("scripts/gmcp-record-evidence.sh"))
+        .expect("reproducible evidence recorder must exist");
+    assert!(recorder.contains("gmcp_vc_") && recorder.contains("artifact_sha256"));
+
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_raw));
+    let vc7_evidence_path = root.join(".agents/gmcp/evidence/VC-203-007.jsonl");
+    if vc7_evidence_path.exists() {
+        let evidence = std::fs::read_to_string(&vc7_evidence_path).unwrap();
+        if let Some(record) = newest_records(&evidence)
+            .into_iter()
+            .find(|record| record["requirement"] == "GMCP-203-007-06")
+        {
+            assert_eq!(
+                record["check"],
+                "cargo test --locked --test gmcp_requirements gmcp_req_203_007_06_operations"
+            );
+            assert_eq!(record["exit"], 0);
+            assert_eq!(record["artifact_sha256"], ledger_hash);
+            assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+            assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}

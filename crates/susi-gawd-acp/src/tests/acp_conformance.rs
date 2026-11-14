@@ -777,3 +777,75 @@ fn session_eviction_cleans_up_turn_cancellations_for_evicted_session() {
     assert!(!guard.sessions.contains_key(&sid1));
     assert!(guard.turn_cancellations.keys().all(|(sid, _)| sid != &sid1));
 }
+
+#[test]
+fn session_load_and_history_emit_replay_complete_boundary_flag() {
+    let engine = AcpEngine::default();
+    let created = engine.handle_jsonrpc_value(
+        json!({"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}),
+        &mut |_| {},
+    );
+    let sid = created["result"]["session_id"].as_str().unwrap().to_owned();
+
+    // Schema 1.18: cursor replay on an empty history must still report replay_complete: true.
+    let empty_hist = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/history",
+            "params": { "session_id": sid, "since_seq": 0, "limit": 10 }
+        }),
+        &mut |_| {},
+    );
+    assert_eq!(empty_hist["result"]["has_more"], false);
+    assert_eq!(empty_hist["result"]["replay_complete"], true);
+
+    let _ = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": { "session_id": sid, "prompt": "turn one" }
+        }),
+        &mut |_| {},
+    );
+
+    // Partial cursor page has_more=true -> replay_complete=false on both session/history and session/load.
+    let partial_hist = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/history",
+            "params": { "session_id": sid, "since_seq": 0, "limit": 1 }
+        }),
+        &mut |_| {},
+    );
+    assert_eq!(partial_hist["result"]["has_more"], true);
+    assert_eq!(partial_hist["result"]["replay_complete"], false);
+
+    let partial_load = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/load",
+            "params": { "session_id": sid, "since_seq": 0, "limit": 1 }
+        }),
+        &mut |_| {},
+    );
+    assert_eq!(partial_load["result"]["has_more"], true);
+    assert_eq!(partial_load["result"]["replay_complete"], false);
+
+    // Advancing to the terminal page flips has_more=false -> replay_complete=true.
+    let next_seq = partial_load["result"]["next_seq"].as_u64().unwrap();
+    let final_load = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "session/load",
+            "params": { "session_id": sid, "since_seq": next_seq, "limit": 10 }
+        }),
+        &mut |_| {},
+    );
+    assert_eq!(final_load["result"]["has_more"], false);
+    assert_eq!(final_load["result"]["replay_complete"], true);
+}
