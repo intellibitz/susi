@@ -1,0 +1,37 @@
+{
+  "id": "T-WINSERVICESLOT-1",
+  "created_by": "winserviceslot",
+  "created_unix": 1794688333,
+  "native_worker": "winserviceslot",
+  "title": "Start the admitted Windows daemon and its built-in services while preserving the legacy executable and the saved host configuration",
+  "status": "implemented_pending_integration",
+  "base_commit": "ec0d136bf967a49358817b6b3ac3dcf2710c4bb3",
+  "scopes": [
+    ".agents/tasks/T-WINSERVICESLOT-1.json",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-daemon-runtime/src/supervisor.rs",
+    "src/installed_channel/transaction.rs",
+    "src/installed_channel.rs",
+    "tests/installed_windows_entry.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Installed selection, executable pin, OS process image probe, daemon startup and readiness, service-run self-reexec and core commercial registered-entry lifecycle."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "installed_windows_entry"
+    ],
+    "criteria": [
+      "Start the selected core on the stored offset with a different live legacy daemon and a selected-image disk hash; the OS-reported daemon and all five built-in services match the selected release.",
+      "Start after rollback to the previous genuine release using the registered entry with the legacy executable still present."
+    ]
+  }
+}
