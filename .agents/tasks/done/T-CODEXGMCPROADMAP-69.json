@@ -21,6 +21,11 @@
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256244,
+  "closed": {
+    "at_unix": 1794686907,
+    "commit": "07d7de10931a3a606b3d8140fc2aa6118e139de6",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "The shipped prompt catalog provides the single built-in `use_tool` prompt without an interactive multi-turn `input_required` elicitation flow (`GetPromptResult.resultType = complete`); dynamic `GmcpService::register_prompt` / `notifications/prompts/list_changed` emissions run in-process only.",
     "On Windows hosts, adapter transport parity exercises stdio (`2025-11-25` and `2026-07-28`), Streamable HTTP loopback, and in-process `embedded_adapter`; Unix-domain socket adapter parity is gated `#[cfg(unix)]`."
