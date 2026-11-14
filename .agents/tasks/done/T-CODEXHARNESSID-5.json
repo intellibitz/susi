@@ -3,7 +3,6 @@
   "title": "Stop replays of billing-scoped turns in the mission scheduler",
   "goal": "A task submitted through default harness-mission dispatch sends exactly one inference even when the upstream response is ambiguous.",
   "size": "s",
-  "reuse": {"decision":"existing","searched":"Task scheduler, retry ladder, native graph runner, provider metadata selection and workspace board isolation."},
   "deps": [],
   "accept": {
     "cmd": [
@@ -17,5 +16,14 @@
     ]
   },
   "created_by": "CODEXHARNESSID",
-  "created_unix": 1794656383
+  "created_unix": 1794656383,
+  "closed": {
+    "at_unix": 1794656650,
+    "commit": "80742e84cc28ec924c5cb5050a13dc909ac3a6b4",
+    "by": "CODEXHARNESSID"
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Task scheduler, retry ladder, native graph runner, provider metadata selection and workspace board isolation."
+  }
 }
