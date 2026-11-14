@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CLOUDWID",
-  "created_unix": 1794655212
+  "created_unix": 1794655212,
+  "closed": {
+    "at_unix": 1794676867,
+    "commit": "f1c521d9b11b085727df071af4cef5aa44d9f808",
+    "by": "ANTIGRAVITYS3"
+  }
 }

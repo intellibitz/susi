@@ -3231,6 +3231,42 @@ mod tests {
         fixture.revision("two", true);
         let second = qualify(&ctx).unwrap();
         assert_ne!(first, second);
+        #[cfg(windows)]
+        {
+            let delivery = fixture.0.join("portable-handoff");
+            installed_delivery::export(&ctx, &second, &delivery).unwrap();
+            let handoff: serde_json::Value =
+                serde_json::from_slice(&fs::read(delivery.join("handoff.json")).unwrap()).unwrap();
+            assert_eq!(handoff["release"], second);
+            assert_eq!(handoff["previous"], first);
+            for id in [&first, &second] {
+                let slot = delivery.join(id);
+                let raw = fs::read_to_string(slot.join("manifest.txt")).unwrap();
+                assert_eq!(digest(raw.as_bytes()), *id);
+                let manifest = Manifest::decode(&raw).unwrap();
+                assert_eq!(
+                    file_digest(&slot.join("susi.exe")).unwrap(),
+                    manifest.artifact
+                );
+                complete_release_gates::validate_package(
+                    &slot,
+                    &manifest,
+                    ctx.trust_registry.as_deref(),
+                )
+                .unwrap();
+                fs::rename(
+                    slot.join("complete-unsafe-receipt.json"),
+                    slot.join("omitted.json"),
+                )
+                .unwrap();
+                assert!(complete_release_gates::validate_package(
+                    &slot,
+                    &manifest,
+                    ctx.trust_registry.as_deref()
+                )
+                .is_err());
+            }
+        }
         promote(&ctx, &second).unwrap();
         let second_blob = resolve(&ctx.root, CURRENT).unwrap().unwrap();
         assert_eq!(

@@ -1,7 +1,7 @@
 //! Portable verification of a producer-admitted release. The release ID is received
 //! from the trusted qualifier, never inferred from the package's own manifest.
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(windows)]
@@ -143,13 +143,61 @@ pub(super) fn atomic_file(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+// The producer authenticates the gate commands and policy. The offline consumer
+// binds their portable evidence to that exact release, without finding a registry.
+#[derive(serde::Deserialize)]
+struct CompleteReceipt {
+    schema: String,
+    policy: String,
+    fixture_only: bool,
+    source: ReceiptSource,
+    host: String,
+    artifact_sha256: String,
+    artifact_bytes: u64,
+    integration_receipt: String,
+    compiler_sha256: String,
+    files: Vec<EvidenceFile>,
+}
+
+#[derive(serde::Deserialize)]
+struct ReceiptSource {
+    commit: String,
+    tree: String,
+    lock_sha256: String,
+}
+
+#[derive(serde::Deserialize)]
+struct EvidenceFile {
+    path: String,
+    sha256: String,
+}
+
+fn evidence_filename(name: &str) -> bool {
+    if name.is_empty()
+        || name.ends_with('.')
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.split('.').next().unwrap_or_default();
+    !lower.ends_with(".susi-pending")
+        && !matches!(stem, "con" | "prn" | "aux" | "nul")
+        && !matches!(
+            stem.as_bytes(),
+            [b'c', b'o', b'm', b'1'..=b'9'] | [b'l', b'p', b't', b'1'..=b'9']
+        )
+}
+
 pub(super) struct Package {
     pub(super) root: PathBuf,
     pub(super) release: String,
     artifact: String,
     bytes: u64,
     gates: String,
-    sidecars: Vec<(&'static str, String)>,
+    sidecars: Vec<(String, String)>,
 }
 
 impl Package {
@@ -162,15 +210,20 @@ impl Package {
             return Err("release manifest SHA-256 mismatch".into());
         }
         let mut lines = std::str::from_utf8(&manifest)?.lines();
-        if lines.next() != Some("susi-local-release-v1") {
-            return Err("unsupported release manifest".into());
-        }
+        let complete = match lines.next() {
+            Some("susi-local-release-v1") => false,
+            Some("susi-local-release-v2") => true,
+            _ => return Err("unsupported release manifest".into()),
+        };
         let mut fields = BTreeMap::new();
         for line in lines {
             let (name, value) = line.split_once('=').ok_or("invalid release field")?;
             if fields.insert(name, value).is_some() {
                 return Err("duplicate release field".into());
             }
+        }
+        if fields.len() != if complete { 13 } else { 12 } {
+            return Err("unexpected release manifest fields".into());
         }
         let get = |name| fields.get(name).copied().ok_or("missing release field");
         if get("host")? != expected_host_target_triple() {
@@ -201,7 +254,51 @@ impl Package {
         }
         let mut sidecars = Vec::new();
         for (name, field) in SIDECARS {
-            sidecars.push((name, get(field)?.to_owned()));
+            sidecars.push((name.to_owned(), get(field)?.to_owned()));
+        }
+        if complete {
+            let pin = get("complete-gates-sha256")?;
+            if !id(pin) {
+                return Err("invalid complete release receipt digest".into());
+            }
+            let receipt = small(&root.join("complete-gates.json"))?;
+            if digest_bytes(&receipt) != pin {
+                return Err("complete release receipt differs from the trusted manifest".into());
+            }
+            let evidence: CompleteReceipt = serde_json::from_slice(&receipt)?;
+            if evidence.fixture_only
+                || evidence.schema != "susi/complete-release-gates/v1"
+                || evidence.policy.as_bytes() != QUALIFICATION_POLICY.trim_ascii_end()
+                || evidence.source.commit != get("source")?
+                || evidence.source.tree != get("tree")?
+                || evidence.source.lock_sha256 != get("lock-sha256")?
+                || evidence.host != get("host")?
+                || evidence.artifact_sha256 != get("artifact-sha256")?
+                || evidence.artifact_bytes != bytes
+                || evidence.compiler_sha256 != get("compiler-sha256")?
+                || evidence.integration_receipt != get("integration-receipt")?
+                || evidence.files.is_empty()
+            {
+                return Err(
+                    "complete gate receipt is for another release or lacks evidence".into(),
+                );
+            }
+            sidecars.push(("complete-gates.json".into(), pin.to_owned()));
+            sidecars.push(("gates.txt".into(), get("gates-sha256")?.to_owned()));
+            let mut names: BTreeSet<_> = sidecars
+                .iter()
+                .map(|(name, _)| name.to_ascii_lowercase())
+                .collect();
+            names.extend([BIN_NAME, "manifest.txt"].map(str::to_owned));
+            for file in evidence.files {
+                if !evidence_filename(&file.path)
+                    || !id(&file.sha256)
+                    || !names.insert(file.path.to_ascii_lowercase())
+                {
+                    return Err("invalid or duplicate complete evidence member".into());
+                }
+                sidecars.push((file.path, file.sha256));
+            }
         }
         Ok(Self {
             root: root.into(),
@@ -246,7 +343,7 @@ impl Package {
         let destination = root.join("releases").join(&self.release);
         directory(&destination)?;
         let mut names = vec![BIN_NAME, "manifest.txt"];
-        names.extend(self.sidecars.iter().map(|(name, _)| *name));
+        names.extend(self.sidecars.iter().map(|(name, _)| name.as_str()));
         for name in names {
             let to = destination.join(name);
             match fs::symlink_metadata(&to) {
@@ -332,6 +429,30 @@ mod tests {
         let digest = digest_bytes(b"susi-release-payload");
         assert!(id(&digest));
         assert_eq!(digest.len(), 64);
+    }
+
+    #[test]
+    fn evidence_filenames_cannot_escape_or_alias_staging_members() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../log",
+            "dir/log",
+            r"dir\log",
+            "C:log",
+            "log.",
+            "log ",
+            "complete.susi-pending",
+            "AUX.log",
+            "nul",
+            "com1.txt",
+            "lpt9",
+        ] {
+            assert!(!evidence_filename(name), "{name}");
+        }
+        assert!(evidence_filename("complete-gate-7.log"));
+        assert!(evidence_filename("advisory-receipt.json"));
     }
 
     #[test]
