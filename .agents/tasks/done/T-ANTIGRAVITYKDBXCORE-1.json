@@ -16,9 +16,14 @@
   },
   "created_by": "ANTIGRAVITYKDBXCORE",
   "created_unix": 1794631386,
+  "closed": {
+    "at_unix": 1794631739,
+    "commit": "1b097ced79f2252a15912674c83bee97a9558ee6",
+    "by": "ANTIGRAVITYKDBXCORE"
+  },
   "reuse": {
     "decision": "existing",
-    "searched": "Checked crates/susi-config/src/{keepass_bridge.rs, vault_store.rs, json_util.rs}, src/cli/{defs.rs, keys_cli.rs}, src/main.rs, and tests/fixtures/cli_help_snapshot.txt.",
-    "reason": "Extends the existing KeePassXC bridge, sealed vault store, and susi keys CLI rather than adding external dependencies or duplicate vault/signing modules."
+    "reason": "Extends the existing KeePassXC bridge, sealed vault store, and susi keys CLI rather than adding external dependencies or duplicate vault/signing modules.",
+    "searched": "Checked crates/susi-config/src/{keepass_bridge.rs, vault_store.rs, json_util.rs}, src/cli/{defs.rs, keys_cli.rs}, src/main.rs, and tests/fixtures/cli_help_snapshot.txt."
   }
 }
