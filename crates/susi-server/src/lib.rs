@@ -275,6 +275,42 @@ impl GemiServer {
     }
 }
 
+/// Each generative solve honors one concrete model. Only automatic cloud
+/// placement may retry: first its other eligible cloud candidates, then a
+/// fresh local-only placement checked against the same request constraints.
+fn complete_with_placement(
+    first: Option<&str>,
+    automatic_cloud: Option<&serde_json::Value>,
+    local_placement: impl FnOnce() -> serde_json::Value,
+    mut solve: impl FnMut(Option<&str>) -> String,
+) -> (String, Option<String>) {
+    let mut answer = solve(first);
+    let mut served = first.map(str::to_owned);
+    if let Some(placement) = automatic_cloud.filter(|_| answer.starts_with("[INFERENCE_FAILED]")) {
+        if let Some(clouds) = placement["cloud_candidates"].as_array() {
+            for candidate in clouds
+                .iter()
+                .filter_map(|v| v.as_str())
+                .filter(|&name| Some(name) != first)
+            {
+                answer = solve(Some(candidate));
+                served = Some(candidate.to_owned());
+                if !answer.starts_with("[INFERENCE_FAILED]") {
+                    return (answer, served);
+                }
+            }
+        }
+        let local = local_placement();
+        if local["target"] == "local"
+            && let Some(model) = local["local_model"].as_str()
+        {
+            answer = solve(Some(model));
+            served = Some(model.to_owned());
+        }
+    }
+    (answer, served)
+}
+
 fn explicit_model_conflict(
     model: &str,
     is_cloud: bool,
@@ -617,7 +653,13 @@ async fn dispatch_gemi_route_with_query(
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
-            let placement = if let Some(model) = completion.model.as_deref() {
+            let explicit_model = completion.model.as_deref().filter(|model| {
+                !matches!(
+                    model.to_ascii_lowercase().as_str(),
+                    "default" | "susi" | "auto"
+                )
+            });
+            let placement = if let Some(model) = explicit_model {
                 let (routable, cooled) = provider_ids();
                 let is_cloud = routable
                     .iter()
@@ -688,16 +730,7 @@ async fn dispatch_gemi_route_with_query(
                 .and_then(|value| value.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let is_auto_alias = completion
-                .model
-                .as_deref()
-                .map(|m| matches!(m.to_ascii_lowercase().as_str(), "default" | "susi" | "auto"))
-                .unwrap_or(false);
-            let requested_model = if is_auto_alias {
-                planned_model
-            } else {
-                completion.model.clone().or(planned_model)
-            };
+            let requested_model = explicit_model.map(str::to_string).or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
             // own selection (the response labels the model that served).
@@ -838,23 +871,38 @@ async fn dispatch_gemi_route_with_query(
                 let model_for_task = requested_model;
                 let requires_for_task = completion.requires.clone();
                 let chat_for_task = completion.chat;
-                let content = match tokio::task::spawn_blocking(move || {
+                let max_cost = completion.max_cost;
+                let automatic_cloud = explicit_model.is_none() && placement_target == "cloud";
+                let (content, served_route) = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let final_resp = gawd::solve_mission_generative_with_chat(
-                        &prompt_for_task,
-                        &ws,
-                        env!("CARGO_PKG_VERSION"),
+                    let outcome = complete_with_placement(
                         model_for_task.as_deref(),
-                        requires_for_task.as_deref(),
-                        chat_for_task,
+                        automatic_cloud.then_some(&placement),
+                        || {
+                            gemi::ModelManager::placement_with_cloud(
+                                requires_for_task.as_deref(),
+                                max_cost,
+                                false,
+                            )
+                        },
+                        |model| {
+                            gawd::solve_mission_generative_with_chat(
+                                &prompt_for_task,
+                                &ws,
+                                env!("CARGO_PKG_VERSION"),
+                                model,
+                                requires_for_task.as_deref(),
+                                chat_for_task.clone(),
+                            )
+                        },
                     );
                     crate::susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
-                        &final_resp,
+                        &outcome.0,
                         env!("CARGO_PKG_VERSION"),
                     );
-                    final_resp
+                    outcome
                 })
                 .await
                 {
@@ -887,19 +935,29 @@ async fn dispatch_gemi_route_with_query(
                 // rendered inference receipt names it as
                 // `Source: inference:<provider>`; "local" means the
                 // resolved local model generated the answer.
+                let fallback_label = served_route
+                    .as_deref()
+                    .map(model_display_id)
+                    .unwrap_or(&active_model);
                 let served_model = content
                     .strip_prefix("Source: inference:")
                     .and_then(|rest| rest.split('|').next())
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|gen_name| {
-                        if gen_name == "local" {
-                            active_model.as_str()
+                        if let Some(model) = gen_name.strip_prefix("local:") {
+                            if model == "automatic" {
+                                fallback_label
+                            } else {
+                                model_display_id(model)
+                            }
+                        } else if gen_name == "local" {
+                            fallback_label
                         } else {
                             gen_name
                         }
                     })
-                    .unwrap_or(&active_model)
+                    .unwrap_or(fallback_label)
                     .to_string();
                 // The receipt wrapper is audit metadata — the response
                 // body carries the raw model output, matching the
@@ -2750,6 +2808,68 @@ mod tests {
             payload["susi_placement"],
             json!({"decision_id": "placement-test-2", "target": "local"})
         );
+    }
+
+    #[test]
+    fn automatic_cloud_failure_uses_only_placement_admitted_routes_and_reports_the_generator() {
+        let placement = json!({"cloud_candidates": ["preferred", "qualifying"]});
+        let mut calls = Vec::new();
+        let (answer, served) = complete_with_placement(
+            Some("preferred"),
+            Some(&placement),
+            || json!({"target":"local","local_model":"starter.gguf"}),
+            |model| {
+                calls.push(model.map(str::to_owned));
+                if model == Some("starter.gguf") {
+                    "4".into()
+                } else {
+                    "[INFERENCE_FAILED] offline".into()
+                }
+            },
+        );
+        assert_eq!(
+            calls,
+            ["preferred", "qualifying", "starter.gguf"].map(|name| Some(name.to_owned()))
+        );
+        assert_eq!(answer, "4");
+        assert_eq!(served.as_deref(), Some("starter.gguf"));
+        let mut calls = Vec::new();
+        let (answer, served) = complete_with_placement(
+            Some("preferred"),
+            Some(&placement),
+            || json!({"target":"unavailable","local_model":"ineligible.gguf"}),
+            |model| {
+                calls.push(model.map(str::to_owned));
+                "[INFERENCE_FAILED] offline".into()
+            },
+        );
+        assert_eq!(calls.len(), 2);
+        assert!(answer.starts_with("[INFERENCE_FAILED]"));
+        assert_eq!(served.as_deref(), Some("qualifying"));
+    }
+
+    #[test]
+    fn explicit_pins_and_successful_or_governance_blocked_requests_do_not_retry() {
+        let placement = json!({"cloud_candidates": ["preferred", "other"]});
+        for (automatic, text) in [
+            (false, "[INFERENCE_FAILED] offline"),
+            (true, "4"),
+            (true, "[GOVERNANCE_BLOCK] denied"),
+        ] {
+            let mut calls = 0;
+            let (answer, served) = complete_with_placement(
+                Some("preferred"),
+                automatic.then_some(&placement),
+                || json!({"target":"local","local_model":"starter.gguf"}),
+                |_| {
+                    calls += 1;
+                    text.to_owned()
+                },
+            );
+            assert_eq!(calls, 1);
+            assert_eq!(answer, text);
+            assert_eq!(served.as_deref(), Some("preferred"));
+        }
     }
 
     #[test]
