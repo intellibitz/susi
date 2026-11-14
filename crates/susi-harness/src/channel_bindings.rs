@@ -129,7 +129,10 @@ fn add_path(original: &str, entry: &str) -> String {
             .trim_end_matches('\\')
             .eq_ignore_ascii_case(entry)
     };
-    if original.split(';').next().is_some_and(same) {
+    let executable = Path::new(entry).join("susi.exe");
+    if original.split(';').next().is_some_and(same)
+        || path_selects(original, &executable).unwrap_or(false)
+    {
         return original.into();
     }
     std::iter::once(entry)
@@ -140,6 +143,34 @@ fn add_path(original: &str, entry: &str) -> String {
         )
         .collect::<Vec<_>>()
         .join(";")
+}
+
+/// Only paths preceding the first Susi executable matter. A relative directory
+/// before it cannot establish which executable a new caller would run.
+fn path_selects(raw: &str, entry: &Path) -> io::Result<bool> {
+    let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    for dir in std::env::split_paths(&expand(raw)) {
+        if !dir.is_absolute() {
+            return Ok(false);
+        }
+        // PowerShell also discovers scripts. Require unambiguous command resolution
+        // even when the caller uses a shell with a different extension search order.
+        for ext in extensions.split(';').chain([".ps1"]) {
+            if let Some(ext) = ext.strip_prefix('.') {
+                if !ext.eq_ignore_ascii_case("exe")
+                    && ext.bytes().all(|c| c.is_ascii_alphanumeric())
+                    && dir.join("susi").with_extension(ext).is_file()
+                {
+                    return Ok(false);
+                }
+            }
+        }
+        let candidate = dir.join("susi.exe");
+        if candidate.try_exists()? && candidate.is_file() {
+            return Ok(candidate.canonicalize()? == entry.canonicalize()?);
+        }
+    }
+    Ok(false)
 }
 
 fn machine_path(entry: &Path) -> io::Result<()> {
@@ -292,12 +323,9 @@ pub fn verify(root: &Path) -> EaiResult<()> {
         machine_path(&entry.join("susi.exe"))?;
         let key = CURRENT_USER.open("Environment").map_err(io::Error::other)?;
         let raw = user_path(&key)?.0;
-        if raw.split(';').next().is_none_or(|s| {
-            !s.trim_matches('"')
-                .eq_ignore_ascii_case(entry.to_str().unwrap_or_default())
-        }) {
+        if !path_selects(&raw, &entry.join("susi.exe"))? {
             return Err(io::Error::other(
-                "user PATH does not start with the verified entry",
+                "user PATH does not select the verified Susi executable",
             ));
         }
         let expected = shell_link::encode(&entry.join("susi.exe"), &root.join("workspace"))?;
@@ -316,6 +344,31 @@ pub fn verify(root: &Path) -> EaiResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrelated_path_changes_preserve_the_selected_executable() {
+        let scratch = susi_paths::tempfile::tempdir().unwrap();
+        let unrelated = scratch.path().join("other tools");
+        let admitted = scratch.path().join("Susi");
+        fs::create_dir(&unrelated).unwrap();
+        fs::create_dir(&admitted).unwrap();
+        let entry = admitted.join("susi.exe");
+        fs::write(&entry, b"admitted").unwrap();
+        let raw = format!(r#""{}";{}"#, unrelated.display(), admitted.display());
+        assert!(path_selects(&raw, &entry).unwrap());
+        assert_eq!(add_path(&raw, admitted.to_str().unwrap()), raw);
+        let script = unrelated.join("susi.ps1");
+        fs::write(&script, b"other").unwrap();
+        assert!(!path_selects(&raw, &entry).unwrap());
+        fs::remove_file(script).unwrap();
+        fs::write(unrelated.join("susi.exe"), b"other").unwrap();
+        assert!(!path_selects(&raw, &entry).unwrap());
+        assert!(!path_selects(unrelated.to_str().unwrap(), &entry).unwrap());
+        assert!(!path_selects(&format!("relative;{}", admitted.display()), &entry).unwrap());
+        let repaired = add_path(&raw, admitted.to_str().unwrap());
+        assert!(path_selects(&repaired, &entry).unwrap());
+        assert!(repaired.contains(unrelated.to_str().unwrap()));
+    }
     #[test]
     fn native_shortcut_and_expandable_user_path_are_idempotent() {
         let scratch = susi_paths::tempfile::tempdir().unwrap();
