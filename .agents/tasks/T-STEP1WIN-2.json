@@ -81,6 +81,7 @@
     "install.ps1",
     "scripts/test-release-sync-windows.ps1",
     "src/bin/susi-background.rs",
+    "src/cli/defs.rs",
     "src/cli/mission_cli.rs",
     "src/main.rs",
     "tests/architecture_tests.rs",

@@ -43,19 +43,36 @@ use super::tx_cli;
 #[derive(Parser)]
 #[command(name = "susi")]
 #[command(about = "susi: RSI swarm AI OS for hosting, provisioning, and managing local and cloud AI — GAWD, GEMI & GMCP", long_about = None)]
-pub(crate) struct Cli {
+pub(crate) struct CliSurface<C: Subcommand> {
     #[command(subcommand)]
-    pub(crate) command: Option<Commands>,
+    pub(crate) command: Option<C>,
 
     /// Natural language intent or pulse
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub(crate) intent: Vec<String>,
 }
 
-#[allow(clippy::large_enum_variant)]
-// a CLI flag bag: every variant is argument storage, and boxing one would only relocate the flags clap derives in place
-#[derive(Subcommand)]
-pub(crate) enum Commands {
+pub(crate) type Cli = CliSurface<Commands>;
+pub(crate) type RootInfo = CliSurface<CommandSummaries>;
+
+// Root help needs each command's public name, aliases, visibility and documentation,
+// but none of its argument parsers. Generate both views from the same declarations.
+macro_rules! public_commands {
+    ($( $(#[$attribute:meta])* $variant:ident $({$($fields:tt)*})? $(($($args:tt)*))?, )*) => {
+        #[derive(Subcommand)]
+        #[allow(clippy::large_enum_variant)]
+        pub(crate) enum Commands {
+            $( $(#[$attribute])* $variant $({$($fields)*})? $(($($args)*))?, )*
+        }
+
+        #[derive(Subcommand)]
+        pub(crate) enum CommandSummaries {
+            $( $(#[$attribute])* $variant, )*
+        }
+    };
+}
+
+public_commands! {
     /// Manage external task executors end to end
     Agents {
         #[command(subcommand)]
@@ -1270,6 +1287,24 @@ mod tests {
         let mut out = format!("=== version ===\n{version}\n");
         collect_help_snapshot(&mut root, &["susi".to_string()], &mut out);
         out.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn root_command_summary_matches_full_parser() {
+        use clap::CommandFactory;
+        for flag in ["--help", "-h", "--version", "-V"] {
+            let render = |command: clap::Command| {
+                let error = command
+                    .version(env!("CARGO_PKG_VERSION"))
+                    .try_get_matches_from(["renamed-susi", flag])
+                    .unwrap_err();
+                (error.kind(), error.to_string())
+            };
+            assert_eq!(
+                render(super::RootInfo::command()),
+                render(super::Cli::command())
+            );
+        }
     }
 
     #[test]

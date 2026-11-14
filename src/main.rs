@@ -279,6 +279,21 @@ fn main() -> std::process::ExitCode {
         );
         return std::process::ExitCode::from(2);
     }
+    // Rendering one global info flag never needs to build the nested command parsers.
+    // Clap still owns argument handling, output, executable naming and the exit code.
+    let mut args = env::args_os().skip(1);
+    let flag = args.next();
+    if args.next().is_none() {
+        let command = match flag.as_deref().and_then(|arg| arg.to_str()) {
+            Some("--help" | "-h") => Some(cli::defs::RootInfo::command()),
+            Some("--version" | "-V") => Some(clap::Command::new("susi")),
+            _ => None,
+        };
+        if let Some(command) = command {
+            susi_paths::stdio::install_broken_pipe_guard();
+            command.version(env!("CARGO_PKG_VERSION")).get_matches();
+        }
+    }
     match std::thread::Builder::new()
         .name("susi-cli".to_string())
         .stack_size(CLI_STACK_BYTES)
