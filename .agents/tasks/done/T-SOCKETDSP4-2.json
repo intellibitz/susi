@@ -4,7 +4,8 @@
   "title": "Wave 14 susi-gemi action_executor, benchmark, coding_models_ext, and eco_compat_gate invariant verifiers",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "status": "in_progress",
+  "status": "retired",
+  "retired_reason": "Target test verify_gemi_wave14_invariants and the Wave 14 invariant verifier code (crates/susi-gemi/src/{action_executor,benchmark,coding_models_ext,eco_compat_gate}.rs) were intentionally removed in commit 3fc8afc40.",
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-socketdsp4-2.json",
