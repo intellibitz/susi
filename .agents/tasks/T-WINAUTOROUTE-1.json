@@ -2,6 +2,9 @@
   "id": "T-WINAUTOROUTE-1",
   "title": "Recover an automatic Desktop question when the preferred cloud provider fails",
   "created_by": "winautoroute",
+  "native_worker": "winautoroute",
+  "base_commit": "82073850abe067d71a4cbef7cd1caf30330f9442",
+  "status": "implemented_pending_integration",
   "created_unix": 1794693854,
   "scopes": [
     ".agents/tasks/T-WINAUTOROUTE-1.json",

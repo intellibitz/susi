@@ -281,6 +281,7 @@ impl GemiServer {
 fn complete_with_placement(
     first: Option<&str>,
     automatic_cloud: Option<&serde_json::Value>,
+    cloud_available: impl Fn(&str) -> bool,
     local_placement: impl FnOnce() -> serde_json::Value,
     mut solve: impl FnMut(Option<&str>) -> String,
 ) -> (String, Option<String>) {
@@ -291,7 +292,7 @@ fn complete_with_placement(
             for candidate in clouds
                 .iter()
                 .filter_map(|v| v.as_str())
-                .filter(|&name| Some(name) != first)
+                .filter(|&name| Some(name) != first && cloud_available(name))
             {
                 answer = solve(Some(candidate));
                 served = Some(candidate.to_owned());
@@ -878,6 +879,7 @@ async fn dispatch_gemi_route_with_query(
                     let outcome = complete_with_placement(
                         model_for_task.as_deref(),
                         automatic_cloud.then_some(&placement),
+                        |model| provider_ids().0.iter().any(|live| live == model),
                         || {
                             gemi::ModelManager::placement_with_cloud(
                                 requires_for_task.as_deref(),
@@ -2812,11 +2814,13 @@ mod tests {
 
     #[test]
     fn automatic_cloud_failure_uses_only_placement_admitted_routes_and_reports_the_generator() {
-        let placement = json!({"cloud_candidates": ["preferred", "qualifying"]});
+        let placement =
+            json!({"cloud_candidates": ["preferred", "quarantined-sibling", "qualifying"]});
         let mut calls = Vec::new();
         let (answer, served) = complete_with_placement(
             Some("preferred"),
             Some(&placement),
+            |model| model != "quarantined-sibling",
             || json!({"target":"local","local_model":"starter.gguf"}),
             |model| {
                 calls.push(model.map(str::to_owned));
@@ -2837,6 +2841,7 @@ mod tests {
         let (answer, served) = complete_with_placement(
             Some("preferred"),
             Some(&placement),
+            |model| model != "quarantined-sibling",
             || json!({"target":"unavailable","local_model":"ineligible.gguf"}),
             |model| {
                 calls.push(model.map(str::to_owned));
@@ -2860,6 +2865,7 @@ mod tests {
             let (answer, served) = complete_with_placement(
                 Some("preferred"),
                 automatic.then_some(&placement),
+                |_| true,
                 || json!({"target":"local","local_model":"starter.gguf"}),
                 |_| {
                     calls += 1;
