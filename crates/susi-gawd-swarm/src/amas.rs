@@ -90,7 +90,7 @@ impl CapabilityBloom {
 
     pub fn from_hex(hex: &str) -> Self {
         let mut bloom = Self::default();
-        for (word, chunk) in bloom.0.iter_mut().zip(hex.as_bytes().chunks_exact(16)) {
+        for (word, chunk) in bloom.0.iter_mut().zip(hex.as_bytes().as_chunks::<16>().0) {
             if let Ok(s) = std::str::from_utf8(chunk) {
                 *word = u64::from_str_radix(s, 16).unwrap_or(0);
             }
