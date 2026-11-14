@@ -77,6 +77,7 @@
     "tests/architecture_tests.rs",
     "tests/common/mod.rs",
     "tests/first_goal_opening.rs",
+    "tests/hermetic_scope.rs",
     "tests/installer_contract.rs",
     "tests/local_channels.rs",
     "tests/peer_channel_hub.rs",
