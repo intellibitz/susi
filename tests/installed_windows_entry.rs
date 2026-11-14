@@ -2,6 +2,7 @@
 //! releases. Fixture receipts exercise dispatch only; production qualification is separate.
 #![cfg(windows)]
 #![cfg_attr(test, allow(clippy::unwrap_used))] // Fixture setup and Windows assertions must fail the test immediately.
+mod common;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -186,7 +187,7 @@ fn main() {
     select(&root, &id, None);
     let started = Instant::now();
     let out = command(&entry, &profile)
-        .arg("start")
+        .arg("detach")
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -224,6 +225,132 @@ fn main() {
         "caller pipes stayed open {elapsed:?} until the detached child exited"
     );
     std::thread::sleep(Duration::from_millis(500));
+    fs::remove_dir_all(profile).unwrap();
+}
+
+/// A warm legacy daemon owns the saved offset while its hash cache already
+/// names the new slot. Start must replace that process and keep the legacy file.
+#[test]
+fn installed_start_replaces_the_running_legacy_image_on_the_saved_offset() {
+    use std::net::{TcpListener, UdpSocket};
+    let profile = std::env::temp_dir().join(format!("susi-service-slot-{}", std::process::id()));
+    let instance = profile.join(".susi");
+    let root = profile.join("AppData/Local/SusiLocal/production");
+    let entry = root.join("entry/susi.exe");
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::create_dir_all(instance.join("bin")).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_susi"), &entry).unwrap();
+    let selected = admit(&root, &entry);
+    let slot = root.join("releases").join(&selected);
+    for sidecar in [
+        "sbom.json",
+        "THIRD-PARTY-NOTICES.txt",
+        "native-source-audit.txt",
+    ] {
+        fs::write(slot.join(sidecar), b"fixture evidence").unwrap();
+    }
+    select(&root, &selected, None);
+    let offset = common::reserve_port_block((110..=220u16).map(|n| n * 100), |offset| {
+        [9090, 9091, 9093, 9094, 18080, 18081, 18082, 18083, 18084]
+            .iter()
+            .all(|p| TcpListener::bind(("127.0.0.1", offset + p)).is_ok())
+            && [9092, 9095]
+                .iter()
+                .all(|p| UdpSocket::bind(("127.0.0.1", offset + p)).is_ok())
+    })
+    .unwrap();
+    fs::write(
+        instance.join("config.json"),
+        format!(r#"{{"port_offset":{offset}}}"#),
+    )
+    .unwrap();
+    let legacy = instance.join("bin/susi.exe");
+    fs::copy(&entry, &legacy).unwrap();
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&legacy)
+        .unwrap()
+        .write_all(b"prior build")
+        .unwrap();
+    let launch = |bin: &Path, verb: &str| {
+        command(bin, &profile)
+            .env("SUSI_HOME", &instance)
+            .arg(verb)
+            .output()
+            .unwrap()
+    };
+    let selected_exe = slot.join("susi.exe").canonicalize().unwrap();
+    let image = || {
+        let record: serde_json::Value =
+            serde_json::from_slice(&fs::read(instance.join("ports.json")).unwrap()).unwrap();
+        let pid = record["pid"].as_u64().unwrap() as u32;
+        (
+            pid,
+            susi_config::process_probe::exe_path(pid)
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+        )
+    };
+    struct Stop<'a>(&'a Path, &'a Path, &'a Path);
+    impl Drop for Stop<'_> {
+        fn drop(&mut self) {
+            let _ = command(self.0, self.1)
+                .env("SUSI_HOME", self.2)
+                .arg("stop")
+                .output();
+        }
+    }
+    let stop = Stop(&entry, &profile, &instance);
+    let warm = launch(&legacy, "start");
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    let (old_pid, old_image) = image();
+    assert_eq!(old_image, legacy.canonicalize().unwrap());
+    // A staged standalone leaf alongside the running slot must also lose to
+    // the selected monolith's built-in service.
+    fs::hard_link(&legacy, slot.join("susi-paths")).unwrap();
+    fs::write(
+        instance.join("binary.hash"),
+        hex(&fs::read(&selected_exe).unwrap()),
+    )
+    .unwrap();
+    let start = launch(&entry, "start");
+    assert!(
+        start.status.success(),
+        "{}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+    let output = String::from_utf8_lossy(&start.stdout);
+    assert!(output.contains(&(9090 + offset).to_string()), "{output}");
+    let (new_pid, new_image) = image();
+    assert_ne!(new_pid, old_pid);
+    assert_eq!(new_image, selected_exe);
+    let deadline = Instant::now() + Duration::from_secs(45);
+    loop {
+        let services = susi_core::service_table::load_from(&instance.join("services.json"));
+        if services.len() == susi_core::service_table::LEAF_SERVICES.len()
+            && services.iter().all(|service| {
+                !service.external
+                    && susi_config::process_probe::exe_path(service.pid)
+                        .and_then(|exe| exe.canonicalize().ok())
+                        .as_ref()
+                        == Some(&selected_exe)
+            })
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "supervised services: {services:?}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(legacy.is_file());
+    drop(stop);
     fs::remove_dir_all(profile).unwrap();
 }
 

@@ -55,6 +55,21 @@ pub(crate) fn dispatch() -> Option<ExitCode> {
     }
     let mut args = std::env::args_os().skip(1);
     let command = args.next();
+    #[cfg(windows)]
+    if matches!(
+        command.as_deref().and_then(|value| value.to_str()),
+        Some("start" | "restart")
+    ) && args.next().is_none()
+    {
+        let restart = command.as_deref() == Some(std::ffi::OsStr::new("restart"));
+        return Some(match transaction::start_selected(&exe, restart) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Installed Susi could not start: {error}");
+                ExitCode::FAILURE
+            }
+        });
+    }
     if command.as_deref() == Some(std::ffi::OsStr::new("install")) && args.next().is_none() {
         return Some(
             match transaction::manage(
