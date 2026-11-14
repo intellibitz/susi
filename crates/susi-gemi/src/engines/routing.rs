@@ -511,46 +511,22 @@ impl InferenceRouter {
             return;
         }
         crate::engines::brain::note_failure(name, kind);
-        // Retired / unknown model IDs are model-scoped: cool this entry
-        // longer so a stale catalog does not burn a request every mission.
-        if Self::is_model_gone_error(error) {
-            let mut map = provider_down_map()
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            map.insert(name.to_string(), now_unix() + MODEL_GONE_COOLDOWN_SECS);
-            save_cooldowns(&map);
-            return;
+        // Reuse brain::classify_error so model-gone, rate-limit, and transport
+        // scoping stay aligned across health and cooldown tracking.
+        match kind {
+            crate::engines::brain::FailureKind::Gone => {
+                let mut map = provider_down_map()
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
+                map.insert(name.to_string(), now_unix() + MODEL_GONE_COOLDOWN_SECS);
+                save_cooldowns(&map);
+            }
+            crate::engines::brain::FailureKind::RateLimit
+            | crate::engines::brain::FailureKind::Transport => Self::record_vendor_failure(name),
+            crate::engines::brain::FailureKind::Funds
+            | crate::engines::brain::FailureKind::Auth
+            | crate::engines::brain::FailureKind::Other => {}
         }
-        let lower = error.to_ascii_lowercase();
-        let scoped = [
-            "http 401",
-            "http 402",
-            "http 403",
-            "http 429",
-            "error sending request",
-            "connection refused",
-            "tcp connect error",
-            "timed out",
-        ]
-        .iter()
-        .any(|pattern| lower.contains(pattern));
-        if scoped {
-            Self::record_vendor_failure(name);
-        }
-    }
-
-    fn is_model_gone_error(error: &str) -> bool {
-        let lower = error.to_ascii_lowercase();
-        [
-            "http 404",
-            "no endpoints found",
-            "model not found",
-            "does not exist",
-            "no longer available",
-            "is not found for api version",
-        ]
-        .iter()
-        .any(|s| lower.contains(s))
     }
 
     /// Clear a provider's cooldown after a successful call. A live response
@@ -728,6 +704,13 @@ impl InferenceRouter {
         );
     }
 
+    /// True when `candidate` and a sticky preference token match either way.
+    fn pref_matches(candidate: &str, preferred: &str) -> bool {
+        let c = candidate.to_ascii_lowercase();
+        let p = preferred.to_ascii_lowercase();
+        !c.is_empty() && !p.is_empty() && (c.contains(&p) || p.contains(&c))
+    }
+
     fn heal_preferred_cloud_in(
         registry: &crate::susi_core::registry::CapabilityRegistry,
         failed: &str,
@@ -736,9 +719,7 @@ impl InferenceRouter {
         let Some(current) = pref.preferred_cloud.clone() else {
             return;
         };
-        let failed_l = failed.to_ascii_lowercase();
-        let current_l = current.to_ascii_lowercase();
-        if !(failed_l.contains(&current_l) || current_l.contains(&failed_l)) {
+        if !Self::pref_matches(failed, &current) {
             return;
         }
         let clouds = Self::list_cloud_providers_from_registry(registry);
@@ -771,9 +752,7 @@ impl InferenceRouter {
         let Some(original) = pref.auto_switched_from.clone() else {
             return;
         };
-        let name_l = name.to_ascii_lowercase();
-        let original_l = original.to_ascii_lowercase();
-        if !(name_l.contains(&original_l) || original_l.contains(&name_l)) {
+        if !Self::pref_matches(name, &original) {
             return;
         }
         pref.preferred_cloud = Some(original.clone());
@@ -786,23 +765,18 @@ impl InferenceRouter {
     /// once its quarantine has lapsed: it gets one trial call first (a topped-up
     /// account is noticed), and a failure re-quarantines it on the next rung.
     pub fn is_recovery_probe(name: &str) -> bool {
-        let Some(original) = Self::load_preference().auto_switched_from else {
-            return false;
-        };
-        let name_l = name.to_ascii_lowercase();
-        let original_l = original.to_ascii_lowercase();
-        (name_l.contains(&original_l) || original_l.contains(&name_l))
-            && !Self::provider_cooled(name)
+        Self::load_preference()
+            .auto_switched_from
+            .is_some_and(|original| {
+                Self::pref_matches(name, &original) && !Self::provider_cooled(name)
+            })
     }
 
     /// Whether `name` matches the sticky preferred cloud (substring either way).
     pub fn matches_preferred_cloud(name: &str) -> bool {
-        let Some(preferred) = Self::load_preference().preferred_cloud else {
-            return false;
-        };
-        let pref_l = preferred.to_ascii_lowercase();
-        let name_l = name.to_ascii_lowercase();
-        name_l.contains(&pref_l) || pref_l.contains(&name_l)
+        Self::load_preference()
+            .preferred_cloud
+            .is_some_and(|preferred| Self::pref_matches(name, &preferred))
     }
 
     pub fn load_stats() -> LocalInferenceStats {
@@ -1018,10 +992,10 @@ impl InferenceRouter {
             .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
             .collect();
         providers.sort_by_key(|name| {
-            let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
-                name.to_ascii_lowercase()
-                    .contains(&preferred.to_ascii_lowercase())
-            });
+            let preferred = pref
+                .preferred_cloud
+                .as_deref()
+                .is_some_and(|preferred| Self::pref_matches(name, preferred));
             let (meets_floor, pos) = ranked.get(name).copied().unwrap_or((false, usize::MAX));
             (
                 !preferred,
@@ -1223,7 +1197,7 @@ impl InferenceRouter {
     /// The local capability verdict is a parameter so tests pin both
     /// branches deterministically — whether a host actually owns a
     /// tool-capable GGUF is environment state, not logic.
-    fn plan_placement_inner(
+    pub(crate) fn plan_placement_inner(
         requires: Option<&str>,
         max_cost: Option<f64>,
         allow_cloud: bool,
@@ -1316,12 +1290,18 @@ impl InferenceRouter {
         Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
-        // Capability floor before any cost comparison (VC-202-004): the
-        // `requires` token's class floor partitions candidates — below-floor
-        // providers stay at the tail as the last rung before local, never
-        // ahead of a floor-meeting one whatever they cost.
+        // Capability floor and provider health before static vendor order
+        // (VC-202-004): below-floor and unfit providers stay at the tail,
+        // with deterministic cloud_rank and name tie-breaking.
         let class = crate::engines::brain::TaskClass::from_requires(requires);
-        clouds.sort_by_key(|name| !crate::engines::capability::meets_floor(name, class));
+        clouds.sort_by_key(|name| {
+            (
+                !crate::engines::capability::meets_floor(name, class),
+                crate::engines::brain::is_unfit(name, class),
+                Self::cloud_rank(name),
+                name.clone(),
+            )
+        });
 
         if clouds.is_empty() {
             return PlacementDecision {
@@ -1527,15 +1507,11 @@ impl InferenceRouter {
         pref: &RoutingPreference,
         cfg: &InferenceRoutingConfig,
     ) -> String {
-        if let Some(preferred) = pref.preferred_cloud.as_ref() {
-            let pref_l = preferred.to_ascii_lowercase();
-            if let Some(hit) = clouds.iter().find(|c| {
-                c.to_ascii_lowercase().contains(&pref_l) || pref_l.contains(&c.to_ascii_lowercase())
-            }) {
+        // `clouds` arrives ordered by (!meets_floor, is_unfit, cloud_rank, name),
+        // so matching preferred_cloud picks its highest-qualified healthy model.
+        if let Some(preferred) = pref.preferred_cloud.as_deref() {
+            if let Some(hit) = clouds.iter().find(|c| Self::pref_matches(c, preferred)) {
                 return hit.clone();
-            }
-            if clouds.iter().any(|c| c == preferred) {
-                return preferred.clone();
             }
         }
 
@@ -1552,13 +1528,7 @@ impl InferenceRouter {
             }
         }
 
-        // Non-interactive / single cloud / declined prompt: prefer openai→anthropic→gemini order.
-        let mut ranked = clouds.to_vec();
-        ranked.sort_by_key(|n| Self::cloud_rank(n));
-        ranked
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| clouds[0].clone())
+        clouds.first().cloned().unwrap_or_default()
     }
 
     fn cloud_rank(name: &str) -> u8 {

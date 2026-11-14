@@ -1,0 +1,33 @@
+{
+  "id": "T-ANTIGRAVITYS1-4",
+  "title": "Preserve capability floor, fitness, symmetric preference match, and failure scoping in InferenceRouter",
+  "goal": "Vision: V-2 Ensure InferenceRouter preserves capability floors and fitness in placement selection, matches sticky cloud preferences symmetrically in failover ordering, and unifies RateLimit/Transport/Gone scoping with classify_error within lean-core ceilings.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "4",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "routing_placement"
+    ]
+  },
+  "created_by": "ANTIGRAVITYS1",
+  "created_unix": 1794687370,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Fixed existing InferenceRouter placement selection, symmetric preferred_cloud matching, and FailureKind vendor/model cooldown scoping in engines::routing while net-reducing susi-gemi shipped lines below lean-core ceilings with zero new dependencies.",
+    "searched": "crates/susi-gemi/src/engines/routing.rs, crates/susi-gemi/src/engines/brain.rs, crates/susi-gemi/src/tests/capability_floor.rs, crates/susi-gemi/src/tests/budget_ceiling.rs"
+  },
+  "scopes": [
+    "crates/susi-gemi/src/engines/routing.rs",
+    "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests/routing_placement.rs"
+  ]
+}

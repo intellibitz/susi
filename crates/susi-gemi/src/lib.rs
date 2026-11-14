@@ -127,6 +127,9 @@ mod ranking_by_marginal_cost_tests;
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
 #[cfg(test)]
+#[path = "tests/routing_placement.rs"]
+mod routing_placement_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_042_native.rs"]
 mod vc_201_042_native_tests;
 #[cfg(test)]
