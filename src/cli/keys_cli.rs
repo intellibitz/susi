@@ -326,6 +326,165 @@ fn run_vault(action: VaultCommands) {
                 }
             }
         }
+        VaultCommands::Doctor { json } => {
+            let report = susi_config::keepass_bridge::vault_doctor(&cfg_dir);
+            if json {
+                if let Ok(text) = serde_json::to_string_pretty(&report) {
+                    println!("{text}");
+                }
+                return;
+            }
+            println!(
+                "Vault doctor ({}):\n  keepassxc-cli: {} ({})\n  kdbx db:       {} (valid magic: {})\n  keyfile:       {}\n  dbus bus:      {}\n  real gpg:      {}\n  gpg preset:    {} (allow-preset-passphrase: {})\n  git gpg.prog:  {}\n  git sshCmd:    {}",
+                report.os,
+                report.keepassxc_cli,
+                report
+                    .keepassxc_version
+                    .as_deref()
+                    .unwrap_or(if report.keepassxc_available { "ok" } else { "unavailable" }),
+                report
+                    .kdbx_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                report.kdbx_valid_magic,
+                report
+                    .kdbx_key_file
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                report.dbus_bus.as_deref().unwrap_or("none"),
+                report.real_gpg_path.as_deref().unwrap_or("none"),
+                report.gpg_preset_passphrase_path.as_deref().unwrap_or("none"),
+                report.gpg_agent_allow_preset,
+                report.git_gpg_program.as_deref().unwrap_or("unset"),
+                report.git_ssh_command.as_deref().unwrap_or("unset"),
+            );
+            for issue in &report.issues {
+                println!("  ISSUE:         {issue}");
+            }
+            for rec in &report.recommendations {
+                println!("  NEXT:          {rec}");
+            }
+        }
+        VaultCommands::PrimeSigning { gpg_only, json } => {
+            match susi_config::keepass_bridge::prime_signing_agents(&cfg_dir, gpg_only) {
+                Ok(report) => {
+                    if json {
+                        if let Ok(text) = serde_json::to_string_pretty(&report) {
+                            println!("{text}");
+                        }
+                    } else {
+                        println!(
+                            "Primed signing agents (gpg keygrips: {}, ssh identity: {})",
+                            report.gpg_primed_keygrips.len(),
+                            if report.ssh_primed {
+                                "primed"
+                            } else {
+                                "skipped/unchanged"
+                            }
+                        );
+                        for note in &report.notes {
+                            println!("  note: {note}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Prime signing failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        VaultCommands::SetupGit { gpgsign, json } => {
+            match susi_config::keepass_bridge::setup_git_signing(&cfg_dir, gpgsign) {
+                Ok(report) => {
+                    if json {
+                        if let Ok(text) = serde_json::to_string_pretty(&report) {
+                            println!("{text}");
+                        }
+                    } else {
+                        println!(
+                            "Configured Git signing:\n  gpg.program:     {}\n  core.sshCommand: {}\n  commit.gpgsign:  {}",
+                            report.gpg_program_set,
+                            report.ssh_command_action,
+                            report.commit_gpgsign_enabled
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Git signing setup failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        VaultCommands::Rekey {
+            db,
+            key_file_out,
+            no_key_file,
+            with_passphrase,
+            json,
+        } => {
+            let new_pass = if let Ok(v) = std::env::var("SUSI_NEW_KDBX_PASSPHRASE") {
+                let clean = v.trim_end_matches(&['\r', '\n'][..]).to_string();
+                (!clean.is_empty()).then_some(clean)
+            } else if with_passphrase || no_key_file {
+                match read_secret_prompt(
+                    "Enter new portable KeePassXC passphrase (piped stdin supported): ",
+                ) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        eprintln!("Failed to read new passphrase: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                None
+            };
+            let res = susi_config::keepass_bridge::rekey_kdbx_portable(
+                &cfg_dir,
+                susi_config::keepass_bridge::RekeyOptions {
+                    db_override: db.as_deref(),
+                    keyfile_out: key_file_out.as_deref(),
+                    generate_keyfile: !no_key_file,
+                    new_passphrase: new_pass.as_deref(),
+                    allow_interactive: io::stdin().is_terminal()
+                        && io::stderr().is_terminal()
+                        && !susi_paths::console::is_unattended_env(),
+                },
+            );
+            if let Some(mut p) = new_pass {
+                susi_config::vault_store::wipe_string(&mut p);
+            }
+            match res {
+                Ok(report) => {
+                    if json {
+                        if let Ok(text) = serde_json::to_string_pretty(&report) {
+                            println!("{text}");
+                        }
+                    } else {
+                        println!(
+                            "Re-keyed `{}` (backup: `{}`, keyfile: `{}`, passphrase set: {})",
+                            report.db_path.display(),
+                            report.backup_path.display(),
+                            report
+                                .key_file
+                                .as_ref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|| "none".to_string()),
+                            report.has_passphrase
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Rekey failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        VaultCommands::GpgProgram { args } => {
+            let code = susi_config::keepass_bridge::run_git_gpg_program(&cfg_dir, &args);
+            std::process::exit(code);
+        }
     }
 }
 

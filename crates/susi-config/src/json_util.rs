@@ -36,16 +36,17 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
 
 /// Creates `path` (and parents) as an owner-only directory (0700 on Unix)
 /// for host state that may hold credentials or private overrides.
+///
+/// Note: on Windows, `winapi::acl::restrict_to_current_user` installs a
+/// non-inheritable protected file DACL; applying it to a directory would strip
+/// inherited ACEs from existing files inside that directory (`Access is denied`).
+/// Individual secret files inside private dirs are restricted at file-write time.
 pub fn create_private_dir(path: &Path) -> std::io::Result<()> {
     fs::create_dir_all(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    #[cfg(windows)]
-    {
-        let _ = winapi::acl::restrict_to_current_user(path);
     }
     Ok(())
 }
@@ -653,8 +654,11 @@ mod tests {
         let dir = scratch("private-dir");
         let nested = dir.join("a").join("b");
         create_private_dir(&nested).unwrap();
+        let existing = nested.join("existing.txt");
+        fs::write(&existing, b"keep-readable").unwrap();
         create_private_dir(&nested).unwrap();
         assert!(nested.is_dir());
+        assert_eq!(fs::read(&existing).unwrap(), b"keep-readable");
         let _ = fs::remove_dir_all(&dir);
     }
 

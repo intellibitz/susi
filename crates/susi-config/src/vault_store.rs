@@ -75,7 +75,7 @@ fn bump_vault_cache_generation() {
     VAULT_CACHE_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
-fn write_private_vault_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private_vault_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     atomic_write_bytes(path, bytes)?;
     #[cfg(windows)]
     {
@@ -798,12 +798,12 @@ fn macos_keychain_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.keychain"))
 }
 
-#[cfg(any(all(unix, not(target_os = "macos")), test))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.secretservice"))
 }
 
-#[cfg(any(all(unix, not(target_os = "macos")), test))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_legacy_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.secret"))
 }
@@ -840,36 +840,28 @@ fn decode_secret_payload(raw: &str, label: &str) -> Result<String, String> {
 fn seal_systemd_cred(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
     let dest = cred_file_path(dir, purpose);
-    let tmp = dir.join(format!(".{purpose}.unlock.cred.tmp.{}", std::process::id()));
-    let _ = std::fs::remove_file(&tmp);
     let cred_name = format!("susi-{purpose}");
 
-    // Try TPM2+host first, then host-only user credential sealing.
-    for key_mode in ["host+tpm2", "host"] {
+    // Try TPM2+host first, then host-only, then systemd default key mode via stdout pipe
+    // so no temporary plaintext or unencrypted credential file ever hits disk.
+    for key_flag in [Some("--with-key=host+tpm2"), Some("--with-key=host"), None] {
         let mut cmd = Command::new("systemd-creds");
-        cmd.args([
-            "encrypt",
-            "--user",
-            &format!("--with-key={key_mode}"),
-            &format!("--name={cred_name}"),
-            "-",
-        ])
-        .arg(&tmp);
+        cmd.args(["encrypt", "--user"]);
+        if let Some(flag) = key_flag {
+            cmd.arg(flag);
+        }
+        cmd.arg(format!("--name={cred_name}")).arg("-").arg("-");
         let out = susi_paths::console::run_output_within(
             &mut cmd,
             Some(secret.as_bytes()),
             KEYSTORE_TIMEOUT,
         )
         .map_err(|e| format!("systemd-creds: {e}"))?;
-        if out.status.success() && tmp.is_file() {
-            let bytes =
-                std::fs::read(&tmp).map_err(|e| format!("read encrypted systemd cred: {e}"))?;
-            let _ = std::fs::remove_file(&tmp);
-            write_private_vault_bytes(&dest, &bytes)
+        if out.status.success() && !out.stdout.is_empty() {
+            write_private_vault_bytes(&dest, &out.stdout)
                 .map_err(|e| format!("write {}: {e}", dest.display()))?;
             return Ok(());
         }
-        let _ = std::fs::remove_file(&tmp);
     }
     Err("systemd-creds --user encrypt failed on this host".to_string())
 }
@@ -905,7 +897,7 @@ fn unseal_systemd_cred(dir: &Path, purpose: &str) -> Result<Option<String>, Stri
 }
 
 #[cfg(any(windows, test))]
-fn windows_powershell_exe_from(system_root: Option<&str>) -> String {
+pub(crate) fn windows_powershell_exe_from(system_root: Option<&str>) -> String {
     match system_root.map(str::trim).filter(|s| !s.is_empty()) {
         Some(root) => format!(
             "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -1000,7 +992,7 @@ fn unseal_windows_dpapi(dir: &Path, purpose: &str) -> Result<Option<String>, Str
     secret.map(Some)
 }
 
-#[cfg(any(unix, test))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_scope_tag(dir: &Path, purpose: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(dir.to_string_lossy().as_bytes());
@@ -1073,6 +1065,82 @@ fn unseal_macos_keychain(dir: &Path, purpose: &str) -> Result<Option<String>, St
     secret.map(Some)
 }
 
+#[cfg(any(all(unix, not(target_os = "macos")), test))]
+fn resolve_dbus_session_bus_with<F>(
+    env_addr: Option<&str>,
+    xdg_runtime_dir: Option<&str>,
+    proc_status: Option<&str>,
+    id_uid: Option<&str>,
+    socket_exists: F,
+) -> Option<String>
+where
+    F: Fn(&Path) -> bool,
+{
+    if let Some(addr) = env_addr.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(addr.to_string());
+    }
+    if let Some(runtime) = xdg_runtime_dir.map(str::trim).filter(|s| !s.is_empty()) {
+        let trimmed = runtime.trim_end_matches('/');
+        let bus = PathBuf::from(trimmed).join("bus");
+        if socket_exists(&bus) {
+            return Some(format!("unix:path={trimmed}/bus"));
+        }
+    }
+    let uid = proc_status
+        .and_then(|raw| {
+            raw.lines().find_map(|line| {
+                let rest = line.strip_prefix("Uid:")?;
+                let val = rest.split_whitespace().next()?;
+                (!val.is_empty() && val.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| val.to_string())
+            })
+        })
+        .or_else(|| {
+            id_uid
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                .map(ToOwned::to_owned)
+        });
+    if let Some(uid) = uid {
+        let bus_str = format!("/run/user/{uid}/bus");
+        if socket_exists(Path::new(&bus_str)) {
+            return Some(format!("unix:path={bus_str}"));
+        }
+    }
+    None
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn resolve_dbus_session_bus() -> Option<String> {
+    let env_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok();
+    let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").ok();
+    let proc_status = std::fs::read_to_string("/proc/self/status").ok();
+    let id_uid = if proc_status.is_none() {
+        let mut cmd = Command::new("id");
+        cmd.arg("-u");
+        susi_paths::console::run_output_within(&mut cmd, None, KEYSTORE_TIMEOUT)
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+    } else {
+        None
+    };
+    resolve_dbus_session_bus_with(
+        env_addr.as_deref(),
+        xdg_runtime.as_deref(),
+        proc_status.as_deref(),
+        id_uid.as_deref(),
+        |p| p.exists(),
+    )
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn apply_dbus_session_env(cmd: &mut Command) {
+    if let Some(bus) = resolve_dbus_session_bus() {
+        cmd.env("DBUS_SESSION_BUS_ADDRESS", bus);
+    }
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 fn seal_secret_service(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
@@ -1083,6 +1151,7 @@ fn seal_secret_service(dir: &Path, purpose: &str, secret: &str) -> Result<(), St
     let payload_trim = payload.trim_end_matches('\n').to_string();
     wipe_string(&mut payload);
     let mut cmd = Command::new("secret-tool");
+    apply_dbus_session_env(&mut cmd);
     cmd.args([
         "store",
         &format!("--label={label}"),
@@ -1140,6 +1209,7 @@ fn unseal_secret_service(dir: &Path, purpose: &str) -> Result<Option<String>, St
     ];
     for args in queries {
         let mut cmd = Command::new("secret-tool");
+        apply_dbus_session_env(&mut cmd);
         cmd.args(args);
         let out = susi_paths::console::run_output_within(&mut cmd, None, KEYSTORE_TIMEOUT)
             .map_err(|e| format!("run secret-tool lookup: {e}"))?;
@@ -1241,7 +1311,7 @@ fn seal_secret_for_host(
                 return Ok(UnlockBackendKind::WindowsDpapi);
             }
             #[cfg(all(unix, not(target_os = "macos")))]
-            if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some()
+            if resolve_dbus_session_bus().is_some()
                 && seal_secret_service(dir, purpose, secret).is_ok()
             {
                 return Ok(UnlockBackendKind::SecretService);
@@ -1593,7 +1663,11 @@ pub fn migrate_plaintext_cloud_env(
         enroll_master_key(dir, None, None)?;
     }
     let cloud_env_path = dir.join("cloud.env");
-    let raw = std::fs::read_to_string(&cloud_env_path).unwrap_or_default();
+    let raw = match std::fs::read_to_string(&cloud_env_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("read {}: {e}", cloud_env_path.display())),
+    };
     let parsed = parse_env_file(&raw);
     let mut vault = SealedVault::open_or_init(dir)?;
     let mut migrated = Vec::new();
@@ -2021,5 +2095,44 @@ mod tests {
             std::env::set_var(VAULT_KEY_ENV, v);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dbus_session_bus_resolution_handles_env_xdg_and_run_user_uid() {
+        assert_eq!(
+            resolve_dbus_session_bus_with(
+                Some("unix:path=/tmp/custom-bus"),
+                Some("/run/user/1000"),
+                None,
+                None,
+                |_| false,
+            ),
+            Some("unix:path=/tmp/custom-bus".to_string())
+        );
+
+        assert_eq!(
+            resolve_dbus_session_bus_with(None, Some("/run/user/1001/"), None, None, |p| p
+                == Path::new("/run/user/1001/bus"),),
+            Some("unix:path=/run/user/1001/bus".to_string())
+        );
+
+        let proc_status = "Name:\tsusi\nUid:\t1002\t1002\t1002\t1002\nGid:\t1002\t1002\n";
+        assert_eq!(
+            resolve_dbus_session_bus_with(None, None, Some(proc_status), Some("9999"), |p| p
+                == Path::new("/run/user/1002/bus"),),
+            Some("unix:path=/run/user/1002/bus".to_string())
+        );
+
+        assert_eq!(
+            resolve_dbus_session_bus_with(None, None, None, Some("1003"), |p| {
+                p == Path::new("/run/user/1003/bus")
+            }),
+            Some("unix:path=/run/user/1003/bus".to_string())
+        );
+
+        assert_eq!(
+            resolve_dbus_session_bus_with(None, None, None, None, |_| true),
+            None
+        );
     }
 }

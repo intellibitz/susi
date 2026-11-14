@@ -480,6 +480,54 @@ pub(crate) enum VaultCommands {
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
+    /// Diagnose cross-OS KeePassXC, keystore, D-Bus, Qt headless, GPG, and SSH signing readiness
+    Doctor {
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Prime GPG and SSH signing agents from the sealed vault (`signing` scope)
+    PrimeSigning {
+        /// Only preset GPG passphrase without touching SSH agent
+        #[arg(long)]
+        gpg_only: bool,
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install the cross-OS `susi-gpg` wrapper and remediate Git `.gitconfig` signing paths
+    SetupGit {
+        /// Also enable `commit.gpgsign = true` in global Git config
+        #[arg(long)]
+        gpgsign: bool,
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Re-key an existing .kdbx database (e.g. Windows DPAPI) into a portable .keyx/passphrase vault
+    Rekey {
+        /// KeePassXC .kdbx database path
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+        /// Destination path for the portable `.keyx` sidecar keyfile
+        #[arg(long)]
+        key_file_out: Option<std::path::PathBuf>,
+        /// Re-key to portable passphrase only without generating a `.keyx` keyfile
+        #[arg(long)]
+        no_key_file: bool,
+        /// Set or rotate the portable passphrase (reads SUSI_NEW_KDBX_PASSPHRASE, stdin, or prompt)
+        #[arg(long)]
+        with_passphrase: bool,
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Act as Git's `gpg.program` (auto-primes GPG passphrase before executing real gpg)
+    GpgProgram {
+        /// Arguments forwarded verbatim to real `gpg`
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -3188,6 +3188,11 @@ Commands:
   migrate-cloud-env  Migrate plaintext ~/.susi/cloud.env entries into ~/.susi/vault.sealed.json
   init-cloud-key     Write a cloud/container bootstrap key (0600) for SUSI_VAULT_KEY_FILE / Kubernetes Secret
   exec               Run a child command with scoped secrets from the sealed vault injected directly into its env
+  doctor             Diagnose cross-OS KeePassXC, keystore, D-Bus, Qt headless, GPG, and SSH signing readiness
+  prime-signing      Prime GPG and SSH signing agents from the sealed vault (`signing` scope)
+  setup-git          Install the cross-OS `susi-gpg` wrapper and remediate Git `.gitconfig` signing paths
+  rekey              Re-key an existing .kdbx database (e.g. Windows DPAPI) into a portable .keyx/passphrase vault
+  gpg-program        Act as Git's `gpg.program` (auto-primes GPG passphrase before executing real gpg)
   help               Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3257,6 +3262,59 @@ Arguments:
 Options:
       --client <CLIENT>  Client allowlist profile: claude, codex, gemini, gh, hf, vibe, cloud, commercial, or all
   -h, --help             Print help
+
+=== susi keys vault doctor ===
+Diagnose cross-OS KeePassXC, keystore, D-Bus, Qt headless, GPG, and SSH signing readiness
+
+Usage: susi keys vault doctor [OPTIONS]
+
+Options:
+      --json  Output structured JSON
+  -h, --help  Print help
+
+=== susi keys vault prime-signing ===
+Prime GPG and SSH signing agents from the sealed vault (`signing` scope)
+
+Usage: susi keys vault prime-signing [OPTIONS]
+
+Options:
+      --gpg-only  Only preset GPG passphrase without touching SSH agent
+      --json      Output structured JSON
+  -h, --help      Print help
+
+=== susi keys vault setup-git ===
+Install the cross-OS `susi-gpg` wrapper and remediate Git `.gitconfig` signing paths
+
+Usage: susi keys vault setup-git [OPTIONS]
+
+Options:
+      --gpgsign  Also enable `commit.gpgsign = true` in global Git config
+      --json     Output structured JSON
+  -h, --help     Print help
+
+=== susi keys vault rekey ===
+Re-key an existing .kdbx database (e.g. Windows DPAPI) into a portable .keyx/passphrase vault
+
+Usage: susi keys vault rekey [OPTIONS]
+
+Options:
+      --db <DB>                      KeePassXC .kdbx database path
+      --key-file-out <KEY_FILE_OUT>  Destination path for the portable `.keyx` sidecar keyfile
+      --no-key-file                  Re-key to portable passphrase only without generating a `.keyx` keyfile
+      --with-passphrase              Set or rotate the portable passphrase (reads SUSI_NEW_KDBX_PASSPHRASE, stdin, or prompt)
+      --json                         Output structured JSON
+  -h, --help                         Print help
+
+=== susi keys vault gpg-program ===
+Act as Git's `gpg.program` (auto-primes GPG passphrase before executing real gpg)
+
+Usage: susi keys vault gpg-program [ARGS]...
+
+Arguments:
+  [ARGS]...  Arguments forwarded verbatim to real `gpg`
+
+Options:
+  -h, --help  Print help
 
 === susi select-model ===
 Select or override active model

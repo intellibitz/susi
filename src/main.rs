@@ -267,6 +267,9 @@ fn guarded_worker_invocation(args: &[String]) -> bool {
 }
 
 fn main() -> std::process::ExitCode {
+    if let Some(status) = susi_config::keepass_bridge::dispatch_gpg_program_multicall() {
+        return status;
+    }
     if let Some(status) = cli::install_cli::installed_channel::dispatch() {
         return status;
     }

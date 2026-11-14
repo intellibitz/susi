@@ -1,0 +1,24 @@
+{
+  "id": "T-ANTIGRAVITYKDBXCORE-1",
+  "title": "Fix cross-OS KeePassXC KDBX unlock, sidecar discovery, headless Qt, D-Bus fallback, and signing keys on CachyOS/Mint",
+  "goal": "Fix Windows-only KDBX/signing failures on Linux CachyOS and Mint",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "ANTIGRAVITYKDBXCORE",
+  "created_unix": 1794631386,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Checked crates/susi-config/src/{keepass_bridge.rs, vault_store.rs, json_util.rs}, src/cli/{defs.rs, keys_cli.rs}, src/main.rs, and tests/fixtures/cli_help_snapshot.txt.",
+    "reason": "Extends the existing KeePassXC bridge, sealed vault store, and susi keys CLI rather than adding external dependencies or duplicate vault/signing modules."
+  }
+}
