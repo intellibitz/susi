@@ -19,6 +19,11 @@
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794700671,
+    "commit": "ba50fc99238f6ac84848cad905f1202437b073c5",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Production stage (GMCP-203-012-02) implements and verifies all subscription filter/cap/lag/re-check invariants, progress token validation/uniqueness/monotonicity/cancellation guards, request-correlated RFC 5424 operational logging with stream isolation/cap/redaction/size-bounds, SEP-2577 legacy/modern gating, and Streamable HTTP SSE routing across stdio, embedded adapter, and live HTTP /mcp; full cross-vector integration, adversarial fuzz/exhaustion, interop benchmark, and operations runbook suites remain in T-CODEXGMCPROADMAP-95..98.",
     "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are created and sealed by T-CODEXGMCPROADMAP-99 once requirements 01-06 land; existing retained VC-203-*.jsonl evidence records are updated via Two-Phase Evidence against this commit."
