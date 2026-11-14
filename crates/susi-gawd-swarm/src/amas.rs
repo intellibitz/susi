@@ -90,13 +90,8 @@ impl CapabilityBloom {
 
     pub fn from_hex(hex: &str) -> Self {
         let mut bloom = Self::default();
-        let bytes = hex.as_bytes();
-        for (i, word) in bloom.0.iter_mut().enumerate() {
-            let start = i * 16;
-            if start + 16 > bytes.len() {
-                break;
-            }
-            if let Ok(s) = std::str::from_utf8(&bytes[start..start + 16]) {
+        for (word, chunk) in bloom.0.iter_mut().zip(hex.as_bytes().chunks_exact(16)) {
+            if let Ok(s) = std::str::from_utf8(chunk) {
                 *word = u64::from_str_radix(s, 16).unwrap_or(0);
             }
         }
@@ -243,12 +238,7 @@ fn our_gmcp_http_port() -> u16 {
 }
 
 fn scout_socket(wide: bool) -> std::io::Result<UdpSocket> {
-    let ip = if wide {
-        std::net::Ipv4Addr::UNSPECIFIED
-    } else {
-        std::net::Ipv4Addr::LOCALHOST
-    };
-    let socket = UdpSocket::bind((ip, 0))?;
+    let socket = UdpSocket::bind(if wide { "0.0.0.0:0" } else { "127.0.0.1:0" })?;
     socket.set_broadcast(wide)?;
     socket.set_read_timeout(Some(Duration::from_millis(500)))?;
     Ok(socket)
@@ -778,35 +768,29 @@ impl SusiSupervisor {
                                 {
                                     continue;
                                 }
-                                let parts: Vec<&str> = msg.split(':').collect();
-                                let caps = if parts.len() > 1 {
-                                    parts[1].split(',').map(|s| s.to_string()).collect()
-                                } else {
-                                    vec!["CORE".into()]
-                                };
-
-                                let checksum = if parts.len() > 2 {
-                                    parts[2].parse::<u64>().unwrap_or(0)
-                                } else {
-                                    0
-                                };
-
-                                let peer_bloom = if parts.len() > 3 {
-                                    CapabilityBloom::from_hex(parts[3])
-                                } else {
-                                    CapabilityBloom::default()
-                                };
+                                let mut parts = msg.split(':').skip(1);
+                                let caps = parts
+                                    .next()
+                                    .unwrap_or("CORE")
+                                    .split(',')
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>();
+                                let value = parts.next().unwrap_or_default();
+                                let checksum = value.parse::<u64>().unwrap_or_default();
+                                let peer_bloom = parts
+                                    .next()
+                                    .map(CapabilityBloom::from_hex)
+                                    .unwrap_or_default();
 
                                 let mut peers = t_shared.write();
                                 // `SUSI_LAN_PONG:<id>:<gmcp_port>` announces
                                 // the peer's effective GMCP port — the uniform
                                 // offset means their HTTP alias is +3.
                                 let peer_http = if msg.starts_with("SUSI_LAN_PONG") {
-                                    parts
-                                        .get(2)
-                                        .and_then(|p| p.parse::<u16>().ok())
-                                        .map(|g| g.saturating_add(3))
-                                        .unwrap_or_else(our_gmcp_http_port)
+                                    value.parse::<u16>().map_or_else(
+                                        |_| our_gmcp_http_port(),
+                                        |g| g.saturating_add(3),
+                                    )
                                 } else {
                                     our_gmcp_http_port()
                                 };
