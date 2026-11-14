@@ -27,18 +27,9 @@ fn isolated(program: &str, home: &Path) -> Command {
             cmd.env(name, value);
         }
     }
-    for name in [
-        "HOME",
-        "USERPROFILE",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "XDG_CONFIG_HOME",
-        "SUSI_HOME",
-    ] {
-        cmd.env(name, home);
-    }
+    cmd.env("SUSI_HOME", home);
+    susi_paths::test_env::isolate_home(&mut cmd, home);
     cmd.env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("SUSI_AGENT", "mission-test")
         .env("GIT_TERMINAL_PROMPT", "0");
     cmd

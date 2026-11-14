@@ -12,6 +12,7 @@
     "crates/susi-core/src/registry.rs",
     "crates/susi-gawd-swarm/src/ama/master.rs",
     "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    "crates/susi-harness/tests/mission_no_replay.rs",
     "crates/susi-vendor-winapi/src/file_replace.rs",
     "crates/susi-vendor-winapi/src/lib.rs",
     "docs/step1-acceptance.md",
