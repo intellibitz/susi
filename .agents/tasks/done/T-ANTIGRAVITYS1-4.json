@@ -20,6 +20,11 @@
   },
   "created_by": "ANTIGRAVITYS1",
   "created_unix": 1794687370,
+  "closed": {
+    "at_unix": 1794688531,
+    "commit": "2a42537ea69047b618049031c4d208317546250e",
+    "by": "ANTIGRAVITYS1"
+  },
   "reuse": {
     "decision": "existing",
     "reason": "Fixed existing InferenceRouter placement selection, symmetric preferred_cloud matching, and FailureKind vendor/model cooldown scoping in engines::routing while net-reducing susi-gemi shipped lines below lean-core ceilings with zero new dependencies.",
