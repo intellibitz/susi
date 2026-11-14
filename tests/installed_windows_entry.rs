@@ -2,6 +2,9 @@
 //! releases. Fixture receipts exercise dispatch only; production qualification is separate.
 #![cfg(windows)]
 #![cfg_attr(test, allow(clippy::unwrap_used))] // Fixture setup and Windows assertions must fail the test immediately.
+
+// Shared test helpers fail on missing fixtures or stalled child processes.
+#[allow(clippy::expect_used, clippy::panic)]
 mod common;
 use sha2::{Digest, Sha256};
 use std::fs;
