@@ -23,6 +23,11 @@
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794694549,
+    "commit": "4f0ecc4ac5c9b37ffe4687df9e4c63d1a8e82400",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Contract stage (GMCP-203-012-01) pins all 57 VC-203-012 normative rows, source revisions/hashes, canonical types/APIs, threat mitigations, resource bounds, positive/negative fixtures, resolved ambiguities, and evidence targets in docs/gmcp/contract-203-012.md without implementing or claiming runtime enforcement of T-CODEXGMCPROADMAP-94..98 delta invariants.",
     "Immutable signed evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are generated and sealed once production, integration, adversarial, interop, and operations work packages (T-CODEXGMCPROADMAP-94..99) land."
