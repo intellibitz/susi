@@ -28,6 +28,8 @@
       "admin::release"
     ]
   },
+  "status": "retired",
+  "retired_reason": "Target module crates/susi-gawd/src/admin/release.rs was removed from open core during the developer-workflow extraction in commit e9914677a (leaving admin::release with 0 tests).",
   "created_by": "CLAUDERELCUT",
   "created_unix": 1793965093
 }
