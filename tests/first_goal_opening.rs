@@ -26,7 +26,7 @@ fn run_git(dir: &std::path::Path, args: &[&str]) {
     );
 }
 
-fn opening(args: &[&str], input: &[u8]) -> (String, String) {
+fn new_scratch() -> std::path::PathBuf {
     let scratch = std::env::temp_dir().join(format!(
         "susi-first-goal-{}-{}",
         std::process::id(),
@@ -35,6 +35,12 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             .unwrap()
             .as_nanos()
     ));
+    std::fs::create_dir(&scratch).unwrap();
+    scratch
+}
+
+fn opening(args: &[&str], input: &[u8]) -> (String, String) {
+    let scratch = new_scratch();
     let home = scratch.join("home");
     let board_bare = scratch.join("board.git");
     let primary = scratch.join("primary");
@@ -182,6 +188,54 @@ fn piped_goal_runs_once_as_a_one_shot_mission() {
     );
     assert!(stdout.contains("maple-2851"), "{stdout}");
     assert_eq!(stderr.matches("composition: cli").count(), 1, "{stderr}");
+}
+
+#[test]
+fn direct_user_reads_succeed_from_a_plain_folder_by_argument_and_stdin() {
+    let scratch = new_scratch();
+    let home = scratch.join("home");
+    let folder = scratch.join("documents");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("answer.txt"), "maple-2851").unwrap();
+    let goal = "Read answer.txt and return its contents.";
+    for pipe in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
+        command.env_clear().current_dir(&folder);
+        for name in ["PATH", "SystemRoot", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        isolate_home(&mut command, &home);
+        command.env("SUSI_HOME", &home).env("SUSI_OFFLINE", "1");
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if !pipe {
+            command.arg(goal);
+        }
+        let mut child = command.spawn().unwrap();
+        if pipe {
+            writeln!(child.stdin.take().unwrap(), "{goal}").unwrap();
+        }
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("maple-2851"));
+        let trace: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(folder.join(".susi/last_mission_trace.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(trace["status"], "SUCCESS");
+    }
+    assert!(!folder.join(".git").exists());
+    assert!(!home.join("substrate.pid").exists());
+    std::fs::remove_dir_all(scratch).unwrap();
 }
 
 #[test]

@@ -49,7 +49,7 @@ $script:now = @([pscustomobject]@{CreationDate=$null}); Check-Refused
 $script:queryError = $true; Check-Refused
 'PASS: 7 identity cases'
 "#;
-    let output = std::process::Command::new("powershell.exe")
+    let output = susi_paths::console::background_command("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .env(
             "SUSI_IDENTITY_HELPER",

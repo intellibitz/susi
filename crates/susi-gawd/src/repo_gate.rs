@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 
-use susi_build_policy as vendor_regressions;
+use susi_build_os_ucrt::policy as vendor_regressions;
 
 /// The three checks Mandate 48 / AGENTS.md require before promoting a change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

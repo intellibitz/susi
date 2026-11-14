@@ -6,6 +6,8 @@
 //! HTTP — internal `http://127.0.0.1` callers are unaffected.
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+/// The server TLS acceptor consumed by the shared negotiation functions.
+pub use tokio_rustls::TlsAcceptor;
 
 pub enum MaybeTls {
     Plain(tokio::net::TcpStream),
@@ -90,7 +92,7 @@ impl AsyncWrite for MaybeTls {
 pub async fn negotiate_transport(
     stream: tokio::net::TcpStream,
     remote: bool,
-    tls: Option<&tokio_rustls::TlsAcceptor>,
+    tls: Option<&TlsAcceptor>,
     require_tls_remote: bool,
     surface: &str,
 ) -> Option<MaybeTls> {
@@ -123,7 +125,7 @@ pub async fn bounded(
 pub async fn negotiate_unbounded(
     stream: tokio::net::TcpStream,
     remote: bool,
-    tls: Option<&tokio_rustls::TlsAcceptor>,
+    tls: Option<&TlsAcceptor>,
     require_tls_remote: bool,
     surface: &str,
 ) -> Option<MaybeTls> {
@@ -155,7 +157,7 @@ pub async fn negotiate_unbounded(
 pub fn negotiate_blocking(
     stream: std::net::TcpStream,
     remote: bool,
-    tls: Option<&tokio_rustls::TlsAcceptor>,
+    tls: Option<&TlsAcceptor>,
     require_tls_remote: bool,
     surface: &str,
 ) -> Option<crate::server::Io> {

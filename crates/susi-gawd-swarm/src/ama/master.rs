@@ -239,6 +239,7 @@ impl SusiMasterAgent {
             session,
             requires,
             chat,
+            true,
         );
         if report.is_success() {
             report.final_answer
@@ -290,6 +291,22 @@ impl SusiMasterAgent {
         self.solve_stream_report_with_model(goal, workspace, version, None, _callback)
     }
 
+    /// Answer a human's direct question in the caller's workspace. A request for
+    /// agent work stays on the collaborative mission path.
+    pub fn try_direct_user_answer(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        callback: &dyn Fn(String),
+    ) -> Option<SusiMissionReport> {
+        if !crate::susi_core::manifold::IntentManifold::is_direct_question(goal) {
+            return None;
+        }
+        let _user_request = crate::susi_core::provider::OnDemandEngineStart::allow();
+        Some(self.solve_stream_report_inner(goal, workspace, version, None, callback, true))
+    }
+
     /// `solve_stream_report` with an optional caller-requested model hint
     /// (`/v1/chat/completions` `model` field). The hint is advisory inside
     /// the governed pipeline: failover prioritizes a matching provider and
@@ -304,7 +321,7 @@ impl SusiMasterAgent {
         model_hint: Option<&str>,
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
-        self.solve_stream_report_inner(goal, workspace, version, model_hint, _callback)
+        self.solve_stream_report_inner(goal, workspace, version, model_hint, _callback, false)
     }
 
     #[allow(clippy::too_many_arguments)] // same shape as the public
@@ -316,6 +333,7 @@ impl SusiMasterAgent {
         version: &str,
         model_hint: Option<&str>,
         _callback: &dyn Fn(String),
+        direct_user_answer: bool,
     ) -> SusiMissionReport {
         let goal = match Self::sanitize_input(goal) {
             Ok(goal) => goal,
@@ -333,6 +351,16 @@ impl SusiMasterAgent {
                 return report;
             }
         };
+        if direct_user_answer
+            && crate::susi_core::manifold::IntentManifold::is_direct_question(&goal)
+        {
+            return self.solve_stream_report_body(
+                &goal,
+                workspace,
+                (version, model_hint, false),
+                _callback,
+            );
+        }
         // Work in an isolated linked Git worktree bound to a Susi Native Board
         // claim (never primary checkout, never main/master, never off-board).
         let mut board_session = match crate::begin_board_session(
@@ -358,8 +386,12 @@ impl SusiMasterAgent {
             }
         };
         let effective_ws = board_session.worktree.path().to_path_buf();
-        let mut report =
-            self.solve_stream_report_body(&goal, &effective_ws, (version, model_hint), &|_| {});
+        let mut report = self.solve_stream_report_body(
+            &goal,
+            &effective_ws,
+            (version, model_hint, true),
+            &|_| {},
+        );
         if let Err(err) = board_session.finish(report.is_success(), &report.final_answer) {
             report.status = "BLOCKED".to_string();
             report.final_answer = format!(
@@ -376,10 +408,10 @@ impl SusiMasterAgent {
         &self,
         goal: &str,
         workspace: &Path,
-        version_and_hint: (&str, Option<&str>),
+        run_options: (&str, Option<&str>, bool),
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
-        let (version, model_hint) = version_and_hint;
+        let (version, model_hint, allow_agent_delegation) = run_options;
         let goal = goal.to_string();
         // Phase lines for a watched call (`mission_run` with a progress
         // token); a no-op otherwise, so the CLI's output is unchanged.
@@ -791,13 +823,15 @@ impl SusiMasterAgent {
                 return cancelled_report(&goal, workspace, session.as_ref(), _callback);
             }
             if system_read.is_none() {
-                crate::cloud_recovery::recover(
+                crate::cloud_recovery::recover_with_chat(
                     &mut report,
                     workspace,
                     model_hint,
                     false,
                     session.clone(),
                     None,
+                    None,
+                    allow_agent_delegation,
                 );
             }
             if crate::susi_core::progress::is_cancelled() {

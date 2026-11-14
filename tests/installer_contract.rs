@@ -453,6 +453,9 @@ trap 'rm -rf "$scratch"' EXIT
 export HOME="$scratch/home" SUSI_HOME="$scratch/install" SUSI_RELEASE_REMOTE="$scratch/origin.git" SUSI_RELEASE_SRC="$scratch/src" SUSI_RELEASE_TARGET="$scratch/target" SUSI_RELEASE_IDLE_WAIT=0
 mkdir -p "$HOME"
 {tools}
+cat >"$scratch/posix-compat.sh" <<'COMPAT_EOF'
+{compat}
+COMPAT_EOF
 cat >"$scratch/release-sync.sh" <<'SYNC_EOF'
 {RELEASE_SYNC}
 SYNC_EOF
@@ -470,6 +473,7 @@ test ! -e "$SUSI_HOME/bin/susi"
 printf '%s\n' "$status" >"$scratch/status"
 "#,
             tools = fake_tools_with_record(&record),
+            compat = include_str!("../scripts/posix-compat.sh"),
             RELEASE_SYNC = RELEASE_SYNC,
             args = args,
             success = success,

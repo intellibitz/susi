@@ -298,7 +298,13 @@ fn the_sccache_server_is_started_from_the_real_environment_before_the_switch() {
     let fake = w.bins.join("sccache");
     std::fs::write(
         &fake,
-        "#!/usr/bin/env bash\necho \"sccache $* TMP=${TMP:-} DIR=${SCCACHE_DIR:-} SIZE=${SCCACHE_CACHE_SIZE:-} IDLE=${SCCACHE_IDLE_TIMEOUT:-}\" >>\"$TEST_CARGO_CALLS\"\nexit 0\n",
+        r#"#!/usr/bin/env bash
+tmp=${TMP:-}
+case "$OSTYPE" in
+    msys*|cygwin*) tmp=$(cygpath -am "$tmp") || exit 1 ;;
+esac
+echo "sccache $* TMP=$tmp DIR=${SCCACHE_DIR:-} SIZE=${SCCACHE_CACHE_SIZE:-} IDLE=${SCCACHE_IDLE_TIMEOUT:-}" >>"$TEST_CARGO_CALLS"
+"#,
     )
     .unwrap();
     #[cfg(unix)]
@@ -342,12 +348,10 @@ fn the_sccache_server_is_started_from_the_real_environment_before_the_switch() {
         "the server must be started before any cargo: {calls}"
     );
     let started = lines[server];
-    // The shell may spell TMP its own way (MSYS turns a Windows path into a
-    // POSIX one), and this test itself may be running under the gate's own
-    // throwaway temp, so judge the directory's last name: the one this test
-    // passed in, not the run's `.../appdata/local/temp`.
+    // Git Bash can mount the supplied directory at /tmp. Resolve that mount
+    // from inside the mock server to compare the actual directory it saw.
     assert!(
-        started.contains("real-tmp DIR="),
+        started.contains(&format!("TMP={} DIR=", real_tmp_s.replace('\\', "/"))),
         "the server must keep the real TMP, not the run's throwaway: {started}"
     );
     assert!(

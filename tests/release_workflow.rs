@@ -29,7 +29,7 @@ fn root() -> PathBuf {
 #[cfg(windows)]
 fn windows_release_promotion() {
     use std::io::Read;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
@@ -41,7 +41,7 @@ fn windows_release_promotion() {
     let scratch =
         std::env::temp_dir().join(format!("susi-release-promotion-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("create the regression's scratch directory");
-    let mut child = Command::new("powershell.exe")
+    let mut child = susi_paths::console::background_command("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",

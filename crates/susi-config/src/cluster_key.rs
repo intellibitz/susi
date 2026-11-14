@@ -863,7 +863,13 @@ fn unix_now() -> u64 {
 /// connected (which sends nothing) and its local address read back. Works
 /// for unicast, loopback and the limited broadcast address.
 pub fn route_source_ip(dest: std::net::SocketAddr) -> Option<std::net::IpAddr> {
-    let any: std::net::SocketAddr = if dest.is_ipv4() {
+    let any: std::net::SocketAddr = if dest.ip().is_loopback() {
+        if dest.is_ipv4() {
+            (std::net::Ipv4Addr::LOCALHOST, 0).into()
+        } else {
+            (std::net::Ipv6Addr::LOCALHOST, 0).into()
+        }
+    } else if dest.is_ipv4() {
         (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
     } else {
         (std::net::Ipv6Addr::UNSPECIFIED, 0).into()

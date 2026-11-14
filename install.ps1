@@ -164,6 +164,9 @@ if (-not $BuildProfile -or $BuildProfile -notmatch $Safe -or $Features -notmatch
     throw "releases/$Tag.json has no usable build profile or features."
 }
 $CargoArgs = @('build', '--locked', '--profile', $BuildProfile, '-p', 'susi', '--bin', 'susi')
+$InstallService = $Service -and -not $IsolatedInstall
+$HasBackgroundLauncher = Test-Path -LiteralPath (Join-Path $Src 'src\bin\susi-background.rs') -PathType Leaf
+if ($InstallService -and $HasBackgroundLauncher) { $CargoArgs += @('--bin', 'susi-background') }
 if ($Features) { $CargoArgs += @('--features', $Features) }
 $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $GlobalDir 'build-cache\release-sync' }
 New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
@@ -241,13 +244,25 @@ if (-not $IsolatedInstall -and $GlobalBinDir -notin ($UserPath -split ';')) {
 if ($GlobalBinDir -notin ($env:Path -split ';')) { $env:Path = "$GlobalBinDir;$env:Path" }
 
 # 4. Optional Service Registration
-if ($Service -and -not $IsolatedInstall) {
+if ($InstallService) {
     Write-Host "[susi] Registering Windows Scheduled Task for background daemon service..." -ForegroundColor Cyan
     try {
         $TaskName = "susi-daemon"
-        $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "start"
+        if ($HasBackgroundLauncher) {
+            $ServiceExe = Join-Path $GlobalBinDir 'susi-background.exe'
+            Copy-Item -LiteralPath (Join-Path $TargetDir "$OutDir\susi-background.exe") -Destination $ServiceExe -Force
+            $Action = New-ScheduledTaskAction -Execute $ServiceExe
+        } else {
+            # A GUI script host starts a console-only release hidden and returns
+            # its exit status while using the same interactive logon token.
+            $Compat = Join-Path $GlobalBinDir 'susi-logon.js'
+            $Script = 'try { WScript.Quit(new ActiveXObject("WScript.Shell").Run(".\\susi.exe start", 0, true)); } catch (error) { WScript.Quit(1); }'
+            [IO.File]::WriteAllText($Compat, $Script, [Text.Encoding]::ASCII)
+            $HostExe = Join-Path ([Environment]::SystemDirectory) 'wscript.exe'
+            $Action = New-ScheduledTaskAction -Execute $HostExe -WorkingDirectory $GlobalBinDir -Argument ('//B //NoLogo "' + $Compat + '"')
+        }
         $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Limited
+        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
         Write-Host "  Registered Susi to start at logon." -ForegroundColor Green
     } catch {

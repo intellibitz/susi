@@ -281,6 +281,27 @@ pub fn atomic_replace_unsynced(path: &Path, bytes: &[u8]) -> std::io::Result<()>
     replace_bytes(path, bytes, false)
 }
 
+/// Read one complete snapshot of a file published by atomic replacement.
+/// On Windows a lookup that raced replacement can point to the retired file
+/// (ERROR_ACCESS_DENIED or ERROR_FILE_NOT_FOUND). Reopen the path
+/// a bounded number of times; a persistent permission error is returned.
+pub fn read_atomic_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    #[cfg(windows)]
+    for attempt in 0..4 {
+        match fs::read(path) {
+            Err(error) if matches!(error.raw_os_error(), Some(2 | 5)) => {
+                if attempt == 0 {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+            result => return result,
+        }
+    }
+    fs::read(path)
+}
+
 fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
     use std::io::Write;
     let dir = match path.parent() {
@@ -307,6 +328,9 @@ fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
         .write_all(bytes)
         .and_then(|()| if sync { file.sync_all() } else { Ok(()) });
     drop(file);
+    #[cfg(windows)]
+    let result = result.and_then(|()| winapi::file_replace::replace_staged(&tmp_path, path));
+    #[cfg(not(windows))]
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp_path);
@@ -577,7 +601,7 @@ mod tests {
             }
             ready.wait();
             loop {
-                let bytes = fs::read(&path).unwrap();
+                let bytes = read_atomic_bytes(&path).unwrap();
                 assert_eq!(bytes.len(), LENGTH);
                 assert!((b'0'..=b'4').contains(&bytes[0]));
                 assert!(bytes.iter().all(|byte| *byte == bytes[0]));
@@ -588,6 +612,19 @@ mod tests {
             }
         });
         assert_eq!(entries(&dir), ["endpoint.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_atomic_bytes_returns_persistent_access_errors() {
+        let dir = scratch("atomic-read-directory");
+        let expected = fs::read(&dir).unwrap_err();
+        assert_eq!(expected.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            read_atomic_bytes(&dir).unwrap_err().raw_os_error(),
+            expected.raw_os_error()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

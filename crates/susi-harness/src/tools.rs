@@ -539,7 +539,7 @@ fn withheld_variables() -> Vec<&'static str> {
 fn run_shell(workspace: &Path, cmd_str: &str, withheld: &[&str]) -> String {
     let mut command = if cfg!(windows) {
         let mut c = Command::new("powershell");
-        c.arg("-NoProfile").arg("-Command").arg(cmd_str);
+        c.args(["-NoProfile", "-NonInteractive", "-Command", cmd_str]);
         c
     } else {
         let mut c = Command::new("sh");
@@ -629,7 +629,7 @@ fn run_with_deadline(command: Command) -> Result<std::process::Output, String> {
 /// The deadline itself, so a test can prove a hung command returns instead of
 /// blocking the worker.
 fn run_with_limit(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
-    let mut child = command
+    let mut child = susi_paths::console::without_window(&mut command)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -754,6 +754,10 @@ fn tool_list_dir(workspace: &Path, args: &Value) -> String {
         entries.join("\n")
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "tests/tools_window.rs"]
+mod tools_window;
 
 #[cfg(test)]
 mod tests {

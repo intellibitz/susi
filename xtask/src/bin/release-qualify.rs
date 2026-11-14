@@ -1,6 +1,6 @@
 //! Native exact-tree release qualification (`docs/releases.md`).
 //!
-//! `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--from-distill <name>]
+//! `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z [--from-distill <name>]
 //! [--jobs N] [--verify-only]`, from a clean checkout of the release tree whose
 //! package version is X.Y.Z. With `--from-distill <name>` the tree must be the
 //! accept-verified distilled candidate `release/<name>` plus only its version
@@ -573,10 +573,30 @@ fn summarize_startup_gate_json(stdout: &[u8]) -> Result<(Value, String), String>
         .as_str()
         .unwrap_or("susi-startup-gate-v2")
         .to_owned();
+    let goal_cases = [
+        "goal_first_output_daemon_down",
+        "goal_completion_daemon_down",
+        "goal_first_output_daemon_up",
+        "goal_completion_daemon_up",
+    ];
+    let cases = report["cases"].as_array().ok_or("missing startup cases")?;
+    for name in goal_cases {
+        if !cases.iter().any(|case| {
+            case["name"] == name
+                && case["pass"] == true
+                && case["median_ms"].as_f64().is_some()
+                && case["samples_ms"]
+                    .as_array()
+                    .is_some_and(|samples| !samples.is_empty())
+        }) {
+            return Err(format!("missing passing startup measurement for {name}"));
+        }
+    }
     let summary = json!({
         "schema": schema,
         "pass": true,
         "floor_ms": report["floor"]["median_ms"],
+        "cases": cases,
     });
     Ok((summary, schema))
 }
@@ -614,8 +634,6 @@ fn run_startup_gate(
         "--".to_owned(),
         "--susi".to_owned(),
         dist_susi.display().to_string(),
-        "--home".to_owned(),
-        startup_home.display().to_string(),
         "--runs".to_owned(),
         "5".to_owned(),
     ]);
@@ -624,8 +642,6 @@ fn run_startup_gate(
         "--".to_owned(),
         "--susi".to_owned(),
         recorded_susi,
-        "--home".to_owned(),
-        "<private>/startup-home".to_owned(),
         "--runs".to_owned(),
         "5".to_owned(),
     ]);
@@ -1449,8 +1465,16 @@ mod tests {
             ]
         );
 
-        let startup_ok = br#"{"schema":"susi-startup-gate-v2","pass":true,"floor":{"median_ms":2.13},"cases":[]}"#;
-        let (summary, schema) = super::summarize_startup_gate_json(startup_ok).unwrap();
+        let skipped = br#"{"schema":"susi-startup-gate-v2","pass":true,"floor":{"median_ms":2.13},"cases":[]}"#;
+        assert!(super::summarize_startup_gate_json(skipped).is_err());
+        let cases: Vec<_> = ["daemon_down", "daemon_up"].into_iter().flat_map(|state| {
+            ["first_output", "completion"].map(|phase|
+                serde_json::json!({"name": format!("goal_{phase}_{state}"), "pass": true, "median_ms": 21.0, "samples_ms": [21.0]})
+            )
+        }).collect();
+        let startup_ok = serde_json::json!({"schema":"susi-startup-gate-v2","pass":true,"floor":{"median_ms":2.13},"cases":cases});
+        let (summary, schema) =
+            super::summarize_startup_gate_json(&serde_json::to_vec(&startup_ok).unwrap()).unwrap();
         assert_eq!(schema, "susi-startup-gate-v2");
         assert_eq!(summary["pass"], true);
         assert_eq!(summary["floor_ms"], 2.13);

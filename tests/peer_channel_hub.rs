@@ -76,14 +76,17 @@ fn block_free(offset: u16) -> bool {
     })
 }
 
-/// Free contract blocks at offsets of 2100 and up (to 3500), `n` of them,
+/// Free contract blocks at offsets 2100 through 20000, `n` of them,
 /// skipping `taken`. The scan starts at a per-process point so concurrent
 /// test processes rarely probe the same block first.
 fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     // `port_fallback` owns the 0..=2000 range while the workspace gate runs
     // binaries in parallel; keep this fixture in a disjoint range so its
     // availability probe cannot race that test's daemon.
-    let slots: Vec<u16> = (21..=35u16).map(|k| k * 100).collect();
+    // Concurrent checkouts keep their reservations until their test processes
+    // exit. Use the wider range of service ports below 30000 so several
+    // four-node fixtures and host-reserved Windows port ranges can coexist.
+    let slots: Vec<u16> = (21..=200u16).map(|k| k * 100).collect();
     let start = (std::process::id() as usize) % slots.len();
     // Each block is reserved machine-wide until this test process exits, so
     // another agent's gate running this test never starts a daemon on it.
@@ -99,7 +102,7 @@ fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     assert_eq!(
         found.len(),
         n,
-        "no {n} free port blocks between offsets 500 and 1900"
+        "needed {n} free port blocks between offsets 2100 and 20000, reserved {found:?}"
     );
     found
 }
@@ -975,9 +978,9 @@ fn binds(node: &Node, other: &Node) -> bool {
         .is_some_and(|r| r["pubkey"] == other.pubkey.as_str())
 }
 
-/// `susi peers add <endpoint>` as `node`, repeated until the local node has
-/// accepted the hub (the hub's own admission is asserted by the caller after
-/// this returns; its leader election and response may run on a cadence).
+/// `susi peers add <endpoint>` as `node`, repeated until the hub confirms
+/// the remote admission. A local binding succeeds before a new hub has
+/// elected a leader and the CLI explicitly asks the operator to retry.
 fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     let deadline = Instant::now() + limit;
     loop {
@@ -1010,7 +1013,9 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
             }
             panic!("peers add as {} failed: {stdout}{stderr}", node.name);
         }
-        if stdout.contains("verified + admitted over the sealed peer channel") {
+        if stdout.contains("admitted this node (")
+            || stdout.contains("this node's own admission is already in its ledger")
+        {
             return format!("{stdout}{stderr}");
         }
         assert!(

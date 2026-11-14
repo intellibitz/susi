@@ -893,6 +893,7 @@ printf 'released=%s\n' "$released_with_push" >> log
 #[cfg(unix)]
 #[path = "../src/test_fixture_fs.rs"]
 mod test_fixture_fs;
+#[cfg(unix)]
 use test_fixture_fs::copy_dir_all;
 
 #[cfg(unix)]

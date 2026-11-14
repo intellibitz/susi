@@ -479,10 +479,10 @@ struct Variant {
 /// Variants of `enum <name>` in a rustfmt-formatted source file: 4-space
 /// indented PascalCase lines, named by a preceding `#[command(name = ..)]`
 /// or by clap's kebab-case default.
-fn enum_variants(source: &str, name: &str) -> Vec<Variant> {
+fn enum_variants(source: &str, declaration: &str) -> Vec<Variant> {
     let start = source
-        .find(&format!("enum {name} {{"))
-        .unwrap_or_else(|| panic!("enum {name} not found"));
+        .find(declaration)
+        .unwrap_or_else(|| panic!("CLI declaration {declaration} not found"));
     let mut variants: Vec<Variant> = Vec::new();
     let mut attrs = String::new();
     let mut subcommand_attr = false;
@@ -608,7 +608,9 @@ fn cli_commands() -> Vec<String> {
     );
     let mut keys = vec![GOAL_KEY.to_string()];
     let mut moved_sources = 0usize;
-    let top_variants = enum_variants(&defs, "Commands");
+    // The same macro invocation supplies the executable Commands enum and
+    // the lightweight root help. Its input holds the real variant attributes.
+    let top_variants = enum_variants(&defs, "public_commands! {");
     assert!(
         !top_variants.is_empty(),
         "src/cli/defs.rs `Commands` enum yielded zero variants"
@@ -630,7 +632,7 @@ fn cli_commands() -> Vec<String> {
             Some(module) => cli_module_source(module, &mut moved_sources),
             None => defs.clone(),
         };
-        let subs = enum_variants(&source, enum_name);
+        let subs = enum_variants(&source, &format!("enum {enum_name} {{"));
         assert!(!subs.is_empty(), "{} has no subcommands", variant.cli);
         for sub in subs {
             let key = format!("{} {}", variant.cli, sub.cli);
@@ -650,7 +652,7 @@ fn cli_commands() -> Vec<String> {
                 Some(module) => cli_module_source(module, &mut moved_sources),
                 None => source.clone(),
             };
-            let nested = enum_variants(&nested_source, nested_enum);
+            let nested = enum_variants(&nested_source, &format!("enum {nested_enum} {{"));
             assert!(!nested.is_empty(), "{key} has no subcommands");
             if sub.optional {
                 keys.push(key.clone());

@@ -319,7 +319,7 @@ fn descendant_command(marker: &std::path::Path) -> Vec<String> {
 
 #[cfg(windows)]
 fn observe_windows_descendant(dir: &std::path::Path, pids: &str) -> std::process::Child {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let mut fields = pids.split_whitespace();
     let _parent_pid = fields.next().unwrap().parse::<u32>().unwrap();
     let child_pid = fields.next().unwrap().parse::<u32>().unwrap();
@@ -346,7 +346,7 @@ fn observe_windows_descendant(dir: &std::path::Path, pids: &str) -> std::process
            $child.Dispose() \
          }}"
     );
-    let mut observer = Command::new("powershell.exe")
+    let mut observer = susi_paths::console::background_command("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -388,9 +388,9 @@ struct UnrelatedTestProcess(std::process::Child);
 #[cfg(windows)]
 impl UnrelatedTestProcess {
     fn start() -> Self {
-        use std::process::{Command, Stdio};
+        use std::process::Stdio;
         Self(
-            Command::new("powershell.exe")
+            susi_paths::console::background_command("powershell.exe")
                 .args([
                     "-NoProfile",
                     "-NonInteractive",

@@ -150,17 +150,29 @@ pub fn tcp_bind_addrs(bind_address: &str, port: u16) -> Vec<String> {
     addrs
 }
 
-/// The UDP addresses a block port is probed on. A2A discovery and gossip
-/// both bind `bind_address`; the wildcard is probed as well because a
-/// foreign program holding the port on the wildcard would still share it
-/// (Windows lets a specific bind sit beside another process's wildcard
-/// bind), so such a port counts as held.
-fn udp_bind_addrs(bind_address: &str, port: u16) -> Vec<String> {
-    let mut addrs = vec![format!("{bind_address}:{port}")];
-    if bind_address != "0.0.0.0" {
-        addrs.push(format!("0.0.0.0:{port}"));
-    }
-    addrs
+/// A Windows specific-address bind may succeed beside another process's
+/// wildcard socket. Inspect the socket table for that holder without
+/// opening an inbound wildcard port on behalf of a loopback-only daemon.
+#[cfg(windows)]
+fn udp_wildcard_free(port: u16) -> bool {
+    let mut cmd = susi_paths::console::background_command("netstat");
+    cmd.args(["-an", "-p", "udp"]);
+    let Ok(output) =
+        susi_core::bounded_cmd::output_within(&mut cmd, std::time::Duration::from_secs(10))
+    else {
+        return false;
+    };
+    output.status.success()
+        && !String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            fields
+                .next()
+                .is_some_and(|protocol| protocol.eq_ignore_ascii_case("UDP"))
+                && fields
+                    .next()
+                    .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok())
+                    .is_some_and(|addr| addr.ip().is_unspecified() && addr.port() == port)
+        })
 }
 
 /// Whether `port` would bind on every address the daemon uses for it. Each
@@ -171,9 +183,13 @@ pub fn bind_free(bind_address: &str, port: u16, proto: Proto) -> bool {
         Proto::Tcp => tcp_bind_addrs(bind_address, port)
             .iter()
             .all(|addr| std::net::TcpListener::bind(addr.as_str()).is_ok()),
-        Proto::Udp => udp_bind_addrs(bind_address, port)
-            .iter()
-            .all(|addr| std::net::UdpSocket::bind(addr.as_str()).is_ok()),
+        Proto::Udp => {
+            #[cfg(windows)]
+            if !matches!(bind_address, "0.0.0.0" | "::") && !udp_wildcard_free(port) {
+                return false;
+            }
+            std::net::UdpSocket::bind((bind_address, port)).is_ok()
+        }
     }
 }
 

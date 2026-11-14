@@ -11,24 +11,7 @@
 use crate::executor::GawdA2AExecutor;
 use crate::protocol::{AgentExecutor, EventQueue, RequestContext};
 use crate::protocol::{Message, Part, TaskState};
-
-/// Drives a future to completion on the bare test thread.
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-    fn clone(_: *const ()) -> RawWaker {
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-    fn noop(_: *const ()) {}
-    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
-    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
-    let mut cx = Context::from_waker(&waker);
-    let mut fut = std::pin::pin!(fut);
-    loop {
-        if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
-            return v;
-        }
-    }
-}
+use susi_core::provider::block_on;
 
 /// Task identity is preserved: task_id and context_id do not change through
 /// execution, allowing recovery layers to match responses to requests.

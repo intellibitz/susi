@@ -4,28 +4,7 @@ use crate::protocol::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-/// Drives a future to completion on the bare test thread. The fleet's
-/// inference path internally creates a `tokio::runtime::Runtime` and calls
-/// `block_on`, which panics when invoked from inside any tokio runtime —
-/// so `#[tokio::test]` is unusable here.
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-    fn clone(_: *const ()) -> RawWaker {
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-    fn noop(_: *const ()) {}
-    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
-    // Safe: the RawWaker's functions are no-ops over a null data pointer.
-    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
-    let mut cx = Context::from_waker(&waker);
-    let mut fut = std::pin::pin!(fut);
-    loop {
-        if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
-            return v;
-        }
-    }
-}
+use susi_core::provider::block_on;
 
 #[test]
 fn orchestrator_capabilities_advertise_streaming_and_push() {

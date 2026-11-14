@@ -19,9 +19,8 @@ use std::{
 };
 use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
 use susi_http_transport::http_conn::TokioIo;
-use tokio_rustls::TlsAcceptor;
 
-use susi_http_transport::dual_transport::negotiate_transport;
+use susi_http_transport::dual_transport::{negotiate_transport, TlsAcceptor};
 use susi_http_transport::http_conn;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;

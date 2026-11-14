@@ -90,13 +90,8 @@ impl CapabilityBloom {
 
     pub fn from_hex(hex: &str) -> Self {
         let mut bloom = Self::default();
-        let bytes = hex.as_bytes();
-        for (i, word) in bloom.0.iter_mut().enumerate() {
-            let start = i * 16;
-            if start + 16 > bytes.len() {
-                break;
-            }
-            if let Ok(s) = std::str::from_utf8(&bytes[start..start + 16]) {
+        for (word, chunk) in bloom.0.iter_mut().zip(hex.as_bytes().as_chunks::<16>().0) {
+            if let Ok(s) = std::str::from_utf8(chunk) {
                 *word = u64::from_str_radix(s, 16).unwrap_or(0);
             }
         }
@@ -242,6 +237,13 @@ fn our_gmcp_http_port() -> u16 {
         .unwrap_or(susi_paths::ports::GMCP_HTTP)
 }
 
+fn scout_socket(wide: bool) -> std::io::Result<UdpSocket> {
+    let socket = UdpSocket::bind(if wide { "0.0.0.0:0" } else { "127.0.0.1:0" })?;
+    socket.set_broadcast(wide)?;
+    socket.set_read_timeout(Some(Duration::from_millis(500)))?;
+    Ok(socket)
+}
+
 pub struct SusiSupervisor;
 
 /// One peer response collected before the consensus pass. The sender is the
@@ -310,11 +312,12 @@ impl SusiSupervisor {
                 // Host contract: UDP 9092 belongs to the daemon alone.
                 // Peer scouts bind an ephemeral port and talk *to* 9092.
                 let port = Self::get_udp_discovery_port();
-                let socket_res = UdpSocket::bind("0.0.0.0:0");
-                if let Ok(socket) = socket_res {
-                    let _ = socket.set_broadcast(true);
-                    let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
-
+                let lan_bind = crate::susi_config::SusiConfig::load_global()
+                    .ok()
+                    .and_then(|cfg| cfg.get::<String>("bind_address"))
+                    .is_some_and(|addr| !crate::susi_core::mcp_client::is_loopback_target(&addr));
+                let mut wide = false;
+                if let Ok(mut socket) = scout_socket(wide) {
                     // 4 KiB: a signed pong carries a gossip roster of
                     // hex-encoded `id@address;` entries (~80 B/member) —
                     // a 1 KiB buffer truncates pongs past ~12 members,
@@ -530,6 +533,27 @@ impl SusiSupervisor {
 
                         // host_only: no discovery datagram is read or sent.
                         let host_only = crate::susi_core::mac_policy::host_only_in_force();
+                        let explicit_remote = t_shared.read().iter().any(|peer| {
+                            peer.admission == PeerAdmission::Explicit
+                                && !crate::susi_core::mcp_client::is_loopback_target(&peer.address)
+                        });
+                        let need_wide = !host_only && (lan_bind || explicit_remote);
+                        if need_wide != wide {
+                            match scout_socket(need_wide) {
+                                Ok(next) => {
+                                    socket = next;
+                                    wide = need_wide;
+                                    pending_nonces.clear();
+                                    nonce_sent_at.clear();
+                                    accepted_pongs.clear();
+                                }
+                                Err(_) if !need_wide => return,
+                                Err(_) => {
+                                    std::thread::sleep(Duration::from_millis(500));
+                                    continue;
+                                }
+                            }
+                        }
                         if let (Ok((amt, src)), false) = (socket.recv_from(&mut buf), host_only) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             // Signed pong: peer proved it holds cluster.key and
@@ -744,35 +768,29 @@ impl SusiSupervisor {
                                 {
                                     continue;
                                 }
-                                let parts: Vec<&str> = msg.split(':').collect();
-                                let caps = if parts.len() > 1 {
-                                    parts[1].split(',').map(|s| s.to_string()).collect()
-                                } else {
-                                    vec!["CORE".into()]
-                                };
-
-                                let checksum = if parts.len() > 2 {
-                                    parts[2].parse::<u64>().unwrap_or(0)
-                                } else {
-                                    0
-                                };
-
-                                let peer_bloom = if parts.len() > 3 {
-                                    CapabilityBloom::from_hex(parts[3])
-                                } else {
-                                    CapabilityBloom::default()
-                                };
+                                let mut parts = msg.split(':').skip(1);
+                                let caps = parts
+                                    .next()
+                                    .unwrap_or("CORE")
+                                    .split(',')
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>();
+                                let value = parts.next().unwrap_or_default();
+                                let checksum = value.parse::<u64>().unwrap_or_default();
+                                let peer_bloom = parts
+                                    .next()
+                                    .map(CapabilityBloom::from_hex)
+                                    .unwrap_or_default();
 
                                 let mut peers = t_shared.write();
                                 // `SUSI_LAN_PONG:<id>:<gmcp_port>` announces
                                 // the peer's effective GMCP port — the uniform
                                 // offset means their HTTP alias is +3.
                                 let peer_http = if msg.starts_with("SUSI_LAN_PONG") {
-                                    parts
-                                        .get(2)
-                                        .and_then(|p| p.parse::<u16>().ok())
-                                        .map(|g| g.saturating_add(3))
-                                        .unwrap_or_else(our_gmcp_http_port)
+                                    value.parse::<u16>().map_or_else(
+                                        |_| our_gmcp_http_port(),
+                                        |g| g.saturating_add(3),
+                                    )
                                 } else {
                                     our_gmcp_http_port()
                                 };
@@ -870,7 +888,7 @@ impl SusiSupervisor {
                         // uses (one frame per source), so a captured copy
                         // never verifies from another host.
                         let mut dests = if host_only { Vec::new() } else { targets };
-                        if broadcast_due && !host_only {
+                        if broadcast_due && !host_only && lan_bind {
                             last_broadcast = std::time::Instant::now();
                             dests.push(format!("255.255.255.255:{port}"));
                         }

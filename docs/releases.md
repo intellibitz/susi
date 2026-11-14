@@ -82,8 +82,9 @@ qualified on the exact tree it ships (CEO mandate 73):
    `Cargo.lock`, the README badge and the governance ledgers) with its task
    record. A defect found from here on is fixed on main and the snapshot is cut
    again (`rcN+1`); the release branch takes nothing else.
-3. Qualify: `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--jobs N]` from
-   the clean release checkout. It runs `format`, `check`, `clippy`, `licenses`,
+3. Qualify: `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z [--jobs N]` from
+   the clean release checkout. This profile keeps the running Windows qualification
+   executable outside the debug directory rebuilt by workspace tests. It runs `format`, `check`, `clippy`, `licenses`,
    `tests` (the whole workspace), `build` (the reference binaries, profile
    `dist` with `CARGO_PROFILE_DIST_LTO=false` and
    `CARGO_PROFILE_DIST_CODEGEN_UNITS=16`), `smoke` (each binary answers
@@ -159,7 +160,7 @@ candidate:
    release" step 2. If the candidate's tasks change what the GMCP evidence
    checks, re-record it there as well (`scripts/gmcp-record-evidence.sh`, then
    `--mastery`, each on a committed tree; `docs/release-distillation.md`).
-3. Qualify: `cargo run -p xtask --bin release-qualify -- vX.Y.Z --from-distill
+3. Qualify: `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z --from-distill
    <name> [--jobs N]`. Before any gate runs it refuses, with the reason, unless
    all of these hold (`verify_distilled_source` in
    `xtask/src/release_qualification.rs`):

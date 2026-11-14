@@ -123,7 +123,13 @@ fn spawn_nat_discovery() {
     let explicit_relay = susi_config::env_or_cloud_env("SUSI_TURN_SERVER")
         .is_ok_and(|v| !v.trim().is_empty())
         || susi_config::env_or_cloud_env("SUSI_TURN_RELAY").is_ok_and(|v| !v.trim().is_empty());
-    if !explicit_relay && !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302")
+    let public_bind = susi_config::SusiConfig::load_global()
+        .ok()
+        .and_then(|cfg| cfg.get::<String>("bind_address"))
+        .is_some_and(|addr| !crate::tls::is_loopback(&addr));
+    if !explicit_relay
+        && (!public_bind
+            || !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302"))
     {
         return;
     }

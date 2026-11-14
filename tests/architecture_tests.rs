@@ -98,7 +98,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
     ("susi-build-os-ucrt", 0),
-    ("susi-build-policy", 0),
     ("susi-cli-defs", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
@@ -112,7 +111,9 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // from susi-wire-client.
     ("susi-conformance", 1),
     ("susi-adapters-llm", 2),
-    ("susi-core", 3),
+    // The GAWD ACP protocol crate depends on config. Core re-exports its API.
+    ("susi-gawd-acp", 3),
+    ("susi-core", 4),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
     ("susi-vendor-syn", 0),
@@ -131,7 +132,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-harness", 9),
     ("susi-gawd", 9),
     // Daemon host runtime with no pillar edge (supervision, NAT, TLS, ...).
-    ("susi-daemon-runtime", 4),
+    ("susi-daemon-runtime", 5),
     ("susi-daemon", 10),
     ("susi", 11),
 ];
@@ -603,8 +604,40 @@ fn susi_error_must_not_depend_on_candle_or_features() {
 #[test]
 fn susi_core_must_not_depend_on_infra_or_features() {
     let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-core/Cargo.toml"))
-        .expect("susi-core Cargo.toml");
+    let metadata = std::process::Command::new("cargo")
+        .current_dir(root)
+        .args([
+            "metadata",
+            "--offline",
+            "--locked",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ])
+        .output()
+        .expect("read the workspace package declarations");
+    assert!(
+        metadata.status.success(),
+        "{}",
+        String::from_utf8_lossy(&metadata.stderr)
+    );
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
+    let core = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "susi-core")
+        .expect("susi-core package");
+    let dependencies: HashSet<_> = core["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| {
+            d["name"]
+                .as_str()
+                .expect("declared dependency package name")
+        })
+        .collect();
     for forbidden in [
         "candle",
         "candle-core",
@@ -628,7 +661,7 @@ fn susi_core_must_not_depend_on_infra_or_features() {
         "susi-vendor-wasmtime",
     ] {
         assert!(
-            !text.contains(forbidden),
+            !dependencies.contains(forbidden),
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }

@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 susi-gawd-acp = { workspace = true }
-susi-build-policy = { workspace = true }
+susi-build-os-ucrt = { workspace = true, features = ["policy"] }
 susi-abi = { workspace = true }
 susi-core = { workspace = true }
 susi-adapters-llm = { workspace = true }

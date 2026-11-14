@@ -315,8 +315,9 @@ until then, member attribution is self-asserted.
 
 **Discovery (UDP 9092)** is a local-network convenience: a datagram from a
 public source is dropped unread. Members on other networks join over the
-peer channel instead. A scout sends a bound ping (`SUSI_PING_SIG3`) to
-the broadcast address and to each candidate; its MAC covers the sender's
+peer channel instead. The scout uses loopback on a fresh installation. An
+explicit remote member enables directed pings, and a non-loopback daemon bind
+enables LAN broadcasts. Each bound ping (`SUSI_PING_SIG3`) authenticates the sender's
 source IP on that route (found by connecting a throwaway UDP socket), its
 HTTP alias port, a timestamp and a nonce. A daemon that verifies it records
 the advertised address as an `Explicit` peer with a synthetic id and an
@@ -509,11 +510,12 @@ plug that reaches the network under an unlisted name is not gated by it.
 Direct provider calls, model downloads and the peer channel call
 `egress_permitted` themselves.
 
-On every boot in a posture that permits egress, the daemon sends STUN binding
-requests to `stun.l.google.com:19302` and `stun.cloudflare.com:3478` to learn
-its public address (`composition::spawn_nat_discovery`). Under `local_only`
-it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
-`host_only` it never does.
+The default loopback installation skips public address discovery. With a
+non-loopback `bind_address` and permitted egress, the daemon sends STUN
+binding requests to `stun.l.google.com:19302` and `stun.cloudflare.com:3478`
+(`composition::spawn_nat_discovery`). Configuring `SUSI_TURN_SERVER` or
+`SUSI_TURN_RELAY` also enables discovery, including in `local_only` mode.
+`host_only` suppresses it for every bind and relay configuration.
 
 ## Residual risks, in one place
 

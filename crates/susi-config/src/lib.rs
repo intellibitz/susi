@@ -288,8 +288,8 @@ pub use json_util::{
     atomic_replace_file, atomic_replace_unsynced, atomic_write_bytes, atomic_write_json_pretty,
     clear_json_override, confined_workspace_join, create_private_dir, file_node,
     install_private_file, load_or_create_secret, merge_missing_json_defaults,
-    merge_missing_registry_defaults, remove_file_if_present, write_json_override, DynamicRegistry,
-    DynamicValue, ModelTier, ProviderType, StringRegistry,
+    merge_missing_registry_defaults, read_atomic_bytes, remove_file_if_present,
+    write_json_override, DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
 pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
