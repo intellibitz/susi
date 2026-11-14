@@ -47,7 +47,7 @@ pub fn replace_staged(staged: &Path, destination: &Path) -> io::Result<()> {
         bytes[..4].copy_from_slice(&(REPLACE_IF_EXISTS | POSIX_SEMANTICS).to_ne_bytes());
         let length_offset = offset_of!(FILE_RENAME_INFO, FileNameLength);
         bytes[length_offset..length_offset + 4].copy_from_slice(&name_bytes.to_ne_bytes());
-        for (unit, pair) in name.iter().zip(bytes[name_offset..].chunks_exact_mut(2)) {
+        for (unit, pair) in name.iter().zip(bytes[name_offset..].as_chunks_mut::<2>().0) {
             pair.copy_from_slice(&unit.to_ne_bytes());
         }
         SetFileInformationByHandle(
