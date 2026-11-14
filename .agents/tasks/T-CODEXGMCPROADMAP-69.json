@@ -20,5 +20,20 @@
   },
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256244
+  "created_unix": 1792256244,
+  "limitations": [
+    "The shipped prompt catalog provides the single built-in `use_tool` prompt without an interactive multi-turn `input_required` elicitation flow (`GetPromptResult.resultType = complete`); dynamic `GmcpService::register_prompt` / `notifications/prompts/list_changed` emissions run in-process only.",
+    "On Windows hosts, adapter transport parity exercises stdio (`2025-11-25` and `2026-07-28`), Streamable HTTP loopback, and in-process `embedded_adapter`; Unix-domain socket adapter parity is gated `#[cfg(unix)]`."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Production prompt and completion handlers (`list_prompts`, `get_prompt`, `complete`), snapshot-revision cursor pagination (`page`), `Change::Prompts` list_changed notifications, and `2026-07-28` HTTP `Mcp-Method`/`Mcp-Name` enforcement already exist in `crates/susi-gmcp`; `GMCP-203-011-05` verifies cross-era, cross-transport, direct-vs-gateway parity, property invariants, and budgets against that production code.",
+    "searched": "Susi Core: crates/susi-gmcp/src/protocol.rs (`GmcpService`, `list_prompts`, `get_prompt`, `complete`, `register_prompt`, `page`), crates/susi-gmcp/src/catalog.rs (`use_tool`, `susi://tools/{name}`), crates/susi-gmcp/src/mcp/http.rs (`HEADER_MCP_NAME`, `validate_request_headers`), crates/susi-gmcp/src/mcp/model.rs (`Prompt`, `PromptMessage`, `GetPromptResult`), docs/gmcp/contract-203-011.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-69.json"
+  ]
 }
