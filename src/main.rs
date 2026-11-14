@@ -525,6 +525,14 @@ fn run() -> std::process::ExitCode {
             cfg: &cfg,
         };
         exit_code = dispatch_mission(command, &host);
+    } else if let Some(report) = SusiMasterAgent::new().try_direct_user_answer(
+        piped_intent.as_deref().unwrap_or(&cli.intent.join(" ")),
+        &cwd,
+        SUSI_VERSION,
+        &glass_box_callback,
+    ) {
+        exit_code = report.exit_code();
+        let _ = io::stdout().flush();
     } else if !cli.intent.is_empty() {
         let ama = SusiMasterAgent::new();
         let goal = cli.intent.join(" ");

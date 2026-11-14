@@ -224,7 +224,7 @@ pub(crate) fn recover(
     requires: Option<&str>,
 ) {
     recover_with_chat(
-        report, workspace, model_hint, generative, session, requires, None,
+        report, workspace, model_hint, generative, session, requires, None, true,
     );
 }
 
@@ -240,6 +240,7 @@ pub(crate) fn recover_with_chat(
     session: Option<Arc<crate::susi_core::capture::EvidenceSession>>,
     requires: Option<&str>,
     chat: Option<Value>,
+    allow_agent_delegation: bool,
 ) {
     if !eligible(report) {
         return;
@@ -295,32 +296,19 @@ pub(crate) fn recover_with_chat(
                     .enable_all()
                     .build()
                     .map_err(|e| EaiError::internal(e.to_string()))?;
-                if let Some(chat) = chat {
-                    runtime.block_on(recover_with_providers_chat(
-                        report_ref,
-                        registry,
-                        providers,
-                        workspace,
-                        Duration::from_secs(60),
-                        true,
-                        model_hint,
-                        generative,
-                        requires,
-                        Some(chat),
-                    ));
-                } else {
-                    runtime.block_on(recover_with_providers(
-                        report_ref,
-                        registry,
-                        providers,
-                        workspace,
-                        Duration::from_secs(60),
-                        true,
-                        model_hint,
-                        generative,
-                        requires,
-                    ));
-                }
+                runtime.block_on(recover_with_providers_chat(
+                    report_ref,
+                    registry,
+                    providers,
+                    workspace,
+                    Duration::from_secs(60),
+                    true,
+                    model_hint,
+                    generative,
+                    requires,
+                    chat,
+                    allow_agent_delegation,
+                ));
                 Ok(())
             })
             .join()
@@ -558,6 +546,7 @@ const LOCAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(600);
 const UNCITED_WARNING: &str = "⚠️  No citations found; answer may be unverified.";
 
 #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
+#[cfg(test)]
 async fn recover_with_providers(
     report: &mut SusiMissionReport,
     registry: &CapabilityRegistry,
@@ -580,6 +569,7 @@ async fn recover_with_providers(
         generative,
         requires,
         None,
+        true,
     )
     .await;
 }
@@ -596,6 +586,7 @@ async fn recover_with_providers_chat(
     generative: bool,
     requires: Option<&str>,
     chat: Option<Value>,
+    allow_agent_delegation: bool,
 ) {
     if !eligible(report) {
         return;
@@ -854,6 +845,14 @@ async fn recover_with_providers_chat(
         return;
     }
 
+    // A standalone answer can retry model providers, but cannot dispatch an
+    // agent without a collaborative session and an isolated worktree.
+    if !allow_agent_delegation {
+        report
+            .final_answer
+            .push_str("\nNo available model could answer the question.");
+        return;
+    }
     // ULTIMATE FALLBACK: IDE and Protocol-Compliant External Agents
     eprintln!("[FAILOVER] Trying external agent fallbacks");
     let fallback_agents = [

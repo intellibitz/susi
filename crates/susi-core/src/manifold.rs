@@ -29,6 +29,15 @@ pub struct IntentManifold {
 }
 
 impl IntentManifold {
+    /// A human can ask for a model answer or a confined file read without starting an agent.
+    pub fn is_direct_question(intent: &str) -> bool {
+        let lower = intent.trim().to_lowercase();
+        Self::analyze(&lower).scope_of_impact == ScopeOfImpact::Read
+            && (is_reasoning_query(&lower)
+                || is_prose_answer_request(&lower)
+                || is_workspace_file_read(&lower))
+    }
+
     pub fn analyze(intent: &str) -> Self {
         let lower = intent.to_lowercase();
         // CLI bare intents are often prefixed with a verb token (`run …`).

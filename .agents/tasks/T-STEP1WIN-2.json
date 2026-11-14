@@ -6,7 +6,17 @@
   "base_commit": "d1f5d80f36a90040d7fe3f2d1bba5f31ce96b22f",
   "scopes": [
     ".agents/tasks/T-STEP1WIN-2.json",
+    "ARCHITECTURE.md",
+    "crates/susi-config/src/json_util.rs",
+    "crates/susi-core/src/manifold.rs",
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-gawd-swarm/src/ama/master.rs",
+    "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    "crates/susi-vendor-winapi/src/file_replace.rs",
+    "crates/susi-vendor-winapi/src/lib.rs",
     "docs/step1-acceptance.md",
+    "src/main.rs",
+    "tests/architecture_tests.rs",
     "xtask/src/bin/release-qualify.rs",
     "xtask/src/bin/startup-gate.rs",
     "xtask/tests/ci_workflow_perf.rs"

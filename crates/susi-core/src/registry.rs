@@ -108,7 +108,11 @@ impl CapabilityRegistry {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("susi-reg-{}-{}", std::process::id(), nanos));
+        // The bus discovers peers under the rendezvous directory's parent.
+        // Give each isolated registry its own parent, including its bus key.
+        let dir = std::env::temp_dir()
+            .join(format!("susi-reg-{}-{}", std::process::id(), nanos))
+            .join("registry");
         Self {
             ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry::new(Arc::new(
                 crate::susi_core::plane_bus_ipc::IpcPlaneBus::with_rendezvous(dir),
