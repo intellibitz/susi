@@ -24,6 +24,11 @@
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1794691820,
+    "commit": "39623dede524ca4fee7192b017c3769ba2cc09d5",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Core serves the prompt and completion server role (`crates/susi-gmcp/src/{protocol,catalog,content,jsonrpc_gate,mcp/http}.rs`) across stdio (`susi mcp serve`), in-process `embedded_adapter`, Streamable HTTP (`/mcp` and `/messages`), and Unix-domain sockets (`#[cfg(unix)]`); Windows x86_64 covers stdio, embedded, and Streamable HTTP while Unix socket parity is gated `#[cfg(unix)]`.",
     "The shipped `use_tool` prompt renders a bounded static template (`GetPromptResponse::Complete`, `resultType = complete`) without multi-turn `input_required` elicitation, and dynamic registration via `GmcpService::register_prompt` / `register_prompt_provider` is an in-process API without remote HTTP prompt mutation endpoints.",
