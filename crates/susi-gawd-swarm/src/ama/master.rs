@@ -357,9 +357,8 @@ impl SusiMasterAgent {
             return self.solve_stream_report_body(
                 &goal,
                 workspace,
-                (version, model_hint),
+                (version, model_hint, false),
                 _callback,
-                false,
             );
         }
         // Work in an isolated linked Git worktree bound to a Susi Native Board
@@ -390,9 +389,8 @@ impl SusiMasterAgent {
         let mut report = self.solve_stream_report_body(
             &goal,
             &effective_ws,
-            (version, model_hint),
+            (version, model_hint, true),
             &|_| {},
-            true,
         );
         if let Err(err) = board_session.finish(report.is_success(), &report.final_answer) {
             report.status = "BLOCKED".to_string();
@@ -410,11 +408,10 @@ impl SusiMasterAgent {
         &self,
         goal: &str,
         workspace: &Path,
-        version_and_hint: (&str, Option<&str>),
+        run_options: (&str, Option<&str>, bool),
         _callback: &dyn Fn(String),
-        allow_agent_delegation: bool,
     ) -> SusiMissionReport {
-        let (version, model_hint) = version_and_hint;
+        let (version, model_hint, allow_agent_delegation) = run_options;
         let goal = goal.to_string();
         // Phase lines for a watched call (`mission_run` with a progress
         // token); a no-op otherwise, so the CLI's output is unchanged.
