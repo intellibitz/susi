@@ -183,3 +183,22 @@ Reviewed SHA-256 (UTF-8, LF):
   582d887c9 after that review)
 - `src/acl.rs`: `0bd041cf942d9392d748cdbb09e7be1d75551b0fdb94b8dcd8b3e52fae4d30e7`
   (atomic owner-only creation; previously `ed69183a...`)
+
+
+## Windows caller pipe inheritance (2026-11-14)
+
+The daemon's existing handle isolation moved into `src/stdio.rs` so the
+commercial CLI can use it without linking the core executable's C runtime entry.
+The facade borrows the three standard handles from Rust, reads their Win32
+inherit flags, clears each set bit for the spawn and restores it afterwards.
+A mutex serializes concurrent calls to this helper. No raw handle leaves the
+function. A child only needs the stdio explicitly configured by its caller.
+
+An isolated pair of native x64 Windows cargo-geiger 0.14.0 scans at
+`d6abda72b2b04ad2e36903e7ad909fee0f9569e6` found 287 used unsafe expressions
+before the move and 300 afterwards. The moved Win32 calls account for all 13
+additional expressions in the facade. The previous recorded 189 predates other
+facade modules already on this revision. The final scan has 40 safe functions,
+0 unsafe functions, 4 safe implementations, 0 unsafe implementations, 4 safe
+methods and 0 unsafe methods. The actual JSON report is committed alongside
+this review. SHA-256 of `src/stdio.rs` (UTF-8, LF) is `486a70cba4d54a7cc203519bc76f77c085d4da8d6534c2f554ee51d5092fc8b2`.

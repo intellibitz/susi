@@ -21,3 +21,5 @@ pub mod file_replace;
 pub mod host;
 #[cfg(windows)]
 pub mod process_job;
+#[cfg(windows)]
+pub mod stdio;
