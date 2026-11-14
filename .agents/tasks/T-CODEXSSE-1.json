@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSSE-1",
+  "title": "Read the complete streaming ACP request before testing each response frame",
+  "goal": "Restore deterministic Windows ACP SSE conformance on requests spanning multiple TCP reads.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-acp"
+    ]
+  },
+  "created_by": "CODEXSSE",
+  "created_unix": 1794655999
+}

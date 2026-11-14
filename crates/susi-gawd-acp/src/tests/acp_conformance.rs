@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::json;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -242,14 +242,26 @@ fn http_socket_admission_session_lifecycle_and_sse_streaming() {
 
 #[test]
 fn acp_client_callback_observes_sse_before_the_final_frame() {
+    const PROMPT_BYTES: usize = 64 * 1024;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let addr = listener.local_addr().unwrap();
     let (server_started_tx, server_started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0_u8; 4096];
-        let _ = stream.read(&mut request).unwrap();
+        // The HTTP request may span many TCP reads. Closing with unread request
+        // bytes can reset the socket and discard the final SSE frame on Windows.
+        let (method, path, _, body) = read_http_request(&stream).unwrap();
+        assert_eq!(method, "POST");
+        assert_eq!(path, ACP_STREAM_PATH);
+        let request: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            request["params"]["prompt"][0]["text"]
+                .as_str()
+                .unwrap()
+                .len(),
+            PROMPT_BYTES
+        );
         let first_frame = b"event: acp.turn.event\ndata: {\"phase\":\"started\"}\n\n";
         let final_frame = b"event: acp.turn.result\ndata: {\"stop_reason\":\"end_turn\"}\n\n";
         let head = format!(
@@ -271,7 +283,8 @@ fn acp_client_callback_observes_sse_before_the_final_frame() {
     let client = AcpSocketClient::new(format!("http://{addr}"), None);
     let client_thread = std::thread::spawn(move || {
         let mut frames = Vec::new();
-        let result = client.prompt_stream_sse_with(1, "acp-sess-live", "hello", |frame| {
+        let prompt = "x".repeat(PROMPT_BYTES);
+        let result = client.prompt_stream_sse_with(1, "acp-sess-live", &prompt, |frame| {
             observed_tx.send(frame.clone()).unwrap();
             frames.push(frame);
             Ok(())
