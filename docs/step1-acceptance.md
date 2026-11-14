@@ -49,8 +49,12 @@ The production qualifier additionally executes real first-goal prompts using
 the exact candidate under isolated runtime state with inherited provider
 credentials and endpoints removed. It runs arithmetic and prose prompts as
 successive one-shot piped goals sharing one session budget, requires
-successful tool-free mission traces, checks answer semantics, and requires
-two audited nonempty Rust Candle generations. The cached session
+successful tool-free mission traces and checks answer semantics. For an
+in-process engine it requires two audited nonempty Rust Candle generations.
+For the commercial local-engine plug, the agent supplies the absolute path of
+the built `susi-plug-host.exe` in `SUSI_QUALIFICATION_PLUG_HOST`. The gate
+checks that the plug advertised local inference, loaded the model weights,
+and served both requests. The cached session
 budget is 60 seconds; uncached provisioning and inference have 600 seconds.
 Both use the same sampled memory/output ceilings. Actual output, traces,
 audits, model identities/digests and measurements are embedded in the

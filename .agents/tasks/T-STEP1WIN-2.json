@@ -1,0 +1,24 @@
+{
+  "id": "T-STEP1WIN-2",
+  "native_worker": "step1win",
+  "title": "Qualify the native Windows first goal and installed rollback",
+  "status": "implemented_pending_integration",
+  "base_commit": "d1f5d80f36a90040d7fe3f2d1bba5f31ce96b22f",
+  "scopes": [
+    ".agents/tasks/T-STEP1WIN-2.json",
+    "docs/step1-acceptance.md",
+    "xtask/tests/ci_workflow_perf.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": ["xtask/src/bin/local-release.rs", "src/installed_channel", "toolchain/windows-stdlib/tests/raw_archive_repro.rs"],
+    "reason": "Use the existing native qualifier, installed release selector, and cold archive comparison."
+  },
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-release"],
+    "criteria": [
+      "Exercise the existing release tooling tests, including external inference evidence.",
+      "Separately retain installed Windows inference, qualification, promotion, health and rollback evidence before closing Step 1."
+    ]
+  }
+}
