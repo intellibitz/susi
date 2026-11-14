@@ -24,6 +24,11 @@
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794684192,
+    "commit": "7cdefa9dc862015bbcbddbff7401ed410f04494b",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Core serves the server role only on the byte-pipe transport SPI (in-process ChannelConnection, Unix-domain socket Transport where #[cfg(unix)], stdio, and Streamable HTTP); the client transport role, Windows named pipes, and WebSocket have no adapter in core and are not claimed.",
     "Windows x86_64 exercises the in-process and shipped stdio adapters plus direct/HTTP envelope gates; Unix-domain socket parity is gated behind #[cfg(unix)], and process RSS statm budgets run on Linux targets.",
