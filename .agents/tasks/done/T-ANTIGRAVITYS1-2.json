@@ -1,0 +1,34 @@
+{
+  "id": "T-ANTIGRAVITYS1-2",
+  "title": "Resolve wildcard (*) and case-insensitive provider identity in susi-gemi provider_contract",
+  "goal": "Vision: V-2 Report true per-provider vendor identity instead of wildcard * in probe_credentialed_opt_in and match configured endpoints case-insensitively within lean-core ceilings.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "provider_contract"
+    ]
+  },
+  "created_by": "AG1VISION",
+  "created_unix": 1794674400,
+  "closed": {
+    "at_unix": 1794682028,
+    "commit": "bcee4ae8ae747b93d34df74b5c5d07731edc4f31",
+    "by": "AG1VISION"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "Refactored existing probe_credentialed_opt_in via probe_targets_with inside susi-gemi headroom below the 20,709-line ceiling with zero new crate dependencies",
+    "searched": "crates/susi-gemi/src/provider_contract.rs, crates/susi-daemon/src/host_views.rs, crates/susi-gemi/src/credential_scout.rs, tests/lean_core_ceilings.rs"
+  },
+  "scopes": [
+    "crates/susi-gemi/src/provider_contract.rs"
+  ]
+}
