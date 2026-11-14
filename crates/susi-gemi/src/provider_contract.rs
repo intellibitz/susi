@@ -374,6 +374,48 @@ pub fn probe_credentialed_with(
     claims
 }
 
+/// Run [`probe_credentialed_with`] across matching `targets`: wildcard `"*"`
+/// probes every configured endpoint under its own vendor name (`t.vendor`),
+/// explicit names match case-insensitively, and an empty match reports
+/// explicit `Unsupported` claims for every [`ProbeKind`].
+#[must_use]
+pub fn probe_targets_with(
+    call: &dyn crate::credential_scout::CheapCall,
+    targets: &[crate::credential_scout::CredentialTarget],
+    provider: &str,
+    model: &str,
+    version: &str,
+) -> Vec<CapabilityClaim> {
+    let selected: Vec<&crate::credential_scout::CredentialTarget> = if provider == "*" {
+        targets.iter().collect()
+    } else {
+        targets
+            .iter()
+            .filter(|t| t.vendor.eq_ignore_ascii_case(provider))
+            .collect()
+    };
+    if selected.is_empty() {
+        ProbeKind::ALL
+            .iter()
+            .map(|kind| {
+                claim(
+                    provider,
+                    model,
+                    version,
+                    *kind,
+                    ProbeStatus::Unsupported,
+                    "no configured credentialed endpoint for this provider",
+                )
+            })
+            .collect()
+    } else {
+        selected
+            .into_iter()
+            .flat_map(|t| probe_credentialed_with(call, &t.vendor, model, version, t))
+            .collect()
+    }
+}
+
 /// Credentialed live probe — only runs when `SUSI_PROVIDER_PROBE=1`.
 /// `provider == "*"` probes every configured credentialed endpoint;
 /// otherwise the endpoint whose vendor name matches is probed (a name
@@ -390,35 +432,9 @@ pub fn probe_credentialed_opt_in(
     }
     let transport = crate::credential_scout::TransportCall;
     let targets = crate::credential_scout::configured_targets();
-    let selected: Vec<crate::credential_scout::CredentialTarget> = if provider == "*" {
-        targets
-    } else {
-        targets
-            .into_iter()
-            .filter(|t| t.vendor == provider)
-            .collect()
-    };
-    let claims = if selected.is_empty() {
-        ProbeKind::ALL
-            .iter()
-            .map(|kind| {
-                claim(
-                    provider,
-                    model,
-                    version,
-                    *kind,
-                    ProbeStatus::Unsupported,
-                    "no configured credentialed endpoint for this provider",
-                )
-            })
-            .collect()
-    } else {
-        selected
-            .iter()
-            .flat_map(|t| probe_credentialed_with(&transport, provider, model, version, t))
-            .collect()
-    };
-    Some(claims)
+    Some(probe_targets_with(
+        &transport, &targets, provider, model, version,
+    ))
 }
 
 #[cfg(test)]
@@ -565,5 +581,53 @@ mod tests {
             probe_fixture("p", "m", "v", ProbeKind::Usage, &no_usage).status,
             ProbeStatus::Unsupported
         );
+    }
+
+    #[test]
+    fn probe_targets_with_resolves_wildcard_vendors_case_insensitively_and_reports_missing() {
+        let targets = vec![
+            target(),
+            crate::credential_scout::CredentialTarget {
+                vendor: "anthropic".into(),
+                env: "ANTHROPIC_API_KEY".into(),
+                api_base: "https://api.example.test/v1".into(),
+                protocol: InferenceProtocol::Anthropic,
+                api_key: "sk-ant-fake-000".into(),
+            },
+        ];
+        let fake = Fake {
+            replies: vec![
+                (
+                    "__susi_contract_probe_missing__".into(),
+                    Ok((404, "{}".into())),
+                ),
+                ("/models".into(), Ok((200, "{}".into()))),
+            ],
+        };
+
+        let all_claims = probe_targets_with(&fake, &targets, "*", "*", "1");
+        assert_eq!(all_claims.len(), ProbeKind::ALL.len() * 2);
+        assert!(all_claims.iter().all(|c| c.provider != "*"));
+        assert_eq!(
+            all_claims.iter().filter(|c| c.provider == "openai").count(),
+            6
+        );
+        assert_eq!(
+            all_claims
+                .iter()
+                .filter(|c| c.provider == "anthropic")
+                .count(),
+            6
+        );
+
+        let ci_claims = probe_targets_with(&fake, &targets, "OpenAI", "gpt-x", "1");
+        assert_eq!(ci_claims.len(), ProbeKind::ALL.len());
+        assert!(ci_claims.iter().all(|c| c.provider == "openai"));
+
+        let missing = probe_targets_with(&fake, &targets, "mistral", "*", "1");
+        assert_eq!(missing.len(), ProbeKind::ALL.len());
+        assert!(missing
+            .iter()
+            .all(|c| c.provider == "mistral" && c.status == ProbeStatus::Unsupported));
     }
 }
