@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CLOUDWID",
-  "created_unix": 1794656157
+  "created_unix": 1794656157,
+  "closed": {
+    "at_unix": 1794656879,
+    "commit": "777d426b9fd85575738d9b3c55e48d55f06733fe",
+    "by": "CLOUDWID"
+  }
 }
