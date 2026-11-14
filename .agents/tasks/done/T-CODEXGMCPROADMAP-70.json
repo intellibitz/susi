@@ -23,6 +23,11 @@
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256244,
+  "closed": {
+    "at_unix": 1794689423,
+    "commit": "cc7d5dfbbbae38aa9810f0d72b367f0a6cf07c49",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Vector evidence file `.agents/gmcp/evidence/VC-203-011.jsonl` is materialized and signed alongside the `-M` mastery record in follow-on task `T-CODEXGMCPROADMAP-71`, because `gmcp_mastery_records_are_retained_and_current` requires every `VC-203-*.jsonl` file in `.agents/gmcp/evidence/` to already hold a matching `GMCP-203-*-M` proof line.",
     "On Windows hosts, transport/API operational parity covers stdio (`susi mcp serve`), in-process `embedded_adapter`, and Streamable HTTP loopback; Unix-domain socket adapter checks are gated `#[cfg(unix)]`."
