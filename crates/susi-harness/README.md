@@ -56,6 +56,33 @@ the gateway's `--timeout`, and never over 120 s. A call whose slot is further
 off is answered 429 at once, with a `Retry-After`; the harness's own worker
 waits that out and sends the turn again.
 
+### Organization workload identity
+
+Set `SUSI_WORKLOAD_GATEWAY` to the organization's HTTPS broker origin and
+`SUSI_WORKLOAD_TOKEN_FILE` to the absolute path of its short-lived OIDC
+projection. The harness enrolls before requesting each approved credential.
+The gateway resolves the provider key again on every dispatch, including
+retries. Either workload setting selects this mode. An incomplete configuration,
+expired projection or revoked grant fails the lookup. Local settings in this
+mode come from the operator's process environment.
+
+For Codex in a managed ChatGPT workspace, the organization enables workspace
+federation with OpenAI, maps a dedicated external workload identity to its
+authorized workspace principal, and grants `OPENAI_FEDERATION_RULE_ID` in Susi.
+Set `OPENAI_IDENTITY_TOKEN_FILE` to a separate absolute projection for the
+audience that OpenAI's rule accepts. A `cli:codex` turn resolves the rule
+through Susi and launches native Codex in a temporary profile. The provider
+controls workspace eligibility and token lifetime. See
+[OpenAI's workload identity guide](https://developers.openai.com/api/docs/guides/workload-identity-federation).
+
+Eligible self-hosted open-source integrations can grant a delegated
+`SUSI_CHATGPT_PLAN_ACCESS_TOKEN` from their own authorized Sign in with ChatGPT
+flow. Hosted or paid offerings require separate provider approval for that
+flow. Keep its OAuth refresh and consent in the authorized deployment.
+Other subscription CLIs currently require provider support for managed
+unattended credentials. See
+[OpenAI's token-sharing program](https://developers.openai.com/siwc/token-sharing-open-source).
+
 ### Providers
 
 | Provider | Key | Models |
@@ -180,10 +207,10 @@ The ladder is rebuilt from the live environment on every run:
      provider's cheapest strong model, else DeepSeek Pro, else the cheapest
      strong model.
    - **Workers**: light models (`deepseek-flash`, `gemini-flash`,
-     `kimi-flash`, `claude-haiku`, …) that do the work. Every task starts
+     `kimi-flash`, `claude-haiku`, â€¦) that do the work. Every task starts
      on one, and tasks are spread across them.
    - **Fixers**: strong models (`deepseek-pro`, `gemini-pro`, `kimi-k3`,
-     `kimi-k3-pro`, `claude-sonnet`, `claude-opus`, …) that fix what a worker
+     `kimi-k3-pro`, `claude-sonnet`, `claude-opus`, â€¦) that fix what a worker
      could not.
 
    When a worker fails, or its work does not pass (which is where a
@@ -300,7 +327,7 @@ that provider's `id`, `wire` and `endpoint` unchanged, but it cannot change a
 provider or a model that already exists, reuse an existing model id or alias
 for a new model, or give an alias a name that is already taken (a model id,
 another alias such as `coder`, or a `provider/model` route such as
-`deepseek/…`); restating an alias unchanged is fine. The harness stops and
+`deepseek/â€¦`); restating an alias unchanged is fine. The harness stops and
 names the one it would redefine. To route a model somewhere else, give it a
 new provider id and a new model id.
 

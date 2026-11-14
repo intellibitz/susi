@@ -73,26 +73,10 @@ async fn run(options: Options) -> Result<(), String> {
     // otherwise the historical default. In direct mode the gateway routes each
     // model through the registry, so the default is *no* override — pinning one
     // provider's key there made every other provider authenticate with it.
-    let api_key = match (options.api_key_env.as_deref(), options.upstream == "direct") {
-        // Keys come through `secrets`: process, user and machine scope, with
-        // the provider's key form checked, and never printed.
-        (Some(name), _) => Some(
-            susi_harness::secrets::lookup(name)
-                .ok_or_else(|| format!("{name} is unset or empty"))?
-                .expose()
-                .to_string(),
-        ),
-        (None, true) => None,
-        (None, false) => Some(
-            susi_harness::secrets::lookup("DEEPSEEK_API_KEY")
-                .ok_or_else(|| {
-                    "DEEPSEEK_API_KEY is unset or empty (pass --api-key-env for another provider)"
-                        .to_string()
-                })?
-                .expose()
-                .to_string(),
-        ),
-    };
+    let name = options
+        .api_key_env
+        .or_else(|| (options.upstream != "direct").then(|| "DEEPSEEK_API_KEY".to_string()));
+    let api_key = name.map(susi_harness::secrets::Credential::Named);
     // The accounts are read, and the serving rule applied, before anything
     // listens: a malformed file used to fail only after the port was bound.
     let ingress = match &options.accounts {

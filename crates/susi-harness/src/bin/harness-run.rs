@@ -21,14 +21,20 @@
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
-use susi_harness::executor::{run, ExecutorConfig, RunOutcome};
+use susi_harness::adaptive::{CliSubRunner, CliToolKind};
+use susi_harness::executor::{run, ExecutorConfig, RunOutcome, Runner};
 
 fn main() {
     let config = match parse(std::env::args().skip(1)) {
         Ok(config) => config,
         Err(message) => fail(&message),
     };
-    match run(&config) {
+    let result = if CliToolKind::parse_spec(&config.model).is_some() {
+        CliSubRunner::default().run(&config)
+    } else {
+        run(&config)
+    };
+    match result {
         Ok(RunOutcome::Succeeded {
             final_text,
             reported_cost_usd,

@@ -78,7 +78,7 @@ pub struct GatewayState {
     /// (Anthropic answered `invalid x-api-key` for a route that should have used
     /// its own). `Some` is the single-upstream case — one URL, one key — and an
     /// operator's explicit `--api-key-env`.
-    pub api_key: Option<String>,
+    pub api_key: Option<crate::secrets::Credential>,
     /// Upstream call timeout, in seconds.
     pub timeout_secs: u64,
     /// Upper bound placed on `max_tokens` in every forwarded request.
@@ -94,6 +94,29 @@ pub struct GatewayState {
 static FALLBACK_CACHE: std::sync::OnceLock<Arc<ResponseCache>> = std::sync::OnceLock::new();
 
 impl GatewayState {
+    fn route(&self, model: &str) -> susi_error::EaiResult<crate::router::UpstreamRoute> {
+        let key = self
+            .api_key
+            .as_ref()
+            .map(|credential| {
+                credential
+                    .resolve()
+                    .ok_or_else(|| susi_error::EaiError::config("upstream credential unavailable"))
+            })
+            .transpose()?;
+        crate::router::resolve_route(
+            model,
+            Some(&self.upstream_chat_url),
+            key.as_ref().map(crate::secrets::ApiKey::expose),
+        )
+    }
+
+    fn completion_cache(&self) -> Option<&ResponseCache> {
+        self.cache
+            .as_deref()
+            .filter(|_| !crate::workload::enabled())
+    }
+
     /// Active response cache, ensuring full cache mode is always active.
     #[must_use]
     pub fn active_cache(&self) -> Arc<ResponseCache> {
@@ -284,7 +307,7 @@ pub async fn complete_holding(
     };
 
     let cache_key = ResponseCache::compute_key(&request);
-    if let Some(ref cache) = state.cache {
+    if let Some(cache) = state.completion_cache() {
         if let Some(cached_response) = cache.get(&cache_key) {
             let usage = token_usage_from_json(&cached_response).unwrap_or_default();
             let entry = LedgerEntry::settle(Dispatch {
@@ -667,11 +690,7 @@ async fn buffered_upstream(
 ) -> Answer {
     let retryable = (!retried).then(|| body.clone());
     let started_unix_ms = now_ms();
-    let route = match crate::router::resolve_route(
-        &attempt.model,
-        Some(&state.upstream_chat_url),
-        state.api_key.as_deref(),
-    ) {
+    let route = match state.route(&attempt.model) {
         Ok(r) => r,
         Err(e) => return Answer::error(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
     };
@@ -737,7 +756,7 @@ async fn buffered_upstream(
                 state.timeout_secs,
                 0,
             );
-            settle_buffered(&state, &exchange, &outgoing_body, call)
+            settle_buffered(&state, &exchange, &outgoing_body, call, &route_headers)
         })
     };
     let settled = match settling.await {
@@ -800,6 +819,7 @@ fn settle_buffered(
     exchange: &Exchange,
     sent: &[u8],
     call: Result<susi_http_transport::HttpCall, String>,
+    headers: &[(String, String)],
 ) -> Settled {
     let tag = &exchange.tag;
     let started_unix_ms = exchange.started_unix_ms;
@@ -859,7 +879,7 @@ fn settle_buffered(
     let response_bytes = if (200..300).contains(&status) {
         response_bytes
     } else {
-        crate::secrets::redact(&String::from_utf8_lossy(&response_bytes)).into_bytes()
+        redact_upstream_error(&response_bytes, headers)
     };
     // The account cannot pay: a temporary refusal, answered as one.
     if class == Some(FailureClass::NoCredit) {
@@ -920,7 +940,7 @@ fn settle_buffered(
         // replayed to every later identical call at no cost and no content.
         starved_answer = starved(&value);
         if !starved_answer {
-            if let Some(ref cache) = state.cache {
+            if let Some(cache) = state.completion_cache() {
                 cache.set(&exchange.cache_key, &value);
             }
         }
@@ -943,6 +963,21 @@ fn settle_buffered(
         starved: starved_answer,
         resend: None,
     }
+}
+
+fn redact_upstream_error(body: &[u8], headers: &[(String, String)]) -> Vec<u8> {
+    let mut text = String::from_utf8_lossy(body).into_owned();
+    for (name, value) in headers {
+        let secret = match name.as_str() {
+            "authorization" => value.strip_prefix("Bearer "),
+            "x-api-key" => Some(value.as_str()),
+            _ => None,
+        };
+        if let Some(secret) = secret.filter(|s| !s.is_empty()) {
+            text = text.replace(secret, "<redacted>");
+        }
+    }
+    crate::secrets::redact(&text).into_bytes()
 }
 
 /// What the blocking thread that makes a streamed call tells the request.
@@ -968,11 +1003,7 @@ async fn stream_upstream(
     cache_key: String,
     held: Held,
 ) -> Response {
-    let route = match crate::router::resolve_route(
-        &attempt.model,
-        Some(&state.upstream_chat_url),
-        state.api_key.as_deref(),
-    ) {
+    let route = match state.route(&attempt.model) {
         Ok(r) => r,
         Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
     };
@@ -1076,7 +1107,7 @@ async fn stream_upstream(
                 record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
             drop(held);
-            let bytes = crate::secrets::redact(&String::from_utf8_lossy(&bytes)).into_bytes();
+            let bytes = redact_upstream_error(&bytes, &route_headers);
             // The account cannot pay: a temporary refusal, answered as one.
             let (status, content_type, retry_after, bytes) =
                 if class == Some(FailureClass::NoCredit) {

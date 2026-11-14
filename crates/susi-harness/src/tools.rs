@@ -547,6 +547,9 @@ fn run_shell(workspace: &Path, cmd_str: &str, withheld: &[&str]) -> String {
         c
     };
     command.current_dir(workspace);
+    if crate::workload::enabled() {
+        crate::workload::clean_environment(&mut command);
+    }
     command.stdin(Stdio::null());
     // Every command a worker runs carries the guard variable: the CLI refuses
     // harness-owned subcommands under it, so a wrapper or an argv split (which

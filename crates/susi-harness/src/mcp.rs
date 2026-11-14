@@ -422,9 +422,13 @@ impl StdioTransport {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        for (k, v) in susi_config::cloud_env_overlay() {
-            if std::env::var_os(&k).is_none() {
-                cmd.env(k, v);
+        if crate::workload::enabled() {
+            crate::workload::clean_environment(&mut cmd);
+        } else {
+            for (k, v) in susi_config::cloud_env_overlay() {
+                if std::env::var_os(&k).is_none() {
+                    cmd.env(k, v);
+                }
             }
         }
         cmd.env("SUSI_UNATTENDED", "1");
@@ -535,7 +539,7 @@ impl Drop for StdioTransport {
 pub struct HttpSocketTransport {
     url: String,
     timeout_secs: u64,
-    bearer: Option<String>,
+    bearer: Option<crate::secrets::Credential>,
     session_id: Option<String>,
     protocol_version: Option<String>,
 }
@@ -570,8 +574,27 @@ impl HttpSocketTransport {
     /// Send `Authorization: Bearer <token>` on every message.
     #[must_use]
     pub fn with_bearer(mut self, token: impl Into<String>) -> Self {
-        self.bearer = Some(token.into());
+        self.bearer = Some(crate::secrets::Credential::from(token.into()));
         self
+    }
+
+    /// Resolve this bearer credential before each HTTP operation.
+    #[must_use]
+    pub fn with_bearer_env(mut self, name: impl Into<String>) -> Self {
+        self.bearer = Some(crate::secrets::Credential::Named(name.into()));
+        self
+    }
+
+    fn authorization(&self) -> EaiResult<Option<String>> {
+        self.bearer
+            .as_ref()
+            .map(|source| {
+                let key = source
+                    .resolve()
+                    .ok_or_else(|| EaiError::config("MCP bearer credential unavailable"))?;
+                Ok(format!("Bearer {}", key.expose()))
+            })
+            .transpose()
     }
 
     /// The endpoint every message is posted to.
@@ -589,7 +612,7 @@ impl HttpSocketTransport {
     fn post(&mut self, message: &Value) -> EaiResult<susi_http_transport::HttpCall> {
         let body = serde_json::to_vec(message)
             .map_err(|error| EaiError::internal(format!("mcp http request: {error}")))?;
-        let authorization = self.bearer.as_ref().map(|token| format!("Bearer {token}"));
+        let authorization = self.authorization()?;
         let mut headers: Vec<(&str, &str)> = vec![
             ("content-type", "application/json"),
             ("accept", "application/json, text/event-stream"),
@@ -630,6 +653,11 @@ impl Transport for HttpSocketTransport {
             .into_utf8(MAX_HTTP_RESPONSE_BYTES)
             .map_err(|error| EaiError::network(format!("mcp http body: {error}")))?;
         if !(200..300).contains(&status) {
+            if self.bearer.is_some() && crate::workload::enabled() {
+                return Err(EaiError::network(format!(
+                    "MCP endpoint returned HTTP {status}"
+                )));
+            }
             return Err(EaiError::network(format!(
                 "mcp http {} returned HTTP {status}: {}",
                 self.url,
@@ -666,7 +694,7 @@ impl Transport for HttpSocketTransport {
         let Some(session) = self.session_id.take() else {
             return Ok(());
         };
-        let authorization = self.bearer.as_ref().map(|token| format!("Bearer {token}"));
+        let authorization = self.authorization()?;
         let mut headers: Vec<(&str, &str)> = vec![("mcp-session-id", session.as_str())];
         if let Some(version) = self.protocol_version.as_deref() {
             headers.push(("mcp-protocol-version", version));
