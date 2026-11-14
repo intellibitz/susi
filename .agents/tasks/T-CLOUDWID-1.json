@@ -1,0 +1,20 @@
+{
+  "id": "T-CLOUDWID-1",
+  "title": "Post local workflow progress using the native board schema",
+  "goal": "Vision: V-2. Emit supported board kinds for local scope releases, commits, finish merges, and integrations so paid provider missions can dispatch.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "created_by": "CLOUDWID",
+  "created_unix": 1794655212
+}

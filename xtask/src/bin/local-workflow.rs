@@ -5475,7 +5475,7 @@ fn run(args: &[String]) -> Result<()> {
             cli_board_post(
                 &root,
                 &args[1],
-                "status",
+                "note",
                 &format!("local-workflow release {}", args[1]),
                 &format!("Released claim `{}` via local-workflow.", args[1]),
             )?;
@@ -5520,7 +5520,7 @@ fn run(args: &[String]) -> Result<()> {
             cli_board_post(
                 &root,
                 &args[1],
-                "status",
+                "note",
                 &format!("local-workflow commit {}", args[1]),
                 &format!("Committed in isolated worktree for `{}`: {}", args[1], args[2]),
             )?;
@@ -5531,7 +5531,7 @@ fn run(args: &[String]) -> Result<()> {
             cli_board_post(
                 &root,
                 &args[1],
-                "status",
+                "note",
                 &format!("local-workflow finish-merge {}", args[1]),
                 &format!("Completed reconciled merge for `{}`: {}", args[1], args[3]),
             )?;
@@ -5543,7 +5543,7 @@ fn run(args: &[String]) -> Result<()> {
             cli_board_post(
                 &root,
                 &args[1],
-                "status",
+                "note",
                 &format!("local-workflow signed commit {}", args[1]),
                 &format!("Signed commit in isolated worktree for `{}`: {}", args[1], args[2]),
             )?;
@@ -5564,7 +5564,7 @@ fn run(args: &[String]) -> Result<()> {
                 cli_board_post(
                     &root,
                     first,
-                    "status",
+                    "note",
                     &format!("local-workflow integrate {}", names.join(", ")),
                     &format!("Integrated {:?} in candidate.", ok),
                 )?;
