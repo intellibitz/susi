@@ -22,5 +22,21 @@
   },
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Contract stage (GMCP-203-012-01) pins all 57 VC-203-012 normative rows, source revisions/hashes, canonical types/APIs, threat mitigations, resource bounds, positive/negative fixtures, resolved ambiguities, and evidence targets in docs/gmcp/contract-203-012.md without implementing or claiming runtime enforcement of T-CODEXGMCPROADMAP-94..98 delta invariants.",
+    "Immutable signed evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are generated and sealed once production, integration, adversarial, interop, and operations work packages (T-CODEXGMCPROADMAP-94..99) land."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses the repository GMCP contract architecture and pinned verification assets: .agents/gmcp/requirements-ledger.json, .agents/gmcp/sources.json, .agents/gmcp/spec/*, docs/gmcp/contract-203-011.md structure, shared credential/sink redaction primitives (susi_config::redact_credentials, crates/susi-core/src/untrusted_content.rs), and existing shipped crate::protocol / crate::mcp::{model,service,http,transport} / jsonrpc_gate surfaces without inventing duplicate contract formats or ledger schemas.",
+    "searched": "Susi Core: docs/gmcp/contract-203-{011,013,016}.md, .agents/gmcp/{sources.json,requirements-ledger.json}, .agents/gmcp/spec/docs/specification/{2025-11-25,2026-07-28}/, crates/susi-gmcp/src/{protocol,jsonrpc_gate,mcp_call_budgets,mcp/{http,model,service,transport}}.rs, crates/susi-core/src/untrusted_content.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi docs/gmcp, crates/susi-gmcp, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "docs/gmcp/contract-203-012.md",
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-93.json",
+    ".agents/gmcp/evidence"
+  ]
 }
