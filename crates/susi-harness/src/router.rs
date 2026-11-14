@@ -79,6 +79,12 @@ pub fn resolve_route(
         return route_from_model(&resolved, explicit_api_key);
     }
 
+    if crate::workload::enabled() {
+        return Err(EaiError::config(
+            "unregistered workload model: configure an approved provider route",
+        ));
+    }
+
     // Default: an unknown model goes to OpenAI in its native shape. The
     // registry deliberately does not guess at capabilities it has no record
     // for, and this is the one place that fallback is chosen.
@@ -101,6 +107,7 @@ fn explicit_route(
     explicit_api_key: Option<&str>,
 ) -> EaiResult<UpstreamRoute> {
     let key = explicit_api_key.unwrap_or_default();
+    check_credential_transport(upstream, !key.trim().is_empty())?;
     let backend_model = match model {
         "claude-haiku" => "claude-haiku-5-5",
         "claude-sonnet" => "claude-sonnet-5-5",
@@ -132,6 +139,10 @@ fn route_from_model(
     resolved: &ResolvedModel,
     explicit_api_key: Option<&str>,
 ) -> EaiResult<UpstreamRoute> {
+    check_credential_transport(
+        &resolved.endpoint,
+        !resolved.key_envs.is_empty() || explicit_api_key.is_some_and(|key| !key.trim().is_empty()),
+    )?;
     let is_anthropic = resolved.wire == Wire::Anthropic;
     let key = if resolved.key_envs.is_empty() {
         explicit_api_key.unwrap_or_default().trim().to_string()
@@ -176,6 +187,15 @@ fn anthropic_workspace() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn check_credential_transport(endpoint: &str, keyed: bool) -> EaiResult<()> {
+    if keyed && !susi_http_transport::client::permits_credentials(endpoint) {
+        return Err(EaiError::config(
+            "provider credentials require HTTPS or a loopback endpoint",
+        ));
+    }
+    Ok(())
+}
+
 fn env_key_any(names: &[&str], explicit: Option<&str>) -> EaiResult<String> {
     if let Some(key) = explicit {
         let t = key.trim();
@@ -197,6 +217,56 @@ fn env_key_any(names: &[&str], explicit: Option<&str>) -> EaiResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_transport_checks_both_discovery_and_pinned_routes() {
+        for (url, allowed) in [
+            ("https://provider.example/v1/chat/completions", true),
+            ("http://127.0.0.1:9876/v1/chat/completions", true),
+            ("http://[::1]/v1/chat/completions", true),
+            ("http://localhost.example/v1/chat/completions", false),
+            (
+                "http://localhost@provider.example/v1/chat/completions",
+                false,
+            ),
+            ("http://192.0.2.1/v1/chat/completions", false),
+        ] {
+            let config = serde_json::json!({"providers": [{
+                "id": "example", "wire":"openai", "endpoint":url, "key_env":"EXAMPLE_API_KEY"
+            }]});
+            assert_eq!(
+                crate::providers::Registry::parse(&config.to_string()).is_ok(),
+                allowed
+            );
+            assert_eq!(
+                explicit_route("model", url, Some("test-only")).is_ok(),
+                allowed
+            );
+            assert!(explicit_route("model", url, None).is_ok());
+        }
+    }
+
+    #[test]
+    fn credential_transport_unknown_managed_model_is_refused_before_key_lookup() {
+        const CHILD: &str = "SUSI_TEST_UNKNOWN_MANAGED_ROUTE";
+        if std::env::var_os(CHILD).is_some() {
+            let error = resolve_route(
+                "missing-provider/not-in-registry",
+                Some("direct"),
+                Some("test-only"),
+            )
+            .expect_err("unmapped managed models must not default to a different vendor");
+            assert!(error.to_string().contains("unregistered workload model"));
+            return;
+        }
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "router::tests::credential_transport_unknown_managed_model_is_refused_before_key_lookup"])
+            .env(CHILD, "1")
+            .env("SUSI_WORKLOAD_GATEWAY", "https://unused.invalid")
+            .env("SUSI_NO_REGISTRY_ENV", "1")
+            .status().unwrap();
+        assert!(result.success());
+    }
 
     #[test]
     fn explicit_upstream_is_preferred_when_given() {

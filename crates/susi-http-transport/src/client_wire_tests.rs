@@ -276,7 +276,7 @@ fn oversized_response_heads_are_refused() {
 
 #[test]
 fn redirects_follow_the_previous_client_rules() {
-    // Relative Location, method kept for GET, Authorization and Cookie dropped.
+    // Relative Location, method kept for GET, credentials dropped on redirect.
     let (url, server) = serve_sequence(vec![
         "HTTP/1.1 302 Found\r\nLocation: next/../final?x=1\r\nContent-Length: 0\r\n\r\n".into(),
         "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndone".into(),
@@ -287,6 +287,10 @@ fn redirects_follow_the_previous_client_rules() {
         &[
             ("Authorization", "Bearer secret"),
             ("Cookie", "c=1"),
+            ("Proxy-Authorization", "proxy-secret"),
+            ("X-Api-Key", "provider-secret"),
+            ("X-Goog-API-Key", "google-secret"),
+            ("Api-Key", "azure-secret"),
             ("X-Keep", "k"),
         ],
         None,
@@ -295,13 +299,23 @@ fn redirects_follow_the_previous_client_rules() {
     .unwrap();
     assert_eq!(done.into_utf8(16).unwrap(), "done");
     let seen = server.join().unwrap();
-    assert!(seen[0].contains("Bearer secret"));
+    for credential in [
+        "Bearer secret",
+        "c=1",
+        "proxy-secret",
+        "provider-secret",
+        "google-secret",
+        "azure-secret",
+    ] {
+        assert!(seen[0].contains(credential));
+        assert!(!seen[1].contains(credential));
+    }
     assert!(
         seen[1].starts_with("GET /dir/final?x=1 HTTP/1.1"),
         "{}",
         seen[1]
     );
-    assert!(!seen[1].contains("secret") && !seen[1].contains("c=1") && seen[1].contains("X-Keep"));
+    assert!(seen[1].contains("X-Keep"));
 
     // 303 turns a POST into a bodiless GET at an absolute Location.
     let (url, server) = serve_sequence(vec![

@@ -88,6 +88,13 @@ fn loopback_target(target: &Target) -> bool {
             .is_ok_and(|ip| ip.is_loopback())
 }
 
+/// Whether the HTTP client would send credentials over verified TLS or to loopback.
+/// Parse the authority with the same rules used to open the connection.
+#[must_use]
+pub fn permits_credentials(url: &str) -> bool {
+    Target::parse(url).is_ok_and(|target| target.is_https() || loopback_target(&target))
+}
+
 /// GET or HEAD with a total deadline and redirect cap. `timeout_secs` (at
 /// least one second) covers DNS through reading the body, across redirects.
 /// The deadline continues while the caller consumes `into_reader()`.
@@ -188,8 +195,9 @@ impl Request {
 /// Run `request`, following redirects the way the previous client did:
 /// any 3xx but 304 is a redirect; 301/302/303 turn every method but HEAD
 /// into a bodiless GET; 307/308 keep the method and refuse to resend a
-/// body (POST/PUT/PATCH) or a DELETE; `Authorization` and `Cookie` are
-/// never carried to the next hop. With `max_redirects = 0` the 3xx is
+/// body (POST/PUT/PATCH) or a DELETE. Authentication headers, including
+/// provider API keys and cookies, are dropped on every redirect. With
+/// `max_redirects = 0` the 3xx is
 /// returned; past a non-zero cap the call fails.
 ///
 /// Loopback hops never use a proxy, so local inference and host-control
@@ -238,7 +246,16 @@ fn execute(
         };
         drop(call);
         request.headers.retain(|(name, _)| {
-            !name.eq_ignore_ascii_case("authorization") && !name.eq_ignore_ascii_case("cookie")
+            ![
+                "authorization",
+                "proxy-authorization",
+                "cookie",
+                "x-api-key",
+                "x-goog-api-key",
+                "api-key",
+            ]
+            .iter()
+            .any(|header| name.eq_ignore_ascii_case(header))
         });
         if !matches!(method, "POST" | "PUT" | "PATCH") {
             request.body = None;

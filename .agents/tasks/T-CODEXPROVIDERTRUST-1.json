@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXPROVIDERTRUST-1",
+  "title": "Protect provider credentials on custom routes and reject unmapped managed models",
+  "goal": "Vision: V-2. Configurable organization providers must use approved routes and protected credential transport.",
+  "size": "s",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Susi HTTP transport URL parser, loopback resolution, workload mode, provider registry and direct route validation.",
+    "reason": "Use the transport's existing connection-target parser and loopback predicate for both model discovery and dispatch."
+  },
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "credential_transport"
+    ]
+  },
+  "created_by": "CODEXPROVIDERTRUST",
+  "created_unix": 1794655108
+}

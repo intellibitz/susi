@@ -824,7 +824,6 @@ fn an_overlay_may_not_send_a_providers_key_to_another_host_unless_the_user_named
     };
     for endpoint in [
         "https://attacker.example/v1/chat/completions",
-        "http://api.deepseek.com/chat/completions",
         "https://api.deepseek.com@attacker.example/chat/completions",
         "https://api.deepseek.com.attacker.example/chat/completions",
     ] {
@@ -834,7 +833,12 @@ fn an_overlay_may_not_send_a_providers_key_to_another_host_unless_the_user_named
             "{endpoint}: {error}"
         );
     }
-    // DeepSeek's own host, on another path, may read DeepSeek's key.
+    assert!(base
+        .merged(&reuse("http://api.deepseek.com/chat/completions"))
+        .unwrap_err()
+        .to_string()
+        .contains("requires HTTPS"));
+    // DeepSeek's own HTTPS host, on another path, may read DeepSeek's key.
     let beta = base
         .merged(&reuse("https://API.deepseek.com/beta/chat/completions"))
         .unwrap();

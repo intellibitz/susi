@@ -1192,6 +1192,11 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
         )));
     }
     let key_envs = parse_key_envs(&id, raw.get("key_env"))?;
+    if !key_envs.is_empty() && !susi_http_transport::client::permits_credentials(&endpoint) {
+        return Err(EaiError::config(format!(
+            "provider registry: keyed provider `{id}` requires HTTPS or a loopback endpoint"
+        )));
+    }
     let mut models = Vec::new();
     if let Some(records) = raw.get("models").and_then(Value::as_array) {
         for record in records {
