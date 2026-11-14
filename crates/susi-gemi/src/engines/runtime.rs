@@ -211,13 +211,14 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         model: &str,
     ) -> String {
+        let requested = Self::normalize_requested_model(Some(model));
         Self::reason_internal(
             prompt,
             workspace,
-            reflex_allowed(Some(model)),
+            reflex_allowed(requested),
             callback,
             None,
-            Some(model),
+            requested,
             None,
             &|_| {},
             None,
@@ -255,6 +256,7 @@ impl GemiEngine {
         requires: Option<&str>,
         chat: Option<serde_json::Value>,
     ) -> String {
+        let model = Self::normalize_requested_model(model);
         Self::reason_internal(
             prompt,
             workspace,
@@ -309,6 +311,7 @@ impl GemiEngine {
         meta: &dyn Fn(&str),
         chat_request: Option<serde_json::Value>,
     ) -> String {
+        let requested_model = Self::normalize_requested_model(requested_model);
         let _model_reads = crate::models::ModelReadWindow::enter();
         let provider_chat = chat_request.as_ref();
         if allow_reflex && chat_request.is_none() {
@@ -918,12 +921,16 @@ impl GemiEngine {
         Ok(true)
     }
 
+    fn normalize_requested_model(requested_model: Option<&str>) -> Option<&str> {
+        requested_model.map(str::trim).filter(|m| !m.is_empty())
+    }
+
     /// True when a caller-requested model name substring-matches a
     /// registered provider — the predicate both the strict-honoring early
     /// return and the fallback announcement share, so a named local model
     /// never triggers the cascade nor the "falling back" notice.
     fn model_names_a_provider(requested_model: Option<&str>) -> bool {
-        let Some(model) = requested_model else {
+        let Some(model) = Self::normalize_requested_model(requested_model) else {
             return false;
         };
         let model_l = model.to_ascii_lowercase();
@@ -1086,7 +1093,7 @@ impl GemiEngine {
         // its quarantine has lapsed, so a top-up is noticed without any action.
         let probe = |n: &String| crate::engines::routing::InferenceRouter::is_recovery_probe(n);
 
-        if let Some(model) = requested_model {
+        if let Some(model) = Self::normalize_requested_model(requested_model) {
             let model_l = model.to_ascii_lowercase();
             // Strict honoring: a requested name that matches no registered
             // provider is a local model id — return so the caller falls
@@ -1114,8 +1121,8 @@ impl GemiEngine {
                     !hit,
                     !probe(n),
                     unfit(n),
-                    !preferred,
                     !meets_floor,
+                    !preferred,
                     pos,
                     Self::rank_provider_name(n),
                     n.clone(),
@@ -1129,8 +1136,8 @@ impl GemiEngine {
                 (
                     !probe(n),
                     unfit(n),
-                    !preferred,
                     !meets_floor,
+                    !preferred,
                     pos,
                     Self::rank_provider_name(n),
                     n.clone(),

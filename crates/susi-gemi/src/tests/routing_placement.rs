@@ -178,3 +178,81 @@ fn record_failure_scopes_rate_limit_and_unreachable_via_classify_error() {
     assert!(!InferenceRouter::provider_cooled(&gone_sibling));
     InferenceRouter::clear_provider_cooldown(&gone_down);
 }
+
+#[test]
+fn sticky_preferred_cloud_never_overrides_capability_floor_or_unfitness() {
+    let _guard = crate::engines::env_test_lock();
+
+    // 1) Below-floor preferred cloud must lose to a floor-meeting provider in both
+    //    plan_placement_inner (pick_cloud) and cloud_failover_order_for.
+    {
+        let _sb = RoutingSandbox::new("pref_floor");
+        InferenceRouter::save_preference(&RoutingPreference {
+            policy_override: Some("cloud_first".into()),
+            preferred_cloud: Some("openai".into()),
+            ..Default::default()
+        });
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(cloud("openai-gpt-4.1-mini"));
+        registry.register_provider(cloud("groq-llama-70b"));
+
+        let decision = InferenceRouter::plan_placement_inner(
+            Some("reasoning"),
+            None,
+            true,
+            |_| true,
+            &registry,
+        );
+        assert_eq!(decision.provider.as_deref(), Some("groq-llama-70b"));
+        let order = InferenceRouter::cloud_failover_order_for(&registry, TaskClass::Reasoning);
+        assert_eq!(order.first().map(String::as_str), Some("groq-llama-70b"));
+    }
+
+    // 2) Unfit preferred cloud must yield to a healthy fit provider in both entry points.
+    {
+        let _sb = RoutingSandbox::new("pref_unfit");
+        InferenceRouter::save_preference(&RoutingPreference {
+            policy_override: Some("cloud_first".into()),
+            preferred_cloud: Some("openai".into()),
+            ..Default::default()
+        });
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(cloud("openai-gpt-4o"));
+        registry.register_provider(cloud("deepseek"));
+        for _ in 0..3 {
+            brain::record_outcome("openai-gpt-4o", TaskClass::Chat, false, 100);
+        }
+        brain::note_failure("vendor:openai", FailureKind::Funds);
+        assert!(brain::is_unfit("openai-gpt-4o", TaskClass::Chat));
+        assert!(!brain::is_unfit("deepseek", TaskClass::Chat));
+
+        let decision = InferenceRouter::plan_placement_inner(None, None, true, |_| true, &registry);
+        assert_eq!(decision.provider.as_deref(), Some("deepseek"));
+        let order = InferenceRouter::cloud_failover_order_for(&registry, TaskClass::Chat);
+        assert_eq!(order.first().map(String::as_str), Some("deepseek"));
+    }
+
+    // 3) Sticky preferred cloud still wins among equally fit floor-meeting candidates.
+    {
+        let _sb = RoutingSandbox::new("pref_fit_wins");
+        InferenceRouter::save_preference(&RoutingPreference {
+            policy_override: Some("cloud_first".into()),
+            preferred_cloud: Some("groq".into()),
+            ..Default::default()
+        });
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(cloud("claude-opus-4"));
+        registry.register_provider(cloud("groq-llama-70b"));
+
+        let decision = InferenceRouter::plan_placement_inner(
+            Some("reasoning"),
+            None,
+            true,
+            |_| true,
+            &registry,
+        );
+        assert_eq!(decision.provider.as_deref(), Some("groq-llama-70b"));
+        let order = InferenceRouter::cloud_failover_order_for(&registry, TaskClass::Reasoning);
+        assert_eq!(order.first().map(String::as_str), Some("groq-llama-70b"));
+    }
+}

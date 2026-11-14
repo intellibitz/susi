@@ -980,7 +980,7 @@ impl InferenceRouter {
                 })
             })
         };
-        let ranked: std::collections::HashMap<String, (bool, usize)> =
+        let ranked: std::collections::HashMap<String, (bool, bool, usize)> =
             crate::engines::brain::rank_with_quota(
                 &providers,
                 class,
@@ -989,17 +989,22 @@ impl InferenceRouter {
             )
             .into_iter()
             .enumerate()
-            .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
+            .map(|(pos, r)| (r.provider, (r.meets_floor, r.unfit, pos)))
             .collect();
         providers.sort_by_key(|name| {
             let preferred = pref
                 .preferred_cloud
                 .as_deref()
                 .is_some_and(|preferred| Self::pref_matches(name, preferred));
-            let (meets_floor, pos) = ranked.get(name).copied().unwrap_or((false, usize::MAX));
+            let (meets_floor, unfit, pos) =
+                ranked
+                    .get(name)
+                    .copied()
+                    .unwrap_or((false, false, usize::MAX));
             (
-                !preferred,
                 !meets_floor,
+                unfit,
+                !preferred,
                 pos,
                 Self::cloud_rank(name),
                 name.clone(),
@@ -1328,7 +1333,8 @@ impl InferenceRouter {
             _ => None,
         };
         if let Some((target, reason)) = forced_reason {
-            let provider = (target == "cloud").then(|| Self::pick_cloud(&clouds, &pref, &cfg));
+            let provider =
+                (target == "cloud").then(|| Self::pick_cloud(&clouds, class, &pref, &cfg));
             return PlacementDecision {
                 contract: PlacementContract::now(),
                 target: target.to_string(),
@@ -1378,7 +1384,7 @@ impl InferenceRouter {
         }
 
         if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
-            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
             return PlacementDecision {
                 contract: PlacementContract::now(),
                 target: "cloud".to_string(),
@@ -1401,7 +1407,7 @@ impl InferenceRouter {
         if requires.is_some_and(|value| value.eq_ignore_ascii_case("tools"))
             && !local_capable(requires)
         {
-            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
             return PlacementDecision {
                 contract: PlacementContract::now(),
                 target: "cloud".to_string(),
@@ -1420,7 +1426,7 @@ impl InferenceRouter {
         }
 
         if !local_ready {
-            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
             return PlacementDecision {
                 contract: PlacementContract::now(),
                 target: "cloud".to_string(),
@@ -1468,7 +1474,7 @@ impl InferenceRouter {
             "CPU-only host — local GGUF typically too slow".to_string()
         };
 
-        let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+        let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
         PlacementDecision {
             contract: PlacementContract::now(),
             target: "cloud".to_string(),
@@ -1504,13 +1510,25 @@ impl InferenceRouter {
 
     fn pick_cloud(
         clouds: &[String],
+        class: crate::engines::brain::TaskClass,
         pref: &RoutingPreference,
         cfg: &InferenceRoutingConfig,
     ) -> String {
-        // `clouds` arrives ordered by (!meets_floor, is_unfit, cloud_rank, name),
-        // so matching preferred_cloud picks its highest-qualified healthy model.
-        if let Some(preferred) = pref.preferred_cloud.as_deref() {
-            if let Some(hit) = clouds.iter().find(|c| Self::pref_matches(c, preferred)) {
+        // `clouds` arrives ordered by (!meets_floor, is_unfit, cloud_rank, name);
+        // keep sticky preferred_cloud inside the leading (!meets_floor, is_unfit) stratum.
+        let qual = |c: &str| {
+            (
+                !crate::engines::capability::meets_floor(c, class),
+                crate::engines::brain::is_unfit(c, class),
+            )
+        };
+        if let (Some(preferred), Some(first)) = (pref.preferred_cloud.as_deref(), clouds.first()) {
+            let best_qual = qual(first);
+            if let Some(hit) = clouds
+                .iter()
+                .take_while(|c| qual(c) == best_qual)
+                .find(|c| Self::pref_matches(c, preferred))
+            {
                 return hit.clone();
             }
         }

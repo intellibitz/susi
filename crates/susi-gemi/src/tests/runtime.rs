@@ -388,3 +388,133 @@ fn test_generation_loop_excludes_prompt_tokens_from_repeat_penalty_window() {
         "a prompt-only token must not be penalized just because it appears in the prompt"
     );
 }
+
+struct RuntimeSandbox {
+    tmp: std::path::PathBuf,
+    _env: susi_paths::test_env::EnvGuard,
+}
+
+impl RuntimeSandbox {
+    fn new(tag: &str) -> Self {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_runtime_test_{tag}_{}", std::process::id()));
+        let config = tmp.join("config");
+        let _ = std::fs::create_dir_all(&config);
+        let _ = std::fs::create_dir_all(tmp.join(".susi"));
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &tmp);
+        env.set("XDG_CONFIG_HOME", &config);
+        env.set("SUSI_XDG", "0");
+        env.set("SUSI_COOLDOWNS_FILE", tmp.join("cooldowns.json"));
+        env.set("SUSI_BRAIN_EVIDENCE_FILE", tmp.join("brain.json"));
+        let _ = crate::engines::brain::reset();
+        Self { tmp, _env: env }
+    }
+}
+
+impl Drop for RuntimeSandbox {
+    fn drop(&mut self) {
+        let _ = crate::engines::brain::reset();
+        let _ = std::fs::remove_dir_all(&self.tmp);
+    }
+}
+
+#[test]
+fn test_try_providers_prefers_capability_floor_over_sticky_preferred_cloud() {
+    let _guard = crate::engines::env_test_lock();
+    let _sb = RuntimeSandbox::new("floor_over_pref");
+    let prompt = "Prove this step by step";
+    assert_eq!(
+        crate::engines::brain::TaskClass::classify(prompt),
+        crate::engines::brain::TaskClass::Reasoning
+    );
+
+    crate::engines::routing::InferenceRouter::save_preference(
+        &crate::engines::routing::RoutingPreference {
+            policy_override: Some("cloud_first".into()),
+            preferred_cloud: Some("openai".into()),
+            ..Default::default()
+        },
+    );
+
+    let registry = crate::susi_core::registry::CapabilityRegistry::new();
+    registry.register_provider(MockRouteProvider {
+        name: "openai-gpt-4.1-mini",
+        reply: "below-floor-openai",
+    });
+    registry.register_provider(MockRouteProvider {
+        name: "groq-llama-70b",
+        reply: "reasoning-groq",
+    });
+
+    let (out, _ladder) =
+        GemiEngine::try_providers(&registry, prompt, None, None, None, &|_| {}, &|_| {});
+    assert_eq!(out.as_deref(), Some("reasoning-groq"));
+
+    // When preferred cloud also meets the Reasoning floor, sticky preference still wins.
+    crate::engines::routing::InferenceRouter::save_preference(
+        &crate::engines::routing::RoutingPreference {
+            policy_override: Some("cloud_first".into()),
+            preferred_cloud: Some("groq".into()),
+            ..Default::default()
+        },
+    );
+    registry.register_provider(MockRouteProvider {
+        name: "claude-opus-4",
+        reply: "reasoning-claude",
+    });
+    let (out2, _ladder2) =
+        GemiEngine::try_providers(&registry, prompt, None, None, None, &|_| {}, &|_| {});
+    assert_eq!(out2.as_deref(), Some("reasoning-groq"));
+}
+
+#[test]
+fn test_requested_model_normalization_ignores_blank_and_trims_padding() {
+    assert_eq!(GemiEngine::normalize_requested_model(None), None);
+    assert_eq!(GemiEngine::normalize_requested_model(Some("")), None);
+    assert_eq!(GemiEngine::normalize_requested_model(Some("   \t ")), None);
+    assert_eq!(
+        GemiEngine::normalize_requested_model(Some(" mixtral ")),
+        Some("mixtral")
+    );
+
+    assert!(!GemiEngine::model_names_a_provider(None));
+    assert!(!GemiEngine::model_names_a_provider(Some("")));
+    assert!(!GemiEngine::model_names_a_provider(Some("   \t ")));
+
+    let _guard = crate::engines::env_test_lock();
+    let _sb = RuntimeSandbox::new("norm_model");
+    let registry = crate::susi_core::registry::CapabilityRegistry::new();
+    registry.register_provider(MockRouteProvider {
+        name: "ollama-llama3",
+        reply: "ollama",
+    });
+    registry.register_provider(MockRouteProvider {
+        name: "lmstudio-mixtral",
+        reply: "mixtral",
+    });
+
+    for blank in ["", "   \t "] {
+        let (blank_out, _) = GemiEngine::try_providers(
+            &registry,
+            "hello",
+            None,
+            Some(blank),
+            None,
+            &|_| {},
+            &|_| {},
+        );
+        assert_eq!(blank_out.as_deref(), Some("ollama"));
+    }
+
+    let (padded_out, _) = GemiEngine::try_providers(
+        &registry,
+        "hello",
+        None,
+        Some(" mixtral "),
+        None,
+        &|_| {},
+        &|_| {},
+    );
+    assert_eq!(padded_out.as_deref(), Some("mixtral"));
+}
