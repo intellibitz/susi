@@ -242,6 +242,18 @@ fn our_gmcp_http_port() -> u16 {
         .unwrap_or(susi_paths::ports::GMCP_HTTP)
 }
 
+fn scout_socket(wide: bool) -> std::io::Result<UdpSocket> {
+    let ip = if wide {
+        std::net::Ipv4Addr::UNSPECIFIED
+    } else {
+        std::net::Ipv4Addr::LOCALHOST
+    };
+    let socket = UdpSocket::bind((ip, 0))?;
+    socket.set_broadcast(wide)?;
+    socket.set_read_timeout(Some(Duration::from_millis(500)))?;
+    Ok(socket)
+}
+
 pub struct SusiSupervisor;
 
 /// One peer response collected before the consensus pass. The sender is the
@@ -310,11 +322,12 @@ impl SusiSupervisor {
                 // Host contract: UDP 9092 belongs to the daemon alone.
                 // Peer scouts bind an ephemeral port and talk *to* 9092.
                 let port = Self::get_udp_discovery_port();
-                let socket_res = UdpSocket::bind("0.0.0.0:0");
-                if let Ok(socket) = socket_res {
-                    let _ = socket.set_broadcast(true);
-                    let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
-
+                let lan_bind = crate::susi_config::SusiConfig::load_global()
+                    .ok()
+                    .and_then(|cfg| cfg.get::<String>("bind_address"))
+                    .is_some_and(|addr| !crate::susi_core::mcp_client::is_loopback_target(&addr));
+                let mut wide = false;
+                if let Ok(mut socket) = scout_socket(wide) {
                     // 4 KiB: a signed pong carries a gossip roster of
                     // hex-encoded `id@address;` entries (~80 B/member) —
                     // a 1 KiB buffer truncates pongs past ~12 members,
@@ -530,6 +543,27 @@ impl SusiSupervisor {
 
                         // host_only: no discovery datagram is read or sent.
                         let host_only = crate::susi_core::mac_policy::host_only_in_force();
+                        let explicit_remote = t_shared.read().iter().any(|peer| {
+                            peer.admission == PeerAdmission::Explicit
+                                && !crate::susi_core::mcp_client::is_loopback_target(&peer.address)
+                        });
+                        let need_wide = !host_only && (lan_bind || explicit_remote);
+                        if need_wide != wide {
+                            match scout_socket(need_wide) {
+                                Ok(next) => {
+                                    socket = next;
+                                    wide = need_wide;
+                                    pending_nonces.clear();
+                                    nonce_sent_at.clear();
+                                    accepted_pongs.clear();
+                                }
+                                Err(_) if !need_wide => return,
+                                Err(_) => {
+                                    std::thread::sleep(Duration::from_millis(500));
+                                    continue;
+                                }
+                            }
+                        }
                         if let (Ok((amt, src)), false) = (socket.recv_from(&mut buf), host_only) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             // Signed pong: peer proved it holds cluster.key and
@@ -870,7 +904,7 @@ impl SusiSupervisor {
                         // uses (one frame per source), so a captured copy
                         // never verifies from another host.
                         let mut dests = if host_only { Vec::new() } else { targets };
-                        if broadcast_due && !host_only {
+                        if broadcast_due && !host_only && lan_bind {
                             last_broadcast = std::time::Instant::now();
                             dests.push(format!("255.255.255.255:{port}"));
                         }

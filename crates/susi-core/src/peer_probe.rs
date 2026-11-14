@@ -85,12 +85,9 @@ pub fn handshake(
     if attempts.is_empty() {
         return Err(format!("no route from this host to {dest}"));
     }
-    let any: std::net::SocketAddr = if dest.is_ipv4() {
-        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
-    } else {
-        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
-    };
-    let socket = std::net::UdpSocket::bind(any).map_err(|e| e.to_string())?;
+    let source = susi_config::cluster_key::route_source_ip(dest)
+        .ok_or_else(|| format!("no route from this host to {dest}"))?;
+    let socket = std::net::UdpSocket::bind((source, 0)).map_err(|e| e.to_string())?;
     socket
         .set_read_timeout(Some(std::time::Duration::from_secs(PONG_TIMEOUT_SECS)))
         .map_err(|e| e.to_string())?;

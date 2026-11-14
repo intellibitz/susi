@@ -78,6 +78,7 @@
     "crates/susi-vendor-winapi/unsafe-review.md",
     "docs/releases.md",
     "docs/step1-acceptance.md",
+    "docs/threat-model.md",
     "install.ps1",
     "scripts/test-release-sync-windows.ps1",
     "src/bin/susi-background.rs",
