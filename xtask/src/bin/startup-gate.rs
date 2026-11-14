@@ -327,7 +327,7 @@ struct Instance {
 
 impl Instance {
     fn command(&self, exe: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(exe);
+        let mut command = susi_paths::console::background_command(exe);
         command
             .args(args)
             .current_dir(&self.cwd)
