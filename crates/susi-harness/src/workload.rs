@@ -73,16 +73,13 @@ pub(crate) fn lookup(name: &str) -> Option<String> {
 }
 
 fn credential(base: &str, body: &[u8]) -> Option<String> {
-    let response = post(base, "credential", body, 10)?.into_bytes(LIMIT).ok()?;
-    let mut json: serde_json::Value = serde_json::from_slice(&response).ok()?;
-    match json.get_mut("value")?.take() {
-        serde_json::Value::String(value)
-            if !value.trim().is_empty() && !value.contains(['\r', '\n', '\0']) =>
-        {
-            Some(value)
-        }
-        _ => None,
+    #[derive(serde::Deserialize)]
+    struct CredentialReply {
+        value: String,
     }
+    let response = post(base, "credential", body, 10)?.into_bytes(LIMIT).ok()?;
+    let CredentialReply { value } = serde_json::from_slice(&response).ok()?;
+    (!value.trim().is_empty() && !value.contains(['\r', '\n', '\0'])).then_some(value)
 }
 
 /// Workload identity, sibling provider credentials, and operator login state

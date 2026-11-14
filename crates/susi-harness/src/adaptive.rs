@@ -635,8 +635,10 @@ impl CliSubRunner {
             &command,
             &config.workspace,
             &config.prompt,
-            config.timeout,
-            self.poll_interval,
+            PollTiming {
+                timeout: config.timeout,
+                interval: self.poll_interval,
+            },
             Some((&grant, home.path(), &lease)),
         ) {
             PipedRun::Finished(outcome) => outcome,
@@ -670,15 +672,28 @@ pub fn run_piped(
     timeout: Duration,
     poll_interval: Duration,
 ) -> PipedRun {
-    run_piped_with(invocation, workspace, prompt, timeout, poll_interval, None)
+    run_piped_with(
+        invocation,
+        workspace,
+        prompt,
+        PollTiming {
+            timeout,
+            interval: poll_interval,
+        },
+        None,
+    )
+}
+
+struct PollTiming {
+    timeout: Duration,
+    interval: Duration,
 }
 
 fn run_piped_with(
     invocation: &CliCommand,
     workspace: &Path,
     prompt: &str,
-    timeout: Duration,
-    poll_interval: Duration,
+    timing: PollTiming,
     subscription: Option<(&crate::workload::CodexGrant, &Path, &crate::workload::Lease)>,
 ) -> PipedRun {
     let program = invocation.program.as_path();
@@ -772,7 +787,7 @@ fn run_piped_with(
     let stdout = drain(child.stdout.take());
     let stderr = drain(child.stderr.take());
 
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now() + timing.timeout;
     const LEASE_INTERVAL: Duration = Duration::from_secs(1);
     let mut next_check = Instant::now() + LEASE_INTERVAL;
     let status = loop {
@@ -810,7 +825,7 @@ fn run_piped_with(
         } else {
             deadline
         };
-        thread::sleep(poll_interval.min(wake.saturating_duration_since(now)));
+        thread::sleep(timing.interval.min(wake.saturating_duration_since(now)));
     };
     // A provider that exits may still have workers holding its credential.
     drop(tree);
