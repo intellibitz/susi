@@ -30,7 +30,7 @@ fn private_download_fixture(name: &str) -> Option<PathBuf> {
     fs::write(root.join(".download-fixture"), name).unwrap();
     let (_, module) = module_path!().split_once("::").unwrap();
     let output = susi_paths::test_env::isolate_home(
-        &mut std::process::Command::new(std::env::current_exe().unwrap()),
+        &mut susi_paths::console::background_command(std::env::current_exe().unwrap()),
         &root,
     )
     .env(CHILD, name)
@@ -70,17 +70,22 @@ fn managed_download_waits_through_forward_progress_but_times_out_a_stalled_publi
     let part = root.join("model.part");
     let task = crate::susi_core::task_manager::SwarmTaskManager::global()
         .register_task("managed_download_wait", "model");
-    let idle = Duration::from_millis(200);
+    let idle = Duration::from_secs(1);
+    let (ready, publisher_ready) = std::sync::mpsc::sync_channel(0);
     let started = std::time::Instant::now();
     std::thread::scope(|threads| {
         let owner = threads.spawn(move || {
             let data = fs::File::create(part).unwrap();
-            for size in 1..=5 {
-                std::thread::sleep(Duration::from_millis(60));
+            ready.send(()).unwrap();
+            for size in 1..=12 {
+                std::thread::sleep(Duration::from_millis(100));
                 data.set_len(size).unwrap();
             }
             drop(holder);
         });
+        publisher_ready
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap();
         ModelManager::wait_for_download_transaction(&waiter, &staged, &task, idle).unwrap();
         owner.join().unwrap();
     });

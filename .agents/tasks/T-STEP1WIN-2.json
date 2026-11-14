@@ -42,6 +42,7 @@
     "crates/susi-gawd/src/lib.rs",
     "crates/susi-gawd/src/repo_gate.rs",
     "crates/susi-gawd/src/tests/composition_unit.rs",
+    "crates/susi-gemi-models/src/tests/model_manager.rs",
     "crates/susi-gmcp/Cargo.toml",
     "crates/susi-gmcp/src/server.rs",
     "crates/susi-harness/src/ledger.rs",
