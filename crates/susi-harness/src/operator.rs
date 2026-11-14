@@ -426,10 +426,26 @@ pub struct RunOutcome {
     pub budget_line: String,
 }
 
+fn scoped_route(opts: &RunOptions) -> bool {
+    crate::adaptive::subscription_spec(&opts.model)
+        || opts.model == "byok:auto"
+        || (opts.model == "auto" && opts.workers == "auto")
+}
+
 /// `susi harness run`: run a plan under the budget gate (prepare in
 /// parallel, land in order, persist after each task). Top-up alerts and
 /// fleet notes go to `notes` before the first task.
 pub fn run(opts: &RunOptions, cwd: &Path, notes: Notes<'_>) -> RunOutcome {
+    if scoped_route(opts) {
+        return RunOutcome {
+            report: run_mission(opts, cwd, &Budgets::default(), notes),
+            budget_line: if crate::adaptive::subscription_spec(&opts.model) {
+                "Monthly subscription route.".into()
+            } else {
+                "BYOK provider selection and metering at the gateway.".into()
+            },
+        };
+    }
     let (before, spent_before) = gather_budgets(&opts.ledger);
     for line in fleet::alerts(&before) {
         notes(line);
@@ -493,15 +509,32 @@ fn run_mission(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let evidence = live_evidence(&opts.ledger, cwd, notes);
-    let fleet = resolve_fleet(
-        &opts.workers,
-        || Ok(catalogue.clone()),
-        budgets,
-        &evidence,
-        Some(&opts.gateway),
-        notes,
-    )?;
+    let single_route = scoped_route(opts);
+    let fleet = if single_route {
+        if opts.workers != "auto" && opts.workers != opts.model {
+            return bail("a billing-scoped model requires matching workers or --workers auto");
+        }
+        let route = if opts.model == "auto" {
+            "byok:auto".to_owned()
+        } else {
+            opts.model.clone()
+        };
+        Fleet {
+            orchestrator: Some(route.clone()),
+            workers: vec![route],
+            ..Fleet::default()
+        }
+    } else {
+        let evidence = live_evidence(&opts.ledger, cwd, notes);
+        resolve_fleet(
+            &opts.workers,
+            || Ok(catalogue.clone()),
+            budgets,
+            &evidence,
+            Some(&opts.gateway),
+            notes,
+        )?
+    };
     let orchestrator = fleet::resolve_model("auto", &fleet).unwrap_or_else(|_| "none".to_string());
     // A task starts on a light worker: `--model auto` gives the fleet's first,
     // and a named model is used as named. A failure escalates to the fixers.
@@ -540,7 +573,11 @@ fn run_mission(
         ledger_path: opts.ledger.clone(),
         mission: plan.mission.clone(),
         policy: Policy {
-            max_attempts: opts.attempts.max(1),
+            max_attempts: if single_route {
+                1
+            } else {
+                opts.attempts.max(1)
+            },
             ..Policy::default()
         },
         timeout: Duration::from_secs(opts.timeout),

@@ -1082,13 +1082,63 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
     type Prepared = SusiRunReport;
 
     fn prepare(&self, task: &PlanTask) -> EaiResult<SusiRunReport> {
-        let preferred = task.model.clone().unwrap_or_else(|| self.model.clone());
+        let mut preferred = task.model.clone().unwrap_or_else(|| self.model.clone());
+        let scoped = crate::adaptive::subscription_spec(&self.model) || self.model == "byok:auto";
+        let mut remote_catalogue = None;
+        if scoped {
+            let monthly = crate::adaptive::subscription_spec(&self.model);
+            if crate::adaptive::subscription_spec(&preferred) != monthly {
+                return Err(EaiError::config(
+                    "task model conflicts with the mission billing route",
+                ));
+            }
+            if monthly
+                && !crate::adaptive::monthly_auto(&self.model)
+                && task.model.is_some()
+                && crate::adaptive::CliToolKind::parse_spec(&preferred)
+                    != crate::adaptive::CliToolKind::parse_spec(&self.model)
+            {
+                return Err(EaiError::config(
+                    "task provider conflicts with the pinned subscription",
+                ));
+            }
+            if self.model.to_ascii_lowercase().starts_with("monthly:") {
+                if let Some((_, id)) = preferred.split_once(':') {
+                    preferred = format!("monthly:{id}");
+                }
+            }
+            if preferred == "byok:auto" || preferred == "auto" {
+                let (model, price) =
+                    crate::fleet::gateway_worker(&self.gateway_url, &self.mission, &task.key)?;
+                preferred = model;
+                if let Some(catalogue) = self.catalogue.as_ref() {
+                    let mut catalogue = catalogue.clone();
+                    catalogue.models.remove(&preferred);
+                    if let Some(price) = price {
+                        catalogue.models.insert(preferred.clone(), price);
+                    }
+                    remote_catalogue = Some(catalogue);
+                }
+            }
+        }
+        let catalogue = remote_catalogue.as_ref().or(self.catalogue.as_ref());
         // The mission's default model is a worker on every task, even when the
         // task names a different one: otherwise a task assigned the cheap
         // worker has no stronger rung to escalate to.
         let mut alternates = self.alternates.clone();
         if !alternates.iter().any(|candidate| candidate == &self.model) {
             alternates.push(self.model.clone());
+        }
+        if scoped {
+            alternates.clear();
+            if self.budget.is_some()
+                && !crate::adaptive::subscription_spec(&preferred)
+                && catalogue.and_then(|c| c.price(&preferred)).is_none()
+            {
+                return Err(EaiError::config(
+                    "cannot price this BYOK mission model against its budget",
+                ));
+            }
         }
         let spec = SusiTaskSpec {
             worktree_name: format!("{}-{}", self.worktree_prefix, task.key),
@@ -1109,7 +1159,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             .budget
             .map(|budget| self.guard.get_or_init(|| BudgetGuard::new(budget)));
         let run_policy = SusiRunPolicy {
-            catalogue: self.catalogue.as_ref(),
+            catalogue,
             guard,
             ledger_path: &self.ledger_path,
             mission: &self.mission,

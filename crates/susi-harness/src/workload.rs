@@ -14,7 +14,7 @@ pub(crate) fn enabled() -> bool {
     env::var_os(GATEWAY).is_some() || env::var_os(TOKEN_FILE).is_some()
 }
 
-fn origin(base: &str) -> Option<&str> {
+pub(crate) fn origin(base: &str) -> Option<&str> {
     let base = base.strip_suffix('/').unwrap_or(base);
     let authority = base.strip_prefix("https://")?;
     if authority.is_empty()

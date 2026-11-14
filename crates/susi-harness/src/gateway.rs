@@ -146,10 +146,17 @@ struct Attempt {
 
 /// Build the gateway router.
 pub fn router(state: Arc<GatewayState>) -> Router {
-    Router::new().route("/health", get(|_| health())).route(
-        "/v1/chat/completions",
-        post(move |request| completions(Arc::clone(&state), request)),
-    )
+    let readiness_state = Arc::clone(&state);
+    Router::new()
+        .route("/health", get(|_| health()))
+        .route(
+            "/v1/models/auto",
+            get(move |_| ready_model(Arc::clone(&readiness_state))),
+        )
+        .route(
+            "/v1/chat/completions",
+            post(move |request| completions(Arc::clone(&state), request)),
+        )
 }
 
 /// Serve the gateway on an already-bound listener.
@@ -208,7 +215,59 @@ async fn completions(state: Arc<GatewayState>, request: Request) -> Response {
 /// The gateway's own route calls this; the authenticated ingress calls
 /// [`complete_holding`] after its own admission checks.
 pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String) -> Response {
-    complete_holding(state, headers, body, None).await
+    match resolve_model(&state, body).await {
+        Ok(body) => complete_holding(state, headers, body, None).await,
+        Err(message) => error_response(StatusCode::BAD_REQUEST, &message),
+    }
+}
+
+/// Resolve the actual billable model before ingress prices and admits the request.
+pub(crate) async fn resolve_model(
+    state: &Arc<GatewayState>,
+    body: String,
+) -> Result<String, String> {
+    let Ok(mut request) = serde_json::from_str::<Value>(&body) else {
+        return Ok(body);
+    };
+    let model = request["model"].as_str().unwrap_or_default().trim();
+    if crate::adaptive::subscription_spec(model) {
+        return Err("subscription models require the native monthly runner".into());
+    }
+    if model != "auto" && model != "byok:auto" {
+        return if model.starts_with("byok:") {
+            Err("unknown BYOK selector; use byok:auto or the registered model ID".into())
+        } else {
+            Ok(body)
+        };
+    }
+    request["model"] = Value::String(select_byok(state).await?);
+    Ok(request.to_string())
+}
+
+async fn select_byok(state: &Arc<GatewayState>) -> Result<String, String> {
+    if state.upstream_chat_url.trim() != "direct" || state.api_key.is_some() {
+        return Err(
+            "automatic BYOK selection requires a direct gateway with per-provider credentials"
+                .into(),
+        );
+    }
+    let state = Arc::clone(state);
+    tokio::task::spawn_blocking(move || {
+        crate::fleet::healthy_worker(&state.ledger_path, &state.catalogue)
+    })
+    .await
+    .map_err(|_| "BYOK readiness check interrupted".to_string())?
+}
+
+/// The selected route and its price, without a prompt or an inference request.
+pub(crate) async fn ready_model(state: Arc<GatewayState>) -> Response {
+    use crate::http::{IntoResponse, Json};
+    match select_byok(&state).await {
+        Ok(model) => {
+            Json(json!({"price": state.catalogue.price(&model), "model": model})).into_response()
+        }
+        Err(message) => error_response(StatusCode::BAD_REQUEST, &message),
+    }
 }
 
 /// What a caller of [`complete_holding`] keeps alive until the call is

@@ -419,8 +419,21 @@ impl Ingress {
 pub fn router(gateway: Arc<GatewayState>, ingress: Arc<Ingress>) -> Router {
     let state = IngressState { gateway, ingress };
     let models_state = state.clone();
+    let readiness = state.clone();
     Router::new()
         .route("/health", get(|_| health()))
+        .route(
+            "/v1/models/auto",
+            get(move |request| {
+                let state = readiness.clone();
+                async move {
+                    match state.ingress.authenticate(token_from(&request.headers)) {
+                        Ok(_) => crate::gateway::ready_model(state.gateway).await,
+                        Err(denial) => deny(denial),
+                    }
+                }
+            }),
+        )
         .route(
             "/v1/models",
             get(move |request| models(models_state.clone(), request)),
@@ -550,7 +563,16 @@ async fn completions(state: IngressState, request: Request) -> Response {
         };
         headers.insert(MISSION, value);
     }
-    let mut body = body;
+    let mut body = match crate::gateway::resolve_model(&state.gateway, body).await {
+        Ok(body) => body,
+        Err(message) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": {"message": message}})),
+            )
+                .into_response()
+        }
+    };
     let (estimate, spent) = if account.budget.is_some() {
         let mut request = serde_json::from_str::<Value>(&body).ok();
         if let Some(request) = request.as_mut() {

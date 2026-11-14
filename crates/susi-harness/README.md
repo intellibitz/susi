@@ -91,6 +91,59 @@ uses the process group created for the provider. The same checks protect both
 Codex credential routes. Separately issued vendor sessions and previously
 disclosed provider keys follow the vendor's own expiry and revocation rules.
 
+### Selecting a provider at dispatch
+
+For a direct metering gateway, set an ordered preference on the gateway process.
+The registry uses its built-in providers and the optional JSON overlay named by
+`SUSI_HARNESS_PROVIDERS`. Automatic BYOK selection checks budget, capabilities
+and the authenticated model list before sending the prompt to one provider.
+
+```sh
+export SUSI_HARNESS_PREFER=deepseek,siliconflow,deepinfra
+harness-gateway --upstream direct --catalogue deploy/harness/prices.json --ledger ./ledger.jsonl
+# In the worker shell
+harness-run --gateway http://127.0.0.1:9185 --model byok:auto --workspace . --state ./state --mission demo --task one "Summarize the project"
+```
+
+A registered model such as `deepseek-flash` pins that provider. An unlisted
+preference can fall through to another eligible provider. The gateway's workload
+identity determines its tenant's grants. Give each tenant its own identity and
+gateway process. Authenticated account limits on the ingress price the selected
+model before admission. A successful model list proves availability at selection
+time. The subsequent inference can still fail or encounter quota limits.
+
+```sh
+export SUSI_HARNESS_MONTHLY_PREFER=codex,claude,gemini,antigravity
+harness-run --gateway http://127.0.0.1:9185 --model monthly:auto --workspace . --state ./state --mission demo --task two "Summarize the project"
+```
+
+`monthly:auto` considers only the listed monthly providers, in order.
+`monthly:claude` and `monthly:codex` pin a plan-authenticated provider.
+On a personal machine the native CLI checks its own ChatGPT login or active
+Claude subscription under a clean environment. The tools receive no BYOK
+variables. Codex login status identifies the ChatGPT account route, without
+exposing its plan tier, remaining quota or overage settings. Configure usage
+limits with the provider. Gemini and Antigravity currently have no supported
+paid-plan status check in this adapter. The runner skips them during automatic
+selection. An explicit `monthly:gemini` uses native Gemini with browser launch
+disabled when the existing system policy enforces `oauth-personal`. Gemini
+verifies its session during that invocation.
+[Gemini enterprise authentication](https://geminicli.com/docs/cli/enterprise/#authentication).
+
+On a managed workload only Codex has a
+subscription credential adapter. Its tenant grant and continuous revocation
+checks apply to both explicit and automatic selection. One monthly turn goes
+to one provider even if the CLI times out. The older `cli:<tool>` syntax
+continues to invoke an explicitly chosen native tool in its configured mode.
+
+For a scheduled plan, use `susi harness run --plan PLAN --model monthly:auto`
+or `--model byok:auto`. BYOK mission selection uses the gateway's authenticated
+`GET /v1/models/auto` endpoint and its current model price. For a private
+ingress, set `SUSI_HARNESS_GATEWAY_ORIGIN` on the runner and set
+`SUSI_HARNESS_GATEWAY_KEY_ENV` to the name of the account bearer in its vault.
+The harness resolves that credential on each request, including retries.
+Each task on a billing-scoped mission gets one attempt. An explicit per-task provider must match that class.
+
 ### Providers
 
 | Provider | Key | Models |

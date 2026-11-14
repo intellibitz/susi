@@ -30,6 +30,26 @@ use std::thread;
 use std::time::{Duration, Instant};
 use susi_error::EaiResult;
 
+#[path = "monthly.rs"]
+mod monthly;
+
+/// A subscription model specification, including an unknown provider name.
+pub(crate) fn subscription_spec(model: &str) -> bool {
+    model.trim().split_once(':').is_some_and(|(prefix, _)| {
+        ["cli", "sub", "monthly"]
+            .iter()
+            .any(|s| prefix.eq_ignore_ascii_case(s))
+    })
+}
+
+pub(crate) fn monthly_auto(model: &str) -> bool {
+    subscription_spec(model)
+        && model
+            .trim()
+            .split_once(':')
+            .is_some_and(|(_, id)| id.eq_ignore_ascii_case("auto"))
+}
+
 /// Environment variable selecting the [`AdaptiveStrategy`].
 pub const ADAPTIVE_ENV: &str = "SUSI_HARNESS_ADAPTIVE";
 
@@ -94,11 +114,10 @@ impl ExecutionMode {
 /// How [`AdaptiveRunner`] orders and fails over between the two planes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AdaptiveStrategy {
-    /// A `cli:`/`sub:` model spec runs on the CLI, anything else on PAYG; each
-    /// fails over only when the matching fallback is configured.
+    /// Route the model to its requested billing class without crossing classes.
     #[default]
     Auto,
-    /// Subscription CLI first, PAYG when the CLI fails or times out.
+    /// Subscription CLI first, PAYG if the CLI is unavailable before launch.
     PreferCliSubThenPayg,
     /// PAYG first, subscription CLI when PAYG fails.
     PreferPaygThenCliSub,
@@ -214,8 +233,8 @@ impl CliToolKind {
     #[must_use]
     pub fn parse_spec(model: &str) -> Option<(Self, Option<String>)> {
         let trimmed = model.trim();
-        let (prefix, rest) = trimmed.split_once(':')?;
-        if !(prefix.eq_ignore_ascii_case("cli") || prefix.eq_ignore_ascii_case("sub")) {
+        let (_, rest) = trimmed.split_once(':')?;
+        if !subscription_spec(trimmed) {
             return None;
         }
         let (tool, submodel) = match rest.split_once(':') {
@@ -547,6 +566,20 @@ impl CliSubRunner {
 
 impl Runner for CliSubRunner {
     fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+        if monthly_auto(&config.model)
+            || config
+                .model
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("monthly:")
+        {
+            return Ok(self.run_monthly(config));
+        }
+        if subscription_spec(&config.model) && CliToolKind::parse_spec(&config.model).is_none() {
+            return Ok(RunOutcome::Failed {
+                message: "unknown subscription provider".into(),
+            });
+        }
         if crate::workload::enabled() {
             return Ok(self.run_workload_subscription(config));
         }
@@ -639,7 +672,7 @@ impl CliSubRunner {
                 timeout: config.timeout,
                 interval: self.poll_interval,
             },
-            Some((&grant, home.path(), &lease)),
+            CliAuth::Workload(&grant, home.path(), &lease),
         ) {
             PipedRun::Finished(outcome) => outcome,
             PipedRun::NotFound => failed("codex could not be started"),
@@ -680,8 +713,19 @@ pub fn run_piped(
             timeout,
             interval: poll_interval,
         },
-        None,
+        CliAuth::Legacy,
     )
+}
+
+#[derive(Clone, Copy)]
+enum CliAuth<'a> {
+    Legacy,
+    LocalPlan,
+    Workload(
+        &'a crate::workload::CodexGrant,
+        &'a Path,
+        &'a crate::workload::Lease,
+    ),
 }
 
 struct PollTiming {
@@ -694,8 +738,12 @@ fn run_piped_with(
     workspace: &Path,
     prompt: &str,
     timing: PollTiming,
-    subscription: Option<(&crate::workload::CodexGrant, &Path, &crate::workload::Lease)>,
+    auth: CliAuth<'_>,
 ) -> PipedRun {
+    let subscription = match auth {
+        CliAuth::Workload(grant, home, lease) => Some((grant, home, lease)),
+        CliAuth::Legacy | CliAuth::LocalPlan => None,
+    };
     let program = invocation.program.as_path();
     let args = invocation.args.as_slice();
     let pipe_prompt_on_stdin = invocation.pipe_prompt_on_stdin;
@@ -736,6 +784,8 @@ fn run_piped_with(
                 command.env(name, home);
             }
         }
+    } else if matches!(auth, CliAuth::LocalPlan) {
+        monthly::session_environment(&mut command);
     } else {
         for (k, v) in susi_config::cloud_env_overlay() {
             if std::env::var_os(&k).is_none() {
@@ -1071,6 +1121,15 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
             primary,
             failover: None,
         };
+        if monthly_auto(model)
+            || model.trim().to_ascii_lowercase().starts_with("monthly:")
+            || (subscription_spec(model) && (!is_cli_spec || crate::workload::enabled()))
+        {
+            return only(cli(model));
+        }
+        if model.trim() == "byok:auto" || model.trim() == "auto" {
+            return only(payg(model));
+        }
         // A restricted Antigravity request cannot be silently converted to a
         // PAYG request, even by payg-first/payg-only or an installed fallback.
         if self.antigravity_argon_only
@@ -1101,15 +1160,9 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
             },
             AdaptiveStrategy::Auto => {
                 if is_cli_spec {
-                    AdaptivePlan {
-                        primary: cli(model),
-                        failover: payg_model.map(payg),
-                    }
+                    only(cli(model))
                 } else {
-                    AdaptivePlan {
-                        primary: payg(model),
-                        failover: self.fallback_cli_model.as_deref().map(cli),
-                    }
+                    only(payg(model))
                 }
             }
         }
@@ -1139,11 +1192,14 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
 }
 
 fn should_fail_over(mode: ExecutionMode, outcome: &RunOutcome) -> bool {
-    match (mode, outcome) {
-        (_, RunOutcome::Succeeded { .. }) => false,
-        (ExecutionMode::MonthlySubCli, RunOutcome::Failed { .. } | RunOutcome::TimedOut) => true,
-        (ExecutionMode::PaygByok, RunOutcome::Failed { .. }) => true,
-        (ExecutionMode::PaygByok, RunOutcome::TimedOut) => false,
+    let RunOutcome::Failed { message } = outcome else {
+        return false;
+    };
+    match mode {
+        ExecutionMode::MonthlySubCli => {
+            message.starts_with("subscription CLI") && message.contains("is not installed")
+        }
+        ExecutionMode::PaygByok => message == "upstream credential unavailable",
     }
 }
 

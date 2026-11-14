@@ -20,6 +20,44 @@ use crate::smart::{
     SmartParams, TurnDisposition,
 };
 
+/// The optional gateway bearer belongs only to its configured origin. Resolve
+/// the named grant for each outbound request so a retry sees rotation or denial.
+pub(crate) fn gateway_auth(gateway: &str, run_key: &str) -> EaiResult<String> {
+    if run_key.contains(['\r', '\n']) {
+        return Err(EaiError::config("invalid gateway run identity"));
+    }
+    let name = std::env::var_os("SUSI_HARNESS_GATEWAY_KEY_ENV");
+    let origin = std::env::var_os("SUSI_HARNESS_GATEWAY_ORIGIN");
+    if name.is_none() && origin.is_none() {
+        return Ok(format!("Bearer {run_key}"));
+    }
+    let origin = origin
+        .as_deref()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim_end_matches('/');
+    let local = origin
+        .strip_prefix("http://")
+        .and_then(|s| s.parse::<std::net::SocketAddr>().ok())
+        .is_some_and(|addr| addr.ip().is_loopback());
+    if gateway.trim_end_matches('/') != origin
+        || (!local && crate::workload::origin(origin).is_none())
+    {
+        return Err(EaiError::config(
+            "gateway account bearer requires its configured HTTPS or numeric loopback origin",
+        ));
+    }
+    let key = name
+        .as_deref()
+        .and_then(|n| n.to_str())
+        .and_then(crate::secrets::lookup)
+        .ok_or_else(|| EaiError::config("configured gateway account credential unavailable"))?;
+    if !key.expose().bytes().all(|b| b.is_ascii_graphic()) || key.expose().is_empty() {
+        return Err(EaiError::config("invalid gateway account bearer"));
+    }
+    Ok(format!("Bearer {}", key.expose()))
+}
+
 /// Run an autonomous multi-turn agentic coding loop.
 ///
 /// # Errors
@@ -43,7 +81,6 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
         config.gateway_url.trim_end_matches('/')
     );
     let run_key = format!("susi:{}:{}:{}", config.mission, config.task, config.attempt);
-    let auth_header = format!("Bearer {run_key}");
     let attempt_str = config.attempt.to_string();
 
     let tools = crate::tools::Registry::builtin();
@@ -94,17 +131,18 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
         let payload_bytes = serde_json::to_vec(&request_body)
             .map_err(|e| EaiError::internal(format!("serialize request: {e}")))?;
 
-        let headers = [
-            ("authorization", auth_header.as_str()),
-            ("content-type", "application/json"),
-            ("x-susi-mission", config.mission.as_str()),
-            ("x-susi-task", config.task.as_str()),
-            ("x-susi-attempt", attempt_str.as_str()),
-            ("x-susi-cache-scope", smart_params.cache_scope.as_str()),
-        ];
-
         let mut resent = 0;
         let (status, buf) = loop {
+            let auth_header = gateway_auth(&config.gateway_url, &run_key)?;
+            let headers = [
+                ("authorization", auth_header.as_str()),
+                ("content-type", "application/json"),
+                ("x-susi-mission", config.mission.as_str()),
+                ("x-susi-task", config.task.as_str()),
+                ("x-susi-attempt", attempt_str.as_str()),
+                ("x-susi-cache-scope", smart_params.cache_scope.as_str()),
+            ];
+
             let call = match susi_http_transport::http_call_with_body(
                 "POST",
                 &gateway_url,

@@ -64,6 +64,104 @@ impl Fleet {
     }
 }
 
+/// Choose a BYOK worker before inference. Only authenticated metadata GETs
+/// participate in selection. The chosen route resolves its credential again.
+pub(crate) fn healthy_worker(ledger: &Path, catalogue: &PriceCatalogue) -> Result<String, String> {
+    let registry = Registry::builtin();
+    if let Some(error) = Registry::overlay_error() {
+        return Err(error);
+    }
+    let (budgets, _) = gather_budgets(ledger);
+    let history = evidence(ledger, Some(catalogue), false);
+    let fleet = resolve_fleet("auto", || Ok(catalogue.clone()), &budgets, &history)
+        .map_err(|e| e.to_string())?;
+    let mut workers = fleet.task_workers();
+    let preferred = crate::providers::preferred_providers();
+    workers.sort_by_key(|id| {
+        registry
+            .resolve(id)
+            .and_then(|m| preferred.iter().position(|id| *id == m.provider))
+            .unwrap_or(usize::MAX)
+    });
+    choose_advertised(registry, workers, |provider| {
+        crate::verify::check_provider(provider, &crate::verify::fetch_http)
+    })
+}
+
+fn choose_advertised(
+    registry: &Registry,
+    workers: Vec<String>,
+    check: impl Fn(&crate::providers::ProviderRecord) -> crate::verify::ProviderReport,
+) -> Result<String, String> {
+    let mut reports = BTreeMap::new();
+    for id in workers {
+        let Some(model) = registry.resolve(&id) else {
+            continue;
+        };
+        let Some(provider) = registry
+            .providers()
+            .iter()
+            .find(|p| p.id == model.provider && !p.key_envs.is_empty())
+        else {
+            continue;
+        };
+        let report = reports
+            .entry(&provider.id)
+            .or_insert_with(|| check(provider));
+        if report.reachable
+            && (report.ok || !report.missing.is_empty())
+            && !report.missing.contains(&model.model_id)
+        {
+            return Ok(id);
+        }
+    }
+    Err("no eligible BYOK provider advertised a configured tool-capable worker with an approved credential".into())
+}
+
+/// Ask the tenant gateway for a priced route before starting a budgeted task.
+pub(crate) fn gateway_worker(
+    gateway: &str,
+    mission: &str,
+    task: &str,
+) -> EaiResult<(String, Option<crate::pricing::ModelPrice>)> {
+    let auth = crate::worker::gateway_auth(gateway, &format!("susi:{mission}:{task}:1"))?;
+    let call = susi_http_transport::http_call(
+        "GET",
+        &format!("{}/v1/models/auto", gateway.trim_end_matches('/')),
+        &[("authorization", &auth)],
+        30,
+        0,
+    )
+    .map_err(|_| EaiError::config("BYOK gateway readiness endpoint is unavailable"))?;
+    if call.status != 200 {
+        return Err(EaiError::config(format!(
+            "BYOK gateway refused readiness (HTTP {})",
+            call.status
+        )));
+    }
+    #[derive(serde::Deserialize)]
+    struct Ready {
+        model: String,
+        price: Option<crate::pricing::ModelPrice>,
+    }
+    let answer: Ready = serde_json::from_slice(
+        &call
+            .into_bytes(65536)
+            .map_err(|_| EaiError::config("invalid gateway readiness response"))?,
+    )
+    .map_err(|_| EaiError::config("invalid gateway model or price"))?;
+    if answer.model.trim().is_empty()
+        || answer.model == "auto"
+        || answer.model.starts_with("byok:")
+        || crate::adaptive::subscription_spec(&answer.model)
+    {
+        return Err(EaiError::config(
+            "gateway did not select a concrete BYOK model",
+        ));
+    }
+    Ok((answer.model, answer.price))
+}
+
 /// The fleet for `spec`.
 ///
 /// `auto` builds it from the API keys set in the environment
