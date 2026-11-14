@@ -3,7 +3,6 @@
   "title": "Permit workflow clients to append create-only canonical board records",
   "goal": "Publish canonical task events from Susi core and reject noncanonical destinations, malformed records, overwrites and deletions.",
   "size": "s",
-  "reuse": {"decision":"existing","searched":"Native board data model and screened draft validation, existing push-policy exact transaction checks and hermetic native git push fixture."},
   "deps": [],
   "accept": {
     "cmd": [
@@ -18,5 +17,14 @@
     ]
   },
   "created_by": "CODEXHARNESSID",
-  "created_unix": 1794655827
+  "created_unix": 1794655827,
+  "closed": {
+    "at_unix": 1794656122,
+    "commit": "a92f52e52346a6af415c58fb30faedca4ca8151e",
+    "by": "CODEXHARNESSID"
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Native board data model and screened draft validation, existing push-policy exact transaction checks and hermetic native git push fixture."
+  }
 }
