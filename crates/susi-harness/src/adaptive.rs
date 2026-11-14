@@ -209,8 +209,8 @@ impl CliToolKind {
     }
 
     /// Parse a CLI model spec: `cli:<tool>` or `sub:<tool>`, optionally
-    /// followed by `:<submodel>` (`cli:claude:opus`). Any other model id —
-    /// a PAYG catalogue id such as `deepseek-flash` — is `None`.
+    /// followed by `:<submodel>` (`cli:claude:opus`). Any other model id â€”
+    /// a PAYG catalogue id such as `deepseek-flash` â€” is `None`.
     #[must_use]
     pub fn parse_spec(model: &str) -> Option<(Self, Option<String>)> {
         let trimmed = model.trim();
@@ -547,6 +547,9 @@ impl CliSubRunner {
 
 impl Runner for CliSubRunner {
     fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+        if crate::workload::enabled() {
+            return Ok(self.run_workload_subscription(config));
+        }
         let commands = match self.resolve(&config.model) {
             Ok(commands) => commands,
             Err(message) => return Ok(RunOutcome::Failed { message }),
@@ -570,6 +573,75 @@ impl Runner for CliSubRunner {
                 not_found.join(", ")
             ),
         })
+    }
+}
+
+impl CliSubRunner {
+    /// A customer's delegated Sign in with ChatGPT plan token is for the
+    /// Responses API. Resolve it for this turn, and direct the native Codex
+    /// executable to that provider in an empty, ephemeral profile.
+    fn run_workload_subscription(&self, config: &ExecutorConfig) -> RunOutcome {
+        let failed = |message: &str| RunOutcome::Failed {
+            message: message.into(),
+        };
+        if self.command_override.is_some() || self.antigravity_argon_only {
+            return failed("workload subscription requires an approved provider executable");
+        }
+        let (kind, model) = CliToolKind::parse_spec(&config.model)
+            .unwrap_or((self.default_kind.unwrap_or(CliToolKind::Codex), None));
+        if kind != CliToolKind::Codex {
+            return failed(&format!(
+                "{} has no workload subscription credential integration",
+                kind.as_str()
+            ));
+        }
+        let dirs = self.search_dirs.clone().unwrap_or_else(default_search_dirs);
+        let dirs: Vec<_> = dirs.into_iter().filter(|dir| dir.is_absolute()).collect();
+        let Some(program) = find_in_dirs(kind, &dirs) else {
+            return failed("codex is not installed on the operator PATH");
+        };
+        let grant = match crate::workload::CodexGrant::resolve() {
+            Ok(grant) => grant,
+            Err(reason) => return failed(reason),
+        };
+        let Ok(home) = susi_paths::tempfile::TempDir::with_prefix("susi-codex-") else {
+            return failed("could not create an isolated subscription profile");
+        };
+        let mut args: Vec<String> = [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        grant.configure_args(&mut args);
+        args.extend([
+            "-c".into(),
+            r#"shell_environment_policy.inherit="none""#.into(),
+        ]);
+        if let Some(model) = model {
+            args.extend(["--model".into(), model]);
+        }
+        args.push("-".into());
+        let command = CliCommand {
+            program,
+            args,
+            pipe_prompt_on_stdin: true,
+        };
+        match run_piped_with(
+            &command,
+            &config.workspace,
+            &config.prompt,
+            config.timeout,
+            self.poll_interval,
+            Some((&grant, home.path())),
+        ) {
+            PipedRun::Finished(outcome) => outcome,
+            PipedRun::NotFound => failed("codex could not be started"),
+        }
     }
 }
 
@@ -598,6 +670,17 @@ pub fn run_piped(
     timeout: Duration,
     poll_interval: Duration,
 ) -> PipedRun {
+    run_piped_with(invocation, workspace, prompt, timeout, poll_interval, None)
+}
+
+fn run_piped_with(
+    invocation: &CliCommand,
+    workspace: &Path,
+    prompt: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+    subscription: Option<(&crate::workload::CodexGrant, &Path)>,
+) -> PipedRun {
     let program = invocation.program.as_path();
     let args = invocation.args.as_slice();
     let pipe_prompt_on_stdin = invocation.pipe_prompt_on_stdin;
@@ -623,9 +706,26 @@ pub fn run_piped(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(workspace);
-    for (k, v) in susi_config::cloud_env_overlay() {
-        if std::env::var_os(&k).is_none() {
-            command.env(k, v);
+    if crate::workload::enabled() {
+        crate::workload::clean_environment(&mut command);
+        if let Some((grant, home)) = subscription {
+            grant.configure_env(&mut command);
+            for name in [
+                "CODEX_HOME",
+                "HOME",
+                "USERPROFILE",
+                "APPDATA",
+                "LOCALAPPDATA",
+                "XDG_CONFIG_HOME",
+            ] {
+                command.env(name, home);
+            }
+        }
+    } else {
+        for (k, v) in susi_config::cloud_env_overlay() {
+            if std::env::var_os(&k).is_none() {
+                command.env(k, v);
+            }
         }
     }
     susi_paths::console::apply_non_interactive_env(&mut command);
@@ -677,8 +777,12 @@ pub fn run_piped(
     // A grandchild that inherited the pipes can hold them open after the
     // child exits; whatever arrived within the grace window is kept.
     let grace = Instant::now() + DRAIN_GRACE;
-    let stdout = stdout.collect(grace);
-    let stderr = stderr.collect(grace);
+    let mut stdout = stdout.collect(grace);
+    let mut stderr = stderr.collect(grace);
+    if let Some((grant, _)) = subscription {
+        stdout = stdout.replace(grant.value(), "<redacted>");
+        stderr = stderr.replace(grant.value(), "<redacted>");
+    }
     PipedRun::Finished(verdict(program, status, &stdout, &stderr))
 }
 

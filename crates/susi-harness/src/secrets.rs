@@ -61,6 +61,44 @@ impl fmt::Display for ApiKey {
     }
 }
 
+/// A credential supplied by trusted configuration, resolved at dispatch time.
+#[derive(Clone)]
+pub enum Credential {
+    /// A variable name in the local key store or workload broker.
+    Named(String),
+    /// A credential explicitly supplied by a local embedding application.
+    Local(ApiKey),
+}
+
+impl Credential {
+    /// Read the current credential. Managed workloads only accept named grants.
+    pub(crate) fn resolve(&self) -> Option<ApiKey> {
+        match self {
+            Self::Named(name) => lookup(name),
+            Self::Local(key) if !crate::workload::enabled() => Some(key.clone()),
+            Self::Local(_) => None,
+        }
+    }
+}
+
+impl From<String> for Credential {
+    fn from(value: String) -> Self {
+        Self::Local(ApiKey(value))
+    }
+}
+
+impl From<&str> for Credential {
+    fn from(value: &str) -> Self {
+        Self::from(value.to_owned())
+    }
+}
+
+impl fmt::Debug for Credential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Credential(<redacted>)")
+    }
+}
+
 /// Look up the key held by `name`, or `None` when no scope sets it.
 ///
 /// A name that is not an upper-case environment variable name (letters,
@@ -70,6 +108,9 @@ impl fmt::Display for ApiKey {
 pub fn lookup(name: &str) -> Option<ApiKey> {
     if !valid_name(name) {
         return None;
+    }
+    if crate::workload::enabled() {
+        return crate::workload::lookup(name).map(ApiKey);
     }
     let disabled = registry_environment_disabled();
     let stamp = sources_stamp(&data_home(), name);
@@ -475,6 +516,9 @@ pub fn setting(name: &str) -> Option<String> {
     if !valid_name(name) {
         return None;
     }
+    if crate::workload::enabled() {
+        return process_value(name);
+    }
     first_fitting(name, None)
 }
 
@@ -486,6 +530,9 @@ pub fn setting(name: &str) -> Option<String> {
 pub fn setting_path(name: &str) -> Option<std::path::PathBuf> {
     if !valid_name(name) {
         return None;
+    }
+    if crate::workload::enabled() {
+        return process_value(name).map(std::path::PathBuf::from);
     }
     let (value, scope) = first_fitting_scope(name, None)?;
     let path = std::path::PathBuf::from(value);

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXHARNESSID-1",
+  "title": "Workload identity for harness provider and subscription credential use",
+  "goal": "Resolve organization-approved provider and subscription credentials for each native harness dispatch.",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Susi Harness named secret resolution, commercial workload broker, native Susi HTTPS transport, native Codex workspace federation, and the Responses provider supported by Codex."
+  },
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "workload"
+    ]
+  },
+  "created_by": "CODEXHARNESSID",
+  "created_unix": 1794644065
+}
