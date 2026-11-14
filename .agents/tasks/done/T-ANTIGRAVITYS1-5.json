@@ -18,6 +18,11 @@
   },
   "created_by": "ANTIGRAVITYS1",
   "created_unix": 1794690577,
+  "closed": {
+    "at_unix": 1794691788,
+    "commit": "39623dede524ca4fee7192b017c3769ba2cc09d5",
+    "by": "ANTIGRAVITYS1"
+  },
   "reuse": {
     "decision": "existing",
     "reason": "Reuses capability::meets_floor, brain::is_unfit, brain::rank_with_quota, and InferenceRouter::pref_matches directly within the existing routing and runtime dispatch paths.",
