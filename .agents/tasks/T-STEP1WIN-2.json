@@ -19,6 +19,7 @@
     "src/main.rs",
     "tests/architecture_tests.rs",
     "tests/first_goal_opening.rs",
+    "tests/installer_contract.rs",
     "xtask/src/bin/release-qualify.rs",
     "xtask/src/bin/startup-gate.rs",
     "xtask/tests/ci_workflow_perf.rs"
