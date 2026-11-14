@@ -327,7 +327,15 @@ struct Instance {
 
 impl Instance {
     fn command(&self, exe: &Path, args: &[&str]) -> Command {
-        let mut command = susi_paths::console::background_command(exe);
+        let mut command = Command::new(exe);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // The probe uses only pipes or null handles. Detach from the parent's
+            // console without allocating a fresh hidden console for every sample.
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            command.creation_flags(DETACHED_PROCESS);
+        }
         command
             .args(args)
             .current_dir(&self.cwd)
