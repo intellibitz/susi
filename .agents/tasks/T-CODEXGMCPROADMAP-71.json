@@ -23,5 +23,23 @@
   },
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "limitations": [
+    "Core serves the prompt and completion server role (`crates/susi-gmcp/src/{protocol,catalog,content,jsonrpc_gate,mcp/http}.rs`) across stdio (`susi mcp serve`), in-process `embedded_adapter`, Streamable HTTP (`/mcp` and `/messages`), and Unix-domain sockets (`#[cfg(unix)]`); Windows x86_64 covers stdio, embedded, and Streamable HTTP while Unix socket parity is gated `#[cfg(unix)]`.",
+    "The shipped `use_tool` prompt renders a bounded static template (`GetPromptResponse::Complete`, `resultType = complete`) without multi-turn `input_required` elicitation, and dynamic registration via `GmcpService::register_prompt` / `register_prompt_provider` is an in-process API without remote HTTP prompt mutation endpoints.",
+    "Mastery consumes and verifies retained, signed, non-mock JSONL evidence in `.agents/gmcp/evidence/VC-203-011.jsonl` across `GMCP-203-011-01..06` and `-M` plus `.agents/roadmap.json` and `.agents/roadmap-verdicts/VC-203-011.json`."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "The prompt and completion server surface (crates/susi-gmcp/src/protocol.rs list_prompts/get_prompt/complete/register_prompt, catalog.rs, content.rs, jsonrpc_gate.rs, mcp/http.rs), inspectable CLI/ledger verifier (src/cli/mcp_cli.rs, crates/susi-gmcp/src/requirements_ledger.rs), and requirement harness helpers (tests/gmcp_requirements.rs StdioSession, embedded_adapter, socket_adapter, adapter_modern_meta, ledger_report, ledger_tool_report, evidence helpers) already exist in Susi Core; this mastery gate composes and verifies them end-to-end plus committed VC-203-011 evidence and roadmap verdict artifacts without duplicating server logic.",
+    "searched": "Susi Core: crates/susi-gmcp/src/{protocol,catalog,content,jsonrpc_gate,mcp/http,requirements_ledger,server}.rs, src/cli/mcp_cli.rs, .agents/gmcp/{sources.json,requirements-ledger.json,evidence/VC-203-007.jsonl,evidence/VC-203-010.jsonl}, docs/gmcp/contract-203-011.md, .agents/roadmap.json, .agents/roadmap-verdicts/VC-203-{007,010}.json, xtask/src/{gmcp_roadmap,gmcp_evidence}.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-71.json",
+    ".agents/roadmap.json",
+    ".agents/roadmap-verdicts/VC-203-011.json",
+    ".agents/gmcp/evidence"
+  ]
 }

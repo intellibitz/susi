@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-011",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_011_01_contract through _06_operations plus gmcp_vc_203_011_mastery (7 tests): contract-203-011.md binds all 39 normative ledger rows to crates/susi-gmcp/src/protocol.rs with pinned SHA-256 verification for both 2025-11-25 and 2026-07-28 prompt/completion specifications; live in-process embedded adapter, Unix-domain socket (#[cfg(unix)]), shipped susi mcp serve stdio, and Streamable HTTP /mcp prove prompt/completion capability discovery, immutable use_tool rendering keeping substitutions as user data, <=100 deterministic pagination/completion ranking with revision-bound cursor invalidation and notifications/prompts/list_changed, typed refusals (-32602/-32600/-32700/-32022/-32024), bystander isolation, fail-closed max_rpc_body_bytes validation, and deterministic drift detection. Mastery consumes and verifies retained, signed, non-mock evidence for all 01-06 checks.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-65",
+    "T-CODEXGMCPROADMAP-66",
+    "T-CODEXGMCPROADMAP-67",
+    "T-CODEXGMCPROADMAP-68",
+    "T-CODEXGMCPROADMAP-69",
+    "T-CODEXGMCPROADMAP-70",
+    "T-CODEXGMCPROADMAP-71"
+  ],
+  "recorded_by": "ANTIGRAVITYS2",
+  "recorded_unix": 1794690300
+}
