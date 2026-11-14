@@ -94,6 +94,7 @@
     "tests/peer_channel_hub.rs",
     "tests/release_process_identity.rs",
     "tests/release_workflow.rs",
+    "tests/socket_parity.rs",
     "xtask/Cargo.toml",
     "xtask/src/bin/local-release.rs",
     "xtask/src/bin/local-workflow.rs",
