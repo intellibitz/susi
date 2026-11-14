@@ -164,6 +164,15 @@ pub(super) fn run_in_place(exe: &Path) -> Result<bool> {
         // A missing receipt only costs the next launch another proof.
         let _ = atomic_file(&receipt, stamp.as_bytes());
     }
+    set_installed_environment(&selection.current)?;
+    Ok(true)
+}
+
+// The dispatcher runs before CLI initialization or worker threads. A selected
+// package owns its daemon and built-in services, including implicit starts.
+fn set_installed_environment(_release: &str) -> Result<()> {
+    #[cfg(windows)]
+    env::set_var("SUSI_INSTALLED_RELEASE", _release);
     if env::var_os("SUSI_HOME").is_none() {
         let home = crate::get_home_dir().join(".susi");
         if !home.is_absolute() {
@@ -172,7 +181,36 @@ pub(super) fn run_in_place(exe: &Path) -> Result<bool> {
         // Still single-threaded: `dispatch` runs first in `main`.
         env::set_var("SUSI_HOME", home);
     }
-    Ok(true)
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(super) fn start_selected(exe: &Path, restart: bool) -> Result<()> {
+    let root = exe
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("missing installed channel")?;
+    let selection: Selection =
+        get(&root.join(ACTIVE))?.ok_or("missing installed release receipt")?;
+    selection.validate()?;
+    let package = installed(root, &selection.current)?;
+    package.verify_sidecars()?;
+    let _pin = package.pinned_executable()?;
+    let image = package.executable().canonicalize()?;
+    set_installed_environment(&selection.current)?;
+    let global_dir = susi_paths::SusiDirs::config_dir();
+    let cwd = env::current_dir()?;
+    if restart {
+        crate::cli::control_plane_cli::control_plane_stop(&global_dir);
+    }
+    susi_daemon::SusiDaemon::ensure_daemon_image(&global_dir, Some(&image))?;
+    crate::cli::control_plane_cli::control_plane_start(&cwd, &global_dir);
+    let running = susi_daemon::SusiDaemon::find_running_daemon(&global_dir)
+        .ok_or("ready endpoints have no installed daemon owner")?;
+    if !susi_daemon::SusiDaemon::same_daemon_image(running.pid, &image)? {
+        return Err("ready daemon is running a different executable".into());
+    }
+    Ok(())
 }
 
 pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
@@ -187,6 +225,8 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
     let pinned = package.pinned_executable()?;
     // Shell-launched processes need the verbatim Windows path for deep release slots.
     let mut command = Command::new(package.executable().canonicalize()?);
+    #[cfg(windows)]
+    command.env("SUSI_INSTALLED_RELEASE", &selection.current);
     if env::var_os("SUSI_HOME").is_none() {
         // An immutable production slot is outside ~/.susi/bin. Select the same
         // native user state explicitly so the child's development-isolation

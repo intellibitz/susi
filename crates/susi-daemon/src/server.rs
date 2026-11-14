@@ -787,8 +787,34 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     /// Ensure the single host daemon is running, bound to
     /// [`susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
     /// irrelevant here — work context is attached per intent, not to the daemon.
-    #[allow(unsafe_code)]
     pub fn ensure_daemon_running(_caller_cwd: &Path, global_dir: &Path) {
+        #[cfg(windows)]
+        let selected =
+            std::env::var_os("SUSI_INSTALLED_RELEASE").and_then(|_| std::env::current_exe().ok());
+        #[cfg(not(windows))]
+        let selected: Option<PathBuf> = None;
+        if let Err(error) = Self::ensure_daemon_image(global_dir, selected.as_deref()) {
+            eprintln!("[SusiDaemon] Could not verify installed daemon: {error}");
+            std::process::exit(1);
+        }
+    }
+
+    /// An entry can be a separate file or a hard link to a selected slot.
+    /// Check the actual OS process image before reusing a ready daemon.
+    pub fn same_daemon_image(pid: u32, selected: &Path) -> std::io::Result<bool> {
+        let image = crate::susi_config::process_probe::exe_path(pid)
+            .ok_or_else(|| std::io::Error::other("cannot identify the running daemon image"))?;
+        if image.canonicalize()? == selected.canonicalize()? {
+            return Ok(true);
+        }
+        use crate::susi_sandbox::daemon_state::SusiDaemonState;
+        Ok(SusiDaemonState::calculate_binary_hash(&image)?
+            == SusiDaemonState::calculate_binary_hash(selected)?)
+    }
+
+    /// Start this admitted image, retaining the standalone installation's resolution order.
+    #[allow(unsafe_code)]
+    pub fn ensure_daemon_image(global_dir: &Path, selected: Option<&Path>) -> std::io::Result<()> {
         let substrate_home = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&substrate_home);
 
@@ -803,8 +829,10 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         // current_exe fallback must resolve to a *live* inode — after an
         // in-place replacement it reports a `… (deleted)` path that
         // Command::new fails ENOENT on, leaving the daemon unstartable.
-        let bin_to_run = if global_bin.exists() {
-            global_bin.clone()
+        let bin_to_run = if let Some(selected) = selected {
+            selected.to_path_buf()
+        } else if global_bin.exists() {
+            global_bin
         } else if let Some(exe) = crate::supervisor::reexec_path() {
             exe
         } else if let Some(ref exe) = current_exe {
@@ -819,10 +847,22 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
 
         let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
         if let Some(running) = Self::find_running_daemon(global_dir) {
-            if let Ok(false) =
-                crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
-                    &bin_to_run,
-                    global_dir,
+            let wrong_image = match selected {
+                Some(selected) => !Self::same_daemon_image(running.pid, selected)?,
+                None => false,
+            };
+            if wrong_image && !Self::daemon_in_this_instance(running.pid as i32) {
+                return Err(std::io::Error::other(
+                    "the other running image is outside this instance",
+                ));
+            }
+            if wrong_image
+                || matches!(
+                    crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+                        &bin_to_run,
+                        global_dir,
+                    ),
+                    Ok(false)
                 )
             {
                 // Daemon is always home-scoped, so any CLI may safely
@@ -845,7 +885,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                     thread::sleep(Duration::from_millis(100));
                 }
             } else {
-                return;
+                return Ok(());
             }
         }
 
@@ -966,7 +1006,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                     warn!("[SusiDaemon] spawned via systemd but host contract never came up");
                 }
                 let _ = fs::remove_file(&key_env_file);
-                return;
+                return Ok(());
             }
             let _ = fs::remove_file(&key_env_file);
         }
@@ -1019,6 +1059,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 warn!("[SusiDaemon] daemon spawned but host contract never came up");
             }
         }
+        Ok(())
     }
 
     pub fn run_daemon_loop(_legacy_workspace_arg: PathBuf, global_dir: PathBuf) {

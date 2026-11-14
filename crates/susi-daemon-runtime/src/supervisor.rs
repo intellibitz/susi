@@ -383,6 +383,11 @@ mod child_job {
 /// (cargo target dir, staged installs), then `substrate_home/bin`, then
 /// `$PATH`.
 fn locate_binary(name: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    if std::env::var_os("SUSI_INSTALLED_RELEASE").is_some() {
+        // The admitted package contains a single executable with built-in services.
+        return None;
+    }
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
