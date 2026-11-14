@@ -550,19 +550,16 @@ impl Store {
         // Floor first — a cheap weak model can never outrank a floor-meeting
         // one (the floor is checked before the price is compared), and
         // below-floor candidates still appear at the tail. Then a spent cap
-        // steps down ahead of every comparison: a provider with nothing left
-        // cannot win on raw capability or a user pin (VC-202-021). Then,
-        // unless the budget dial is pinned to pure quality (Max), the
-        // scarcity-adjusted cost per verified outcome decides: the ranking
-        // currency is the marginal cost of the next call plus the scarcity
-        // of the remaining cap, not reputation and not the sticker price.
-        // Unpriced candidates, and Max budget, keep the evidence-score
-        // ordering.
+        // steps down, then unfit providers sink behind every fit provider
+        // regardless of cost or score. Unless the budget dial is pinned to
+        // pure quality (Max), scarcity-adjusted cost per verified outcome
+        // decides; unpriced candidates and Max budget use evidence score.
         let cost_first = budget != Budget::Max;
         out.sort_by(|a, b| {
             b.meets_floor
                 .cmp(&a.meets_floor)
                 .then_with(|| quota_exhausted(a).cmp(&quota_exhausted(b)))
+                .then_with(|| a.unfit.cmp(&b.unfit))
                 .then_with(
                     || match (cost_first, a.effective_cost_usd, b.effective_cost_usd) {
                         (true, Some(x), Some(y)) => x
@@ -1523,5 +1520,32 @@ mod tests {
         assert!(master
             .pareto_frontier
             .contains(&"openai-gpt-4o-mini".to_string()));
+    }
+
+    #[test]
+    fn unfit_cheap_provider_sorts_behind_healthy_fit_provider_under_cost_first() {
+        let _env_lock = crate::engines::env_test_lock();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        let cat =
+            std::env::temp_dir().join(format!("susi-brain-unfit-{}.json", std::process::id()));
+        std::fs::write(&cat, r#"{"version":1,"entries":{"budget":{"model_id":"budget","input_usd_per_1m":0.01,"output_usd_per_1m":0.01},"pricy":{"model_id":"pricy","input_usd_per_1m":5.0,"output_usd_per_1m":50.0}}}"#).unwrap();
+        env.set("SUSI_PRICE_CATALOG_FILE", &cat);
+        let mut s = Store::default();
+        for _ in 0..4 {
+            s.record("acme-budget", TaskClass::Chat, false, 0);
+        }
+        s.record("acme-pricy", TaskClass::Chat, true, 100);
+        s.note_failure("acme-budget", FailureKind::Transport, unix_now());
+        let r = s.rank_with_budget(
+            &names(&["acme-budget", "acme-pricy"]),
+            TaskClass::Chat,
+            Budget::Balanced,
+        );
+        let _ = std::fs::remove_file(&cat);
+        assert_eq!(r[0].provider, "acme-pricy");
+        assert!(!r[0].unfit && r[1].unfit);
+        let all_unfit =
+            s.rank_with_budget(&names(&["acme-budget"]), TaskClass::Chat, Budget::Balanced);
+        assert_eq!(all_unfit.len(), 1);
     }
 }

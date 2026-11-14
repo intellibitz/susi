@@ -1,0 +1,29 @@
+{
+  "id": "T-ANTIGRAVITYS1-3",
+  "title": "Sort unfit providers behind fit providers in brain::Store::rank_with_quota",
+  "goal": "Vision: V-2 Ensure repeatedly failing unfit providers sort behind every fit provider under cost-first budgets in Store::rank_with_quota within lean-core ceilings.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "engines::brain::tests"
+    ]
+  },
+  "created_by": "AG1VISION",
+  "created_unix": 1794684000,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Fixed existing Store::rank_with_quota comparator in engines::brain so Ranked::unfit honors its contract across cost-first and Max budgets without adding dependencies or exceeding susi-gemi line ceilings.",
+    "searched": "crates/susi-gemi/src/engines/brain.rs, crates/susi-gemi/src/engines/routing.rs, crates/susi-gemi/src/primary_election.rs, crates/susi-gemi/src/tests/ranking_by_marginal_cost.rs"
+  },
+  "scopes": [
+    "crates/susi-gemi/src/engines/brain.rs"
+  ]
+}
