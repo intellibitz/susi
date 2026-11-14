@@ -16,7 +16,7 @@ fn main() -> std::process::ExitCode {
             return Err("push transaction exceeds limit".into());
         }
         let root = std::env::current_dir().map_err(|e| e.to_string())?;
-        push_policy::validate(&root, &input)
+        push_policy::validate(&root, &input, std::env::args().nth(2).as_deref())
     })();
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,

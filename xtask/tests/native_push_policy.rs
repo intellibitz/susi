@@ -72,7 +72,7 @@ impl Repo {
         self.git(&["rev-parse", "HEAD"])
     }
     fn check(&self, input: &str) -> Result<(), String> {
-        push_policy::validate(&self.0, input)
+        push_policy::validate(&self.0, input, None)
     }
 }
 impl Drop for Repo {
@@ -310,7 +310,7 @@ fn legacy_grafted_ancestry_fails_closed_in_primary_and_linked_worktree() {
     r.git(&["merge-base", "--is-ancestor", &old, &unrelated]);
     let input = format!("{unrelated} {unrelated} refs/heads/main {old}");
     assert!(r.check(&input).unwrap_err().contains("graft"));
-    assert!(push_policy::validate(&linked, &input)
+    assert!(push_policy::validate(&linked, &input, None)
         .unwrap_err()
         .contains("graft"));
 }
@@ -792,4 +792,64 @@ fn retired_local_agent_branches_require_distill_or_candidate_preservation_and_ma
         main_err.contains("branch deletion prohibited"),
         "{main_err}"
     );
+}
+
+#[test]
+fn board_item_is_create_only_and_bound_to_the_private_destination() {
+    let r = Repo::new();
+    let remote = r.0.join("board.git");
+    let path = remote.to_str().unwrap();
+    r.git(&["init", "--bare", "-q", path]);
+    r.git(&["remote", "add", "board", path]);
+    let item = serde_json::json!({"schema":"susi-board-item-v1","n":1,"kind":"note","title":"fixture","body":"synthetic","posted_unix":1,"prev":"","agent":"test","host":"fixture"});
+    std::fs::write(r.0.join("item.json"), item.to_string()).unwrap();
+    let id = r.git(&["hash-object", "-w", "item.json"]);
+    let dest = "refs/board/items/1";
+    let input = format!("{id} {id} {dest} {ZERO}");
+    let check = |line: &str, url: &str| push_policy::validate(&r.0, line, Some(url));
+    for url in [
+        path,
+        "https://github.com/intellibitz/susi-commercial-apps.git",
+        "git@github.com:intellibitz/susi-commercial-apps.git",
+    ] {
+        assert!(check(&input, url).is_ok(), "{url}");
+    }
+    for url in [
+        "https://github.com/intellibitz/susi.git",
+        "https://github.com/other/susi-commercial-apps.git",
+        "https://evilgithub.com/intellibitz/susi-commercial-apps.git",
+    ] {
+        assert!(check(&input, url).is_err());
+    }
+    assert!(check(&format!("(delete) {ZERO} {dest} {id}"), path).is_err());
+    assert!(check(&format!("{id} {id} {dest} {id}"), path).is_err());
+    assert!(check(&input.replace(dest, "refs/board/items/01"), path).is_err());
+    assert!(check(&input.replace(dest, "refs/board/items/2"), path).is_err());
+    std::fs::write(r.0.join("item.json"), "{}").unwrap();
+    let bad = r.git(&["hash-object", "-w", "item.json"]);
+    assert!(check(&input.replace(&id, &bad), path).is_err());
+    // Exercise an actual native git push, including the hook's remote URL argument.
+    let hook = r.0.join(".git/hooks/pre-push");
+    std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_push-policy"));
+    std::fs::create_dir_all(r.0.join("target/debug")).unwrap();
+    std::fs::copy(
+        binary,
+        r.0.join("target/debug").join(binary.file_name().unwrap()),
+    )
+    .unwrap();
+    r.git(&["config", "core.hooksPath", ".git/hooks"]);
+    r.git(&[
+        "push",
+        "--quiet",
+        "--force-with-lease=refs/board/items/1:",
+        "board",
+        &format!("{id}:{dest}"),
+    ]);
+    assert_eq!(r.git(&["--git-dir", path, "rev-parse", dest]), id);
 }

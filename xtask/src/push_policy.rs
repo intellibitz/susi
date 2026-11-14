@@ -74,10 +74,108 @@ fn is_preserved_for_retirement(root: &Path, old: &str, co_preserved: &[&str]) ->
         .any(|co_new| git(root, &["merge-base", "--is-ancestor", old, co_new]).is_ok())
 }
 
+/// Git supplies the actual destination as the pre-push hook's second argument,
+/// including when a remote alias has a separate push URL.
+fn board_destination(root: &Path, destination: &str) -> bool {
+    let url = destination.trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    if [
+        "https://github.com/intellibitz/susi-commercial-apps",
+        "git@github.com:intellibitz/susi-commercial-apps",
+        "ssh://git@github.com/intellibitz/susi-commercial-apps",
+    ]
+    .iter()
+    .any(|canonical| url.eq_ignore_ascii_case(canonical))
+    {
+        return true;
+    }
+    // On-premises boards and hermetic tests use an explicitly designated
+    // local bare repository. An arbitrary hosted URL or core origin cannot pass.
+    let target = Path::new(destination);
+    if !target.is_absolute() || !target.is_dir() {
+        return false;
+    }
+    let Ok(target) = target.canonicalize() else {
+        return false;
+    };
+    let configured = ["susi.board.remote-url", "susi.board.remote"]
+        .iter()
+        .find_map(|k| git(root, &["config", "--get", k]).ok())
+        .unwrap_or_else(|| "board".into());
+    let configured = if Path::new(&configured).is_absolute() {
+        configured
+    } else {
+        let Ok(path) = git(root, &["remote", "get-url", "--push", &configured]) else {
+            return false;
+        };
+        path
+    };
+    Path::new(&configured).is_absolute()
+        && Path::new(&configured).canonicalize().ok().as_ref() == Some(&target)
+        && git(
+            root,
+            &[
+                "--git-dir",
+                destination,
+                "rev-parse",
+                "--is-bare-repository",
+            ],
+        )
+        .is_ok_and(|s| s == "true")
+}
+
+fn board_item(
+    root: &Path,
+    suffix: &str,
+    new: &str,
+    old: &str,
+    destination: Option<&str>,
+) -> Result<(), String> {
+    use susi_core::native_board::{validate_draft, BoardDraft, BoardItem, SCHEMA};
+    if zero(new) || !zero(old) {
+        return Err("board item refs are append-only".into());
+    }
+    let n = suffix
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n > 0 && n.to_string() == suffix)
+        .ok_or("invalid board item number")?;
+    if !destination.is_some_and(|url| board_destination(root, url)) {
+        return Err("board items require the private commercial board or an explicitly configured local bare board".into());
+    }
+    if git(root, &["cat-file", "-t", new])? != "blob"
+        || !git(root, &["cat-file", "-s", new])?
+            .parse::<usize>()
+            .is_ok_and(|n| n <= 1024 * 1024)
+    {
+        return Err("board item must be a bounded blob".into());
+    }
+    let item: BoardItem = serde_json::from_str(&git(root, &["cat-file", "blob", new])?)
+        .map_err(|_| "invalid board item record")?;
+    if item.schema != SCHEMA
+        || item.n != n
+        || (n == 1 && !item.prev.is_empty())
+        || (n > 1 && (!oid(&item.prev) || zero(&item.prev)))
+    {
+        return Err("board record schema, number or predecessor is invalid".into());
+    }
+    // The native board owns identity, permitted event kinds and credential screening.
+    validate_draft(&BoardDraft {
+        kind: item.kind,
+        agent: item.agent,
+        host: item.host,
+        title: item.title,
+        body: item.body,
+        to: item.to,
+        re: item.re,
+        task: item.task,
+    })
+}
+
 /// Validate the exact transaction Git supplies, never HEAD or a tracking branch.
 /// No network, builds, config writes, receipt fabrication or environment bypasses.
 /// The receiving Git server remains responsible for atomic compare-and-swap.
-pub fn validate(root: &Path, input: &str) -> Result<(), String> {
+pub fn validate(root: &Path, input: &str, push_url: Option<&str>) -> Result<(), String> {
     // Ancestry must describe the actual objects being sent, not a local rewrite.
     // Git replacement refs are disabled on every command above. Legacy grafts
     // have no supported per-command ignore option, so reject their presence.
@@ -144,7 +242,9 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 return Err(format!("stale local ref {local}"));
             }
         }
-        if let Some(agent) = remote.strip_prefix("refs/agents/") {
+        if let Some(suffix) = remote.strip_prefix(susi_core::native_board::ITEM_PREFIX) {
+            board_item(root, suffix, new, old, push_url)?;
+        } else if let Some(agent) = remote.strip_prefix("refs/agents/") {
             // An agent's inbox (docs/agent-refs.md). Not a branch, so the Git
             // host offers no pull request for it; `main` stays the only branch.
             if !valid_agent_name(agent) {

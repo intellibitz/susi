@@ -12,6 +12,7 @@ susi-build-policy = { workspace = true }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
 serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
 susi-config = { workspace = true }
+susi-core = { workspace = true }
 susi-paths = { workspace = true }
 
 [build-dependencies]
