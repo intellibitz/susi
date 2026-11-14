@@ -486,7 +486,7 @@ fn payg_only_and_cli_only_never_touch_the_other_plane() {
 }
 
 #[test]
-fn cli_first_fails_over_to_payg_on_quota_exhaustion_with_the_fallback_model() {
+fn cli_first_does_not_replay_a_started_turn_on_quota_exhaustion() {
     let runner = AdaptiveRunner::new(
         Scripted::ok("from payg"),
         Scripted::failed("Claude AI usage limit reached; resets at 5pm"),
@@ -494,21 +494,21 @@ fn cli_first_fails_over_to_payg_on_quota_exhaustion_with_the_fallback_model() {
     )
     .with_fallback_payg_model("deepseek-flash");
     let outcome = runner.run(&config("cli:claude:opus")).unwrap();
-    assert_eq!(text(&outcome), "from payg");
+    assert!(matches!(outcome, RunOutcome::Failed { .. }));
     assert_eq!(runner.cli_runner.seen(), ["cli:claude:opus"]);
-    assert_eq!(runner.payg_runner.seen(), ["deepseek-flash"]);
+    assert!(runner.payg_runner.seen().is_empty());
 }
 
 #[test]
-fn cli_first_fails_over_on_timeout_and_keeps_a_payg_model_as_is() {
+fn cli_first_does_not_replay_a_timeout() {
     let runner = AdaptiveRunner::new(
         Scripted::ok("from payg"),
         Scripted::new(RunOutcome::TimedOut),
         AdaptiveStrategy::PreferCliSubThenPayg,
     );
     let outcome = runner.run(&config("glm-4.6")).unwrap();
-    assert_eq!(text(&outcome), "from payg");
-    assert_eq!(runner.payg_runner.seen(), ["glm-4.6"]);
+    assert_eq!(outcome, RunOutcome::TimedOut);
+    assert!(runner.payg_runner.seen().is_empty());
 
     // A cli: spec with no PAYG fallback has nowhere to go.
     let runner = AdaptiveRunner::new(
@@ -539,9 +539,9 @@ fn cli_first_success_never_spends_payg_money() {
 }
 
 #[test]
-fn payg_first_fails_over_to_the_cli_on_a_credit_refusal() {
+fn payg_first_fails_over_on_a_pre_dispatch_credential_refusal() {
     let runner = AdaptiveRunner::new(
-        Scripted::failed("HTTP 402: insufficient balance"),
+        Scripted::failed("upstream credential unavailable"),
         Scripted::ok("from cli"),
         AdaptiveStrategy::PreferPaygThenCliSub,
     )
@@ -570,7 +570,7 @@ fn payg_first_does_not_fail_over_on_a_payg_timeout() {
 #[test]
 fn payg_first_with_a_cli_spec_runs_payg_only_through_the_fallback_model() {
     let runner = AdaptiveRunner::new(
-        Scripted::failed("401 invalid api key"),
+        Scripted::failed("upstream credential unavailable"),
         Scripted::ok("from cli"),
         AdaptiveStrategy::PreferPaygThenCliSub,
     )
@@ -595,64 +595,40 @@ fn payg_first_with_a_cli_spec_runs_payg_only_through_the_fallback_model() {
 }
 
 #[test]
-fn auto_routes_by_model_spec_and_fails_over_only_when_configured() {
-    // A cli: spec runs on the CLI and fails over to the PAYG fallback.
-    let runner = AdaptiveRunner::new(
-        Scripted::ok("from payg"),
-        Scripted::failed("You have hit your limit"),
-        AdaptiveStrategy::Auto,
-    )
-    .with_fallback_payg_model("deepseek-flash");
-    assert_eq!(
-        text(&runner.run(&config("cli:claude")).unwrap()),
-        "from payg"
-    );
-    assert_eq!(runner.payg_runner.seen(), ["deepseek-flash"]);
-
-    // Without the fallback the CLI verdict stands unchanged.
-    let runner = AdaptiveRunner::new(
-        Scripted::ok("from payg"),
-        Scripted::failed("You have hit your limit"),
-        AdaptiveStrategy::Auto,
-    );
-    assert_eq!(
-        runner.run(&config("cli:claude")).unwrap(),
-        RunOutcome::Failed {
-            message: "You have hit your limit".into()
+fn auto_dispatch_never_crosses_billing_class_even_with_legacy_fallbacks() {
+    for (model, mode) in [
+        ("cli:claude", ExecutionMode::MonthlySubCli),
+        ("monthly:auto", ExecutionMode::MonthlySubCli),
+        ("cli:unknown", ExecutionMode::MonthlySubCli),
+        ("deepseek-flash", ExecutionMode::PaygByok),
+        ("auto", ExecutionMode::PaygByok),
+        ("byok:auto", ExecutionMode::PaygByok),
+    ] {
+        let runner = AdaptiveRunner::new(
+            Scripted::failed("insufficient_quota"),
+            Scripted::failed("usage limit reached"),
+            AdaptiveStrategy::Auto,
+        )
+        .with_fallback_payg_model("deepseek-flash")
+        .with_fallback_cli_model("cli:claude:sonnet");
+        assert!(matches!(
+            runner.run(&config(model)).unwrap(),
+            RunOutcome::Failed { .. }
+        ));
+        if mode == ExecutionMode::MonthlySubCli {
+            assert!(runner.payg_runner.seen().is_empty());
+            assert_eq!(runner.cli_runner.seen(), [model]);
+        } else {
+            assert!(runner.cli_runner.seen().is_empty());
+            assert_eq!(runner.payg_runner.seen(), [model]);
         }
-    );
-    assert!(runner.payg_runner.seen().is_empty());
-
-    // A PAYG id runs on PAYG and fails over to the CLI fallback.
-    let runner = AdaptiveRunner::new(
-        Scripted::failed("insufficient_quota"),
-        Scripted::ok("from cli"),
-        AdaptiveStrategy::Auto,
-    )
-    .with_fallback_cli_model("cli:claude:sonnet");
-    assert_eq!(
-        text(&runner.run(&config("deepseek-flash")).unwrap()),
-        "from cli"
-    );
-    assert_eq!(runner.cli_runner.seen(), ["cli:claude:sonnet"]);
-
-    // Without the fallback a PAYG id never shells out.
-    let runner = AdaptiveRunner::new(
-        Scripted::failed("insufficient_quota"),
-        Scripted::ok("from cli"),
-        AdaptiveStrategy::Auto,
-    );
-    assert!(matches!(
-        runner.run(&config("deepseek-flash")).unwrap(),
-        RunOutcome::Failed { .. }
-    ));
-    assert!(runner.cli_runner.seen().is_empty());
+    }
 }
 
 #[test]
 fn a_double_failure_reports_both_planes() {
     let runner = AdaptiveRunner::new(
-        Scripted::failed("insufficient_quota"),
+        Scripted::failed("upstream credential unavailable"),
         Scripted::failed("usage limit reached"),
         AdaptiveStrategy::PreferPaygThenCliSub,
     )
@@ -661,7 +637,7 @@ fn a_double_failure_reports_both_planes() {
         panic!("expected failure");
     };
     assert!(
-        message.contains("payg-byok (deepseek-flash) failed: insufficient_quota"),
+        message.contains("payg-byok (deepseek-flash) failed: upstream credential unavailable"),
         "{message}"
     );
     assert!(
@@ -684,8 +660,12 @@ fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
         RunOutcome::Failed { .. }
     ));
 
-    let runner = AdaptiveRunner::new(Scripted::ok("from payg"), cli, AdaptiveStrategy::Auto)
-        .with_fallback_payg_model("deepseek-flash");
+    let runner = AdaptiveRunner::new(
+        Scripted::ok("from payg"),
+        cli,
+        AdaptiveStrategy::PreferCliSubThenPayg,
+    )
+    .with_fallback_payg_model("deepseek-flash");
     assert_eq!(
         text(&runner.run(&config("cli:claude")).unwrap()),
         "from payg"

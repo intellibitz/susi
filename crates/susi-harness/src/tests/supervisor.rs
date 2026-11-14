@@ -501,10 +501,10 @@ fn supervisor_plans_embedded_workflow_and_executes_adaptive_task_with_failover()
     ];
     assert!(sup.plan_embedded_workflow("wave-bad", cyclic).is_err());
 
-    // Simulated CLI failure -> PAYG BYOK failover succeeds.
+    // A missing CLI can fail over before any turn starts.
     let cli_fail = StubRunner {
         outcome: RunOutcome::Failed {
-            message: "429 usage limit exceeded".to_string(),
+            message: "subscription CLI is not installed".to_string(),
         },
     };
     let payg_ok = StubRunner {

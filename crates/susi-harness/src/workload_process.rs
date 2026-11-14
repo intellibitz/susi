@@ -85,6 +85,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::zombie_processes,
+        reason = "the parent-exit test deliberately leaves its child to verify that the harness reaps the provider tree"
+    )]
     fn workload_child() {
         let Some(root) = std::env::var_os("SUSI_TREE_TEST_ROOT") else {
             return;

@@ -82,6 +82,9 @@ pub enum RunOutcome {
 /// model call is a [`RunOutcome::Failed`], not an error: it is a result about
 /// the turn, not a fault in the harness.
 pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+    if crate::adaptive::subscription_spec(&config.model) {
+        return crate::adaptive::CliSubRunner::default().run(config);
+    }
     crate::worker::run_agent_loop(config, MAX_TURNS)
 }
 

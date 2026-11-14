@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXHARNESSID-3",
+  "title": "Select approved healthy harness providers before dispatch within the requested billing class",
+  "goal": "Vision: V-2. Use named provider preferences and fresh model-list or subscription readiness before one dispatch, honor explicit pins and never replay a started automatic turn.",
+  "size": "m",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Registry overlays, fleet budget gates, provider model-list verification, adaptive CLI discovery, native executor and workload grant lease."
+  },
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "auto_dispatch"
+    ]
+  },
+  "created_by": "CODEXHARNESSID",
+  "created_unix": 1794654382
+}

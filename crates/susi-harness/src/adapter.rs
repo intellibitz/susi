@@ -485,21 +485,27 @@ impl<R: CommandRunner> SusiTarget<R> {
     pub fn claim(&self, worktree: &Path, id: &str, scopes: &[String]) -> EaiResult<()> {
         validate_task_id(id)?;
         let claim = local_claim(worktree)?;
-        let mut args = vec![
-            "local".into(),
-            "workflow".into(),
-            "extend".into(),
-            claim.name.clone(),
-        ];
-        for scope in scopes.iter().cloned().chain(task_scopes(id)) {
-            args.extend(["--scope".into(), scope]);
-        }
-        let output = self.susi(args, worktree)?;
-        if !output.success() {
-            return Err(EaiError::process(format!(
-                "native scope reservation refused: {}",
-                output.tail()
-            )));
+        let requested: Vec<_> = scopes.iter().cloned().chain(task_scopes(id)).collect();
+        // A newly minted task record is already in the working tree. Its
+        // startup claim owns these scopes, so extending it again would
+        // require a clean tree just after we created the record.
+        if requested.iter().any(|s| claim.require_scope(s).is_err()) {
+            let mut args = vec![
+                "local".into(),
+                "workflow".into(),
+                "extend".into(),
+                claim.name.clone(),
+            ];
+            for scope in requested {
+                args.extend(["--scope".into(), scope]);
+            }
+            let output = self.susi(args, worktree)?;
+            if !output.success() {
+                return Err(EaiError::process(format!(
+                    "native scope reservation refused: {}",
+                    output.tail()
+                )));
+            }
         }
         let path = task_file(worktree, id)?;
         if path != worktree.join(format!(".agents/tasks/{id}.json")) {
@@ -1806,7 +1812,11 @@ fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<Strin
     let strong = |model: &str| registry.tier_of(model) == Some(crate::providers::Tier::Rescue);
     let ladder = crate::policy::escalation_order(&spec.alternates, &strong);
     let mut entries = crate::ledger::read_entries_reporting(policy.ledger_path);
-    if !policy.ledger_path.as_os_str().is_empty() {
+    // A billing-scoped single attempt was already selected by its gateway.
+    // Probing again here would read the scheduler host's provider credentials.
+    if (!spec.alternates.is_empty() || policy.policy.max_attempts > 1)
+        && !policy.ledger_path.as_os_str().is_empty()
+    {
         let mut candidates = ladder.clone();
         candidates.push(spec.model.clone());
         let probed = crate::fleet::readmit(

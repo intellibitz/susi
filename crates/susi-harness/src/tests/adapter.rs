@@ -277,6 +277,14 @@ fn add_task_returns_the_id_and_claim_reserves_scopes() {
         .unwrap();
     assert_eq!(id, "T-LOCAL-DEMO-1");
     target.claim(dir.path(), &id, &["docs".into()]).unwrap();
+    assert!(target
+        .runner
+        .state
+        .lock()
+        .unwrap()
+        .calls
+        .iter()
+        .all(|call| !call.contains(" workflow extend ")));
     let record: Value =
         serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
             .unwrap();

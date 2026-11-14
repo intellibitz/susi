@@ -739,3 +739,27 @@ fn the_builtin_catalogue_prices_the_ladder() {
             == catalogue.len()
     );
 }
+
+#[test]
+fn auto_dispatch_skips_offline_unreadable_and_missing_models_without_inference() {
+    use crate::verify::ProviderReport;
+    let registry = Registry::builtin();
+    let models = ["deepseek-flash", "claude-haiku", "gemini-flash"]
+        .map(str::to_string)
+        .to_vec();
+    let select = |healthy: bool| {
+        choose_advertised(registry, models.clone(), |p| ProviderReport {
+            provider: p.id.clone(),
+            reachable: p.id != "deepseek",
+            ok: p.id == "gemini" && healthy,
+            missing: if p.id == "gemini" && !healthy {
+                p.models.iter().map(|m| m.backend.clone()).collect()
+            } else {
+                vec![]
+            },
+            note: String::new(),
+        })
+    };
+    assert_eq!(select(true).unwrap(), "gemini-flash");
+    assert!(select(false).is_err());
+}
