@@ -152,7 +152,10 @@ fn exchange(
     head.push_str("\r\n");
     stream.write_all(head.as_bytes()).unwrap();
     stream.write_all(body).unwrap();
-    let idle = Duration::from_millis(if want_events.is_some() { 3_000 } else { 30_000 });
+    // An open-ended recording uses a short idle cutoff. If the transcript
+    // requires a frame, give the mission the same window as a JSON reply.
+    let idle = Duration::from_secs(if want_events == Some(0) { 3 } else { 30 });
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut raw = Vec::new();
     let mut last_progress = Instant::now();
     let mut buf = [0u8; 8192];
@@ -163,6 +166,9 @@ fn exchange(
     };
     let mut body_start = None;
     loop {
+        if Instant::now() >= deadline {
+            break;
+        }
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {

@@ -4,6 +4,25 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+/// Each Windows board mission starts several Git children for its worktree,
+/// claim and completion. Hold a slot on the libtest thread for the entire
+/// fixture lifetime, including requests served by a background worker.
+/// A test that opens multiple workspaces reuses its slot.
+#[cfg(windows)]
+fn acquire_board_slot() {
+    use std::sync::{Mutex, MutexGuard};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    static SLOTS: [Mutex<()>; 3] = [const { Mutex::new(()) }; 3];
+    thread_local! {
+        static SLOT: MutexGuard<'static, ()> = {
+            let i = NEXT.fetch_add(1, Ordering::Relaxed) % SLOTS.len();
+            SLOTS[i].lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        };
+    }
+    SLOT.with(|_| {});
+}
+
 fn run_git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .current_dir(dir)
@@ -23,6 +42,8 @@ fn run_git(dir: &Path, args: &[&str]) {
 /// Initialize an isolated linked Git worktree backed by a bare Susi Native
 /// Board remote in `temp_dir`, configured locally for parallel-safe tests.
 pub(crate) fn init_board_workspace(tag: &str) -> PathBuf {
+    #[cfg(windows)]
+    acquire_board_slot();
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let root =
         std::env::temp_dir().join(format!("susi-a2a-board-{tag}-{}-{seq}", std::process::id()));
@@ -43,7 +64,10 @@ pub(crate) fn init_board_workspace(tag: &str) -> PathBuf {
     run_git(&primary, &["config", "core.hooksPath", "no-hooks"]);
     std::fs::write(primary.join("README.md"), "seed\n").expect("write seed");
     run_git(&primary, &["add", "README.md"]);
-    run_git(&primary, &["commit", "--quiet", "-m", "seed"]);
+    run_git(
+        &primary,
+        &["commit", "--quiet", "--no-gpg-sign", "-m", "seed"],
+    );
     run_git(
         &primary,
         &[
