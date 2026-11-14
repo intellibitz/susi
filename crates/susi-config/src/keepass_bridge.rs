@@ -664,7 +664,10 @@ fn resolve_keepassxc_cli_spec(config_dir: &Path) -> KeepassCliSpec {
             }
         }
     }
+    // The explicit return keeps this block a statement on every platform; the
+    // fallback below is compiled out here.
     #[cfg(all(unix, not(target_os = "macos")))]
+    #[allow(clippy::needless_return)]
     {
         let path_var = std::env::var_os("PATH");
         let h = home_dir();
@@ -818,6 +821,8 @@ fn resolve_kdbx_auth_for(
     allow_interactive: bool,
 ) -> Result<KdbxAuthMaterial, String> {
     let key_file = discover_kdbx_key_file_for(config_dir, db_path);
+    // Reassigned only by the Windows DPAPI fallback below.
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut passphrase = match resolve_unlock_secret(config_dir, PURPOSE_KDBX)? {
         Some((p, _)) if !p.trim().is_empty() => Some(p),
         _ => None,
@@ -2598,9 +2603,11 @@ pub struct RekeyReport {
 }
 
 fn is_susi_wrapper_binary(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
+    // A Windows-style path reaches a Unix host through shared Git config, where
+    // `Path::file_name` does not split on a backslash; take the last component
+    // after either separator on every platform.
+    let text = path.to_string_lossy();
+    let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
     let lower = name.to_ascii_lowercase();
     let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
     matches!(
