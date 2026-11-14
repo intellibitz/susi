@@ -5,6 +5,8 @@
   "status": "implemented_pending_integration",
   "base_commit": "d1f5d80f36a90040d7fe3f2d1bba5f31ce96b22f",
   "scopes": [
+    ".agents/baseline/unsafe-default-x86_64-pc-windows-msvc.json",
+    ".agents/reviews/unsafe-complete/step1win-20261114.json",
     ".agents/tasks/T-STEP1WIN-2.json",
     "ARCHITECTURE.md",
     "crates/susi-config/src/json_util.rs",
