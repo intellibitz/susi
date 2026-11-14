@@ -23,6 +23,11 @@
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794679871,
+    "commit": "9d11e592f8025e656494b507b886a3fa26015878",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Core serves the server role only on the byte-pipe transport SPI; the client role, named pipes and WebSocket have no adapter in core and are not claimed.",
     "Windows x86_64 exercises the in-process and stdio adapters only; Unix-domain socket parity runs on Unix targets (#[cfg(unix)])."
