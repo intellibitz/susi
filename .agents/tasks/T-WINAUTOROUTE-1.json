@@ -1,0 +1,32 @@
+{
+  "id": "T-WINAUTOROUTE-1",
+  "title": "Recover an automatic Desktop question when the preferred cloud provider fails",
+  "created_by": "winautoroute",
+  "native_worker": "winautoroute",
+  "base_commit": "82073850abe067d71a4cbef7cd1caf30330f9442",
+  "status": "implemented_pending_integration",
+  "created_unix": 1794693854,
+  "scopes": [
+    ".agents/tasks/T-WINAUTOROUTE-1.json",
+    "crates/susi-server/src/lib.rs"
+  ],
+  "size": "s",
+  "reuse": {
+    "decision": "existing",
+    "searched": "GEMI placement cloud candidates, current local-only placement, caller model aliases and the GAWD per-model generative solve."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "susi-server",
+      "--lib"
+    ],
+    "criteria": [
+      "After a preferred cloud fails within one automatic non-streaming chat request, try eligible cloud alternatives and only a permitted ready local model, preserve caller pins and governance failures, and report the generator."
+    ]
+  }
+}
