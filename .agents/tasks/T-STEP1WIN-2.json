@@ -7,6 +7,8 @@
   "scopes": [
     ".agents/tasks/T-STEP1WIN-2.json",
     "docs/step1-acceptance.md",
+    "xtask/src/bin/release-qualify.rs",
+    "xtask/src/bin/startup-gate.rs",
     "xtask/tests/ci_workflow_perf.rs"
   ],
   "reuse": {

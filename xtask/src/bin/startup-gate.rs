@@ -662,12 +662,22 @@ fn daemon_up_precheck(running: Result<bool, String>) -> Result<(), String> {
 }
 
 fn prepare_instance(options: &Options) -> Result<Instance, String> {
-    let root = options.home.clone().unwrap_or_else(|| {
-        repo_root()
-            .join("target")
-            .join("live-home")
-            .join(format!("startup-gate-{}", std::process::id()))
-    });
+    let root = match &options.home {
+        Some(path) => path.clone(),
+        None => {
+            // A first-use workspace must not inherit the developer checkout's
+            // git remotes, board configuration, or existing files.
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_nanos();
+            let private =
+                std::env::temp_dir().join(format!("susi-startup-{}-{nonce}", std::process::id()));
+            std::fs::create_dir(&private)
+                .map_err(|e| format!("create {}: {e}", private.display()))?;
+            private
+        }
+    };
     let susi_home = root.join("susi-home");
     let cwd = root.join("cwd");
     for dir in [&susi_home, &cwd] {
@@ -744,7 +754,7 @@ fn run(options: &Options) -> Result<(serde_json::Value, bool), String> {
     let pass = overall_pass(&outcome.verdicts, &outcome.errors);
     let stopped_cleanly = outcome.errors.iter().all(|e| !e.starts_with("susi stop"));
     if !options.keep_home && options.home.is_none() && stopped_cleanly {
-        // Best effort: the instance lives under target/ and is disposable.
+        // Best effort: the gate exclusively created this temporary root.
         let _ = std::fs::remove_dir_all(&instance.root);
     }
     Ok((report_json(&report), pass))
