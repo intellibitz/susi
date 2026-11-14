@@ -18,6 +18,11 @@
   },
   "created_by": "AG1VISION",
   "created_unix": 1794684000,
+  "closed": {
+    "at_unix": 1794684886,
+    "commit": "a8c819418f293df67c343772a7fef0eb666ad500",
+    "by": "AG1VISION"
+  },
   "reuse": {
     "decision": "existing",
     "reason": "Fixed existing Store::rank_with_quota comparator in engines::brain so Ranked::unfit honors its contract across cost-first and Max budgets without adding dependencies or exceeding susi-gemi line ceilings.",
