@@ -86,3 +86,74 @@ Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-20
 ## Ambiguities resolved
 
 All clauses are resolved by this table: the ledger id is the canonical name, the production path is the only allowed implementation site, and the disposition decides whether the clause is honored on the modern path or only through the version adapter.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the production ledger verification CLI command. It emits a bounded JSON report exposing `rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, and `verified`; a `false` verdict exits non-zero before server metadata is trusted.
+- `susi mcp status` emits the inspectable MCP server control-plane state (`LeadingMcpManager::status`).
+- `susi mcp ledger --drift --refetched <dir>` executes deterministic, air-gapped standards drift verification against the four pinned prompt and completion specs (`docs/specification/2025-11-25/server/prompts.mdx`, `docs/specification/2025-11-25/server/utilities/completion.mdx`, `docs/specification/2026-07-28/server/prompts.mdx`, and `docs/specification/2026-07-28/server/utilities/completion.mdx`).
+- Every served transport (`susi mcp serve` stdio, in-process duplex `embedded_adapter`, Streamable HTTP `/mcp`, and `#[cfg(unix)]` Unix-domain socket adapter) exposes identical live prompt/completion discovery and invocation state: `server/discover` / `initialize` advertising `capabilities.prompts.listChanged = true` and `capabilities.completions = {}`, `prompts/list`, `prompts/get`, `completion/complete`, and `tools/call ledger_verify` matching the CLI JSON ledger report.
+
+### Configuration validation
+
+- CLI flag validation rejects invalid flag combinations fail-closed (`susi mcp ledger --refetched <dir>` without `--drift` exits non-zero).
+- Config schema validation (`susi_config::validate::validate_dir`) verifies `~/.susi/config.json` before serving and reports blocking `TypeMismatch` findings when `max_rpc_body_bytes` is non-numeric.
+- `GmcpServer::run_stdio` validates `max_rpc_body_bytes` prior to reading requests: a `0` frame limit fails closed with diagnostics exclusively on `stderr` and emits zero non-JSON-RPC bytes on `stdout`.
+
+### Bounded metrics, logs and traces
+
+- `prompts/list` enforces a page ceiling of `100` items per page using snapshot-revision hash cursors (`"{revision}:{end}"`), and carries explicit no-cache hints (`ttlMs: 0`, `cacheScope: "private"`).
+- `completion/complete` filters deterministically, bounds responses to `<= 100` items per call (`completion.values`), and sets `total` and `hasMore` accurately (`total > 100`).
+- `logging/setLevel` adjusts session log verbosity cleanly without altering framing invariants; operational diagnostics write exclusively to `stderr`, keeping `stdout` strictly valid JSON-RPC frames.
+- Correlation fields (`traceparent`, `_meta["io.modelcontextprotocol/protocolVersion"]`, `_meta["io.modelcontextprotocol/clientCapabilities"]`) are propagated boundedly without bypassing header/era/schema validation.
+
+### Diagnostics and incident triage
+
+- `-32602` (`Invalid params`): unknown prompt name, missing required prompt argument, unknown completion `ref/prompt` or `ref/resource`, malformed resource template URI, stale-revision `prompts/list` pagination cursor, or modern `2026-07-28` request missing required `_meta` keys.
+- `-32600` (`Invalid Request`): modern `_meta` injected into a legacy `2025-11-25` session, malformed JSON-RPC envelope, or oversized frame rejected by `BoundedLines`.
+- `-32700` (`Parse error`): malformed JSON payload rejected before dispatch.
+- `-32022`: unsupported modern `_meta` protocol version (response includes `data.supported`).
+- `-32024`: HTTP `2026-07-28` standard header mismatch (`Mcp-Method` or plain/RFC-2047 Base64 `Mcp-Name` disagreeing with `prompts/get` `params.name`).
+- `hash_drift` / `unfetchable`: typed drift findings in `susi mcp ledger --drift --refetched <dir>` when any of the 4 pinned prompt or completion specs changes bytes or goes missing relative to `.agents/gmcp/sources.json`:
+  - `docs/specification/2025-11-25/server/prompts.mdx` (`sha256: 5c4a5adefade5d9ecaa1446278a46d48c11fbfb4217bcd81c8fc004928a4abe1`)
+  - `docs/specification/2025-11-25/server/utilities/completion.mdx` (`sha256: ea42d006ba3b3ab8deceb5ae22be17f79e40b26a207947459560018f91eb42e9`)
+  - `docs/specification/2026-07-28/server/prompts.mdx` (`sha256: 85e550635bbbbaa90dff8738f98808c62987e8cfce1d75305b55ca43f3c546de`)
+  - `docs/specification/2026-07-28/server/utilities/completion.mdx` (`sha256: 1965c563aadb99e141131444caa81ff1860ed82bab314b286c40a0f0ba839f99`)
+
+### Examples
+
+```text
+# 1. Inspect GMCP ledger verification and MCP adapter status
+susi mcp ledger
+susi mcp status
+
+# 2. Run air-gapped standards drift detection against vendored MCP prompt/completion specs
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+
+# 3. Verify VC-203-011 operations and re-record append-only evidence
+cargo test --offline --locked --test gmcp_requirements gmcp_req_203_011_06_operations
+cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp
+cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp --mastery
+```
+
+### Incident triage
+
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte stdio limit startup refusal, `stdout` non-JSON frame leak, HTTP `Mcp-Name` validation bypass, or stale-cursor acceptance across `Change::Prompts` catalog mutations as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `stderr` diagnostics, failing request envelope or `config.json`, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_011`.
+
+### Migration (re-pinning the prompt and completion standards)
+
+1. Claim an isolated task (`susi-commercial tasks claim <id>`) documenting the upstream MCP specification commit motivating any prompt or completion schema update.
+2. Refresh `docs/specification/2025-11-25/server/prompts.mdx`, `2025-11-25/server/utilities/completion.mdx`, `2026-07-28/server/prompts.mdx`, and `2026-07-28/server/utilities/completion.mdx` under `.agents/gmcp/spec/` along with `.agents/gmcp/sources.json`.
+3. Update `.agents/gmcp/requirements-ledger.json`, reconcile this contract table and `crates/susi-gmcp/src/{protocol,catalog,mcp/http}.rs` behavior, and re-run `gmcp_req_203_011_01..06` and `check-gmcp-roadmap`.
+4. Commit the updated tests and run two-phase `local-release record-gmcp` followed by `--mastery` to produce new append-only proof records.
+
+### Rollback
+
+All specifications, contract prose, ledger bindings, tests, and JSONL evidence chains are immutable, versioned Git artifacts. Revert a faulty prompt/completion schema or transport header change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, and run `gmcp_req_203_011_06_operations` plus the two-phase evidence recorder. Never delete or rewrite historical lines inside `.agents/gmcp/evidence/*.jsonl`.
+
+## Production guarantees and non-claims
+
+- Production guarantees hold only for `crates/susi-gmcp/src/{protocol,catalog,content,jsonrpc_gate,mcp/http}.rs` behind strict schema, URI, revision-cursor, and HTTP `Mcp-Method`/`Mcp-Name` header checks verified by `gmcp_req_203_011_01..06`.
+- Non-claim: the shipped `use_tool` prompt is a static template without a multi-turn `input_required` elicitation loop (`GetPromptResult.resultType = complete`); dynamic prompt additions via `GmcpService::register_prompt` are in-process only and are not dynamically editable over external MCP admin endpoints.

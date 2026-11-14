@@ -22,5 +22,21 @@
   },
   "roadmap": "VC-203-011",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256244
+  "created_unix": 1792256244,
+  "limitations": [
+    "Vector evidence file `.agents/gmcp/evidence/VC-203-011.jsonl` is materialized and signed alongside the `-M` mastery record in follow-on task `T-CODEXGMCPROADMAP-71`, because `gmcp_mastery_records_are_retained_and_current` requires every `VC-203-*.jsonl` file in `.agents/gmcp/evidence/` to already hold a matching `GMCP-203-*-M` proof line.",
+    "On Windows hosts, transport/API operational parity covers stdio (`susi mcp serve`), in-process `embedded_adapter`, and Streamable HTTP loopback; Unix-domain socket adapter checks are gated `#[cfg(unix)]`."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "The inspectable CLI (`src/cli/mcp_cli.rs` `susi mcp status`/`ledger`), ledger and standards drift verifier (`crates/susi-gmcp/src/requirements_ledger.rs`), schema validator (`susi_config::validate::validate_dir`), startup frame-limit diagnostics (`crates/susi-gmcp/src/server.rs`), and prompt/completion handlers (`crates/susi-gmcp/src/protocol.rs`) already exist; this task adds the VC-203-011 operations runbook and reproducible `gmcp_req_203_011_06_operations` acceptance proof plus refreshed `.agents/gmcp/evidence` digests.",
+    "searched": "Susi Core: src/cli/mcp_cli.rs (`McpCommands::Ledger`, `McpCommands::Status`, `McpCommands::Tools`), crates/susi-gmcp/src/requirements_ledger.rs (`verify_report_json`, `drift_report_json`), crates/susi-gmcp/src/protocol.rs (`GmcpService`, `list_prompts`, `get_prompt`, `complete`), crates/susi-config/src/validate.rs (`validate_dir`), .agents/gmcp/sources.json, docs/gmcp/contract-203-{006,007,011}.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi src/cli, crates/susi-gmcp, crates/susi-config, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    "docs/gmcp/contract-203-011.md",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-70.json"
+  ]
 }
