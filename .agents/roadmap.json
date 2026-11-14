@@ -1631,7 +1631,7 @@
       "id": "VC-203-007",
       "mastery_target": "A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP.",
       "priority": "P1",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-007-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_007_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-11-15): every GMCP-203-007-* requirement shipped on the production path (crates/susi-gmcp/src/server.rs, StdioGate, BoundedLines, GmcpService) with contract, integration, adversarial, interop, and operations evidence retained, proven by gmcp_vc_203_007_mastery; see .agents/roadmap-verdicts/VC-203-007.json and .agents/gmcp/evidence/VC-203-007.jsonl. Bounds stated in the verdict: server role only on byte-pipe SPI and Streamable HTTP; client transport role, named pipes, and WebSocket have no adapter in core.",
       "type": "CORE",
       "vector": "Transport adapter SPI and embedded/in-process operation"
     },

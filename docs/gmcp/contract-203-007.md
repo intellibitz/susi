@@ -196,3 +196,10 @@ Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-
 ### Rollback
 
 The vendored transport specs, ledger, fixtures, contract, and evidence logs are versioned Git artifacts. Revert a broken re-pin or framing limit regression with `git revert <commit>`, validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), and re-run `cargo test --locked --test gmcp_requirements gmcp_req_203_007_06_operations` plus the evidence recorder; never delete historical JSONL evidence lines or rewrite prior proof records.
+
+## Production guarantees and non-claims
+
+- **Production transport adapters on a single protocol service**: `GmcpServer::run_stdio`, `ChannelConnection` / `serve_channel_connection`, Unix-domain socket `Transport` (`#[cfg(unix)]`), and `http_service` drive the shared `GmcpService` behind `StdioGate` (`crates/susi-gmcp/src/jsonrpc_gate.rs`) and `BoundedLines` (`crates/susi-gmcp/src/stdio.rs`).
+- **Framing, limits, and fail-closed startup**: `max_rpc_body_bytes` is validated before opening stdio transport (`0` refuses startup with zero stdout bytes and emits an explicit stderr diagnostic), oversized frames are rejected with typed JSON-RPC `-32600` without breaking subsequent requests, and torn frames or dropped pipes end sessions cleanly without leaking across concurrent sessions.
+- **Cross-adapter parity and wire conformance**: Direct `classify_line`, HTTP `http_envelope_rejection`, live in-process (`embedded_adapter`), Unix-domain socket (`#[cfg(unix)]`), and `susi mcp serve` produce identical verdicts across `2025-11-25` legacy handshake and `2026-07-28` modern-era fixtures and pipelined property runs, bounded by published latency, fairness, startup, and disk budgets.
+- **Not covered:** Server role only on byte-pipe SPI (`Transport`/`IntoTransport`, stdio, in-process channel, Unix-domain socket where `#[cfg(unix)]`) and Streamable HTTP (`crates/susi-gmcp/src/server.rs`). Client transport role, Windows named pipes, and WebSocket transport adapters have no implementation in core and are not claimed; process RSS statm ceiling checks run only on Linux targets.

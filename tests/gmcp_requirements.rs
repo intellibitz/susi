@@ -16771,3 +16771,468 @@ fn gmcp_req_203_007_06_operations() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// VC-203-007 mastery: transport adapter SPI and embedded/in-process operation.
+///
+/// Proves end-to-end across shipped production surfaces, live transport
+/// adapters (`embedded_adapter`, `#[cfg(unix)] socket_adapter`, `susi mcp serve`),
+/// direct/HTTP JSON-RPC gates, fail-closed startup configuration validation,
+/// pinned specification verification, retained evidence records, roadmap/verdict
+/// state, and committed clean artifacts.
+#[test]
+fn gmcp_vc_203_007_mastery() {
+    use sha2::{Digest, Sha256};
+    use std::io::Write as _;
+    use std::time::{Duration, Instant};
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // ── 1. Shipped production path: CLI and tool surfaces emit the
+    //    identical canonical report and cover all 80 VC-203-007 rows ────
+    let cli = ledger_report(root);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert!(
+        cli["rows"].as_u64().unwrap_or(0) >= 80,
+        "shipped ledger must cover VC-203-007"
+    );
+    assert_eq!(
+        ledger_tool_report(root),
+        cli,
+        "ledger_verify tool and CLI must emit identical canonical reports"
+    );
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-007.md"))
+        .expect("contract-203-007.md must exist");
+    let ledger_bytes =
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).expect("ledger readable");
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger: serde_json::Value =
+        serde_json::from_slice(&ledger_bytes).expect("canonical ledger must parse");
+    let vc_rows: Vec<_> = ledger["requirements"]
+        .as_array()
+        .expect("ledger requirements must be an array")
+        .iter()
+        .filter(|row| row["trace"]["vector"] == "VC-203-007")
+        .collect();
+    assert_eq!(
+        vc_rows.len(),
+        80,
+        "VC-203-007 must bind exactly 80 normative requirements"
+    );
+    for row in vc_rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            assert!(
+                !row["trace"][field].as_str().unwrap_or_default().is_empty(),
+                "{id}: trace.{field} must be non-empty"
+            );
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert_eq!(production, "crates/susi-gmcp/src/server.rs");
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert_eq!(
+            row["trace"]["positive_test"],
+            "tests/gmcp_requirements.rs::gmcp_req_203_007_03_integration"
+        );
+        assert_eq!(
+            row["trace"]["negative_test"],
+            "tests/gmcp_requirements.rs::gmcp_req_203_007_04_adversarial"
+        );
+        assert_eq!(
+            row["trace"]["evidence"],
+            ".agents/gmcp/evidence/VC-203-007.jsonl"
+        );
+        assert!(
+            matches!(
+                row["disposition"]["status"].as_str(),
+                Some("adapter" | "modern" | "optional")
+            ),
+            "{id}: unexpected disposition {:?}",
+            row["disposition"]
+        );
+        assert!(
+            contract.contains(id),
+            "contract-203-007.md must bind row {id}"
+        );
+    }
+
+    // ── 2. Multi-adapter SPI parity, gate equivalence, fail-closed ops ─
+    let (_lock, _env, home) = gmcp_http_home_guard("007-mastery");
+    let runtime = adapter_runtime(&home);
+    let budgets = adapter_budgets(root);
+
+    // Embedded adapter transcript + frame limit + clean session shutdown.
+    let opened = Instant::now();
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    let embedded_script = transport_adapter_script(&mut embedded);
+    let startup_ms = opened.elapsed().as_millis();
+    assert!(
+        startup_ms <= budgets["startup_ms"],
+        "startup_ms {startup_ms} exceeds budget {}",
+        budgets["startup_ms"]
+    );
+    assert!(
+        embedded_script.len() >= 5,
+        "adapter script must exercise multiple protocol stages"
+    );
+    let embedded_limit = adapter_limit_step(&mut embedded);
+    assert!(
+        embedded_limit.is_i64(),
+        "an oversized line must earn a typed error code: {embedded_limit}"
+    );
+
+    // Direct JSON-RPC gate vs HTTP envelope gate vs live embedded adapter.
+    for (name, line) in [
+        ("batch", br#"[]"#.as_slice()),
+        (
+            "null-id",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        ("truncated", br#"{"jsonrpc":"2.0","#.as_slice()),
+    ] {
+        let mut era = EraState::default();
+        let direct = match classify_line(line, &mut era) {
+            GateVerdict::Reject { code, .. } => code,
+            other @ (GateVerdict::Forward | GateVerdict::Drop) => {
+                panic!("gate must reject {name}, got {other:?}")
+            }
+        };
+        let gateway = http_envelope_rejection(line)
+            .unwrap_or_else(|| panic!("HTTP gate must reject {name}"))["error"]["code"]
+            .as_i64()
+            .unwrap();
+        assert_eq!(direct, gateway, "{name}: direct and HTTP gates must agree");
+        let mut framed = line.to_vec();
+        framed.push(b'\n');
+        (embedded.write)(&framed);
+        let live = embedded.rejection(name);
+        assert_eq!(
+            live["error"]["code"].as_i64(),
+            Some(direct),
+            "{name}: live adapter rejection must match gate"
+        );
+    }
+
+    // Bystander isolation during adversarial attack battery on embedded adapter.
+    let (mut bystander, bystander_session) = embedded_adapter(&runtime, root);
+    adapter_handshake(&mut bystander, "gmcp-007-mastery-bystander");
+    let (mut attacked, attacked_session) = embedded_adapter(&runtime, root);
+    let attacks = transport_adapter_attacks(&mut attacked);
+    assert_eq!(attacks.len(), 11, "all 11 adversarial vectors must answer");
+    assert_eq!(
+        bystander.call("bystander-ping", "ping", serde_json::json!({}))["result"],
+        serde_json::json!({})
+    );
+    drop(attacked);
+    adapter_session_ended(&runtime, attacked_session, "embedded attacked");
+    drop(bystander);
+    adapter_session_ended(&runtime, bystander_session, "embedded bystander");
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "embedded primary");
+
+    // Unix-domain socket parity against the in-process adapter on Unix targets.
+    #[cfg(unix)]
+    {
+        let (mut socket, socket_session) = socket_adapter(&runtime, root);
+        assert_eq!(
+            transport_adapter_script(&mut socket),
+            embedded_script,
+            "Unix-domain socket adapter must match embedded adapter script verbatim"
+        );
+        assert_eq!(
+            adapter_limit_step(&mut socket),
+            embedded_limit,
+            "Unix-domain socket adapter must match embedded adapter limit error"
+        );
+        drop(socket);
+        adapter_session_ended(&runtime, socket_session, "unix socket mastery");
+    }
+
+    // Shipped `susi mcp serve` matches embedded adapter across both eras.
+    let fixtures = adapter_wire_fixtures(root);
+    let (mut modern_emb, modern_emb_session) = embedded_adapter(&runtime, root);
+    adapter_modern_open(&mut modern_emb);
+    let modern_expected = adapter_fixture_replay(&mut modern_emb, &fixtures, "modern");
+    drop(modern_emb);
+    adapter_session_ended(&runtime, modern_emb_session, "embedded modern fixtures");
+
+    let (mut legacy_emb, legacy_emb_session) = embedded_adapter(&runtime, root);
+    adapter_handshake(&mut legacy_emb, "gmcp-007-mastery-legacy");
+    let legacy_expected = adapter_fixture_replay(&mut legacy_emb, &fixtures, "legacy");
+    drop(legacy_emb);
+    adapter_session_ended(&runtime, legacy_emb_session, "embedded legacy fixtures");
+
+    for (era, expected) in [("legacy", &legacy_expected), ("modern", &modern_expected)] {
+        let mut child = susi_command(root, &home, &["mcp", "serve"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("susi mcp serve must spawn");
+        let mut stdin = child.stdin.take().expect("stdin");
+        let rx = adapter_lines(child.stdout.take().expect("stdout"));
+        let mut stdio = AdapterClient {
+            write: Box::new(move |bytes| {
+                stdin
+                    .write_all(bytes)
+                    .and_then(|()| stdin.flush())
+                    .expect("stdin write");
+            }),
+            rx,
+            pending: Vec::new(),
+        };
+        if era == "modern" {
+            adapter_modern_open(&mut stdio);
+        } else {
+            adapter_handshake(&mut stdio, "gmcp-007-mastery-stdio");
+        }
+        assert_eq!(
+            &adapter_fixture_replay(&mut stdio, &fixtures, era),
+            expected,
+            "shipped stdio entry must match embedded adapter on {era} fixtures"
+        );
+        drop(stdio);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while child.try_wait().expect("try_wait").is_none() {
+            if Instant::now() > deadline {
+                stop_test_server(&mut child);
+                panic!("`susi mcp serve` did not exit on stdin EOF");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    // Fail-closed configuration validation: max_rpc_body_bytes = 0 refuses startup.
+    let zero_home = home.join("zero-limit");
+    std::fs::create_dir_all(zero_home.join(".susi")).unwrap();
+    std::fs::write(
+        zero_home.join(".susi/config.json"),
+        serde_json::json!({ "max_rpc_body_bytes": 0 }).to_string(),
+    )
+    .unwrap();
+    let mut zero_child = susi_command(root, &zero_home, &["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn zero-limit susi mcp serve");
+    if let Some(stdin) = zero_child.stdin.as_mut() {
+        let _ = writeln!(
+            stdin,
+            "{}",
+            serde_json::json!({"jsonrpc": "2.0", "id": "zero-ping", "method": "ping", "params": {}})
+        );
+    }
+    drop(zero_child.stdin.take());
+    let zero_out = zero_child.wait_with_output().expect("wait zero-limit");
+    assert!(
+        zero_out.stdout.is_empty(),
+        "zero-limit startup must refuse requests and emit zero stdout bytes, got: {}",
+        String::from_utf8_lossy(&zero_out.stdout)
+    );
+    let zero_stderr = String::from_utf8_lossy(&zero_out.stderr);
+    assert!(
+        zero_stderr.contains("max_rpc_body_bytes") && zero_stderr.contains("must be > 0"),
+        "zero-limit startup must diagnose max_rpc_body_bytes on stderr: {zero_stderr}"
+    );
+
+    // ── 3. Contract sections, explicit non-claims, and pinned specs ──
+    for token in [
+        "Operations and incident runbook",
+        "Configuration validation",
+        "## Production guarantees and non-claims",
+        "Not covered:",
+    ] {
+        assert!(
+            contract.contains(token),
+            "contract-203-007.md missing required section/token: {token}"
+        );
+    }
+    for rel in [
+        ".agents/gmcp/spec/docs/specification/2025-11-25/basic/transports.mdx",
+        ".agents/gmcp/spec/docs/specification/2026-07-28/basic/transports/index.mdx",
+    ] {
+        let bytes = std::fs::read(root.join(rel))
+            .unwrap_or_else(|e| panic!("pinned spec {rel} missing: {e}"));
+        let hex = susi_paths::hex::encode(Sha256::digest(&bytes));
+        assert!(
+            contract.contains(&hex),
+            "contract-203-007.md must bind live sha256 {hex} of {rel}"
+        );
+    }
+
+    // ── 4. Evidence verification: complete, bound to HEAD commit,
+    //    signed, exit 0, matching current ledger hash ────────────────
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-007.jsonl"))
+        .expect("VC-203-007 must retain an evidence artifact");
+    let artifacts = evidence_artifacts(root, "VC-203-007");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list VC-203-007 artifacts");
+    let mut covered = std::collections::BTreeSet::new();
+    for record in newest_records(&evidence) {
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "incomplete evidence record lacks {field}: {record}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock evidence rejected: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record exit 0");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty()
+                && !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must include non-empty identity and detail"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "evidence artifact_sha256 must match current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} outside valid range"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && is_test_fn(&test_src, test_name),
+                "evidence names nonexistent test {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must name a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-007-01",
+        "GMCP-203-007-02",
+        "GMCP-203-007-03",
+        "GMCP-203-007-04",
+        "GMCP-203-007-05",
+        "GMCP-203-007-06",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 5. Roadmap and verdict delivery verification ────────────────
+    let roadmap_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/roadmap.json"))
+            .expect("roadmap.json must be readable"),
+    )
+    .expect("roadmap.json must parse");
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .expect("roadmap.json vectors must be an array")
+        .iter()
+        .find(|entry| entry["id"] == "VC-203-007")
+        .expect("VC-203-007 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-007 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-007.json"))
+            .expect("VC-203-007.json verdict must exist"),
+    )
+    .expect("verdict must parse");
+    assert_eq!(verdict["vector"], "VC-203-007");
+    assert_eq!(verdict["verdict"], "delivered");
+    assert!(
+        !verdict["evidence"].as_str().unwrap_or_default().is_empty()
+            && !verdict["recorded_by"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+        "verdict must include evidence summary and recorded_by"
+    );
+    let tracked: Vec<&str> = verdict["tracked_by"]
+        .as_array()
+        .expect("tracked_by array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert_eq!(tracked.len(), 7, "VC-203-007 must track all 7 tasks");
+    for num in 86..=92 {
+        let tid = format!("T-CODEXGMCPROADMAP-{num}");
+        assert!(
+            tracked.contains(&tid.as_str()),
+            "verdict missing tracked task {tid}"
+        );
+    }
+
+    // ── 6. Committed proof ──────────────────────────────────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}

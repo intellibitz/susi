@@ -23,5 +23,24 @@
   },
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Core serves the server role only on the byte-pipe transport SPI (in-process ChannelConnection, Unix-domain socket Transport where #[cfg(unix)], stdio, and Streamable HTTP); the client transport role, Windows named pipes, and WebSocket have no adapter in core and are not claimed.",
+    "Windows x86_64 exercises the in-process and shipped stdio adapters plus direct/HTTP envelope gates; Unix-domain socket parity is gated behind #[cfg(unix)], and process RSS statm budgets run on Linux targets.",
+    "No new transport crate or network protocol wrapper was added; mastery proves production-path parity across existing transport adapters and requires clean committed evidence in .agents/gmcp/evidence/VC-203-007.jsonl."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "The transport adapter SPI (crates/susi-gmcp/src/server.rs, ChannelConnection, serve_channel_connection, GmcpServer::run_stdio, StdioGate, BoundedLines) and conformance harness (adapter_runtime, embedded_adapter, socket_adapter, transport_adapter_script, transport_adapter_attacks, adapter_fixture_replay, adapter_property_run, ledger_report, ledger_tool_report, evidence helpers) already exist in Susi Core and tests/gmcp_requirements.rs; this mastery gate composes and verifies them end-to-end without duplicating adapter logic.",
+    "searched": "Susi Core: crates/susi-gmcp/src/server.rs, crates/susi-gmcp/src/mcp/transport.rs, crates/susi-gmcp/src/jsonrpc_gate.rs, crates/susi-gmcp/src/requirements_ledger.rs, docs/gmcp/contract-203-007.md, docs/gmcp/contract-203-010.md, .agents/roadmap.json, .agents/roadmap-verdicts/VC-203-{006,010}.json, .agents/gmcp/evidence/VC-203-010.jsonl, xtask/src/gmcp_roadmap.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    "docs/gmcp/contract-203-007.md",
+    ".agents/tasks/T-CODEXGMCPROADMAP-92.json",
+    ".agents/roadmap.json",
+    ".agents/roadmap-verdicts/VC-203-007.json",
+    ".agents/gmcp/evidence"
+  ]
 }
