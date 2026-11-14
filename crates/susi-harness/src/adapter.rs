@@ -98,7 +98,14 @@ impl LocalClaim {
 }
 
 fn local_task_id(name: &str) -> String {
-    format!("T-LOCAL-{}-1", name.to_ascii_uppercase())
+    // Native task namespaces contain only uppercase letters and digits. Escape
+    // the separator and the escape character so different worker names cannot
+    // reserve the same task (for example, "a-b" and "ab").
+    let namespace = name
+        .to_ascii_uppercase()
+        .replace('Z', "ZZ")
+        .replace('-', "Z0");
+    format!("T-LOCAL{namespace}-1")
 }
 
 fn task_scopes(id: &str) -> [String; 2] {
@@ -453,7 +460,7 @@ impl<R: CommandRunner> SusiTarget<R> {
         let relative = format!(".agents/tasks/{id}.json");
         claim.require_scope(&relative)?;
         let argv = parse_acceptance(accept)?;
-        let record = serde_json::json!({"id":id,"title":title,"status":"claimed","owner":claim.name,"scopes":claim.scopes,"accept":{"cmd":argv},"workflow":"susi-local-v2","base":claim.base});
+        let record = serde_json::json!({"id":id,"title":title,"status":"claimed","owner":claim.name,"native_worker":claim.name,"scopes":claim.scopes,"accept":{"cmd":argv},"workflow":"susi-local-v2","base":claim.base});
         let path = worktree.join(relative);
         check_task_path(worktree, &path)?;
         std::fs::create_dir_all(
@@ -484,7 +491,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// branch, overlapping scopes).
     pub fn claim(&self, worktree: &Path, id: &str, scopes: &[String]) -> EaiResult<()> {
         validate_task_id(id)?;
-        let claim = local_claim(worktree)?;
+        let mut claim = local_claim(worktree)?;
         let requested: Vec<_> = scopes.iter().cloned().chain(task_scopes(id)).collect();
         // A newly minted task record is already in the working tree. Its
         // startup claim owns these scopes, so extending it again would
@@ -496,8 +503,8 @@ impl<R: CommandRunner> SusiTarget<R> {
                 "extend".into(),
                 claim.name.clone(),
             ];
-            for scope in requested {
-                args.extend(["--scope".into(), scope]);
+            for scope in &requested {
+                args.extend(["--scope".into(), scope.clone()]);
             }
             let output = self.susi(args, worktree)?;
             if !output.success() {
@@ -505,6 +512,10 @@ impl<R: CommandRunner> SusiTarget<R> {
                     "native scope reservation refused: {}",
                     output.tail()
                 )));
+            }
+            claim = local_claim(worktree)?;
+            for scope in &requested {
+                claim.require_scope(scope)?;
             }
         }
         let path = task_file(worktree, id)?;
@@ -517,25 +528,45 @@ impl<R: CommandRunner> SusiTarget<R> {
             &std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?,
         )
         .map_err(|e| EaiError::config(e.to_string()))?;
-        if record.get("status").and_then(Value::as_str) == Some("claimed")
-            && record
-                .get("owner")
-                .and_then(Value::as_str)
-                .is_some_and(|owner| owner != claim.name)
+        if record["id"] != id
+            || worktree
+                .join(format!(".agents/tasks/done/{id}.json"))
+                .exists()
+            || matches!(
+                record["status"].as_str(),
+                Some("done" | "closed" | "verified")
+            )
+            || record
+                .get("native_worker")
+                .is_some_and(|owner| owner.as_str() != Some(&claim.name))
+            || (record["status"] == "claimed"
+                && (record
+                    .get("owner")
+                    .is_some_and(|owner| owner.as_str() != Some(&claim.name))
+                    || record
+                        .get("base")
+                        .is_some_and(|base| base.as_str() != Some(&claim.base))))
         {
             return Err(EaiError::process(
-                "task record is already claimed by another owner",
+                "task identity conflicts with the current reservation",
             ));
         }
+        if let Some(scopes) = record.get("scopes") {
+            for scope in serde_json::from_value::<Vec<String>>(scopes.clone())
+                .map_err(|e| EaiError::config(e.to_string()))?
+            {
+                claim.require_scope(&scope)?;
+            }
+        }
+        let argv = self.acceptance_argv(worktree, id)?;
+        record["accept"] = serde_json::json!({"cmd": argv});
+        record["native_worker"] = Value::String(claim.name.clone());
+        record["scopes"] = serde_json::json!(claim.scopes);
         record["owner"] = Value::String(claim.name);
         record["status"] = Value::String("claimed".into());
         record["workflow"] = Value::String("susi-local-v2".into());
         record["base"] = Value::String(claim.base);
-        std::fs::write(
-            &path,
-            serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
-        )
-        .map_err(|e| EaiError::io(e.to_string()))?;
+        susi_config::atomic_write_json_pretty(&path, &record)?;
         Ok(())
     }
 
@@ -586,6 +617,10 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// Returns an error when the acceptance exits non-zero.
     pub fn accept(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
         let argv = self.acceptance_argv(worktree, id)?;
+        self.run_acceptance(worktree, id, &argv)
+    }
+
+    fn run_acceptance(&self, worktree: &Path, id: &str, argv: &[String]) -> EaiResult<RunOutput> {
         let program = Path::new(&argv[0]);
         let output = self.runner.run(program, &argv[1..], worktree)?;
         if !output.success() {
@@ -596,7 +631,7 @@ impl<R: CommandRunner> SusiTarget<R> {
         }
         // A test filter that matches nothing exits zero, which proves nothing:
         // it let the precheck treat unimplemented GMCP work as already delivered.
-        if Self::is_test_command(&argv) && Self::ran_zero_tests(&output.stdout) {
+        if Self::is_test_command(argv) && Self::ran_zero_tests(&output.stdout) {
             return Err(EaiError::process(format!(
                 "acceptance for {id} ran zero tests — a filter that matches nothing proves nothing: {}",
                 output.tail()
@@ -641,48 +676,67 @@ impl<R: CommandRunner> SusiTarget<R> {
         for scope in task_scopes(id) {
             claim.require_scope(&scope)?;
         }
-        let accepted = self.accept(worktree, id)?;
-        let path = task_file(worktree, id)?;
+        let open = worktree.join(format!(".agents/tasks/{id}.json"));
         let done = worktree.join(format!(".agents/tasks/done/{id}.json"));
+        let locks = common_dir(worktree)
+            .ok_or_else(|| EaiError::process("worktree has no Git common directory"))?
+            .join("susi-local-workflow/task-closures");
+        let _guard = susi_config::file_lock::FileLock::acquire(&locks, id)
+            .ok_or_else(|| EaiError::process("native task closure is busy; retry"))?;
+        let path = task_file(worktree, id)?;
+        check_task_path(worktree, &open)?;
         check_task_path(worktree, &done)?;
-        let mut record: Value = serde_json::from_str(
-            &std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?,
-        )
-        .map_err(|e| EaiError::config(e.to_string()))?;
-        if path == done {
-            if record["status"] == "verified"
-                && record["owner"] == claim.name
-                && record["integration"] == "pending_native_receipt"
-            {
-                return Ok(accepted);
-            }
+        let mut record: Value =
+            serde_json::from_slice(&std::fs::read(&path).map_err(|e| EaiError::io(e.to_string()))?)
+                .map_err(|e| EaiError::config(e.to_string()))?;
+        if record["id"] != id
+            || record["owner"] != claim.name
+            || record["base"] != claim.base
+            || record
+                .get("native_worker")
+                .is_some_and(|owner| owner.as_str() != Some(&claim.name))
+            || !matches!(record["status"].as_str(), Some("claimed" | "verified"))
+            || (path == done && record["status"] != "verified")
+            || (record["status"] == "verified" && record["integration"] != "pending_native_receipt")
+        {
             return Err(EaiError::process(
-                "existing closed task is not this candidate's verified record",
+                "task is not owned by this native reservation",
             ));
         }
+        let scopes = serde_json::json!(claim.scopes);
+        if record.get("scopes").is_some_and(|held| *held != scopes) {
+            return Err(EaiError::process(
+                "task scopes no longer match its native reservation",
+            ));
+        }
+        let argv = self.acceptance_argv(worktree, id)?;
+        let accepted = self.run_acceptance(worktree, id, &argv)?;
+        record["accept"] = serde_json::json!({"cmd": argv});
+        record["scopes"] = scopes;
+        record["native_worker"] = Value::String(claim.name);
         record["status"] = Value::String("verified".into());
         record["integration"] = Value::String("pending_native_receipt".into());
-        std::fs::create_dir_all(
-            done.parent()
-                .ok_or_else(|| EaiError::io("done task has no parent"))?,
-        )
-        .map_err(|e| EaiError::io(e.to_string()))?;
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&done)
-            .map_err(|e| EaiError::io(format!("preserve existing done record: {e}")))?;
-        file.write_all(
-            &serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
-        )
-        .map_err(|e| EaiError::io(e.to_string()))?;
-        drop(file);
-        std::fs::remove_file(path).map_err(|e| EaiError::io(e.to_string()))?;
+        // Native provenance resolves the worker-bound task in the source tree
+        // and compares the same blob in the integrated tree. The queue separately
+        // consumes the done marker. Preserve both through acceptance and retries.
+        let bytes = serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?;
+        if done.exists() && path != done {
+            let existing: Value = serde_json::from_slice(
+                &std::fs::read(&done).map_err(|e| EaiError::io(e.to_string()))?,
+            )
+            .map_err(|e| EaiError::config(e.to_string()))?;
+            if existing != record {
+                return Err(EaiError::process(
+                    "existing done record conflicts with native task proof",
+                ));
+            }
+        }
+        susi_config::atomic_write_bytes(&done, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
+        susi_config::atomic_write_bytes(&open, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
         Ok(accepted)
     }
 
-    /// Verify, commit, and integrate work locally before releasing its claim.
+    /// Verify and commit work, then integrate it. The native coordinator consumes the claim.
     ///
     /// # Errors
     ///
@@ -706,13 +760,12 @@ impl<R: CommandRunner> SusiTarget<R> {
                 output.tail()
             )));
         }
-        self.release(worktree, id)?;
         Ok(output)
     }
 
     /// Close and commit every `(worktree, id)` in a wave, integrate all of
-    /// their claims in one `local workflow integrate <claim> ...` call, and
-    /// only then release each claim.
+    /// their claims in one `local workflow integrate <claim> ...` call. The
+    /// native coordinator consumes those claims when it records acceptance.
     ///
     /// One integration verifies the wave's candidates together instead of
     /// once per task. When it fails, every claim and candidate is retained for
@@ -721,7 +774,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// # Errors
     ///
     /// Returns an error for an empty wave, when a close or commit fails, when
-    /// the batch integration fails, or when a release is refused.
+    /// the batch integration fails.
     pub fn finish_batch(&self, items: &[(&Path, &str)]) -> EaiResult<RunOutput> {
         let Some(&(first, _)) = items.first() else {
             return Err(EaiError::config("finish_batch needs at least one task"));
@@ -745,9 +798,6 @@ impl<R: CommandRunner> SusiTarget<R> {
                 ids.join(", "),
                 output.tail()
             )));
-        }
-        for &(worktree, id) in items {
-            self.release(worktree, id)?;
         }
         Ok(output)
     }
@@ -1504,23 +1554,18 @@ pub fn run_task<R: CommandRunner>(
         && target.git_status(&worktree)?.trim().is_empty()
     {
         target.close(&worktree, &task)?;
-        let closed_committed = target.commit_work(&worktree, &task).unwrap_or(false);
-        let finished = target.finish(&worktree, &task);
-        if finished.is_err() {
-            // The native coordinator retains any unintegrated candidate.
-            let _ = target.release(&worktree, &task);
-        }
+        // As with an edited task, the caller lands the accepted candidate once.
+        let closed_committed = target.commit_work(&worktree, &task)?;
         return Ok(SusiRunReport {
             worktree,
             task,
             model: "precheck".to_string(),
             agent: RunOutcome::Succeeded {
-                final_text: "the task's acceptance already passes on the base; closed as delivered"
-                    .to_string(),
+                final_text: "the task's acceptance already passes on the base".to_string(),
                 reported_cost_usd: None,
             },
             committed: closed_committed,
-            accepted: finished.is_ok(),
+            accepted: true,
             attempts: Vec::new(),
             budget_exhausted: false,
         });

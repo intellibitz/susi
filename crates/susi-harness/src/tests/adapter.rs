@@ -91,7 +91,20 @@ impl CommandRunner for NativeRunner {
                         stderr: "candidate verification failed".into(),
                     })
                 }
-                Some("extend" | "integrate" | "release") => {}
+                Some("extend") => {
+                    let mut scopes = local_claim(&self.directory)?.scopes;
+                    scopes.extend(
+                        args[4..]
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| pair[1].to_ascii_lowercase()),
+                    );
+                    scopes.sort();
+                    scopes.dedup();
+                    native_claim_fixture(&self.directory, &args[3], &scopes);
+                }
+                Some("integrate" | "release") => {}
                 _ => panic!("unexpected native operation {call}"),
             }
             return Ok(ok("native coordinator verified operation"));
@@ -239,9 +252,9 @@ fn start_worktree_reads_the_native_worktree_field() {
             "start",
             "demo",
             "--scope",
-            ".agents/tasks/T-LOCAL-DEMO-1.json",
+            ".agents/tasks/T-LOCALDEMO-1.json",
             "--scope",
-            ".agents/tasks/done/T-LOCAL-DEMO-1.json"
+            ".agents/tasks/done/T-LOCALDEMO-1.json"
         ]
     );
 }
@@ -275,7 +288,7 @@ fn add_task_returns_the_id_and_claim_reserves_scopes() {
     let id = target
         .add_task(dir.path(), "proof", "cargo test -p susi-harness")
         .unwrap();
-    assert_eq!(id, "T-LOCAL-DEMO-1");
+    assert_eq!(id, "T-LOCALDEMO-1");
     target.claim(dir.path(), &id, &["docs".into()]).unwrap();
     assert!(target
         .runner
@@ -289,6 +302,9 @@ fn add_task_returns_the_id_and_claim_reserves_scopes() {
         serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
             .unwrap();
     assert_eq!(record["owner"], "demo");
+    assert_eq!(record["native_worker"], "demo");
+    assert_eq!(local_task_id("a-b"), "T-LOCALAZ0B-1");
+    assert_ne!(local_task_id("a-b"), local_task_id("az0b"));
     assert_eq!(record["status"], "claimed");
     assert_eq!(
         target.acceptance_argv(dir.path(), &id).unwrap(),
@@ -392,7 +408,7 @@ fn second_worktree(name: &str) -> (susi_paths::tempfile::TempDir, String) {
 }
 
 #[test]
-fn finish_batch_integrates_every_claim_in_one_call_then_releases_each() {
+fn finish_batch_integrates_every_claim_in_one_call() {
     let one = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(one.path());
     target.start_worktree("one").unwrap();
@@ -414,28 +430,10 @@ fn finish_batch_integrates_every_claim_in_one_call_then_releases_each() {
         .filter(|call| call.contains("workflow integrate"))
         .collect();
     assert_eq!(integrations, vec!["susi local workflow integrate one two"]);
-    let integrate_at = state
+    assert!(!state
         .calls
         .iter()
-        .position(|call| call.contains("workflow integrate"))
-        .unwrap();
-    let releases: Vec<(usize, &String)> = state
-        .calls
-        .iter()
-        .enumerate()
-        .filter(|(_, call)| call.contains("workflow release"))
-        .collect();
-    assert_eq!(
-        releases
-            .iter()
-            .map(|(_, call)| call.as_str())
-            .collect::<Vec<_>>(),
-        vec![
-            "susi local workflow release one",
-            "susi local workflow release two"
-        ]
-    );
-    assert!(releases.iter().all(|(at, _)| *at > integrate_at));
+        .any(|call| call.contains("workflow release")));
     for (dir, id) in [(one.path(), &first), (two.path(), &second)] {
         assert!(dir.join(format!(".agents/tasks/done/{id}.json")).is_file());
     }
@@ -502,7 +500,18 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
     );
     target.runner.state.lock().unwrap().integration_failure = true;
     assert!(target.finish(candidate.path(), &id).is_err());
-    assert!(!open.exists());
+    let source = std::fs::read(&open).unwrap();
+    let done = candidate
+        .path()
+        .join(format!(".agents/tasks/done/{id}.json"));
+    assert_eq!(source, std::fs::read(&done).unwrap());
+    let proof: Value = serde_json::from_slice(&source).unwrap();
+    assert_eq!(proof["native_worker"], "demo");
+    assert_eq!(
+        proof["scopes"],
+        serde_json::json!(local_claim(candidate.path()).unwrap().scopes)
+    );
+    assert_eq!(proof["accept"]["cmd"], serde_json::json!(["cargo", "test"]));
     assert!(candidate
         .path()
         .join(format!(".agents/tasks/done/{id}.json"))
@@ -528,6 +537,78 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
         .path()
         .join(format!(".agents/tasks/done/{id}.json"))
         .exists());
+}
+
+#[test]
+fn a_legacy_verified_candidate_is_recovered_under_its_live_claim() {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let target = native_target(dir.path());
+    let id = "T-LEGACY-4";
+    target
+        .start_scoped_worktree("demo", &["src".into()], Some(id))
+        .unwrap();
+    let task = dir.path().join(format!(".agents/tasks/{id}.json"));
+    let done = dir.path().join(format!(".agents/tasks/done/{id}.json"));
+    std::fs::create_dir_all(done.parent().unwrap()).unwrap();
+    let legacy = serde_json::json!({"id":id,"owner":"demo","base":"a".repeat(40),
+        "status":"verified","integration":"pending_native_receipt","accept":"cargo test"});
+    std::fs::write(&done, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    target.close(dir.path(), id).unwrap();
+    let source = std::fs::read(&task).unwrap();
+    assert_eq!(source, std::fs::read(&done).unwrap());
+    let record: Value = serde_json::from_slice(&source).unwrap();
+    assert_eq!(record["native_worker"], "demo");
+    assert_eq!(
+        record["accept"]["cmd"],
+        serde_json::json!(["cargo", "test"])
+    );
+    assert_eq!(
+        record["scopes"],
+        serde_json::json!(local_claim(dir.path()).unwrap().scopes)
+    );
+    // An independent completion must survive an attempted second close.
+    std::fs::write(&done, b"{}").unwrap();
+    assert!(target.close(dir.path(), id).is_err());
+    assert_eq!(std::fs::read(&task).unwrap(), source);
+    assert_eq!(std::fs::read(&done).unwrap(), b"{}");
+}
+
+#[test]
+fn queued_proof_cannot_replace_another_reservation_or_expand_its_scopes() {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let target = native_target(dir.path());
+    let id = "T-QUEUE-1";
+    target
+        .start_scoped_worktree("demo", &["src".into()], Some(id))
+        .unwrap();
+    let path = dir.path().join(format!(".agents/tasks/{id}.json"));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let queued = serde_json::json!({"id":id,"accept":"cargo test", "scopes":["src/lib.rs"]});
+    for delta in [
+        serde_json::json!({"native_worker":"other"}),
+        serde_json::json!({"status":"closed"}),
+        serde_json::json!({"scopes":["elsewhere"]}),
+        serde_json::json!({"status":"claimed","owner":"other"}),
+        serde_json::json!({"status":"claimed","base":"b".repeat(40)}),
+    ] {
+        let mut record = queued.clone();
+        record
+            .as_object_mut()
+            .unwrap()
+            .extend(delta.as_object().unwrap().clone());
+        let bytes = serde_json::to_vec(&record).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(target.claim(dir.path(), id, &["src".into()]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+    std::fs::write(&path, serde_json::to_vec(&queued).unwrap()).unwrap();
+    target.claim(dir.path(), id, &["src".into()]).unwrap();
+    let proof: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(proof["accept"]["cmd"], serde_json::json!(["cargo", "test"]));
+    assert_eq!(
+        proof["scopes"],
+        serde_json::json!(local_claim(dir.path()).unwrap().scopes)
+    );
 }
 
 #[test]
@@ -617,16 +698,14 @@ fn a_prepared_run_claims_commits_accepts_and_reports() {
     )
     .unwrap();
     assert!(report.accepted && report.committed);
-    assert_eq!(report.task, "T-LOCAL-REUSED-1");
+    assert_eq!(report.task, "T-LOCALREUSED-1");
     assert_eq!(report.attempts.len(), 1);
     land(&target, &report).unwrap();
     let calls = &target.runner.state.lock().unwrap().calls;
     assert!(calls
         .iter()
         .any(|s| s == "susi local workflow integrate reused"));
-    assert!(calls
-        .iter()
-        .any(|s| s == "susi local workflow release reused"));
+    assert!(!calls.iter().any(|s| s.contains("workflow release")));
     assert!(!calls.iter().any(|s| s.contains("origin")
         || s.contains(".sh")
         || s.contains("susi tasks")
@@ -662,7 +741,7 @@ fn an_existing_queue_task_is_claimed_not_minted() {
     assert!(report.accepted);
     assert!(!dir
         .path()
-        .join(".agents/tasks/T-LOCAL-REUSED-1.json")
+        .join(".agents/tasks/T-LOCALREUSED-1.json")
         .exists());
     assert!(target
         .runner
@@ -737,7 +816,7 @@ fn commit_formats_before_it_stages() {
     let target = native_target(dir.path());
     target.start_worktree("demo").unwrap();
     target.add_task(dir.path(), "record", "cargo test").unwrap();
-    assert!(target.commit_work(dir.path(), "T-LOCAL-DEMO-1").unwrap());
+    assert!(target.commit_work(dir.path(), "T-LOCALDEMO-1").unwrap());
     let calls = &target.runner.state.lock().unwrap().calls;
     let fmt = calls.iter().position(|s| s == "cargo fmt --all").unwrap();
     let commit = calls
@@ -1224,14 +1303,28 @@ fn the_precheck_closes_a_task_that_passes_on_the_untouched_base() {
     .unwrap();
     assert!(report.accepted);
     assert_eq!(report.model, "precheck");
-    assert!(target
+    assert!(!target
         .runner
         .state
         .lock()
         .unwrap()
         .calls
         .iter()
-        .any(|s| s == "susi local workflow integrate reused"));
+        .any(|call| call.contains("workflow integrate")));
+    land(&target, &report).unwrap();
+    let state = target.runner.state.lock().unwrap();
+    assert_eq!(
+        state
+            .calls
+            .iter()
+            .filter(|call| call.contains("workflow integrate"))
+            .count(),
+        1
+    );
+    assert!(!state
+        .calls
+        .iter()
+        .any(|call| call.contains("workflow release")));
 }
 
 /// The worker replaced the acceptance file, keeping its one new test and
@@ -1274,7 +1367,7 @@ fn an_attempt_that_deletes_tests_is_rejected_before_it_is_committed() {
     assert!(calls.iter().any(|s| s.starts_with("git reset --hard")));
     assert!(dir
         .path()
-        .join("state/T-LOCAL-REUSED-1/attempt-1/rejection.txt")
+        .join("state/T-LOCALREUSED-1/attempt-1/rejection.txt")
         .is_file());
 }
 
@@ -1376,7 +1469,7 @@ fn an_attempt_that_rewrites_a_file_is_rejected_before_it_is_committed() {
     assert!(calls.iter().any(|s| s.starts_with("git reset --hard")));
     let saved = std::fs::read_to_string(
         dir.path()
-            .join("state/T-LOCAL-REUSED-1/attempt-1/rejection.txt"),
+            .join("state/T-LOCALREUSED-1/attempt-1/rejection.txt"),
     )
     .unwrap();
     assert!(saved.contains("13764"));

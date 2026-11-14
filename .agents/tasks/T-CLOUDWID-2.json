@@ -1,0 +1,21 @@
+{
+  "id": "T-CLOUDWID-2",
+  "title": "Preserve verifiable scheduled task evidence through native landing",
+  "goal": "Vision: V-2. Keep the native task blob, accepted command, claim worker and scopes identifiable through scheduled mission integration without bypassing receipt verification.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "adapter::tests"
+    ]
+  },
+  "created_by": "CLOUDWID",
+  "created_unix": 1794656157
+}
