@@ -1,0 +1,39 @@
+{
+  "id": "T-WINPACKAGE-1",
+  "created_by": "winpackage",
+  "created_unix": 1794678289,
+  "native_worker": "winpackage",
+  "title": "Install, verify and roll back qualified v2 Windows releases alongside existing v1 releases",
+  "status": "implemented_pending_integration",
+  "base_commit": "dc4566335b1005a9c36c0de61cf674e7cfd3e2b1",
+  "scopes": [
+    ".agents/tasks/T-WINPACKAGE-1.json",
+    "src/installed_channel/package.rs",
+    "src/installed_channel/qualification_policy.rs",
+    "src/installed_channel/tests.rs",
+    "src/installed_channel/transaction.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/installed_delivery.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Native installed_channel Package, slot selection and rollback, local-release complete release evidence, and installed_delivery export."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "installed_channel"
+    ],
+    "criteria": [
+      "Verify historical and current qualified package formats, reject altered or missing required evidence, and preserve the installed selector on failure.",
+      "Exercise genuine qualified package export, current Windows ordinary install and the same Start Menu shortcut before and after rollback, including local inference."
+    ]
+  }
+}

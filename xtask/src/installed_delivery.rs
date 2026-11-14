@@ -32,6 +32,10 @@ fn copy_verified(ctx: &Context, blob: &str, stage: &Path) -> Result<String> {
     let dest = stage.join(&id);
     fs::create_dir(&dest)?;
     let source = exe.parent().ok_or("missing qualification package")?;
+    let complete = manifest
+        .complete_gates
+        .as_deref()
+        .ok_or("missing complete gate admission")?;
     for (name, hash) in [
         ("susi.exe", manifest.artifact.as_str()),
         ("manifest.txt", id.as_str()),
@@ -39,6 +43,7 @@ fn copy_verified(ctx: &Context, blob: &str, stage: &Path) -> Result<String> {
         ("sbom.json", manifest.sbom.as_str()),
         ("native-source-audit.txt", manifest.native_audit.as_str()),
         ("THIRD-PARTY-NOTICES.txt", manifest.notices.as_str()),
+        ("complete-gates.json", complete),
     ] {
         let path = dest.join(name);
         fs::copy(source.join(name), &path)?;
@@ -46,6 +51,13 @@ fn copy_verified(ctx: &Context, blob: &str, stage: &Path) -> Result<String> {
             return Err(format!("exported {name} differs from qualification").into());
         }
     }
+    let receipt = serde_json::from_slice(&fs::read(dest.join("complete-gates.json"))?)?;
+    super::complete_release_gates::copy_evidence(&receipt, source, &dest)?;
+    super::complete_release_gates::validate_package(
+        &dest,
+        &manifest,
+        ctx.trust_registry.as_deref(),
+    )?;
     if digest(raw.as_bytes()) != id {
         return Err("exported release identity mismatch".into());
     }

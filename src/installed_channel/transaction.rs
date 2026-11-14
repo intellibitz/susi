@@ -687,7 +687,7 @@ mod cross_os_tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&base).unwrap();
-        let build_pkg = |tag: &str| -> Package {
+        let build_pkg = |tag: &str, complete: bool| -> Package {
             let dir = base.join(tag);
             fs::create_dir_all(&dir).unwrap();
             let fixture = dir.join("fixture.rs");
@@ -715,17 +715,37 @@ mod cross_os_tests {
                 fs::write(dir.join(name), side).unwrap();
             }
             let oid = "b".repeat(40);
-            let manifest = format!(
+            let mut manifest = format!(
                 "susi-local-release-v1\nsource={oid}\ntree={oid}\nartifact-sha256={}\nartifact-bytes={}\nhost={}\nintegration-receipt={oid}\nlock-sha256={hash}\ncompiler-sha256={hash}\ngates-sha256={gate_hash}\nsbom-sha256={hash}\nnotices-sha256={hash}\nnative-audit-sha256={hash}\n",
                 digest_bytes(&data),
                 data.len(),
                 expected_host_target_triple()
             );
+            if complete {
+                let receipt = serde_json::json!({
+                    "schema": "susi/complete-release-gates/v1",
+                    "fixture_only": false,
+                    "policy": std::str::from_utf8(QUALIFICATION_POLICY).unwrap().trim_end(),
+                    "source": {"commit": oid, "tree": oid, "lock_sha256": hash},
+                    "host": expected_host_target_triple(),
+                    "artifact_sha256": digest_bytes(&data), "artifact_bytes": data.len(),
+                    "compiler_sha256": hash, "integration_receipt": oid,
+                    "files": [{"path": "complete-gate-0.log", "sha256": hash}]
+                })
+                .to_string();
+                fs::write(dir.join("complete-gate-0.log"), side).unwrap();
+                fs::write(dir.join("complete-gates.json"), &receipt).unwrap();
+                manifest = manifest.replacen("susi-local-release-v1", "susi-local-release-v2", 1);
+                manifest.push_str(&format!(
+                    "complete-gates-sha256={}\n",
+                    digest_bytes(receipt.as_bytes())
+                ));
+            }
             fs::write(dir.join("manifest.txt"), &manifest).unwrap();
             Package::open(&dir, &digest_bytes(manifest.as_bytes())).unwrap()
         };
-        let pkg_a = build_pkg("1.0.0-a");
-        let pkg_b = build_pkg("1.0.0-b");
+        let pkg_a = build_pkg("1.0.0-a", false);
+        let pkg_b = build_pkg("1.0.0-b", true);
         let root = base.join("SusiLocal").join("production");
         let sel_a = apply(&root, Some((&pkg_a, None)), &|_| Ok(()), None).unwrap();
         assert_eq!(sel_a.current, pkg_a.release);
@@ -734,6 +754,19 @@ mod cross_os_tests {
         assert_eq!(sel_b.previous.as_deref(), Some(pkg_a.release.as_str()));
         let rolled = apply(&root, None, &|_| Ok(()), Some(&pkg_a.release)).unwrap();
         assert_eq!(rolled.current, pkg_a.release);
+        assert_eq!(rolled.dispatcher, pkg_b.release);
+        let staged = installed(&root, &pkg_b.release).unwrap();
+        let evidence = staged.root.join("complete-gate-0.log");
+        let saved = fs::read(&evidence).unwrap();
+        fs::write(&evidence, b"changed log").unwrap();
+        assert!(apply(&root, None, &|_| Ok(()), Some(&pkg_b.release)).is_err());
+        assert_eq!(get::<Selection>(&root.join(ACTIVE)).unwrap(), Some(rolled));
+        fs::write(evidence, saved).unwrap();
+        let restored = apply(&root, None, &|_| Ok(()), Some(&pkg_b.release)).unwrap();
+        assert_eq!(restored.current, pkg_b.release);
+        let receipt = staged.root.join("complete-gates.json");
+        fs::write(&receipt, b"{}").unwrap();
+        assert!(installed(&root, &pkg_b.release).is_err());
         let _ = fs::remove_dir_all(&base);
     }
 
