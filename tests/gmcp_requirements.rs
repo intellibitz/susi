@@ -19708,3 +19708,144 @@ fn gmcp_vc_203_011_mastery() {
 
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn gmcp_req_203_012_01_contract() {
+    use sha2::{Digest, Sha256};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-012.md"))
+        .expect("VC-203-012 contract document must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+        "Operations and non-claims",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a ## {section} section"
+        );
+    }
+
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .expect("requirements array")
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-012")
+        .collect();
+    assert_eq!(
+        rows.len(),
+        57,
+        "the contract must bind all 57 VC-203-012 rows"
+    );
+
+    let mut modern = 0usize;
+    let mut optional = 0usize;
+    let mut adapter = 0usize;
+    let mut docs = std::collections::BTreeSet::new();
+    for row in &rows {
+        let id = row["id"].as_str().expect("row id");
+        let level = row["level"].as_str().expect("row level");
+        let path = row["trace"]["production_path"]
+            .as_str()
+            .expect("production_path");
+        let doc = row["source"]["document"].as_str().expect("source document");
+        docs.insert(doc);
+        assert!(
+            contract.contains(&format!("| {id} | {level} |")),
+            "behavior table must bind {id} with level {level}"
+        );
+        assert!(
+            contract.contains(path),
+            "contract must declare production path {path} for {id}"
+        );
+        assert!(
+            root.join(path).exists(),
+            "declared production path must exist: {path}"
+        );
+        match row["disposition"]["status"]
+            .as_str()
+            .expect("disposition status")
+        {
+            "modern" => modern += 1,
+            "optional" => optional += 1,
+            "adapter" => adapter += 1,
+            other => panic!("unexpected disposition {other} for {id}"),
+        }
+    }
+    assert_eq!((modern, optional, adapter), (26, 15, 16));
+    assert!(contract.contains("modern=26"));
+    assert!(contract.contains("optional=15"));
+    assert!(contract.contains("adapter=16"));
+
+    let sources: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json"))
+            .expect("sources.json must exist"),
+    )
+    .expect("sources.json must parse");
+    let mcp_commit = sources["upstream"]["modelcontextprotocol"]["commit"]
+        .as_str()
+        .expect("modelcontextprotocol commit");
+    assert!(
+        contract.contains(mcp_commit),
+        "contract must pin modelcontextprotocol upstream commit {mcp_commit}"
+    );
+    let source_files = sources["files"].as_array().expect("sources.files array");
+    for doc in &docs {
+        let entry = source_files
+            .iter()
+            .find(|f| f["document"].as_str() == Some(*doc))
+            .unwrap_or_else(|| panic!("missing sources.json entry for {doc}"));
+        let expected_sha = entry["sha256"].as_str().expect("sha256 in sources.json");
+        let actual_bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc))
+            .unwrap_or_else(|e| panic!("spec doc {doc} readable: {e}"));
+        let actual_sha = susi_paths::hex::encode(Sha256::digest(&actual_bytes));
+        assert_eq!(actual_sha, expected_sha, "spec hash drift on {doc}");
+        assert!(
+            contract.contains(&format!("| {doc} | {expected_sha} |")),
+            "pinned sources table must pin {doc} with sha256 {expected_sha}"
+        );
+    }
+
+    for marker in [
+        "subscriptions/listen",
+        "notifications/subscriptions/acknowledged",
+        "io.modelcontextprotocol/subscriptionId",
+        "io.modelcontextprotocol/logLevel",
+        "PROGRESS_GAP = 100ms",
+        "-32602",
+        "-32601",
+        "SEP-2577",
+        "T1:",
+        "T2:",
+        "T3:",
+        "T4:",
+        "T5:",
+        "T6:",
+        "F-POS-012-01",
+        "F-POS-012-06",
+        "F-NEG-012-01",
+        "F-NEG-012-06",
+        "VC-203-012.jsonl",
+        "VC-203-012.json",
+        "gmcp_req_203_012_01_contract",
+    ] {
+        assert!(
+            contract.contains(marker),
+            "VC-203-012 contract missing required invariant or fixture marker `{marker}`"
+        );
+    }
+}
