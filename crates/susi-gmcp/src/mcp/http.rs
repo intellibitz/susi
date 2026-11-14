@@ -133,6 +133,10 @@ fn boxed(response: BoxResponse) -> Box<BoxResponse> {
     Box::new(response)
 }
 
+fn internal_box(context: &str, error: impl std::fmt::Display) -> Box<BoxResponse> {
+    boxed(internal_error(context, error))
+}
+
 fn accepted_response() -> BoxResponse {
     let mut response = Response::new(Empty::new().boxed());
     *response.status_mut() = StatusCode::ACCEPTED;
@@ -186,16 +190,20 @@ fn invalid_request(id: Option<RequestId>, message: impl Into<String>) -> Box<Box
     jsonrpc_error(id, ErrorData::invalid_request(message.into(), None))
 }
 
-fn invalid_params(id: Option<RequestId>, message: impl Into<String>) -> Box<BoxResponse> {
-    jsonrpc_error(id, ErrorData::invalid_params(message.into(), None))
+fn err_text(status: StatusCode, msg: impl Into<Bytes>) -> Box<BoxResponse> {
+    boxed(text_response(status, msg))
+}
+
+fn forbidden(msg: &'static str) -> Box<BoxResponse> {
+    err_text(StatusCode::FORBIDDEN, msg)
+}
+
+fn bad_req(msg: impl Into<Bytes>) -> Box<BoxResponse> {
+    err_text(StatusCode::BAD_REQUEST, msg)
 }
 
 fn header_mismatch(id: Option<RequestId>, message: impl Into<String>) -> Box<BoxResponse> {
     jsonrpc_error(id, ErrorData::header_mismatch(message.into(), None))
-}
-
-fn forbidden(message: &'static str) -> Box<BoxResponse> {
-    boxed(text_response(StatusCode::FORBIDDEN, message))
 }
 
 fn bad_request_text(message: &'static str) -> Box<BoxResponse> {
@@ -224,7 +232,7 @@ impl SseEvent {
             ..Self::default()
         }
     }
-    fn priming(event_id: &str, retry: Duration) -> Self {
+    pub(crate) fn priming(event_id: &str, retry: Duration) -> Self {
         Self {
             event_id: Some(event_id.to_string()),
             message: None,
@@ -237,7 +245,7 @@ impl SseEvent {
             ..Self::default()
         }
     }
-    fn to_bytes(&self) -> Bytes {
+    pub(crate) fn to_bytes(&self) -> Bytes {
         let data = self
             .message
             .as_ref()
@@ -354,23 +362,35 @@ fn per_request_version(message: &ClientJsonRpcMessage) -> Option<ProtocolVersion
     }
 }
 
+fn legacy_session_id(headers: &HeaderMap) -> HttpResult<SessionId> {
+    if !is_legacy_request(None, headers)? {
+        // No event store: a stateless stream cannot be resumed.
+        return Err(boxed(method_not_allowed("POST")));
+    }
+    header_text(headers, HEADER_SESSION_ID)
+        .map(SessionId::from)
+        .ok_or_else(|| boxed(session_id_required()))
+}
+
+fn unsupported_media(msg: impl Into<Bytes>) -> BoxResponse {
+    text_response(StatusCode::UNSUPPORTED_MEDIA_TYPE, msg)
+}
+
 fn validate_protocol_version_header(headers: &HeaderMap, allow_unknown: bool) -> HttpResult<()> {
     let Some(value) = headers.get(HEADER_MCP_PROTOCOL_VERSION) else {
         return Ok(());
     };
     let Ok(version) = value.to_str() else {
-        return Err(boxed(text_response(
-            StatusCode::BAD_REQUEST,
+        return Err(bad_req(
             "Bad Request: Invalid MCP-Protocol-Version header encoding",
-        )));
+        ));
     };
     let known = ProtocolVersion::KNOWN_VERSIONS
         .iter()
         .any(|v| v.as_str() == version);
     if !allow_unknown && !known {
-        return Err(boxed(text_response(
-            StatusCode::BAD_REQUEST,
-            format!("Bad Request: Unsupported MCP-Protocol-Version: {version}"),
+        return Err(bad_req(format!(
+            "Bad Request: Unsupported MCP-Protocol-Version: {version}"
         )));
     }
     Ok(())
@@ -419,11 +439,14 @@ fn validate_request_protocol_version_meta(
             let missing = request
                 .meta
                 .missing_required_keys(&ProtocolVersion::V_2026_07_28);
-            return Err(invalid_params(
+            return Err(jsonrpc_error(
                 Some(request.id.clone()),
-                format!(
-                    "Invalid params: request _meta is missing or has malformed required fields: {}",
-                    missing.join(", ")
+                ErrorData::invalid_params(
+                    format!(
+                        "Invalid params: request _meta is missing or has malformed required fields: {}",
+                        missing.join(", ")
+                    ),
+                    None,
                 ),
             ));
         }
@@ -482,7 +505,7 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-fn decode_header_value(value: &str) -> Option<String> {
+pub(crate) fn decode_header_value(value: &str) -> Option<String> {
     match value
         .strip_prefix(BASE64_PREFIX)
         .and_then(|inner| inner.strip_suffix(BASE64_SUFFIX))
@@ -529,6 +552,17 @@ fn param_header_annotations(schema: &JsonObject) -> Vec<(Vec<String>, String)> {
     out
 }
 
+fn check_decoded_header(raw: &str, expected: &str, label: &str) -> Result<(), String> {
+    let decoded =
+        decode_header_value(raw).ok_or_else(|| format!("{label} header is not valid Base64"))?;
+    if decoded != expected {
+        return Err(format!(
+            "{label} header `{decoded}` does not match body value `{expected}`"
+        ));
+    }
+    Ok(())
+}
+
 /// The 2026-07-28 standard headers must restate the body: `Mcp-Method`,
 /// `Mcp-Name` for named methods, and each `x-mcp-header` tool argument.
 fn validate_request_headers(
@@ -552,22 +586,11 @@ fn validate_request_headers(
         "tasks/get" | "tasks/update" | "tasks/cancel" => Some("taskId"),
         _ => None,
     };
-    let expected = name_key
-        .and_then(|key| params?.get(key)?.as_str())
-        .map(str::to_string);
-    if let Some(expected) = expected {
-        match header_once(headers, HEADER_MCP_NAME)? {
-            None => return Err(format!("missing required Mcp-Name header for `{method}`")),
-            Some(raw) => {
-                let decoded = decode_header_value(raw)
-                    .ok_or_else(|| "Mcp-Name header is not valid Base64".to_string())?;
-                if decoded != expected {
-                    return Err(format!(
-                        "Mcp-Name header `{decoded}` does not match body value `{expected}`"
-                    ));
-                }
-            }
-        }
+    if let Some(expected) = name_key.and_then(|key| params?.get(key)?.as_str()) {
+        let Some(raw) = header_once(headers, HEADER_MCP_NAME)? else {
+            return Err(format!("missing required Mcp-Name header for `{method}`"));
+        };
+        check_decoded_header(raw, expected, "Mcp-Name")?;
     }
     if method == "tools/call" {
         if let Some(schema) = tool_schema {
@@ -588,15 +611,7 @@ fn validate_request_headers(
                         ))
                     }
                     (None, Some(_)) => return Err(format!("missing {full} header for `{prop}`")),
-                    (Some(raw), Some(expected)) => {
-                        let decoded = decode_header_value(raw)
-                            .ok_or_else(|| format!("{full} header is not valid Base64"))?;
-                        if decoded != expected {
-                            return Err(format!(
-                                "{full} header `{decoded}` does not match body value `{expected}`"
-                            ));
-                        }
-                    }
+                    (Some(raw), Some(expected)) => check_decoded_header(raw, &expected, &full)?,
                 }
             }
         }
@@ -666,7 +681,7 @@ fn parse_authority(text: &str) -> Option<(String, Option<u16>)> {
     Some((normalize_host(authority.host()), authority.port_u16()))
 }
 
-fn host_allowed(host: &(String, Option<u16>), allowed: &[String]) -> bool {
+pub(crate) fn host_allowed(host: &(String, Option<u16>), allowed: &[String]) -> bool {
     if allowed.is_empty() {
         return true;
     }
@@ -681,12 +696,12 @@ fn host_allowed(host: &(String, Option<u16>), allowed: &[String]) -> bool {
 }
 
 #[derive(Debug, PartialEq)]
-enum Origin {
+pub(crate) enum Origin {
     Null,
     Tuple(String, String, Option<u16>),
 }
 
-fn parse_origin(value: &str) -> Option<Origin> {
+pub(crate) fn parse_origin(value: &str) -> Option<Origin> {
     let value = value.trim();
     if value.is_empty() {
         return None;
@@ -704,7 +719,7 @@ fn parse_origin(value: &str) -> Option<Origin> {
     ))
 }
 
-fn origin_allowed(origin: &Origin, allowed: &[String]) -> bool {
+pub(crate) fn origin_allowed(origin: &Origin, allowed: &[String]) -> bool {
     allowed.iter().any(|raw| {
         let raw = raw.trim();
         let (base, any_port) = match raw.strip_suffix(":*") {
@@ -771,6 +786,11 @@ fn validate_dns_rebinding(
     Ok(())
 }
 
+fn header_protocol_version(headers: &HeaderMap) -> Option<ProtocolVersion> {
+    header_text(headers, HEADER_MCP_PROTOCOL_VERSION)
+        .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok())
+}
+
 /// Legacy (session) or 2026-07-28 (stateless) for this message and headers.
 fn is_legacy_request(
     message: Option<&ClientJsonRpcMessage>,
@@ -799,10 +819,7 @@ fn is_legacy_request(
         if r.meta.missing_required_keys(&ProtocolVersion::V_2026_07_28).is_empty());
     let version = message
         .and_then(per_request_version)
-        .or_else(|| {
-            header_text(headers, HEADER_MCP_PROTOCOL_VERSION)
-                .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok())
-        })
+        .or_else(|| header_protocol_version(headers))
         .unwrap_or(ProtocolVersion::V_2025_03_26);
     Ok(!discover_lifecycle && version.has_initialize())
 }
@@ -868,7 +885,7 @@ pub type SessionId = Arc<str>;
 type HttpRequestId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct EventId {
+pub(crate) struct EventId {
     http_request_id: Option<HttpRequestId>,
     index: usize,
 }
@@ -1136,6 +1153,8 @@ impl SessionWorker {
                 .progress_token()
                 .map(ResourceKey::Progress)
                 .or_else(|| n.cancelled_request_id().map(ResourceKey::Request))
+                .or_else(|| n.subscription_id().map(ResourceKey::Request))
+                .or_else(|| n.target_request.clone().map(ResourceKey::Request))
                 .and_then(|key| self.resources.get(&key).copied())
                 .map(|id| (id, false)),
             answer @ (ServerJsonRpcMessage::Response { .. }
@@ -1253,14 +1272,19 @@ struct SessionHandle {
 }
 
 impl SessionHandle {
+    fn terminated() -> std::io::Error {
+        std::io::Error::other("Session error: Session service terminated")
+    }
     async fn call<T>(
         &self,
         make: impl FnOnce(oneshot::Sender<T>) -> SessionEvent,
     ) -> std::io::Result<T> {
-        let terminated = || std::io::Error::other("Session error: Session service terminated");
         let (tx, rx) = oneshot::channel();
-        self.events.send(make(tx)).await.map_err(|_| terminated())?;
-        rx.await.map_err(|_| terminated())
+        self.events
+            .send(make(tx))
+            .await
+            .map_err(|_| Self::terminated())?;
+        rx.await.map_err(|_| Self::terminated())
     }
     async fn push(
         &self,
@@ -1273,7 +1297,7 @@ impl SessionHandle {
                 http_request_id,
             })
             .await
-            .map_err(|_| std::io::Error::other("Session error: Session service terminated"))
+            .map_err(|_| Self::terminated())
     }
 }
 
@@ -1392,67 +1416,56 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         result.unwrap_or_else(|response| *response)
     }
 
+    fn priming_queue(&self) -> VecDeque<SseEvent> {
+        let mut queued = VecDeque::new();
+        if let Some(retry) = self.config.sse_retry {
+            queued.push_back(SseEvent::priming("0", retry));
+        }
+        queued
+    }
+
     async fn handle_get<B>(&self, request: Request<B>) -> HttpResult<BoxResponse> {
-        if !header_text(request.headers(), "accept")
-            .is_some_and(|a| a.contains(EVENT_STREAM_MIME_TYPE))
-        {
+        let headers = request.headers();
+        if !header_text(headers, "accept").is_some_and(|a| a.contains(EVENT_STREAM_MIME_TYPE)) {
             return Ok(text_response(
                 StatusCode::NOT_ACCEPTABLE,
                 "Not Acceptable: Client must accept text/event-stream",
             ));
         }
-        if !is_legacy_request(None, request.headers())? {
-            // No event store: a stateless stream cannot be resumed.
-            return Ok(method_not_allowed("POST"));
-        }
-        let Some(session_id) =
-            header_text(request.headers(), HEADER_SESSION_ID).map(SessionId::from)
-        else {
-            return Ok(session_id_required());
-        };
+        let session_id = legacy_session_id(headers)?;
         let Some(session) = self.session_manager.handle(&session_id).await else {
             return Ok(session_not_found());
         };
-        validate_protocol_version_header(request.headers(), false)?;
         let keep_alive = self.config.sse_keep_alive;
-        if let Some(last) = header_text(request.headers(), HEADER_LAST_EVENT_ID) {
+        if let Some(last) = header_text(headers, HEADER_LAST_EVENT_ID) {
             let resumed = match last.parse::<EventId>() {
-                Ok(last_event_id) => session
-                    .call(|responder| SessionEvent::Resume {
-                        last_event_id,
-                        responder,
+                Ok(id) => session
+                    .call(|r| SessionEvent::Resume {
+                        last_event_id: id,
+                        responder: r,
                     })
                     .await
                     .ok()
                     .and_then(Result::ok),
                 Err(()) => None,
             };
-            return Ok(match resumed {
-                Some(rx) => sse_response(VecDeque::new(), Some(rx), keep_alive, None),
-                None => sse_response(VecDeque::new(), None, None, None),
-            });
+            let ka = resumed.is_some().then_some(keep_alive).flatten();
+            return Ok(sse_response(VecDeque::new(), resumed, ka, None));
         }
         let rx = session
             .call(|responder| SessionEvent::OpenCommonStream { responder })
             .await
             .map_err(|e| boxed(internal_error("create standalone stream", e)))?;
-        let mut queued = VecDeque::new();
-        if let Some(retry) = self.config.sse_retry {
-            queued.push_back(SseEvent::priming("0", retry));
-        }
-        Ok(sse_response(queued, Some(rx), keep_alive, None))
+        Ok(sse_response(
+            self.priming_queue(),
+            Some(rx),
+            keep_alive,
+            None,
+        ))
     }
 
     async fn handle_delete<B>(&self, request: Request<B>) -> HttpResult<BoxResponse> {
-        if !is_legacy_request(None, request.headers())? {
-            return Ok(method_not_allowed("POST"));
-        }
-        let Some(session_id) =
-            header_text(request.headers(), HEADER_SESSION_ID).map(SessionId::from)
-        else {
-            return Ok(session_id_required());
-        };
-        validate_protocol_version_header(request.headers(), false)?;
+        let session_id = legacy_session_id(request.headers())?;
         self.session_manager.close_session(&session_id).await;
         Ok(accepted_response())
     }
@@ -1467,20 +1480,20 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let mut body = std::pin::pin!(body);
         while let Some(frame) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
             let frame = frame.map_err(|e| {
-                boxed(text_response(
+                err_text(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Failed to read request body: {e}"),
-                ))
+                )
             })?;
             let Ok(mut data) = frame.into_data() else {
                 continue;
             };
             use hyper::body::Buf;
             if data.remaining() > max.saturating_sub(collected.len()) {
-                return Err(boxed(text_response(
+                return Err(err_text(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     format!("Payload Too Large: request body exceeds {max} bytes"),
-                )));
+                ));
             }
             while data.has_remaining() {
                 let chunk = data.chunk();
@@ -1507,8 +1520,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             ));
         }
         if !header_text(headers, "content-type").is_some_and(|c| c.starts_with(JSON_MIME_TYPE)) {
-            return Ok(text_response(
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            return Ok(unsupported_media(
                 "Unsupported Media Type: Content-Type must be application/json",
             ));
         }
@@ -1517,15 +1529,13 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let raw: serde_json::Value = match serde_json::from_slice(&bytes) {
             Ok(raw) => raw,
             Err(e) => {
-                return Ok(text_response(
-                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                    format!("fail to deserialize request body {e}"),
-                ))
+                return Ok(unsupported_media(format!(
+                    "fail to deserialize request body {e}"
+                )))
             }
         };
         let Some(message) = ClientJsonRpcMessage::from_value(raw.clone()) else {
-            return Ok(text_response(
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            return Ok(unsupported_media(
                 "fail to deserialize request body unrecognized JSON-RPC message",
             ));
         };
@@ -1533,30 +1543,10 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         if is_legacy_request(Some(&message), headers)? {
             return self.handle_session_post(message, raw, headers).await;
         }
-        let per_request = per_request_version(&message).is_some();
-        match &message {
-            ClientJsonRpcMessage::Request(request) => {
-                if let ClientRequest::Initialize(init) = &request.request {
-                    validate_header_matches_init_body(
-                        headers,
-                        init.protocol_version.as_str(),
-                        &request.id,
-                    )?;
-                } else {
-                    validate_protocol_version_header(headers, per_request)?;
-                }
-            }
-            ClientJsonRpcMessage::Notification(_)
-            | ClientJsonRpcMessage::Response { .. }
-            | ClientJsonRpcMessage::Error { .. } => {
-                validate_protocol_version_header(headers, per_request)?
-            }
-        }
         let service = self.service()?;
         validate_standard_headers(headers, &message, &raw, |name| {
             service.get_tool(name).map(|tool| tool.input_schema)
         })?;
-        validate_request_protocol_version_meta(headers, &message)?;
         match message {
             ClientJsonRpcMessage::Request(request) => {
                 Ok(self.serve_stateless(service, request, headers).await)
@@ -1584,8 +1574,6 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             let Some(session) = self.session_manager.handle(&session_id).await else {
                 return Ok(session_not_found());
             };
-            validate_protocol_version_header(headers, per_request_version(&message).is_some())?;
-            validate_request_protocol_version_meta(headers, &message)?;
             validate_standard_headers(headers, &message, &raw, tool_schema)?;
             return match message {
                 ClientJsonRpcMessage::Request(_) => {
@@ -1615,26 +1603,19 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
                 }
             };
         }
-        if let ClientJsonRpcMessage::Request(request) = &message {
-            if matches!(request.request, ClientRequest::Discover) {
-                validate_protocol_version_header(headers, per_request_version(&message).is_some())?;
-                validate_standard_headers(headers, &message, &raw, tool_schema)?;
-                validate_request_protocol_version_meta(headers, &message)?;
-                let ClientJsonRpcMessage::Request(request) = message else {
-                    return Ok(session_id_required());
-                };
-                let service = self.service()?;
-                return Ok(self.serve_stateless(service, request, headers).await);
-            }
-        }
         validate_standard_headers(headers, &message, &raw, tool_schema)?;
-        let ClientJsonRpcMessage::Request(request) = &message else {
+        let ClientJsonRpcMessage::Request(request) = message else {
             return Ok(session_id_required());
         };
-        let ClientRequest::Initialize(init) = &request.request else {
+        if matches!(request.request, ClientRequest::Discover) {
+            return Ok(self
+                .serve_stateless(self.service()?, request, headers)
+                .await);
+        }
+        if !matches!(request.request, ClientRequest::Initialize(_)) {
             return Ok(session_id_required());
-        };
-        validate_header_matches_init_body(headers, init.protocol_version.as_str(), &request.id)?;
+        }
+        let message = ClientJsonRpcMessage::Request(request);
         let service = self.service()?;
         let (session_id, handle, transport, parts) = self.session_manager.create_session();
         self.session_manager
@@ -1642,13 +1623,11 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             .write()
             .await
             .insert(session_id.clone(), handle.clone());
-        let SessionWorkerParts {
-            worker,
-            events,
-            to_service,
-            from_service,
-        } = parts;
-        tokio::spawn(worker.run(events, to_service, from_service));
+        tokio::spawn(
+            parts
+                .worker
+                .run(parts.events, parts.to_service, parts.from_service),
+        );
         let manager = self.session_manager.clone();
         let closing = session_id.clone();
         tokio::spawn(async move {
@@ -1660,15 +1639,12 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let answer = handle
             .call(|responder| SessionEvent::Initialize { message, responder })
             .await
-            .map_err(|e| boxed(internal_error("create stream", e)))?;
-        let mut queued = VecDeque::new();
-        if let Some(retry) = self.config.sse_retry {
-            queued.push_back(SseEvent::priming("0", retry));
-        }
+            .map_err(|e| internal_box("create stream", e))?;
+        let mut queued = self.priming_queue();
         queued.push_back(SseEvent::message(answer));
         let mut response = sse_response(queued, None, self.config.sse_keep_alive, None);
         let value = HeaderValue::from_str(&session_id)
-            .map_err(|e| boxed(internal_error("create session id header", e)))?;
+            .map_err(|e| internal_box("create session id header", e))?;
         response.headers_mut().insert(HEADER_SESSION_ID, value);
         Ok(response)
     }
@@ -1684,9 +1660,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             .meta
             .missing_required_keys(&ProtocolVersion::V_2026_07_28)
             .is_empty();
-        let version = header_text(headers, HEADER_MCP_PROTOCOL_VERSION)
-            .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok())
-            .unwrap_or(ProtocolVersion::V_2025_03_26);
+        let version = header_protocol_version(headers).unwrap_or(ProtocolVersion::V_2025_03_26);
         let peer_info = InitializeRequestParams {
             protocol_version: version,
             ..InitializeRequestParams::default()
@@ -1734,58 +1708,5 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             self.config.sse_keep_alive,
             Some(disconnect.drop_guard()),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_header_values_decode() {
-        assert_eq!(decode_header_value("plain").as_deref(), Some("plain"));
-        assert_eq!(
-            decode_header_value("=?base64?Y2Fmw6k=?=").as_deref(),
-            Some("café")
-        );
-        assert_eq!(decode_header_value("=?base64?***?="), None);
-    }
-
-    #[test]
-    fn event_ids_round_trip() {
-        for text in ["0", "3/7"] {
-            assert_eq!(text.parse::<EventId>().unwrap().to_string(), text);
-        }
-        assert!("x/1".parse::<EventId>().is_err());
-    }
-
-    #[test]
-    fn hosts_and_origins_follow_the_allowlists() {
-        let allowed = vec!["localhost".to_string(), "127.0.0.1:9090".to_string()];
-        assert!(host_allowed(&("localhost".into(), Some(1)), &allowed));
-        assert!(host_allowed(&("127.0.0.1".into(), Some(9090)), &allowed));
-        assert!(!host_allowed(&("127.0.0.1".into(), Some(1)), &allowed));
-        let origins = vec![
-            "https://app.example".to_string(),
-            "http://[::1]:*".to_string(),
-        ];
-        assert!(origin_allowed(
-            &parse_origin("https://app.example:8443").unwrap(),
-            &origins
-        ));
-        assert!(origin_allowed(
-            &parse_origin("http://[::1]:3000").unwrap(),
-            &origins
-        ));
-        assert!(!origin_allowed(
-            &parse_origin("https://evil.example").unwrap(),
-            &origins
-        ));
-    }
-
-    #[test]
-    fn sse_events_serialize_like_the_wire() {
-        let priming = SseEvent::priming("0", Duration::from_secs(3));
-        assert_eq!(&priming.to_bytes()[..], b"data: \nid: 0\nretry: 3000\n\n");
     }
 }

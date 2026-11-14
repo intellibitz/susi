@@ -535,6 +535,206 @@ async fn wire_client_matches_peer_client_and_releases_session() {
     assert_eq!(deletes, 2, "both sessions must be released: {seen:?}");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn http_sse_routes_subscription_ack_updates_and_request_logs() {
+    use hyper::body::Bytes;
+    use susi_http_transport::http_body::{BodyExt, Full};
+
+    let svc = service();
+    let log_tool: Tool = serde_json::from_value(json!({
+        "name": "http_log_echo",
+        "inputSchema": {"type": "object"}
+    }))
+    .unwrap();
+    svc.register_tool(
+        log_tool,
+        Arc::new(|_, context| {
+            Box::pin(async move {
+                let threshold = context.meta.log_level();
+                let _ = context
+                    .emit_logging_message(
+                        threshold,
+                        LoggingLevel::Info,
+                        Some("http-test".to_string()),
+                        json!({"secret": "super-secret-value", "msg": "hi"}),
+                    )
+                    .await;
+                Ok(CallToolResult::success(vec![ContentBlock::text("ok")]).into())
+            })
+        }),
+    )
+    .unwrap();
+    let http = crate::server::http_service(svc.clone());
+
+    // 1. Modern stateless POST `subscriptions/listen` streams ack + tagged updates over SSE.
+    let sub_req = hyper::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("Mcp-Method", "subscriptions/listen")
+        .body(Full::new(Bytes::from(
+            modern(
+                91,
+                "subscriptions/listen",
+                json!({"notifications": {"resourceSubscriptions": ["http-sub://doc"]}}),
+            )
+            .to_string(),
+        )))
+        .unwrap();
+    let sub_resp = http.handle(sub_req).await;
+    assert_eq!(sub_resp.status(), hyper::StatusCode::OK);
+    let content_type = sub_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("text/event-stream"),
+        "expected SSE stream on subscriptions/listen: {content_type}"
+    );
+    let mut sub_body = sub_resp.into_body();
+    let mut seen_ack = false;
+    let mut seen_update = false;
+    let mut buf = String::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline && !(seen_ack && seen_update) {
+        let frame = tokio::time::timeout(Duration::from_secs(2), sub_body.frame())
+            .await
+            .expect("SSE frame timeout")
+            .expect("SSE stream active")
+            .expect("SSE frame ok");
+        if let Some(data) = frame.data_ref() {
+            buf.push_str(&String::from_utf8_lossy(data));
+            for line in buf.lines() {
+                if let Some(payload) = line.strip_prefix("data: ") {
+                    if let Ok(val) = serde_json::from_str::<Value>(payload) {
+                        if val["method"] == "notifications/subscriptions/acknowledged"
+                            && val["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"]
+                                == 91
+                            && !seen_ack
+                        {
+                            seen_ack = true;
+                            svc.resource_updated("http-sub://doc".to_string());
+                        }
+                        if val["method"] == "notifications/resources/updated"
+                            && val["params"]["uri"] == "http-sub://doc"
+                            && val["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"]
+                                == 91
+                        {
+                            seen_update = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(seen_ack, "SSE stream must receive ack: {buf}");
+    assert!(
+        seen_update,
+        "SSE stream must receive tagged resource update: {buf}"
+    );
+    drop(sub_body);
+
+    // 2. Sessionful HTTP (`SessionWorker::route`) routes request-scoped logs (`target_request`)
+    // onto the originating request's POST SSE stream with redaction.
+    let init_req = hyper::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .body(Full::new(Bytes::from(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "sse-test", "version": "1"}
+                }
+            })
+            .to_string(),
+        )))
+        .unwrap();
+    let init_resp = http.handle(init_req).await;
+    assert_eq!(init_resp.status(), hyper::StatusCode::OK);
+    let session_id = init_resp
+        .headers()
+        .get("Mcp-Session-Id")
+        .and_then(|v| v.to_str().ok())
+        .expect("Mcp-Session-Id header")
+        .to_string();
+
+    let inited_req = hyper::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .header("MCP-Protocol-Version", "2025-11-25")
+        .body(Full::new(Bytes::from(
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string(),
+        )))
+        .unwrap();
+    let inited_resp = http.handle(inited_req).await;
+    assert!(inited_resp.status().is_success());
+
+    let set_lvl = hyper::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .header("MCP-Protocol-Version", "2025-11-25")
+        .body(Full::new(Bytes::from(
+            json!({"jsonrpc": "2.0", "id": 2, "method": "logging/setLevel", "params": {"level": "info"}}).to_string(),
+        )))
+        .unwrap();
+    let set_resp = http.handle(set_lvl).await;
+    assert_eq!(set_resp.status(), hyper::StatusCode::OK);
+
+    let session_call = hyper::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .header("MCP-Protocol-Version", "2025-11-25")
+        .body(Full::new(Bytes::from(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "http_log_echo",
+                    "arguments": {},
+                    "_meta": {"io.modelcontextprotocol/logLevel": "info", "progressToken": "http-sess-tok"}
+                }
+            })
+            .to_string(),
+        )))
+        .unwrap();
+    let session_resp = http.handle(session_call).await;
+    assert_eq!(session_resp.status(), hyper::StatusCode::OK);
+    let session_bytes = session_resp.into_body().collect().await.unwrap().to_bytes();
+    let session_sse = String::from_utf8_lossy(&session_bytes);
+    assert!(
+        session_sse.contains("\"notifications/message\""),
+        "sessionful POST SSE must include routed notifications/message: {session_sse}"
+    );
+    assert!(
+        !session_sse.contains("super-secret-value") && session_sse.contains("[REDACTED]"),
+        "HTTP SSE notifications/message must redact sensitive fields: {session_sse}"
+    );
+}
+
 /// Wire-level test for D-SP-4 Stage 2d: sending `notifications/cancelled`
 /// while `mission_run` is in a phase propagates cooperative cancellation
 /// across the plane bus, stops `mission_run` at the next phase boundary, and
@@ -718,4 +918,352 @@ async fn mission_run_cancellation_stops_at_phase_boundary_and_records_cancelled_
             .load(std::sync::atomic::Ordering::Acquire),
         "synchronous registry tools other than mission_run must not receive a cancel flag"
     );
+}
+
+mod protocol_unit_tests {
+    use super::*;
+    use crate::mcp::ServerHandler;
+    use crate::protocol::{compile_schema, is_tool_result_error, page, ToolHandler};
+
+    #[test]
+    fn tool_failures_remain_errors() {
+        for prefix in [
+            "Error:",
+            "[FAIL]",
+            "[CAPABILITY_GAP]",
+            "Protocol Error:",
+            "Reflex Error:",
+            "Governance Violation:",
+            "[RECOVERY]",
+            "[Error]",
+            "Sandbox Error:",
+            "I/O Error:",
+        ] {
+            assert!(is_tool_result_error(&format!("  {prefix} detail")));
+        }
+        assert!(!is_tool_result_error("ok content"));
+        assert!(!is_tool_result_error(
+            "{\n  \"models\": [{\"detail\": \"Internal Engine Error: set KEY\"}]\n}"
+        ));
+        assert!(is_tool_result_error("[Error] {not json"));
+        assert!(!is_tool_result_error(
+            "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
+        ));
+    }
+    #[test]
+    fn pagination_rejects_stale_and_invalid_cursors() {
+        let items: Vec<_> = (0..101).collect();
+        let (first, next) = page(items.clone(), None).unwrap();
+        assert_eq!(first.len(), 100);
+        let request = serde_json::from_value(json!({"cursor":next})).unwrap();
+        assert_eq!(page(items, Some(request)).unwrap().0, vec![100]);
+        let request = serde_json::from_value(json!({"cursor":next})).unwrap();
+        assert!(page(vec![1, 2], Some(request)).is_err());
+        let request = serde_json::from_value(json!({"cursor":"bad"})).unwrap();
+        assert!(page(vec![1], Some(request)).is_err());
+    }
+
+    #[test]
+    fn every_registered_mcp_tool_has_valid_typed_or_explicit_input_schema() {
+        let service = GmcpService::new(std::env::temp_dir());
+        let noop_handler: ToolHandler =
+            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+        let core_defs = crate::tools::args::core_tool_definitions();
+        assert!(
+            !core_defs.is_empty(),
+            "CoreTools definitions must not be empty"
+        );
+        for def in &core_defs {
+            service
+                .register_tool(def.clone(), noop_handler.clone())
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "core tool `{}` failed GmcpService::register_tool: {}",
+                        def.name, e.message
+                    )
+                });
+        }
+
+        let tools = service.tools().expect("tools catalog must load");
+        assert!(
+            tools.len() >= core_defs.len(),
+            "MCP tools catalog must include all registered core tools"
+        );
+
+        let mut core_checked = 0usize;
+        for tool in &tools {
+            let schema_val = Value::Object((*tool.input_schema).clone());
+            compile_schema(&schema_val).unwrap_or_else(|e| {
+                panic!(
+                    "tool `{}` input_schema failed compile_schema: {}",
+                    tool.name, e.message
+                )
+            });
+            assert_eq!(
+                tool.input_schema.get("type").and_then(Value::as_str),
+                Some("object"),
+                "tool `{}` input_schema must declare root type \"object\"",
+                tool.name
+            );
+
+            if crate::tools::args::core_input_schema(&tool.name).is_some() {
+                core_checked += 1;
+                assert!(
+                    !tool
+                        .input_schema
+                        .contains_key(crate::tools::args::PASSTHROUGH_KEY),
+                    "core tool `{}` must not use passthrough input schema",
+                    tool.name
+                );
+                let props = tool
+                    .input_schema
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "core tool `{}` must declare an object `properties` map",
+                            tool.name
+                        )
+                    });
+                let explicit_no_args = props.is_empty()
+                    && tool
+                        .input_schema
+                        .get("additionalProperties")
+                        .and_then(Value::as_bool)
+                        == Some(false);
+                assert!(
+                    !props.is_empty() || explicit_no_args,
+                    "core tool `{}` must have non-empty `properties` or explicit no-args (`additionalProperties: false`)",
+                    tool.name
+                );
+            }
+        }
+        assert_eq!(
+            core_checked,
+            core_defs.len(),
+            "every built-in CoreTools handler must be verified"
+        );
+    }
+
+    #[test]
+    fn compile_schema_enforces_depth_and_node_complexity_limits() {
+        let valid_schema = json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "minLength": 1 }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        });
+        let validator = compile_schema(&valid_schema).expect("valid object schema must compile");
+        assert!(validator.is_valid(&json!({ "query": "status" })));
+        assert!(!validator.is_valid(&json!({ "query": "" })));
+        assert!(!validator.is_valid(&json!({})));
+
+        // Build a schema nested beyond the 64-level depth ceiling.
+        let mut deep = json!({ "type": "string" });
+        for _ in 0..70 {
+            deep = json!({
+                "type": "object",
+                "properties": { "nested": deep }
+            });
+        }
+        let deep_err = match compile_schema(&deep) {
+            Ok(_) => panic!("schema exceeding depth limit must be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(deep_err.code, ErrorCode::INVALID_PARAMS);
+        assert!(
+            deep_err.message.contains("Schema exceeds complexity limit"),
+            "unexpected error message: {}",
+            deep_err.message
+        );
+
+        let invalid_type = json!({
+            "type": "not-a-valid-json-schema-type"
+        });
+        let type_err = match compile_schema(&invalid_type) {
+            Ok(_) => panic!("malformed schema type must be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(type_err.code, ErrorCode::INVALID_PARAMS);
+        assert!(
+            type_err.message.contains("Invalid tool schema"),
+            "unexpected error message: {}",
+            type_err.message
+        );
+    }
+
+    #[test]
+    fn register_tool_replaces_catalog_entry_and_validates_arguments() {
+        let service = GmcpService::new(std::env::temp_dir());
+        let schema_obj: JsonObject = serde_json::from_value(json!({
+            "type": "object",
+            "properties": {
+                "count": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["count"],
+            "additionalProperties": false
+        }))
+        .expect("schema object");
+        let tool = Tool::new_with_raw(
+            "custom_counter",
+            Some("Count items with strict schema validation".into()),
+            Arc::new(schema_obj),
+        );
+        let handler: ToolHandler = Arc::new(|_req, _ctx| {
+            Box::pin(async {
+                Ok(CallToolResult::success(vec![ContentBlock::text("counted")]).into())
+            })
+        });
+        service
+            .register_tool(tool, handler)
+            .expect("custom tool with valid schema must register");
+
+        let fetched = service
+            .get_tool("custom_counter")
+            .expect("registered tool must appear in get_tool");
+        assert_eq!(
+            fetched.description.as_deref(),
+            Some("Count items with strict schema validation")
+        );
+
+        let registered = service
+            .catalog
+            .read()
+            .tools
+            .get("custom_counter")
+            .cloned()
+            .expect("catalog entry must exist");
+        assert!(registered.input.is_valid(&json!({ "count": 3 })));
+        assert!(!registered.input.is_valid(&json!({ "count": 0 })));
+        assert!(!registered.input.is_valid(&json!({ "count": "three" })));
+        assert!(!registered.input.is_valid(&json!({})));
+
+        let bad_schema: JsonObject = serde_json::from_value(json!({
+            "type": "invalid_type_name"
+        }))
+        .expect("bad schema object");
+        let bad_tool = Tool::new_with_raw("bad_tool", None, Arc::new(bad_schema));
+        let bad_handler: ToolHandler =
+            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+        assert!(
+            service.register_tool(bad_tool, bad_handler).is_err(),
+            "register_tool must reject invalid inputSchema"
+        );
+    }
+}
+
+mod task_manager_unit_tests {
+    use crate::mcp::model::{ErrorCode, TaskStatus};
+    use crate::mcp::task_manager::*;
+
+    #[test]
+    fn timestamps_are_rfc3339_utc() {
+        let ts = current_timestamp();
+        assert_eq!(&ts[4..5], "-");
+        assert_eq!(&ts[10..11], "T");
+        assert!(ts.ends_with("+00:00"), "{ts}");
+    }
+
+    #[test]
+    fn uuids_are_version_4() {
+        let id = uuid_v4();
+        assert_eq!(id.len(), 36);
+        assert_eq!(&id[14..15], "4");
+        assert_ne!(id, uuid_v4());
+    }
+
+    #[tokio::test]
+    async fn unknown_task_is_invalid_params() {
+        let manager = TaskManager::new();
+        for err in [
+            manager.get_task("nope").unwrap_err(),
+            manager.cancel_task("nope").unwrap_err(),
+            manager.update_task("nope", []).unwrap_err(),
+        ] {
+            assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_settles_to_cancelled_when_the_operation_honors_it() {
+        let manager = TaskManager::new();
+        let task = manager.spawn(TaskOptions::default(), |ctx| {
+            Box::pin(async move {
+                ctx.cancelled().await;
+                Err(TaskExit::Cancelled)
+            })
+        });
+        manager.cancel_task(&task.task_id).unwrap();
+        for _ in 0..200 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            if manager
+                .get_task(&task.task_id)
+                .unwrap()
+                .status()
+                .is_terminal()
+            {
+                assert_eq!(
+                    manager.get_task(&task.task_id).unwrap().status(),
+                    TaskStatus::Cancelled
+                );
+                return;
+            }
+        }
+        panic!("task did not settle after cancel");
+    }
+}
+
+mod http_unit_tests {
+    use super::*;
+    use crate::mcp::http::*;
+
+    #[test]
+    fn base64_header_values_decode() {
+        assert_eq!(decode_header_value("plain").as_deref(), Some("plain"));
+        assert_eq!(
+            decode_header_value("=?base64?Y2Fmw6k=?=").as_deref(),
+            Some("café")
+        );
+        assert_eq!(decode_header_value("=?base64?***?="), None);
+    }
+
+    #[test]
+    fn event_ids_round_trip() {
+        for text in ["0", "3/7"] {
+            assert_eq!(text.parse::<EventId>().unwrap().to_string(), text);
+        }
+        assert!("x/1".parse::<EventId>().is_err());
+    }
+
+    #[test]
+    fn hosts_and_origins_follow_the_allowlists() {
+        let allowed = vec!["localhost".to_string(), "127.0.0.1:9090".to_string()];
+        assert!(host_allowed(&("localhost".into(), Some(1)), &allowed));
+        assert!(host_allowed(&("127.0.0.1".into(), Some(9090)), &allowed));
+        assert!(!host_allowed(&("127.0.0.1".into(), Some(1)), &allowed));
+        let origins = vec![
+            "https://app.example".to_string(),
+            "http://[::1]:*".to_string(),
+        ];
+        assert!(origin_allowed(
+            &parse_origin("https://app.example:8443").unwrap(),
+            &origins
+        ));
+        assert!(origin_allowed(
+            &parse_origin("http://[::1]:3000").unwrap(),
+            &origins
+        ));
+        assert!(!origin_allowed(
+            &parse_origin("https://evil.example").unwrap(),
+            &origins
+        ));
+    }
+
+    #[test]
+    fn sse_events_serialize_like_the_wire() {
+        let priming = SseEvent::priming("0", Duration::from_secs(3));
+        assert_eq!(&priming.to_bytes()[..], b"data: \nid: 0\nretry: 3000\n\n");
+    }
 }

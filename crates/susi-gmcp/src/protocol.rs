@@ -16,7 +16,10 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use susi_paths::sync::RwLock;
 use tokio::sync::broadcast;
@@ -100,16 +103,16 @@ impl McpGatewayProxy {
 }
 
 #[derive(Clone)]
-struct RegisteredTool {
+pub(crate) struct RegisteredTool {
     definition: Tool,
     handler: ToolHandler,
-    input: Arc<crate::schema_check::Validator>,
+    pub(crate) input: Arc<crate::schema_check::Validator>,
     output: Option<Arc<crate::schema_check::Validator>>,
 }
 
 #[derive(Default)]
-struct Catalog {
-    tools: BTreeMap<String, RegisteredTool>,
+pub(crate) struct Catalog {
+    pub(crate) tools: BTreeMap<String, RegisteredTool>,
     resources: BTreeMap<String, (Resource, ResourceHandler)>,
     templates: BTreeMap<String, (ResourceTemplate, ResourceHandler)>,
     prompts: BTreeMap<String, (Prompt, PromptHandler)>,
@@ -117,10 +120,15 @@ struct Catalog {
     resource_guard: Option<ResourceGuard>,
 }
 
+pub use crate::mcp::service::{
+    MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION, MAX_LOG_NOTIFICATIONS_PER_REQUEST,
+    MAX_NOTIFICATION_PAYLOAD_BYTES, MAX_RESOURCE_SUBSCRIPTIONS_PER_FILTER,
+};
+
 #[derive(Clone)]
 pub struct GmcpService {
     workspace: PathBuf,
-    catalog: Arc<RwLock<Catalog>>,
+    pub(crate) catalog: Arc<RwLock<Catalog>>,
     changes: broadcast::Sender<Change>,
     pub tasks: crate::mcp::task_manager::TaskManager,
     legacy_subscriptions: Arc<RwLock<BTreeSet<String>>>,
@@ -153,18 +161,11 @@ impl GmcpService {
             ..self.clone()
         }
     }
-    /// The canonical server identity — the `serverInfo` value every
-    /// `server/discover` result carries under
-    /// `_meta["io.modelcontextprotocol/serverInfo"]`. Self-reported
-    /// metadata for display and debugging only; never consulted for
-    /// behavior or security decisions.
+    /// Canonical `serverInfo` value advertised in `server/discover`.
     pub fn server_identity() -> Implementation {
         Implementation::new("susi-gmcp", env!("CARGO_PKG_VERSION"))
     }
-    /// The complete, cacheable `server/discover` payload: canonical
-    /// identity, capabilities, the advertised version registry, and the
-    /// contract's pinned cache hints — explicit state owned here rather
-    /// than ambient handler defaults (VC-203-003).
+    /// Cacheable `server/discover` payload pinned by VC-203-003.
     pub fn discover_result(&self) -> DiscoverResult {
         DiscoverResult::from_server_info(ProtocolVersion::KNOWN_VERSIONS.to_vec(), self.get_info())
             .with_ttl_ms(DISCOVER_TTL_MS)
@@ -172,11 +173,7 @@ impl GmcpService {
     }
     pub fn register_tool(&self, tool: Tool, handler: ToolHandler) -> Result<(), ErrorData> {
         let input = compile_schema(&Value::Object((*tool.input_schema).clone()))?;
-        let output = tool
-            .output_schema
-            .as_ref()
-            .map(|s| compile_schema(&Value::Object((**s).clone())))
-            .transpose()?;
+        let output = compile_opt_schema(tool.output_schema.as_ref())?;
         self.catalog.write().tools.insert(
             tool.name.to_string(),
             RegisteredTool {
@@ -194,18 +191,14 @@ impl GmcpService {
         tool: Tool,
         handler: TaskToolHandler,
     ) -> Result<(), ErrorData> {
-        let tasks = self.tasks.clone();
-        let output = tool
-            .output_schema
-            .as_ref()
-            .map(|s| compile_schema(&Value::Object((**s).clone())))
-            .transpose()?;
+        let (tasks, output) = (
+            self.tasks.clone(),
+            compile_opt_schema(tool.output_schema.as_ref())?,
+        );
         self.register_tool(
             tool,
             Arc::new(move |request, context| {
-                let tasks = tasks.clone();
-                let handler = handler.clone();
-                let output = output.clone();
+                let (tasks, handler, output) = (tasks.clone(), handler.clone(), output.clone());
                 Box::pin(async move {
                     if !context
                         .client_capabilities()
@@ -215,19 +208,23 @@ impl GmcpService {
                             ClientCapabilities::builder().enable_tasks().build(),
                         ));
                     }
+                    let progress_lease = context.progress_lease();
                     let task = tasks.spawn(Default::default(), move |context| {
+                        let progress_lease = progress_lease.clone();
                         Box::pin(async move {
-                            let result = handler(request, context).await?;
-                            if let Some(schema) = output {
-                                if result.is_error != Some(true)
-                                    && !result
-                                        .structured_content
-                                        .as_ref()
-                                        .is_some_and(|value| schema.is_valid(value))
-                                {
-                                    return Ok(CallToolResult::error(vec![ContentBlock::text(
-                                        "Task output does not match outputSchema",
-                                    )]));
+                            let watch = watch_task_cancel(&context, &progress_lease, None);
+                            let result = handler(request, context.clone()).await;
+                            if let Some(w) = watch {
+                                w.abort();
+                            }
+                            let result = enforce_output_schema(
+                                output.as_deref(),
+                                result?,
+                                "Task output does not match outputSchema",
+                            );
+                            if result.is_error != Some(true) && !context.is_cancel_requested() {
+                                if let Some(lease) = &progress_lease {
+                                    let _ = lease.notify_edge(1.0, None).await;
                                 }
                             }
                             Ok(result)
@@ -287,7 +284,7 @@ impl GmcpService {
         let guard = self.catalog.read().resource_guard.clone();
         guard.map_or(Ok(()), |guard| guard(uri))
     }
-    fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
+    pub(crate) fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
         let mut tools = BTreeMap::new();
         for tool in ToolRegistry::list_tools() {
             // Built-in handlers carry the typed schema their `#[tool]`
@@ -310,7 +307,36 @@ impl GmcpService {
     }
 }
 
-fn compile_schema(schema: &Value) -> Result<Arc<crate::schema_check::Validator>, ErrorData> {
+fn compile_opt_schema(
+    schema: Option<&Arc<JsonObject>>,
+) -> Result<Option<Arc<crate::schema_check::Validator>>, ErrorData> {
+    schema
+        .map(|s| compile_schema(&Value::Object((**s).clone())))
+        .transpose()
+}
+
+fn watch_task_cancel(
+    task: &crate::mcp::task_manager::TaskContext,
+    lease: &Option<Arc<crate::mcp::service::ProgressLease>>,
+    flag: Option<Arc<AtomicBool>>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    (flag.is_some() || lease.is_some()).then(|| {
+        let (task, lease) = (task.clone(), lease.clone());
+        tokio::spawn(async move {
+            task.cancelled().await;
+            if let Some(flag) = flag {
+                flag.store(true, Ordering::Release);
+            }
+            if let Some(lease) = lease {
+                lease.stop();
+            }
+        })
+    })
+}
+
+pub(crate) fn compile_schema(
+    schema: &Value,
+) -> Result<Arc<crate::schema_check::Validator>, ErrorData> {
     fn bounded(value: &Value, depth: usize, remaining: &mut usize) -> bool {
         if depth > 64 || *remaining == 0 {
             return false;
@@ -342,7 +368,7 @@ fn invalid(message: &str) -> ErrorData {
 
 /// Cursors are bound to the complete catalog snapshot, preventing silent skips
 /// when a dynamic catalog changes between pages. Clients then restart listing.
-fn page<T: serde::Serialize + Clone>(
+pub(crate) fn page<T: serde::Serialize + Clone>(
     items: Vec<T>,
     request: Option<PaginatedRequestParams>,
 ) -> Result<(Vec<T>, Option<String>), ErrorData> {
@@ -375,6 +401,13 @@ fn page<T: serde::Serialize + Clone>(
         items[offset..end].to_vec(),
         (end < items.len()).then(|| format!("{revision}:{end}")),
     ))
+}
+
+fn page_entries<T: serde::Serialize + Clone, H>(
+    map: &BTreeMap<String, (T, H)>,
+    request: Option<PaginatedRequestParams>,
+) -> Result<(Vec<T>, Option<String>), ErrorData> {
+    page(map.values().map(|(v, _)| v.clone()).collect(), request)
 }
 
 impl ServerHandler for GmcpService {
@@ -443,26 +476,28 @@ impl ServerHandler for GmcpService {
         Ok(())
     }
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
-        let mut changes = self.changes.subscribe();
-        let subscriptions = self.legacy_subscriptions.clone();
+        let (service, mut changes) = (self.clone(), self.changes.subscribe());
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
             loop {
                 tokio::select! {
-                    _ = tick.tick() => { if context.peer.is_transport_closed() { break; } },
+                    _ = tick.tick() => if context.peer.is_transport_closed() { break; },
                     change = changes.recv() => {
                         let Ok(change) = change else { break; };
-                        let result = match change {
+                        let res = match change {
                             Change::Tools => context.peer.notify_tool_list_changed().await,
                             Change::Resources => context.peer.notify_resource_list_changed().await,
                             Change::Prompts => context.peer.notify_prompt_list_changed().await,
                             Change::Resource(uri) => {
-                                let subscribed = subscriptions.read().contains(&uri);
-                                if !subscribed { continue; }
+                                if service.admit_resource(&uri).is_err()
+                                    || !service.legacy_subscriptions.read().contains(&uri)
+                                {
+                                    continue;
+                                }
                                 context.peer.notify_resource_updated(ResourceUpdatedNotificationParam::new(uri)).await
                             }
                         };
-                        if result.is_err() { break; }
+                        if res.is_err() { break; }
                     }
                 }
             }
@@ -473,13 +508,8 @@ impl ServerHandler for GmcpService {
         request: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (tools, next_cursor) = page(self.tools()?, request)?;
-        let mut result = ListToolsResult::default()
-            .with_ttl_ms(0)
-            .with_cache_scope(CacheScope::Private);
-        result.tools = tools;
-        result.next_cursor = next_cursor;
-        Ok(result)
+        let (items, next) = page(self.tools()?, request)?;
+        Ok(ListToolsResult::paged(items, next))
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         self.tools().ok()?.into_iter().find(|t| t.name == name)
@@ -513,23 +543,19 @@ impl ServerHandler for GmcpService {
                 )])
                 .into());
             }
+            let log_ctx = context.clone();
+            let tool_name = request.name.to_string();
             let mut response = (tool.handler)(request, context).await?;
-            if let CallToolResponse::Complete(result) = &mut response {
-                result.result_type = Some(ResultType::COMPLETE);
+            if let CallToolResponse::Complete(res) = response {
+                let mut checked = enforce_output_schema(
+                    tool.output.as_deref(),
+                    res,
+                    "Tool output does not match outputSchema",
+                );
+                checked.result_type = Some(ResultType::COMPLETE);
+                response = checked.into();
             }
-            if let (Some(schema), CallToolResponse::Complete(result)) = (&tool.output, &response) {
-                if result.is_error != Some(true)
-                    && !result
-                        .structured_content
-                        .as_ref()
-                        .is_some_and(|value| schema.is_valid(value))
-                {
-                    return Ok(CallToolResult::error(vec![ContentBlock::text(
-                        "Tool output does not match outputSchema",
-                    )])
-                    .into());
-                }
-            }
+            emit_tool_completion_log(self, &log_ctx, &tool_name, &response).await?;
             return Ok(response);
         }
         if !self.tools()?.iter().any(|t| t.name == request.name) {
@@ -538,6 +564,14 @@ impl ServerHandler for GmcpService {
         let workspace = self.workspace.clone();
         let name = request.name.into_owned();
         let args = Value::Object(request.arguments.unwrap_or_default());
+        let progress_lease = match context.progress_lease() {
+            Some(lease) => Some(lease),
+            None => context
+                .meta
+                .parse_progress_token()?
+                .map(|t| context.peer.enter_progress(t).map(Arc::new))
+                .transpose()?,
+        };
         if context
             .client_capabilities()
             .is_some_and(|c| c.supports_tasks())
@@ -545,128 +579,79 @@ impl ServerHandler for GmcpService {
                 .protocol_version()
                 .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
         {
-            let task = self.tasks.spawn(
-                crate::mcp::task_manager::TaskOptions::default(),
-                move |task| {
-                    Box::pin(async move {
-                        if task.is_cancel_requested() {
-                            return Err(crate::mcp::task_manager::TaskExit::Cancelled);
+            use crate::mcp::task_manager::TaskExit;
+            let task_name = name.clone();
+            let task_lease = progress_lease.clone();
+            let task = self.tasks.spawn(Default::default(), move |task| {
+                let progress_lease = task_lease.clone();
+                Box::pin(async move {
+                    if task.is_cancel_requested() {
+                        return Err(TaskExit::Cancelled);
+                    }
+                    let cancel = (task_name == "mission_run")
+                        .then(|| Arc::new(AtomicBool::new(task.is_cancel_requested())));
+                    let cancel_watch = watch_task_cancel(&task, &progress_lease, cancel.clone());
+                    let result = run_watched(
+                        progress_lease.as_deref(),
+                        (task_name, args),
+                        workspace,
+                        cancel,
+                        false,
+                    )
+                    .await;
+                    if let Some(watch) = cancel_watch {
+                        watch.abort();
+                    }
+                    let result = result.map_err(TaskExit::from)?;
+                    if task.is_cancel_requested() {
+                        return Err(TaskExit::Cancelled);
+                    }
+                    if result.is_error != Some(true) {
+                        if let Some(lease) = &progress_lease {
+                            let _ = lease.notify_edge(1.0, None).await;
                         }
-                        // Synchronous registry tools other than `mission_run` cannot be
-                        // interrupted after entry. A late cancellation remains a request,
-                        // never a false claim of rollback.
-                        let (cancel, cancel_watch) = if name == "mission_run" {
-                            let flag = Arc::new(std::sync::atomic::AtomicBool::new(
-                                task.is_cancel_requested(),
-                            ));
-                            let observed = flag.clone();
-                            let watched_task = task.clone();
-                            let watch = tokio::spawn(async move {
-                                watched_task.cancelled().await;
-                                observed.store(true, std::sync::atomic::Ordering::Release);
-                            });
-                            (Some(flag), Some(watch))
-                        } else {
-                            (None, None)
-                        };
-                        let result = execute_registry(name, args, workspace, None, cancel).await;
-                        if let Some(watch) = cancel_watch {
-                            watch.abort();
-                        }
-                        let result = result.map_err(crate::mcp::task_manager::TaskExit::from)?;
-                        if task.is_cancel_requested() {
-                            return Err(crate::mcp::task_manager::TaskExit::Cancelled);
-                        }
-                        Ok(result)
-                    })
-                },
-            );
-            return Ok(CallToolResponse::Task(CreateTaskResult::new(task)));
+                    }
+                    Ok(result)
+                })
+            });
+            let response = CallToolResponse::Task(CreateTaskResult::new(task));
+            emit_tool_completion_log(self, &context, &name, &response).await?;
+            return Ok(response);
         }
-        let token = context.meta.get_progress_token();
-        if let Some(token) = token.clone() {
-            context
-                .peer
-                .notify_progress(
-                    ProgressNotificationParam::new(token, 0.0)
-                        .with_total(1.0)
-                        .with_message("Tool started"),
-                )
-                .await
-                .map_err(internal)?;
-        }
-        // `mission_run` checks this cooperative flag at phase boundaries and
-        // stops early with status `CANCELLED` when `notifications/cancelled`
-        // arrives; other synchronous registry tools run to completion.
         let (cancel, cancel_watch) = if name == "mission_run" {
-            let flag = Arc::new(std::sync::atomic::AtomicBool::new(
-                context.ct.is_cancelled(),
-            ));
-            let observed = flag.clone();
-            let ct = context.ct.clone();
+            let flag = Arc::new(AtomicBool::new(context.ct.is_cancelled()));
+            let (observed, ct) = (flag.clone(), context.ct.clone());
             let watch = tokio::spawn(async move {
                 ct.cancelled().await;
-                observed.store(true, std::sync::atomic::Ordering::Release);
+                observed.store(true, Ordering::Release);
             });
             (Some(flag), Some(watch))
         } else {
             (None, None)
         };
-        // A watched call relays the tool's own progress lines between the
-        // started (0.0) and finished (1.0) notifications.
-        let result = match token.clone() {
-            Some(token) => {
-                let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-                let sink: crate::susi_core::progress::Sink = Arc::new(move |line: &str| {
-                    let _ = tx.send(line.to_string());
-                });
-                let relay = tokio::spawn(relay_progress(context.peer.clone(), token, rx));
-                // The sink (and with it the channel's sender) is dropped
-                // when the tool returns, which ends the relay.
-                let result = execute_registry(name, args, workspace, Some(sink), cancel).await;
-                let _ = relay.await;
-                result
-            }
-            None => execute_registry(name, args, workspace, None, cancel).await,
-        };
+        let result = run_watched(
+            progress_lease.as_deref(),
+            (name.clone(), args),
+            workspace,
+            cancel,
+            true,
+        )
+        .await;
         if let Some(watch) = cancel_watch {
             watch.abort();
         }
         let result = result?;
-        if let Some(token) = token.filter(|_| !context.ct.is_cancelled()) {
-            context
-                .peer
-                .notify_progress(
-                    ProgressNotificationParam::new(token, 1.0)
-                        .with_total(1.0)
-                        .with_message("Tool finished"),
-                )
-                .await
-                .map_err(internal)?;
+        if result.is_error != Some(true) && !context.ct.is_cancelled() {
+            if let Some(lease) = progress_lease.as_ref() {
+                lease
+                    .notify_edge(1.0, Some("Tool finished"))
+                    .await
+                    .map_err(internal)?;
+            }
         }
-        let threshold = if context
-            .protocol_version()
-            .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
-        {
-            context.meta.log_level()
-        } else {
-            *self.log_level.read()
-        };
-        if threshold.is_some_and(|level| matches!(level, LoggingLevel::Debug | LoggingLevel::Info))
-        {
-            context
-                .peer
-                .notify_logging_message(
-                    LoggingMessageNotificationParam::new(
-                        LoggingLevel::Info,
-                        json!("Tool finished"),
-                    )
-                    .with_logger("susi-gmcp"),
-                )
-                .await
-                .map_err(internal)?;
-        }
-        Ok(result.into())
+        let response: CallToolResponse = result.into();
+        emit_tool_completion_log(self, &context, &name, &response).await?;
+        Ok(response)
     }
 
     async fn list_resources(
@@ -674,40 +659,16 @@ impl ServerHandler for GmcpService {
         request: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        let items = self
-            .catalog
-            .read()
-            .resources
-            .values()
-            .map(|(r, _)| r.clone())
-            .collect();
-        let (resources, next_cursor) = page(items, request)?;
-        let mut result = ListResourcesResult::default()
-            .with_ttl_ms(0)
-            .with_cache_scope(CacheScope::Private);
-        result.resources = resources;
-        result.next_cursor = next_cursor;
-        Ok(result)
+        let (items, next) = page_entries(&self.catalog.read().resources, request)?;
+        Ok(ListResourcesResult::paged(items, next))
     }
     async fn list_resource_templates(
         &self,
         request: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
-        let items = self
-            .catalog
-            .read()
-            .templates
-            .values()
-            .map(|(r, _)| r.clone())
-            .collect();
-        let (templates, next_cursor) = page(items, request)?;
-        let mut result = ListResourceTemplatesResult::default()
-            .with_ttl_ms(0)
-            .with_cache_scope(CacheScope::Private);
-        result.resource_templates = templates;
-        result.next_cursor = next_cursor;
-        Ok(result)
+        let (items, next) = page_entries(&self.catalog.read().templates, request)?;
+        Ok(ListResourceTemplatesResult::paged(items, next))
     }
     async fn read_resource(
         &self,
@@ -730,8 +691,10 @@ impl ServerHandler for GmcpService {
                     result => return result.and_then(seal_resource),
                 }
             }
-            let uri = Some(json!({"uri":request.uri}));
-            Err(ErrorData::resource_not_found("Unknown resource", uri))
+            Err(ErrorData::resource_not_found(
+                "Unknown resource",
+                Some(json!({"uri":request.uri})),
+            ))
         };
         tokio::select! {
             result = read => result,
@@ -743,20 +706,8 @@ impl ServerHandler for GmcpService {
         request: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        let items = self
-            .catalog
-            .read()
-            .prompts
-            .values()
-            .map(|(p, _)| p.clone())
-            .collect();
-        let (prompts, next_cursor) = page(items, request)?;
-        let mut result = ListPromptsResult::default()
-            .with_ttl_ms(0)
-            .with_cache_scope(CacheScope::Private);
-        result.prompts = prompts;
-        result.next_cursor = next_cursor;
-        Ok(result)
+        let (items, next) = page_entries(&self.catalog.read().prompts, request)?;
+        Ok(ListPromptsResult::paged(items, next))
     }
     async fn get_prompt(
         &self,
@@ -814,30 +765,50 @@ impl ServerHandler for GmcpService {
         &self,
         requested: &SubscriptionFilter,
     ) -> Option<SubscriptionFilter> {
-        Some(requested.clone())
+        let mut filter = requested.clone();
+        if let Some(uris) = filter.resource_subscriptions.take() {
+            let mut seen = BTreeSet::new();
+            let admitted: Vec<_> = uris
+                .into_iter()
+                .filter(|u| self.admit_resource(u).is_ok() && seen.insert(u.clone()))
+                .collect();
+            filter.resource_subscriptions = (!admitted.is_empty()).then_some(admitted);
+        }
+        Some(filter)
+    }
+    fn prepare_subscription(&self) -> Box<dyn std::any::Any + Send> {
+        Box::new(self.changes.subscribe())
     }
     async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
-        let mut changes = self.changes.subscribe();
+        use broadcast::error::RecvError;
+        let mut changes = context
+            .take_prepared::<broadcast::Receiver<Change>>()
+            .unwrap_or_else(|| self.changes.subscribe());
         loop {
-            tokio::select! {
+            let change = tokio::select! {
                 _ = context.cancelled() => return Ok(()),
-                change = changes.recv() => {
-                    // A slow subscriber must restart rather than silently miss changes.
-                    let change = change.map_err(internal)?;
-                    let sink = context.sink();
-                    let result = match change {
-                        Change::Tools => sink.notify_tool_list_changed().await,
-                        Change::Prompts => sink.notify_prompt_list_changed().await,
-                        Change::Resources => sink.notify_resource_list_changed().await,
-                        Change::Resource(uri) => sink.notify_resource_updated(uri).await,
-                    };
-                    // The SDK enforces the negotiated filter; unrequested events are skipped.
-                    match result {
-                        Ok(()) | Err(SubscriptionSendError::NotificationNotAccepted(_)) => {},
-                        Err(SubscriptionSendError::SubscriptionClosed) => return Ok(()),
-                        Err(error) => return Err(internal(error)),
-                    }
+                msg = changes.recv() => match msg {
+                    Ok(c) => c,
+                    Err(RecvError::Closed) => return Ok(()),
+                    Err(RecvError::Lagged(n)) => return Err(internal(format!("Subscription lagged ({n} events dropped)"))),
                 }
+            };
+            let sink = context.sink();
+            let result = match change {
+                Change::Tools => sink.notify_tool_list_changed().await,
+                Change::Prompts => sink.notify_prompt_list_changed().await,
+                Change::Resources => sink.notify_resource_list_changed().await,
+                Change::Resource(uri) => {
+                    if self.admit_resource(&uri).is_err() {
+                        continue;
+                    }
+                    sink.notify_resource_updated(uri).await
+                }
+            };
+            match result {
+                Ok(()) | Err(SubscriptionSendError::NotificationNotAccepted(_)) => {}
+                Err(SubscriptionSendError::SubscriptionClosed) => return Ok(()),
+                Err(error) => return Err(internal(error)),
             }
         }
     }
@@ -873,7 +844,7 @@ fn seal_resource(mut response: ReadResourceResponse) -> Result<ReadResourceRespo
     if let ReadResourceResponse::Complete(result) = &mut response {
         let (mut bytes, mut sound) = (0, !result.contents.is_empty());
         for content in &result.contents {
-            let (mime, body, binary) = match content {
+            let (m, b, binary) = match content {
                 ResourceContents::TextResourceContents {
                     mime_type: m,
                     text: b,
@@ -885,11 +856,9 @@ fn seal_resource(mut response: ReadResourceResponse) -> Result<ReadResourceRespo
                     ..
                 } => (m, b, true),
             };
-            bytes += body.len();
-            let mime_ok = mime
-                .as_deref()
-                .is_none_or(crate::content::is_valid_mime_type);
-            sound &= mime_ok && (!binary || crate::content::is_valid_base64(body));
+            bytes += b.len();
+            sound &= m.as_deref().is_none_or(crate::content::is_valid_mime_type)
+                && (!binary || crate::content::is_valid_base64(b));
         }
         if !sound || bytes > MAX_RESOURCE_BYTES {
             return Err(internal("Resource read is empty, malformed or oversized"));
@@ -905,45 +874,132 @@ fn seal_resource(mut response: ReadResourceResponse) -> Result<ReadResourceRespo
 /// second. A line that arrives sooner waits, and a newer one replaces it.
 const PROGRESS_GAP: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Relay a watched tool's progress lines as `notifications/progress`,
-/// strictly between the started (0.0) and finished (1.0) notifications and
-/// rising with each line, coalesced to [`PROGRESS_GAP`]. Ends when the
-/// tool's sink is dropped, after sending the last pending line.
+fn enforce_output_schema(
+    schema: Option<&crate::schema_check::Validator>,
+    result: CallToolResult,
+    msg: &str,
+) -> CallToolResult {
+    if let Some(s) = schema {
+        if result.is_error != Some(true)
+            && !result
+                .structured_content
+                .as_ref()
+                .is_some_and(|v| s.is_valid(v))
+        {
+            return CallToolResult::error(vec![ContentBlock::text(msg)]);
+        }
+    }
+    result
+}
+
+async fn run_watched(
+    lease: Option<&crate::mcp::service::ProgressLease>,
+    (name, args): (String, Value),
+    workspace: PathBuf,
+    cancel: Option<crate::susi_core::progress::Cancel>,
+    propagate_edge_err: bool,
+) -> Result<CallToolResult, ErrorData> {
+    let Some(lease) = lease else {
+        return execute_registry(name, args, workspace, None, cancel).await;
+    };
+    let start = lease.notify_edge(0.0, Some("Tool started")).await;
+    if propagate_edge_err {
+        start.map_err(internal)?;
+    }
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let sink: crate::susi_core::progress::Sink = Arc::new(move |l: &str| {
+        let _ = tx.send(l.to_string());
+    });
+    let relay = tokio::spawn(relay_progress(
+        lease.peer.clone(),
+        lease.token().clone(),
+        rx,
+        lease.stop_token(),
+    ));
+    let res = execute_registry(name, args, workspace, Some(sink), cancel).await;
+    let _ = relay.await;
+    res
+}
+
+async fn emit_tool_completion_log(
+    service: &GmcpService,
+    ctx: &RequestContext<RoleServer>,
+    tool: &str,
+    res: &CallToolResponse,
+) -> Result<(), ErrorData> {
+    let threshold = if ctx
+        .protocol_version()
+        .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
+    {
+        ctx.meta.log_level()
+    } else {
+        *service.log_level.read()
+    };
+    let (level, data) = if let CallToolResponse::Complete(r) = res {
+        if r.is_error == Some(true) {
+            let err: Vec<_> = r
+                .content
+                .iter()
+                .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+                .collect();
+            (
+                LoggingLevel::Error,
+                json!({"tool": tool, "error": err.join(" ")}),
+            )
+        } else {
+            (LoggingLevel::Info, json!("Tool finished"))
+        }
+    } else {
+        (LoggingLevel::Info, json!("Tool finished"))
+    };
+    ctx.emit_logging_message(threshold, level, Some("susi-gmcp".to_string()), data)
+        .await
+        .map(|_| ())
+        .map_err(internal)
+}
+
+/// Relay a watched tool's progress lines strictly between 0.0 and 1.0,
+/// coalesced to [`PROGRESS_GAP`], stopping immediately on cancellation.
 async fn relay_progress(
     peer: crate::mcp::service::Peer,
     token: ProgressToken,
     mut lines: tokio::sync::mpsc::UnboundedReceiver<String>,
+    stop: crate::mcp::service::CancellationToken,
 ) {
-    let mut sent = 0u32;
-    let mut last: Option<tokio::time::Instant> = None;
-    let mut pending: Option<String> = None;
+    let (mut sent, mut last, mut pending) = (0u32, None::<tokio::time::Instant>, None::<String>);
     loop {
-        let next = match (&pending, last) {
-            (Some(_), Some(at)) => {
-                match tokio::time::timeout_at(at + PROGRESS_GAP, lines.recv()).await {
-                    Ok(next) => next.map(Some),
-                    // The gap has passed: send what is waiting.
-                    Err(_) => Some(None),
+        if stop.is_cancelled() {
+            return;
+        }
+        let next = tokio::select! {
+            _ = stop.cancelled() => return,
+            r = async {
+                if let (Some(_), Some(at)) = (&pending, last) {
+                    tokio::time::timeout_at(at + PROGRESS_GAP, lines.recv())
+                        .await
+                        .map_or(Some(None), |n| n.map(Some))
+                } else {
+                    lines.recv().await.map(Some)
                 }
-            }
-            _ => lines.recv().await.map(Some),
+            } => r,
         };
         let closed = next.is_none();
         if let Some(Some(line)) = next {
             pending = Some(line);
         }
-        let due = closed || last.is_none_or(|at| at.elapsed() >= PROGRESS_GAP);
-        if due {
+        if closed || last.is_none_or(|at| at.elapsed() >= PROGRESS_GAP) {
             if let Some(line) = pending.take() {
+                if stop.is_cancelled() {
+                    return;
+                }
                 sent += 1;
                 let progress = f64::from(sent) / (f64::from(sent) + 1.0);
-                let _ = peer
-                    .notify_progress(
-                        ProgressNotificationParam::new(token.clone(), progress)
-                            .with_total(1.0)
-                            .with_message(line),
-                    )
-                    .await;
+                let param = ProgressNotificationParam::new(token.clone(), progress)
+                    .with_total(1.0)
+                    .with_message(line);
+                if peer.notify_progress(param).await.is_err() {
+                    return;
+                }
                 last = Some(tokio::time::Instant::now());
             }
         }
@@ -985,18 +1041,9 @@ pub(crate) fn is_tool_result_error(text: &str) -> bool {
     {
         return false;
     }
-    if [
-        "Error:",
-        "[Error]",
-        "[FAIL]",
-        "[CAPABILITY_GAP]",
-        "Protocol Error:",
-        "Reflex Error:",
-        "Governance Violation:",
-        "[RECOVERY]",
-    ]
-    .iter()
-    .any(|prefix| text.starts_with(prefix))
+    if "Error:|[Error]|[FAIL]|[CAPABILITY_GAP]|Protocol Error:|Reflex Error:|Governance Violation:|[RECOVERY]"
+        .split('|')
+        .any(|prefix| text.starts_with(prefix))
     {
         return true;
     }
@@ -1004,236 +1051,4 @@ pub(crate) fn is_tool_result_error(text: &str) -> bool {
     // "I/O Error: ...") near the head; later mentions are content.
     let head: String = text.chars().take(64).collect();
     head.contains(" Error:") || head.contains(" Violation:")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn tool_failures_remain_errors() {
-        for prefix in [
-            "Error:",
-            "[FAIL]",
-            "[CAPABILITY_GAP]",
-            "Protocol Error:",
-            "Reflex Error:",
-            "Governance Violation:",
-            "[RECOVERY]",
-            "[Error]",
-            "Sandbox Error:",
-            "I/O Error:",
-        ] {
-            assert!(is_tool_result_error(&format!("  {prefix} detail")));
-        }
-        assert!(!is_tool_result_error("ok content"));
-        assert!(!is_tool_result_error(
-            "{\n  \"models\": [{\"detail\": \"Internal Engine Error: set KEY\"}]\n}"
-        ));
-        assert!(is_tool_result_error("[Error] {not json"));
-        assert!(!is_tool_result_error(
-            "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
-        ));
-    }
-    #[test]
-    fn pagination_rejects_stale_and_invalid_cursors() {
-        let items: Vec<_> = (0..101).collect();
-        let (first, next) = page(items.clone(), None).unwrap();
-        assert_eq!(first.len(), 100);
-        let request = serde_json::from_value(json!({"cursor":next})).unwrap();
-        assert_eq!(page(items, Some(request)).unwrap().0, vec![100]);
-        let request = serde_json::from_value(json!({"cursor":next})).unwrap();
-        assert!(page(vec![1, 2], Some(request)).is_err());
-        let request = serde_json::from_value(json!({"cursor":"bad"})).unwrap();
-        assert!(page(vec![1], Some(request)).is_err());
-    }
-
-    #[test]
-    fn every_registered_mcp_tool_has_valid_typed_or_explicit_input_schema() {
-        let service = GmcpService::new(std::env::temp_dir());
-        let noop_handler: ToolHandler =
-            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
-        let core_defs = crate::tools::args::core_tool_definitions();
-        assert!(
-            !core_defs.is_empty(),
-            "CoreTools definitions must not be empty"
-        );
-        for def in &core_defs {
-            service
-                .register_tool(def.clone(), noop_handler.clone())
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "core tool `{}` failed GmcpService::register_tool: {}",
-                        def.name, e.message
-                    )
-                });
-        }
-
-        let tools = service.tools().expect("tools catalog must load");
-        assert!(
-            tools.len() >= core_defs.len(),
-            "MCP tools catalog must include all registered core tools"
-        );
-
-        let mut core_checked = 0usize;
-        for tool in &tools {
-            let schema_val = Value::Object((*tool.input_schema).clone());
-            compile_schema(&schema_val).unwrap_or_else(|e| {
-                panic!(
-                    "tool `{}` input_schema failed compile_schema: {}",
-                    tool.name, e.message
-                )
-            });
-            assert_eq!(
-                tool.input_schema.get("type").and_then(Value::as_str),
-                Some("object"),
-                "tool `{}` input_schema must declare root type \"object\"",
-                tool.name
-            );
-
-            if crate::tools::args::core_input_schema(&tool.name).is_some() {
-                core_checked += 1;
-                assert!(
-                    !tool
-                        .input_schema
-                        .contains_key(crate::tools::args::PASSTHROUGH_KEY),
-                    "core tool `{}` must not use passthrough input schema",
-                    tool.name
-                );
-                let props = tool
-                    .input_schema
-                    .get("properties")
-                    .and_then(Value::as_object)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "core tool `{}` must declare an object `properties` map",
-                            tool.name
-                        )
-                    });
-                let explicit_no_args = props.is_empty()
-                    && tool
-                        .input_schema
-                        .get("additionalProperties")
-                        .and_then(Value::as_bool)
-                        == Some(false);
-                assert!(
-                    !props.is_empty() || explicit_no_args,
-                    "core tool `{}` must have non-empty `properties` or explicit no-args (`additionalProperties: false`)",
-                    tool.name
-                );
-            }
-        }
-        assert_eq!(
-            core_checked,
-            core_defs.len(),
-            "every built-in CoreTools handler must be verified"
-        );
-    }
-
-    #[test]
-    fn compile_schema_enforces_depth_and_node_complexity_limits() {
-        let valid_schema = json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "minLength": 1 }
-            },
-            "required": ["query"],
-            "additionalProperties": false
-        });
-        let validator = compile_schema(&valid_schema).expect("valid object schema must compile");
-        assert!(validator.is_valid(&json!({ "query": "status" })));
-        assert!(!validator.is_valid(&json!({ "query": "" })));
-        assert!(!validator.is_valid(&json!({})));
-
-        // Build a schema nested beyond the 64-level depth ceiling.
-        let mut deep = json!({ "type": "string" });
-        for _ in 0..70 {
-            deep = json!({
-                "type": "object",
-                "properties": { "nested": deep }
-            });
-        }
-        let deep_err = match compile_schema(&deep) {
-            Ok(_) => panic!("schema exceeding depth limit must be rejected"),
-            Err(err) => err,
-        };
-        assert_eq!(deep_err.code, ErrorCode::INVALID_PARAMS);
-        assert!(
-            deep_err.message.contains("Schema exceeds complexity limit"),
-            "unexpected error message: {}",
-            deep_err.message
-        );
-
-        let invalid_type = json!({
-            "type": "not-a-valid-json-schema-type"
-        });
-        let type_err = match compile_schema(&invalid_type) {
-            Ok(_) => panic!("malformed schema type must be rejected"),
-            Err(err) => err,
-        };
-        assert_eq!(type_err.code, ErrorCode::INVALID_PARAMS);
-        assert!(
-            type_err.message.contains("Invalid tool schema"),
-            "unexpected error message: {}",
-            type_err.message
-        );
-    }
-
-    #[test]
-    fn register_tool_replaces_catalog_entry_and_validates_arguments() {
-        let service = GmcpService::new(std::env::temp_dir());
-        let schema_obj: JsonObject = serde_json::from_value(json!({
-            "type": "object",
-            "properties": {
-                "count": { "type": "integer", "minimum": 1 }
-            },
-            "required": ["count"],
-            "additionalProperties": false
-        }))
-        .expect("schema object");
-        let tool = Tool::new_with_raw(
-            "custom_counter",
-            Some("Count items with strict schema validation".into()),
-            Arc::new(schema_obj),
-        );
-        let handler: ToolHandler = Arc::new(|_req, _ctx| {
-            Box::pin(async {
-                Ok(CallToolResult::success(vec![ContentBlock::text("counted")]).into())
-            })
-        });
-        service
-            .register_tool(tool, handler)
-            .expect("custom tool with valid schema must register");
-
-        let fetched = service
-            .get_tool("custom_counter")
-            .expect("registered tool must appear in get_tool");
-        assert_eq!(
-            fetched.description.as_deref(),
-            Some("Count items with strict schema validation")
-        );
-
-        let registered = service
-            .catalog
-            .read()
-            .tools
-            .get("custom_counter")
-            .cloned()
-            .expect("catalog entry must exist");
-        assert!(registered.input.is_valid(&json!({ "count": 3 })));
-        assert!(!registered.input.is_valid(&json!({ "count": 0 })));
-        assert!(!registered.input.is_valid(&json!({ "count": "three" })));
-        assert!(!registered.input.is_valid(&json!({})));
-
-        let bad_schema: JsonObject = serde_json::from_value(json!({
-            "type": "invalid_type_name"
-        }))
-        .expect("bad schema object");
-        let bad_tool = Tool::new_with_raw("bad_tool", None, Arc::new(bad_schema));
-        let bad_handler: ToolHandler =
-            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
-        assert!(
-            service.register_tool(bad_tool, bad_handler).is_err(),
-            "register_tool must reject invalid inputSchema"
-        );
-    }
 }

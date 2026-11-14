@@ -18,5 +18,27 @@
   },
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Production stage (GMCP-203-012-02) implements and verifies all subscription filter/cap/lag/re-check invariants, progress token validation/uniqueness/monotonicity/cancellation guards, request-correlated RFC 5424 operational logging with stream isolation/cap/redaction/size-bounds, SEP-2577 legacy/modern gating, and Streamable HTTP SSE routing across stdio, embedded adapter, and live HTTP /mcp; full cross-vector integration, adversarial fuzz/exhaustion, interop benchmark, and operations runbook suites remain in T-CODEXGMCPROADMAP-95..98.",
+    "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are created and sealed by T-CODEXGMCPROADMAP-99 once requirements 01-06 land; existing retained VC-203-*.jsonl evidence records are updated via Two-Phase Evidence against this commit."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses shipped MCP protocol types (crate::mcp::{model,message,service,http}), GmcpService and Catalog/ResourceGuard/Changes broadcast in crate::protocol, untrusted sink redaction (susi_core::untrusted_content::wrap_tool_output + susi_config credential redaction), TaskManager lifecycle cancellation, and existing StdioSession / AdapterClient / start_http_server test harnesses in tests/gmcp_requirements.rs without introducing duplicate notification routers or new dependencies.",
+    "searched": "Susi Core: docs/gmcp/contract-203-012.md, crates/susi-gmcp/src/{protocol.rs,jsonrpc_gate.rs,mcp/{model.rs,message.rs,http.rs,service.rs},tests/protocol.rs}, crates/susi-core/src/untrusted_content.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/mcp/message.rs",
+    "crates/susi-gmcp/src/mcp/model.rs",
+    "crates/susi-gmcp/src/mcp/service.rs",
+    "crates/susi-gmcp/src/mcp/task_manager.rs",
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/tests/protocol.rs",
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-94.json",
+    ".agents/gmcp/evidence"
+  ]
 }

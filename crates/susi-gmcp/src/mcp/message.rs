@@ -257,6 +257,7 @@ fn parse_notification(
 pub struct ServerNotification {
     pub method: Cow<'static, str>,
     pub params: Option<JsonObject>,
+    pub(crate) target_request: Option<RequestId>,
 }
 
 impl ServerNotification {
@@ -264,13 +265,20 @@ impl ServerNotification {
         Self {
             method: Cow::Borrowed(method),
             params: Some(object(serde_json::to_value(params).unwrap_or(Value::Null))),
+            target_request: None,
         }
     }
     pub fn no_params(method: &'static str) -> Self {
         Self {
             method: Cow::Borrowed(method),
             params: None,
+            target_request: None,
         }
+    }
+    /// Bind this notification to the originating request stream for SSE routing.
+    pub(crate) fn with_target_request(mut self, id: RequestId) -> Self {
+        self.target_request = Some(id);
+        self
     }
     /// Attach `_meta[key] = value`, creating `params` when absent.
     pub fn set_meta(&mut self, key: &str, value: Value) {
@@ -293,6 +301,20 @@ impl ServerNotification {
             return None;
         }
         RequestId::deserialize(self.params.as_ref()?.get("requestId")?.clone()).ok()
+    }
+    /// Subscription request identifier for acks and subscription-scoped notifications.
+    pub fn subscription_id(&self) -> Option<RequestId> {
+        let params = self.params.as_ref()?;
+        if let Some(id) = params
+            .get("_meta")
+            .and_then(|meta| meta.get(super::model::META_SUBSCRIPTION_ID))
+        {
+            return RequestId::deserialize(id.clone()).ok();
+        }
+        if self.method == "notifications/subscriptions/acknowledged" {
+            return RequestId::deserialize(params.get("subscriptionId")?.clone()).ok();
+        }
+        None
     }
 }
 

@@ -322,9 +322,7 @@ fn deserialize_cache_scope<'de, D: Deserializer<'de>>(
 }
 
 fn option_f32<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f32>, D::Error> {
-    Ok(Option::<serde_json::Number>::deserialize(deserializer)?
-        .and_then(|n| n.as_f64())
-        .map(|f| f as f32))
+    Ok(option_f64(deserializer)?.map(|f| f as f32))
 }
 
 fn option_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
@@ -392,6 +390,23 @@ impl RequestMetaObject {
     pub fn get_progress_token(&self) -> Option<ProgressToken> {
         self.0.decode("progressToken")
     }
+    /// Parse `_meta["progressToken"]`, rejecting malformed or empty values (`-32602`).
+    pub fn parse_progress_token(&self) -> Result<Option<ProgressToken>, ErrorData> {
+        let Some(raw) = self.0.get("progressToken") else {
+            return Ok(None);
+        };
+        let is_valid_json = match raw {
+            Value::String(s) => !s.is_empty(),
+            Value::Number(n) => n.is_i64() || n.is_u64(),
+            Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => false,
+        };
+        if !is_valid_json {
+            return Err(ErrorData::invalid_params("Invalid progressToken", None));
+        }
+        serde_json::from_value::<ProgressToken>(raw.clone())
+            .map(Some)
+            .map_err(|_| ErrorData::invalid_params("Invalid progressToken", None))
+    }
     pub fn set_progress_token(&mut self, token: ProgressToken) {
         self.0.set_serialized("progressToken", token);
     }
@@ -406,6 +421,17 @@ impl RequestMetaObject {
     }
     pub fn log_level(&self) -> Option<LoggingLevel> {
         self.0.decode(META_LOG_LEVEL)
+    }
+    /// Parse `_meta["io.modelcontextprotocol/logLevel"]`, rejecting invalid values (`-32602`).
+    pub fn parse_log_level(&self) -> Result<Option<LoggingLevel>, ErrorData> {
+        let Some(raw) = self.0.get(META_LOG_LEVEL) else {
+            return Ok(None);
+        };
+        serde_json::from_value::<LoggingLevel>(raw.clone())
+            .map(Some)
+            .map_err(|_| {
+                ErrorData::invalid_params("Invalid io.modelcontextprotocol/logLevel", None)
+            })
     }
     /// The 2026-07-28 per-request keys this metadata lacks (or carries
     /// malformed); empty for earlier revisions.
@@ -841,6 +867,15 @@ macro_rules! paginated_result {
             pub fn with_cache_scope(mut self, cache_scope: CacheScope) -> Self {
                 self.cache_scope = Some(cache_scope);
                 self
+            }
+            pub fn paged($field: $ty, next_cursor: Option<String>) -> Self {
+                Self {
+                    ttl_ms: Some(0),
+                    cache_scope: Some(CacheScope::Private),
+                    next_cursor,
+                    $field,
+                    ..Self::default()
+                }
             }
         }
     };
@@ -1460,7 +1495,7 @@ pub struct CompleteResult {
 
 // ── Logging, progress and cancellation ───────────────────────────────────
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum LoggingLevel {
     Debug,
@@ -1471,6 +1506,27 @@ pub enum LoggingLevel {
     Critical,
     Alert,
     Emergency,
+}
+
+impl LoggingLevel {
+    /// RFC 5424 numeric severity ordering (`Debug = 0 .. Emergency = 7`).
+    pub const fn severity(self) -> u8 {
+        match self {
+            Self::Debug => 0,
+            Self::Info => 1,
+            Self::Notice => 2,
+            Self::Warning => 3,
+            Self::Error => 4,
+            Self::Critical => 5,
+            Self::Alert => 6,
+            Self::Emergency => 7,
+        }
+    }
+
+    /// True when an event at `event` severity meets or exceeds `self` threshold.
+    pub const fn allows(self, event: Self) -> bool {
+        event.severity() >= self.severity()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -1571,16 +1627,17 @@ fn both(a: Option<bool>, b: Option<bool>) -> Option<bool> {
 }
 
 impl SubscriptionFilter {
-    /// What both filters ask for.
+    /// What both filters ask for, deduplicated in requested order.
     pub fn intersection(&self, other: &Self) -> Self {
         let resource_subscriptions = self
             .resource_subscriptions
             .as_ref()
             .and_then(|requested| {
                 other.resource_subscriptions.as_ref().map(|accepted| {
+                    let mut seen = std::collections::BTreeSet::new();
                     requested
                         .iter()
-                        .filter(|uri| accepted.contains(uri))
+                        .filter(|uri| accepted.contains(uri) && seen.insert((*uri).clone()))
                         .cloned()
                         .collect::<Vec<_>>()
                 })
