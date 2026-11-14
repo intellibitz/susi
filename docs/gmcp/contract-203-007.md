@@ -134,3 +134,65 @@ Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-20
 ## Ambiguities resolved
 
 All clauses are resolved by this table: the ledger id is the canonical name, the production path is the only allowed implementation site, and the disposition decides whether the clause is honored on the modern path or only through the version adapter. Transport-specific behavior (framing, handshake) is confined to the adapter and never alters protocol semantics.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the production ledger verification CLI command. It emits one bounded JSON report exposing `rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, and `verified`; a `false` verification exits non-zero before transport traffic is trusted.
+- `susi mcp status` prints the configured catalog and custom MCP server adapters along with enablement and prerequisite readiness checks.
+- Every served byte-pipe transport adapter (`susi mcp serve` stdio, in-process duplex over `StdioGate` + `BoundedLines`, and Unix-domain sockets on `#[cfg(unix)]`) exposes identical live API state: `server/discover` (stateless pre-handshake identity, capability surface, protocol versions, and cache hints), `initialize` (negotiated revision and capabilities), and `tools/call ledger_verify` returning the same canonical JSON ledger report as the CLI.
+- `susi mcp ledger --drift --refetched <dir>` runs deterministic, air-gapped standards drift detection against the pinned transport sources (`docs/specification/2025-11-25/basic/transports.mdx` and `docs/specification/2026-07-28/basic/transports/index.mdx`).
+
+### Configuration validation
+
+- CLI flag validation rejects invalid flag combinations fail-closed (`susi mcp ledger --refetched <dir>` without `--drift` exits non-zero).
+- Config schema validation (`susi_config::validate::validate_dir`) checks `~/.susi/config.json` before launch and reports a blocking `TypeMismatch` if `max_rpc_body_bytes` is non-numeric or malformed.
+- `GmcpServer::run_stdio` reads `max_rpc_body_bytes` before serving: a configured `0` limit fails closed with an explicit diagnostic on `stderr` and writes zero non-MCP bytes to `stdout`; an unparseable `config.json` emits a `[GMCP] Config load failed` diagnostic on `stderr` and falls back cleanly to bundled defaults.
+
+### Bounded metrics, logs and traces
+
+- Framing memory is strictly bounded per line by `BoundedLines` (`max_rpc_body_bytes`, default `10485760` bytes) on stdio and byte-pipe adapters, and by `StreamableHttpServerConfig::max_request_body_bytes` (plus the 16-byte AEAD tag for sealed peer channels) on HTTP; concurrent HTTP accepts are bounded by a `Semaphore` clamped to `max_concurrent_agents`.
+- Startup and operational telemetry (version, `max_rpc_body_bytes=<n>`, config fallback/refusal warnings, channel failures) write exclusively to UTF-8 `stderr`; `stdout` emits only valid newline-delimited JSON-RPC frames (`MCP-2025-1125-basic-transports-mdx-0029`, `MCP-2025-1125-basic-transports-mdx-0033`).
+- Correlation traces (`traceparent`, `tracestate`, `baggage`, `_meta`) remain bounded request metadata for diagnostics and never bypass framing limits, capability negotiation, or authorization gates.
+- Latency and resource ceilings follow the SLO table above (`startup_ms <= 10000`, `request_ms <= 5000`, `pipeline_ms <= 60000`, `fairness_ms <= 10000`, `memory_growth_mib <= 256`, `disk_growth_kib <= 1024`).
+
+### Diagnostics and incident triage
+
+- Oversized frames exceeding `max_rpc_body_bytes` trigger `BoundedLines` -> `StdioGate` recovery: the server emits one typed JSON-RPC `-32600` (`Invalid request: message exceeds the configured byte limit`) response per oversized line and immediately continues serving subsequent valid requests sharing the same read burst.
+- Malformed JSON lines emit `-32700` (`Parse error`); batch arrays, missing envelopes, or zero/non-positive invalid frames emit `-32600`; unsupported modern `_meta` protocol versions emit `-32022`.
+- Drift detection findings are typed: `hash_drift` indicates bytes changed relative to the pinned SHA-256 (`a247fdbb...` or `59cc0189...`), and `unfetchable` indicates a missing or unreadable source document. Either finding sets `verified: false` and exits non-zero.
+
+### Examples
+
+```text
+# 1. Inspect ledger verification and MCP adapter status
+susi mcp ledger
+susi mcp status
+
+# 2. Run deterministic air-gapped drift check against vendored transport specs
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+
+# 3. Serve stdio with an explicit frame bound (~/.susi/config.json)
+{"max_rpc_body_bytes": 1024}
+susi mcp serve
+
+# 4. Run the transport operations gate and refresh reproducible evidence
+cargo test --offline --locked --test gmcp_requirements gmcp_req_203_007_06_operations
+bash scripts/gmcp-record-evidence.sh
+```
+
+### Incident triage
+
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-limit startup refusal on `stderr`, or non-JSON frame leak on `stdout` as a release-blocking incident. Preserve the CLI JSON output, server `stderr` diagnostic log, offending input frame or `config.json`, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` records before mutating state. Verify adapter parity across `susi mcp serve` and in-process `StdioGate` + `BoundedLines` via `cargo test --offline --locked --test gmcp_requirements gmcp_req_203_007_06_operations`.
+
+### Migration (re-pinning the transport SPI standard)
+
+1. Claim a task (`susi-commercial tasks claim <id>`) and record the upstream specification revision and reason for updating `2025-11-25/basic/transports.mdx` or `2026-07-28/basic/transports/index.mdx`.
+2. Refresh `.agents/gmcp/spec/` and `.agents/gmcp/sources.json` from the exact upstream commit.
+3. Reconcile `.agents/gmcp/requirements-ledger.json` (`scripts/check-gmcp-ledger.py --write`), update this contract's behavior table and adapter parity tests (`tests/gmcp_requirements.rs`), and keep protocol semantics identical across adapters (`Transport` / `IntoTransport`, `StdioGate`, `BoundedLines`).
+4. Verify `susi mcp ledger`, `susi mcp ledger --drift --refetched .agents/gmcp/spec`, and the full `gmcp_requirements` suite, then regenerate signed evidence with `scripts/gmcp-record-evidence.sh`.
+
+### Rollback
+
+The vendored transport specs, ledger, fixtures, contract, and evidence logs are versioned Git artifacts. Revert a broken re-pin or framing limit regression with `git revert <commit>`, validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), and re-run `cargo test --locked --test gmcp_requirements gmcp_req_203_007_06_operations` plus the evidence recorder; never delete historical JSONL evidence lines or rewrite prior proof records.

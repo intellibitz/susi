@@ -104,10 +104,29 @@ fn cors(response: &mut Response<BoxBody>, origin: &str) {
     );
 }
 
+fn load_config_or_warn() -> Arc<crate::susi_sandbox::manager::SusiConfig> {
+    match crate::susi_sandbox::manager::SusiConfig::load_global_arc() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("[GMCP] Config load failed, using bundled defaults: {e}");
+            Arc::new(crate::susi_sandbox::manager::SusiConfig::default())
+        }
+    }
+}
+
 pub struct GmcpServer;
 impl GmcpServer {
     pub fn run_stdio(workspace: &Path, version: &str) {
-        eprintln!("[GMCP] v{version}: MCP over newline-delimited stdio");
+        let limit = load_config_or_warn().max_rpc_body_bytes();
+        if limit == 0 {
+            eprintln!(
+                "[GMCP] Invalid max_rpc_body_bytes (0): must be > 0; refusing stdio transport"
+            );
+            return;
+        }
+        eprintln!(
+            "[GMCP] v{version}: MCP over newline-delimited stdio (max_rpc_body_bytes={limit})"
+        );
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
@@ -121,9 +140,6 @@ impl GmcpServer {
             return;
         }
         runtime.block_on(async move {
-            let limit = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
-                .unwrap_or_default()
-                .max_rpc_body_bytes();
             let transport = crate::jsonrpc_gate::StdioGate::new(
                 crate::stdio::BoundedLines::new(tokio::io::stdin(), limit),
                 tokio::io::stdout(),
@@ -285,9 +301,17 @@ async fn serve_channel(conn: ChannelConnection, service: HttpService) {
 }
 
 pub fn http_service(service: GmcpService) -> HttpService {
-    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+    let cfg = load_config_or_warn();
     let mut transport = StreamableHttpServerConfig::default();
-    transport.max_request_body_bytes = cfg.max_rpc_body_bytes();
+    let rpc_limit = cfg.max_rpc_body_bytes();
+    transport.max_request_body_bytes = if rpc_limit == 0 {
+        eprintln!(
+            "[GMCP] Invalid max_rpc_body_bytes (0); using bundled default for HTTP transport"
+        );
+        crate::susi_sandbox::manager::SusiConfig::default().max_rpc_body_bytes()
+    } else {
+        rpc_limit
+    };
     if let Some(hosts) = cfg.get::<Vec<String>>("mcp_allowed_hosts") {
         transport = transport.with_allowed_hosts(hosts);
     }
