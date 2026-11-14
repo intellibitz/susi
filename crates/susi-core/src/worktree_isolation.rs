@@ -1,7 +1,7 @@
 //! Mandatory per-agent local Git worktree isolation.
 //!
 //! Every local, parallel, swarm, harness, A2A, ACP, and cloud agent runs in its
-//! own dedicated linked Git worktree — never in the repository's primary
+//! own dedicated linked Git worktree â€” never in the repository's primary
 //! checkout, never directly on `main`/`master`, and never sharing a writable
 //! worktree with another concurrent agent.
 
@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -247,7 +247,7 @@ fn resolve_git_path(base: &Path, raw: &str) -> PathBuf {
 }
 
 fn git_out(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = susi_paths::console::background_command("git")
         .current_dir(dir)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")

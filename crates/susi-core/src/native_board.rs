@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -672,7 +672,7 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 fn git_with(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut child = susi_paths::console::background_command("git")
         .current_dir(root)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
