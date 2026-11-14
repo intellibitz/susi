@@ -253,13 +253,16 @@ if ($InstallService) {
             Copy-Item -LiteralPath (Join-Path $TargetDir "$OutDir\susi-background.exe") -Destination $ServiceExe -Force
             $Action = New-ScheduledTaskAction -Execute $ServiceExe
         } else {
-            # Older release tags have only the console engine. Run their logon
-            # task on the scheduler's noninteractive desktop.
-            $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "start"
+            # A GUI script host starts a console-only release hidden and returns
+            # its exit status while using the same interactive logon token.
+            $Compat = Join-Path $GlobalBinDir 'susi-logon.js'
+            $Script = 'try { WScript.Quit(new ActiveXObject("WScript.Shell").Run(".\\susi.exe start", 0, true)); } catch (error) { WScript.Quit(1); }'
+            [IO.File]::WriteAllText($Compat, $Script, [Text.Encoding]::ASCII)
+            $HostExe = Join-Path ([Environment]::SystemDirectory) 'wscript.exe'
+            $Action = New-ScheduledTaskAction -Execute $HostExe -WorkingDirectory $GlobalBinDir -Argument ('//B //NoLogo "' + $Compat + '"')
         }
         $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Logon = if ($HasBackgroundLauncher) { 'Interactive' } else { 'S4U' }
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType $Logon -RunLevel Limited
+        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
         Write-Host "  Registered Susi to start at logon." -ForegroundColor Green
     } catch {

@@ -271,12 +271,16 @@ impl ServiceConfig {
 #[must_use]
 pub fn render_windows_schtasks_cmd(binary_path: &Path) -> String {
     let executable = binary_path.display().to_string().replace('\'', "''");
+    // Also embedded in the standalone install.ps1 bootstrap for pre-launcher tags.
+    let compat = r#"try { WScript.Quit(new ActiveXObject("WScript.Shell").Run(".\\susi.exe start", 0, true)); } catch (error) { WScript.Quit(1); }"#;
     format!(
-        "$bin = '{executable}'; $launcher = Join-Path (Split-Path -Parent $bin) 'susi-background.exe'; \
-         if (Test-Path -LiteralPath $launcher -PathType Leaf) {{ $action = New-ScheduledTaskAction -Execute $launcher; $logon = 'Interactive' }} \
-         else {{ $action = New-ScheduledTaskAction -Execute $bin -Argument 'start'; $logon = 'S4U' }}; \
+        "$dir = Split-Path -Parent ([IO.Path]::GetFullPath('{executable}')); $launcher = Join-Path $dir 'susi-background.exe'; \
+         if (Test-Path -LiteralPath $launcher -PathType Leaf) {{ $action = New-ScheduledTaskAction -Execute $launcher }} \
+         else {{ $compat = Join-Path $dir 'susi-logon.js'; [IO.File]::WriteAllText($compat, '{compat}', [Text.Encoding]::ASCII); \
+         $action = New-ScheduledTaskAction -Execute (Join-Path ([Environment]::SystemDirectory) 'wscript.exe') \
+         -WorkingDirectory $dir -Argument ('//B //NoLogo \"' + $compat + '\"') }}; \
          $trigger = New-ScheduledTaskTrigger -AtLogOn; \
-         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType $logon -RunLevel Limited; \
+         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited; \
          Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Principal $principal -Force"
     )
 }
@@ -356,6 +360,14 @@ mod tests {
         let rendered = render_windows_schtasks_cmd(&bin);
         assert!(rendered.contains("Register-ScheduledTask -TaskName 'susi-daemon'"));
         assert!(rendered.contains("-RunLevel Limited"));
+        assert!(rendered.contains("-LogonType Interactive"));
+        assert!(rendered.contains("wscript.exe"));
+        let script = include_str!("../../../install.ps1");
+        let compat = script
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("$Script = '")?.strip_suffix('\''))
+            .expect("installer embeds the windowless compatibility launcher");
+        assert!(rendered.contains(compat));
         assert!(!rendered.contains("-RunLevel Highest"));
         assert!(rendered.contains("C:\\Users\\user\\.susi\\bin\\susi.exe"));
     }
