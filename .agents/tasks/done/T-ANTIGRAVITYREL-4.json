@@ -40,7 +40,12 @@
     "crates/susi-harness/src/tests/secrets_vault.rs",
     "xtask/src/fast_release.rs"
   ],
-  "state": "open",
-  "status": "in_progress",
-  "updated_unix": 1794734374
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794738613,
+  "closed": {
+    "at_unix": 1794738613,
+    "commit": "c6d0a16628cb3e7a2fd7589321ae8bc3cb346d91",
+    "by": "ANTIGRAVITYREL02169"
+  }
 }
