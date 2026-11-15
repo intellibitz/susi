@@ -113,12 +113,14 @@ pub(super) fn run(
     rollback: bool,
     status: bool,
     expected: Option<&str>,
+    controller: Option<&str>,
 ) -> Result<String> {
     let mut arguments = String::from("install-release --host-worker");
     for (flag, value) in [
         ("--id", release),
         ("--previous", previous),
         ("--expect", expected),
+        ("--controller-sha256", controller),
     ] {
         if let Some(value) = value {
             if !id(value) {
@@ -126,6 +128,9 @@ pub(super) fn run(
             }
             arguments.push_str(&format!(" {flag} {value}"));
         }
+    }
+    if controller.is_some() {
+        arguments.push_str(" --import-legacy");
     }
     if rollback {
         arguments.push_str(" --rollback");

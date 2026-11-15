@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub(super) const BIN_NAME: &str = if cfg!(windows) { "susi.exe" } else { "susi" };
+// SHA and length of the published Windows v0.21.51 release, also pinned by
+// the original Commercial v3.1.3 installer (certified/core-release.json).
+pub(super) const FLAT_051: &str =
+    "f4f04134f5aa715e7142f40ef791f42865d2fd6f4d1509e780931647d84e1cbb";
 pub(super) const SIDECARS: [(&str, &str); 3] = [
     ("sbom.json", "sbom-sha256"),
     ("THIRD-PARTY-NOTICES.txt", "notices-sha256"),
@@ -196,7 +200,7 @@ pub(super) struct Package {
     pub(super) release: String,
     artifact: String,
     bytes: u64,
-    gates: String,
+    gates: Option<String>,
     sidecars: Vec<(String, String)>,
 }
 
@@ -204,6 +208,18 @@ impl Package {
     pub(super) fn open(root: &Path, release: &str) -> Result<Self> {
         if !id(release) {
             return Err("a trusted lowercase release SHA-256 is required".into());
+        }
+        if cfg!(all(windows, target_arch = "x86_64")) && release == FLAT_051 {
+            // This named original release predates portable release receipts.
+            // Its trust anchor is the independently published SHA, not local metadata.
+            return Ok(Self {
+                root: root.into(),
+                release: release.into(),
+                artifact: FLAT_051.into(),
+                bytes: 41_664_512,
+                gates: None,
+                sidecars: Vec::new(),
+            });
         }
         let manifest = small(&root.join("manifest.txt"))?;
         if digest_bytes(&manifest) != release {
@@ -305,9 +321,13 @@ impl Package {
             release: release.into(),
             artifact: get("artifact-sha256")?.into(),
             bytes,
-            gates: get("gates-sha256")?.into(),
+            gates: Some(get("gates-sha256")?.into()),
             sidecars,
         })
+    }
+
+    pub(super) fn artifact_sha256(&self) -> &str {
+        &self.artifact
     }
 
     pub(super) fn executable(&self) -> PathBuf {
@@ -334,15 +354,18 @@ impl Package {
     pub(super) fn stage(&self, root: &Path) -> Result<Self> {
         let source = self.pinned_executable()?;
         self.verify_sidecars()?;
-        let gates = self.root.join("gates.txt");
-        let mut header = vec![0u8; QUALIFICATION_POLICY.len()];
-        regular(&gates)?.read_exact(&mut header)?;
-        if header != QUALIFICATION_POLICY || file_hash(&mut regular(&gates)?)? != self.gates {
-            return Err("qualification gates differ from the trusted release manifest".into());
+        let mut names = vec![BIN_NAME];
+        if let Some(hash) = &self.gates {
+            let gates = self.root.join("gates.txt");
+            let mut header = vec![0u8; QUALIFICATION_POLICY.len()];
+            regular(&gates)?.read_exact(&mut header)?;
+            if header != QUALIFICATION_POLICY || file_hash(&mut regular(&gates)?)? != *hash {
+                return Err("qualification gates differ from the trusted release manifest".into());
+            }
+            names.push("manifest.txt");
         }
         let destination = root.join("releases").join(&self.release);
         directory(&destination)?;
-        let mut names = vec![BIN_NAME, "manifest.txt"];
         names.extend(self.sidecars.iter().map(|(name, _)| name.as_str()));
         for name in names {
             let to = destination.join(name);

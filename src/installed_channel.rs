@@ -21,7 +21,10 @@ pub(crate) fn manage(command: &Commands) -> ExitCode {
     let Commands::InstallRelease {
         id,
         previous,
+        controller_sha256,
+        import_legacy: _,
         rollback,
+        promote,
         status,
         expect,
         host_worker,
@@ -33,9 +36,10 @@ pub(crate) fn manage(command: &Commands) -> ExitCode {
         transaction::Request {
             release: id.as_deref(),
             previous: previous.as_deref(),
-            rollback: *rollback,
+            controller: controller_sha256.as_deref(),
+            rollback: *rollback || promote.is_some(),
             status: *status,
-            expected: expect.as_deref(),
+            expected: expect.as_deref().or(promote.as_deref()),
         },
         *host_worker,
     );

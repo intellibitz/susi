@@ -94,14 +94,23 @@ public_commands! {
     /// Activate a qualified Windows release or restore the previous verified release
     InstallRelease {
         /// Trusted SHA-256 release ID supplied by the local production qualifier
-        #[arg(long, required_unless_present_any = ["rollback","status"], conflicts_with_all = ["rollback","status"])]
+        #[arg(long, required_unless_present_any = ["rollback","status","promote"], conflicts_with_all = ["rollback","status","promote"])]
         id: Option<String>,
         /// Qualified predecessor in the adjacent sibling release directory
         #[arg(long, requires = "id")]
         previous: Option<String>,
+        /// Import the published Windows v0.21.51 engine from the legacy flat installation
+        #[arg(long, requires_all = ["id", "controller_sha256"], conflicts_with = "previous")]
+        import_legacy: bool,
+        /// Trusted SHA-256 of the migration controller from the upgrade distribution
+        #[arg(long, requires = "import_legacy")]
+        controller_sha256: Option<String>,
         /// Restore the previously admitted release
         #[arg(long)]
         rollback: bool,
+        /// Re-activate this exact already installed release after a rollback
+        #[arg(long, conflicts_with_all = ["rollback","status","expect"])]
+        promote: Option<String>,
         /// Verify the installed selector, executable, PATH and Start Menu entry
         #[arg(long, conflicts_with = "rollback")]
         status: bool,

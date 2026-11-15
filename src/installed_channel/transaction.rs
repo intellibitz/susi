@@ -1,6 +1,6 @@
 use super::package::{
-    atomic_file, digest_bytes, directory, id, is_reparse_or_symlink, link_or_copy, regular, small,
-    Package, Result, BIN_NAME,
+    atomic_file, digest_bytes, directory, file_hash, id, is_reparse_or_symlink, link_or_copy,
+    regular, small, Package, Result, BIN_NAME, FLAT_051,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -246,26 +246,49 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
     Ok(child.wait()?)
 }
 
+// A historical engine has no modern management verbs. Install the separately
+// authenticated controller independently from the engine selected for user work.
+fn controller_image(root: &Path, release: &str) -> Result<(PathBuf, std::fs::File, String)> {
+    let path = root.join("management").join(release).join(BIN_NAME);
+    if path.try_exists()? {
+        let mut image = regular(&path)?;
+        if file_hash(&mut image)? != release {
+            return Err("installed migration controller digest mismatch".into());
+        }
+        return Ok((path, image, release.into()));
+    }
+    let package = installed(root, release)?;
+    let pinned = package.pinned_executable()?;
+    Ok((
+        package.executable(),
+        pinned,
+        package.artifact_sha256().to_owned(),
+    ))
+}
+
 fn bootstrap(root: &Path, from_dispatcher: Option<&str>, after: &Selection) -> Result<()> {
     let bin = root.join("entry");
     directory(&bin)?;
     let entry = bin.join(BIN_NAME);
-    let target = installed(root, &after.dispatcher)?;
-    let pinned = target.pinned_executable()?;
+    let (target, pinned, sha) = controller_image(root, &after.dispatcher)?;
     if entry.try_exists()? {
-        if target.verify_entry(&entry).is_ok() {
+        if file_hash(&mut regular(&entry)?)? == sha {
             return Ok(());
         }
         let old = from_dispatcher.ok_or("refusing to replace an unrecognized dispatcher")?;
-        installed(root, old)?.verify_entry(&entry)?;
+        if file_hash(&mut regular(&entry)?)? != controller_image(root, old)?.2 {
+            return Err("refusing to replace a modified dispatcher".into());
+        }
     }
     let staged = bin.join(format!("dispatcher-pending{}", env::consts::EXE_SUFFIX));
     if staged.try_exists()? {
         drop(regular(&staged)?);
         fs::remove_file(&staged)?;
     }
-    link_or_copy(&target.executable(), &staged)?;
-    target.verify_entry(&staged)?;
+    link_or_copy(&target, &staged)?;
+    if file_hash(&mut regular(&staged)?)? != sha {
+        return Err("staged dispatcher digest mismatch".into());
+    }
     drop(pinned);
     fs::rename(staged, entry)?;
     Ok(())
@@ -385,6 +408,16 @@ fn apply(
     register: &impl Fn(&Path) -> Result<()>,
     expected: Option<&str>,
 ) -> Result<Selection> {
+    apply_managed(root, package, register, expected, None)
+}
+
+fn apply_managed(
+    root: &Path,
+    package: Option<(&Package, Option<&Package>)>,
+    register: &impl Fn(&Path) -> Result<()>,
+    expected: Option<&str>,
+    controller: Option<(&Path, &str)>,
+) -> Result<Selection> {
     directory(root)?;
     let lock_path = root.join("admitted-install.lock");
     if let Ok(meta) = fs::symlink_metadata(&lock_path) {
@@ -400,6 +433,35 @@ fn apply(
         .open(lock_path)?;
     lock.try_lock()?;
     let _lock = InstallLock(lock);
+    if let Some((image, sha)) = controller {
+        // Retain management bytes before publishing any transition. Even an interrupted
+        // first migration can complete with just its staged products and controller.
+        let dir = root.join("management").join(sha);
+        directory(&dir)?;
+        let captured = dir.join(BIN_NAME);
+        let mut input = regular(image)?;
+        if file_hash(&mut input)? != sha {
+            return Err("upgrade distribution controller SHA-256 mismatch".into());
+        }
+        if !captured.try_exists()? {
+            use std::io::Seek;
+            input.rewind()?;
+            let temporary = dir.join("controller.pending");
+            if temporary.try_exists()? {
+                drop(regular(&temporary)?);
+                fs::remove_file(&temporary)?;
+            }
+            let mut out = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
+            std::io::copy(&mut input, &mut out)?;
+            out.sync_all()?;
+            drop(out);
+            fs::rename(temporary, &captured)?;
+        }
+        controller_image(root, sha)?;
+    }
     let requested = package.map(|(source, _)| source.release.clone());
     if let Some(pending) = get::<Transition>(&root.join(PENDING))? {
         // A retry of an interrupted rollback must complete its recorded target,
@@ -422,11 +484,15 @@ fn apply(
                 return Ok(restored.after);
             }
         }
-        if requested == pending.requested {
+        let same_request = requested == pending.requested
+            && controller.is_none_or(|(_, sha)| {
+                pending.after.dispatcher == sha && pending.after.previous.is_some()
+            });
+        if same_request {
             pending.after.require(expected)?;
         }
         finish(root, &pending, register)?;
-        if requested == pending.requested {
+        if same_request {
             return Ok(pending.after);
         }
     }
@@ -439,7 +505,13 @@ fn apply(
         // An existing deployment keeps its own last verified version. A user may
         // legitimately skip intermediate releases from the producer's history.
         let imported = predecessor
-            .filter(|_| before.is_none())
+            .filter(|_| {
+                before.is_none()
+                    || (controller.is_some()
+                        && before
+                            .as_ref()
+                            .is_some_and(|s| s.current == target.release && s.previous.is_none()))
+            })
             .map(|p| p.stage(root))
             .transpose()?;
         if before.is_none() && root.join("channel.json").try_exists()? {
@@ -466,14 +538,30 @@ fn apply(
             before = Some(initial);
         }
         let previous = match &before {
-            Some(old) if old.current == target.release => old.previous.clone(),
+            Some(old) if old.current == target.release => old
+                .previous
+                .clone()
+                .or_else(|| imported.as_ref().map(|p| p.release.clone())),
             Some(old) => Some(old.current.clone()),
             None => imported.as_ref().map(|p| p.release.clone()),
         };
         Selection {
             current: target.release.clone(),
             previous,
-            dispatcher: target.release,
+            // Subsequent updates retain a controller that can still select the
+            // historical predecessor. Ordinary pre-migration channels keep their behavior.
+            dispatcher: if let Some((_, sha)) = controller {
+                sha.to_owned()
+            } else if let Some(old) = before.as_ref().filter(|old| {
+                root.join("management")
+                    .join(&old.dispatcher)
+                    .join(BIN_NAME)
+                    .is_file()
+            }) {
+                old.dispatcher.clone()
+            } else {
+                target.release
+            },
         }
     } else {
         let old = before.as_ref().ok_or("no installed release to roll back")?;
@@ -549,6 +637,7 @@ fn public_host_view(local: &Path) -> Result<bool> {
 pub(super) struct Request<'a> {
     pub release: Option<&'a str>,
     pub previous: Option<&'a str>,
+    pub controller: Option<&'a str>,
     pub rollback: bool,
     pub status: bool,
     pub expected: Option<&'a str>,
@@ -571,6 +660,7 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
     let Request {
         release,
         previous,
+        controller,
         rollback,
         status,
         expected,
@@ -596,7 +686,7 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         if host_worker {
             return Err("Windows host worker still sees a private filesystem view".into());
         }
-        return super::host_task::run(release, previous, rollback, status, expected);
+        return super::host_task::run(release, previous, rollback, status, expected, controller);
     }
     #[cfg(not(windows))]
     if host_worker {
@@ -626,7 +716,9 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         current.verify_sidecars()?;
         let _pinned = current.pinned_executable()?;
         let entry = root.join("entry").join(BIN_NAME);
-        installed(&root, &chosen.dispatcher)?.verify_entry(&entry)?;
+        if file_hash(&mut regular(&entry)?)? != controller_image(&root, &chosen.dispatcher)?.2 {
+            return Err("installed dispatcher digest mismatch".into());
+        }
         #[cfg(windows)]
         susi_harness::channel_bindings::verify(&root)?;
         if version_output(&entry)? != version_output(&current.executable())? {
@@ -639,6 +731,35 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         let id = release.ok_or("trusted release ID is required")?;
         let exe = env::current_exe()?;
         let path = exe.parent().ok_or("package directory missing")?;
+        if let Some(sha) = controller {
+            if !cfg!(all(windows, target_arch = "x86_64"))
+                || !super::package::id(sha)
+                || !super::package::id(id)
+                || id == FLAT_051
+            {
+                return Err("invalid Windows legacy import or controller digest".into());
+            }
+            let package = Package::open(&path.join("slots").join(id), id)?;
+            let flat = root
+                .parent()
+                .and_then(Path::parent)
+                .ok_or("missing per-user app root")?
+                .join("Susi/engine");
+            let prior = if flat.join(BIN_NAME).try_exists()? {
+                Package::open(&flat, FLAT_051)?
+            } else {
+                installed(&root, FLAT_051)?
+            };
+            prior.pinned_executable()?;
+            return Ok(apply_managed(
+                &root,
+                Some((&package, Some(&prior))),
+                &register,
+                None,
+                Some((&exe, sha)),
+            )?
+            .current);
+        }
         let package = Package::open(path, id)?;
         package.verify_entry(&exe)?;
         let prior = previous

@@ -425,12 +425,24 @@ Activate a qualified Windows release or restore the previous verified release
 Usage: susi install-release [OPTIONS]
 
 Options:
-      --id <ID>              Trusted SHA-256 release ID supplied by the local production qualifier
-      --previous <PREVIOUS>  Qualified predecessor in the adjacent sibling release directory
-      --rollback             Restore the previously admitted release
-      --status               Verify the installed selector, executable, PATH and Start Menu entry
-      --expect <EXPECT>      Require this specific release for verification or rollback
-  -h, --help                 Print help
+      --id <ID>
+          Trusted SHA-256 release ID supplied by the local production qualifier
+      --previous <PREVIOUS>
+          Qualified predecessor in the adjacent sibling release directory
+      --import-legacy
+          Import the published Windows v0.21.51 engine from the legacy flat installation
+      --controller-sha256 <CONTROLLER_SHA256>
+          Trusted SHA-256 of the migration controller from the upgrade distribution
+      --rollback
+          Restore the previously admitted release
+      --promote <PROMOTE>
+          Re-activate this exact already installed release after a rollback
+      --status
+          Verify the installed selector, executable, PATH and Start Menu entry
+      --expect <EXPECT>
+          Require this specific release for verification or rollback
+  -h, --help
+          Print help
 
 === susi local ===
 Build, test, integrate and qualify Susi locally through native guarded tools
