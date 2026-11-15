@@ -1288,3 +1288,436 @@ mod http_unit_tests {
         assert_eq!(line, "ok\n");
     }
 }
+
+mod task_extension_unit_tests {
+    use super::*;
+    use crate::mcp::model::{ErrorCode, InputRequest, TaskStatus};
+    use crate::mcp::task_manager::*;
+
+    fn req_with_tasks(id: i64, method: &str, params: Value) -> Value {
+        let mut msg = modern(id, method, params);
+        msg["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] = json!({
+            "extensions": { "io.modelcontextprotocol/tasks": {} },
+            "elicitation": { "form": {} }
+        });
+        msg
+    }
+
+    #[tokio::test]
+    async fn task_manager_durable_persistence_survives_restart_and_fails_closed_on_corruption() {
+        let dir = susi_paths::tempfile::tempdir().unwrap();
+        let alice = TaskPrincipal::from_bearer_token("alice-durable");
+
+        let (done_id, inflight_id) = {
+            let mgr = TaskManager::open(dir.path()).unwrap();
+            let done_task = mgr
+                .try_spawn_for(alice.clone(), TaskOptions::default(), |_ctx| {
+                    Box::pin(
+                        async move { Ok(CallToolResult::structured(json!({ "persisted": 42 }))) },
+                    )
+                })
+                .unwrap();
+            for _ in 0..100 {
+                if mgr
+                    .get_task_for(&done_task.task_id, &alice)
+                    .unwrap()
+                    .status()
+                    == TaskStatus::Completed
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            assert_eq!(
+                mgr.get_task_for(&done_task.task_id, &alice)
+                    .unwrap()
+                    .status(),
+                TaskStatus::Completed
+            );
+
+            let inflight_task = mgr
+                .try_spawn_for(alice.clone(), TaskOptions::default(), |_ctx| {
+                    Box::pin(async move {
+                        std::future::pending::<()>().await;
+                        Ok(CallToolResult::structured(json!({})))
+                    })
+                })
+                .unwrap();
+            assert_eq!(
+                mgr.get_task_for(&inflight_task.task_id, &alice)
+                    .unwrap()
+                    .status(),
+                TaskStatus::Working
+            );
+            (done_task.task_id, inflight_task.task_id)
+        };
+
+        let store_file = dir.path().join("tasks.json");
+        assert!(store_file.is_file(), "durable tasks.json must be created");
+
+        // Reopen across simulated restart.
+        let reopened = TaskManager::open(dir.path()).unwrap();
+        let restored_done = reopened.get_task_for(&done_id, &alice).unwrap();
+        assert_eq!(restored_done.status(), TaskStatus::Completed);
+        let done_json = serde_json::to_value(&restored_done).unwrap();
+        assert_eq!(done_json["result"]["structuredContent"]["persisted"], 42);
+
+        // In-flight task must settle deterministically with -32603.
+        let settled_inflight = reopened.get_task_for(&inflight_id, &alice).unwrap();
+        assert_eq!(settled_inflight.status(), TaskStatus::Failed);
+        let err_json = serde_json::to_value(&settled_inflight).unwrap();
+        assert_eq!(err_json["error"]["code"], -32603);
+        drop(reopened);
+
+        // Corrupt JSON on disk must fail closed rather than silently resetting state.
+        std::fs::write(&store_file, b"{corrupt").unwrap();
+        assert!(
+            TaskManager::open(dir.path()).is_err(),
+            "corrupt tasks.json must fail closed"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_manager_enforces_principal_isolation_rate_limit_caps_and_immutability() {
+        let alice = TaskPrincipal::from_bearer_token("alice-tok");
+        let bob = TaskPrincipal::from_bearer_token("bob-tok");
+        let mgr = TaskManager::new();
+
+        // Spawn task waiting for input key "step-1".
+        let task = mgr
+            .try_spawn_for(
+                alice.clone(),
+                TaskOptions {
+                    ttl_ms: Some(30_000),
+                    poll_interval_ms: Some(10_000),
+                    status_message: None,
+                },
+                |ctx| {
+                    Box::pin(async move {
+                        let req: InputRequest = serde_json::from_value(json!({
+                            "method": "roots/list"
+                        }))
+                        .unwrap();
+                        let ans = ctx.request_input("step-1", req).await?;
+                        Ok(CallToolResult::structured(ans))
+                    })
+                },
+            )
+            .unwrap();
+        for _ in 0..50 {
+            if matches!(
+                mgr.get_task_for(&task.task_id, &alice).unwrap().payload,
+                TaskPayload::InputRequired { .. }
+            ) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+
+        // Cross-principal must fail with -32602 across get, update, cancel, and subscription auth.
+        assert_eq!(
+            mgr.get_task_for(&task.task_id, &bob).unwrap_err().code,
+            ErrorCode::INVALID_PARAMS
+        );
+        assert_eq!(
+            mgr.update_task_for(&task.task_id, &bob, vec![("step-1".into(), json!({}))])
+                .unwrap_err()
+                .code,
+            ErrorCode::INVALID_PARAMS
+        );
+        assert_eq!(
+            mgr.cancel_task_for(&task.task_id, &bob).unwrap_err().code,
+            ErrorCode::INVALID_PARAMS
+        );
+        assert_eq!(
+            mgr.authorize_tasks_for(&bob, std::slice::from_ref(&task.task_id))
+                .unwrap_err()
+                .code,
+            ErrorCode::INVALID_PARAMS
+        );
+
+        // Unknown/superseded keys alongside real key are ignored cleanly without panic.
+        mgr.update_task_for(
+            &task.task_id,
+            &alice,
+            vec![
+                ("unknown-key".into(), json!({"ignored": true})),
+                ("step-1".into(), json!({"roots": []})),
+            ],
+        )
+        .unwrap();
+        for _ in 0..100 {
+            if mgr.get_task_for(&task.task_id, &alice).unwrap().status() == TaskStatus::Completed {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        assert_eq!(
+            mgr.get_task_for(&task.task_id, &alice).unwrap().status(),
+            TaskStatus::Completed
+        );
+
+        // Terminal immutability: update and cancel both rejected with -32602.
+        assert_eq!(
+            mgr.update_task_for(&task.task_id, &alice, vec![("x".into(), json!(1))])
+                .unwrap_err()
+                .code,
+            ErrorCode::INVALID_PARAMS
+        );
+        assert_eq!(
+            mgr.cancel_task_for(&task.task_id, &alice).unwrap_err().code,
+            ErrorCode::INVALID_PARAMS
+        );
+
+        // Poll-interval rate limit: exceed burst allowance on pollIntervalMs = 10_000.
+        let mut rate_limited = false;
+        for _ in 0..20 {
+            if let Err(err) = mgr.get_task_for(&task.task_id, &alice) {
+                assert_eq!(err.code, ErrorCode(-32000));
+                assert!(err.message.contains("pollIntervalMs"), "{}", err.message);
+                rate_limited = true;
+                break;
+            }
+        }
+        assert!(
+            rate_limited,
+            "rapid tasks/get must trigger -32000 rate limit"
+        );
+
+        // Active cap per principal (MAX_ACTIVE_TASKS_PER_PRINCIPAL = 64).
+        let cap_mgr = TaskManager::new();
+        let holder = TaskPrincipal::from_bearer_token("cap-owner");
+        let mut active_ids = Vec::new();
+        for _ in 0..MAX_ACTIVE_TASKS_PER_PRINCIPAL {
+            let t = cap_mgr
+                .try_spawn_for(holder.clone(), TaskOptions::default(), |_ctx| {
+                    Box::pin(async move {
+                        std::future::pending::<()>().await;
+                        Ok(CallToolResult::structured(json!({})))
+                    })
+                })
+                .unwrap();
+            active_ids.push(t.task_id);
+        }
+        let cap_err = cap_mgr
+            .try_spawn_for(holder.clone(), TaskOptions::default(), |_ctx| {
+                Box::pin(async move { Ok(CallToolResult::structured(json!({}))) })
+            })
+            .unwrap_err();
+        assert_eq!(cap_err.code, ErrorCode(-32000));
+
+        // Input requests per task cap (> MAX_INPUT_REQUESTS_PER_TASK).
+        let input_mgr = TaskManager::new();
+        let req_task = input_mgr
+            .try_spawn_for(holder.clone(), TaskOptions::default(), |ctx| {
+                Box::pin(async move {
+                    let req: InputRequest =
+                        serde_json::from_value(json!({"method": "roots/list"})).unwrap();
+                    for idx in 0..=MAX_INPUT_REQUESTS_PER_TASK {
+                        let _ = ctx.request_input(format!("k-{idx}"), req.clone()).await?;
+                    }
+                    Ok(CallToolResult::structured(json!({})))
+                })
+            })
+            .unwrap();
+        for _ in 0..100 {
+            if input_mgr
+                .get_task_for(&req_task.task_id, &holder)
+                .unwrap()
+                .status()
+                == TaskStatus::InputRequired
+            {
+                let key = format!("k-{}", 0);
+                input_mgr
+                    .update_task_for(&req_task.task_id, &holder, vec![(key, json!({}))])
+                    .unwrap();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        // Oversized inputResponses key count (> MAX_INPUT_REQUESTS_PER_TASK) fails -32602.
+        let too_many_updates: Vec<(String, Value)> = (0..=MAX_INPUT_REQUESTS_PER_TASK)
+            .map(|i| (format!("u-{i}"), json!(1)))
+            .collect();
+        assert_eq!(
+            input_mgr
+                .update_task_for(&active_ids[0], &alice, vec![]) // unknown owner
+                .unwrap_err()
+                .code,
+            ErrorCode::INVALID_PARAMS
+        );
+        assert_eq!(
+            cap_mgr
+                .update_task_for(&active_ids[0], &holder, too_many_updates)
+                .unwrap_err()
+                .code,
+            ErrorCode::INVALID_PARAMS
+        );
+    }
+
+    #[tokio::test]
+    async fn subscriptions_listen_task_ids_gates_owner_cap_and_no_covert_leakage() {
+        let svc = service();
+        let gated_tool: Tool =
+            serde_json::from_value(json!({"name": "sub_task", "inputSchema": {"type": "object"}}))
+                .unwrap();
+        svc.register_task_tool(
+            gated_tool,
+            Arc::new(|_, ctx| {
+                Box::pin(async move {
+                    let req: InputRequest =
+                        serde_json::from_value(json!({"method": "roots/list"})).unwrap();
+                    let ans = ctx.request_input("sub-k1", req).await?;
+                    Ok(CallToolResult::structured(ans))
+                })
+            }),
+        )
+        .unwrap();
+
+        let updater = svc.session();
+        let mut wire = wire(svc).await;
+        discover(&mut wire).await;
+
+        // Spawn task first so we have a real owned taskId.
+        send(
+            &mut wire,
+            req_with_tasks(2, "tools/call", json!({"name": "sub_task"})),
+        )
+        .await;
+        let created = recv(&mut wire).await;
+        assert_eq!(created["result"]["resultType"], "task", "{created}");
+        let task_id = created["result"]["taskId"].as_str().unwrap().to_string();
+
+        // 1. Missing io.modelcontextprotocol/tasks capability on subscriptions/listen.taskIds -> -32021.
+        send(
+            &mut wire,
+            modern(
+                3,
+                "subscriptions/listen",
+                json!({"notifications": {"taskIds": [task_id]}}),
+            ),
+        )
+        .await;
+        let err = recv(&mut wire).await;
+        assert_eq!(err["error"]["code"], -32021, "{err}");
+
+        // 2. Over 64 taskIds -> -32602.
+        let over_cap: Vec<String> = (0..=MAX_SUBSCRIPTION_TASK_IDS)
+            .map(|i| format!("t-{i}"))
+            .collect();
+        send(
+            &mut wire,
+            req_with_tasks(
+                4,
+                "subscriptions/listen",
+                json!({"notifications": {"taskIds": over_cap}}),
+            ),
+        )
+        .await;
+        let cap_err = recv(&mut wire).await;
+        assert_eq!(cap_err["error"]["code"], -32602, "{cap_err}");
+
+        // 3. Unknown/unowned taskId rejects BEFORE emitting acknowledged.
+        send(
+            &mut wire,
+            req_with_tasks(
+                5,
+                "subscriptions/listen",
+                json!({"notifications": {"taskIds": ["unknown-task-id"]}}),
+            ),
+        )
+        .await;
+        let own_err = recv(&mut wire).await;
+        assert_eq!(own_err["error"]["code"], -32602, "{own_err}");
+
+        // 4. Valid subscription emits acknowledged first, then notifications/tasks (never progress/message).
+        send(
+            &mut wire,
+            req_with_tasks(
+                6,
+                "subscriptions/listen",
+                json!({"notifications": {"taskIds": [task_id]}}),
+            ),
+        )
+        .await;
+        let ack = recv(&mut wire).await;
+        assert_eq!(
+            ack["method"], "notifications/subscriptions/acknowledged",
+            "{ack}"
+        );
+
+        let mut wire2 = super::wire(updater).await;
+        discover(&mut wire2).await;
+        // Complete the awaiting task on wire2 so the subscription emits notifications/tasks.
+        send(
+            &mut wire2,
+            req_with_tasks(
+                7,
+                "tasks/update",
+                json!({"taskId": task_id, "inputResponses": {"sub-k1": {"roots": []}}}),
+            ),
+        )
+        .await;
+        let upd_resp = recv(&mut wire2).await;
+        assert!(upd_resp.get("error").is_none(), "{upd_resp}");
+
+        let mut saw_completed_task_note = false;
+        for _ in 0..8 {
+            let note = recv(&mut wire).await;
+            let method = note["method"].as_str().unwrap_or("");
+            assert!(
+                method != "notifications/progress" && method != "notifications/message",
+                "task subscription stream leaked forbidden notification: {note}"
+            );
+            if method == "notifications/tasks" {
+                assert_eq!(note["params"]["taskId"], task_id, "{note}");
+                if note["params"]["status"] == "completed" {
+                    assert_eq!(
+                        note["params"]["result"]["structuredContent"],
+                        json!({"roots": []})
+                    );
+                    saw_completed_task_note = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            saw_completed_task_note,
+            "expected notifications/tasks transition to completed"
+        );
+    }
+
+    #[test]
+    fn jsonrpc_gate_and_transport_allowlist_task_methods_and_notifications() {
+        for method in ["tasks/get", "tasks/update", "tasks/cancel"] {
+            let valid = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": {
+                    "taskId": "task-1",
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientCapabilities": {
+                            "extensions": { "io.modelcontextprotocol/tasks": {} }
+                        }
+                    }
+                }
+            });
+            assert!(
+                crate::jsonrpc_gate::http_envelope_rejection(valid.to_string().as_bytes())
+                    .is_none(),
+                "{method} must pass http envelope gate"
+            );
+        }
+        assert!(crate::mcp::transport::is_standard_notification(
+            "notifications/tasks"
+        ));
+        assert!(crate::mcp::transport::is_standard_notification(
+            "notifications/subscriptions/acknowledged"
+        ));
+        assert!(!crate::mcp::transport::is_standard_notification(
+            "notifications/bogus"
+        ));
+    }
+}

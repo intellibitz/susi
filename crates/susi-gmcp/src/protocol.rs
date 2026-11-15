@@ -153,6 +153,19 @@ impl GmcpService {
             extensions: Arc::new(RwLock::new(crate::extensions::ExtensionRegistry::shipped())),
         }
     }
+    /// Construct a service backed by a durable disk-persisted task store (fail-closed if corrupt).
+    pub fn open_durable(workspace: PathBuf, store_dir: PathBuf) -> Result<Self, ErrorData> {
+        let (changes, _) = broadcast::channel(256);
+        Ok(Self {
+            workspace,
+            catalog: Default::default(),
+            changes,
+            tasks: crate::mcp::task_manager::TaskManager::open(store_dir)?,
+            legacy_subscriptions: Default::default(),
+            log_level: Default::default(),
+            extensions: Arc::new(RwLock::new(crate::extensions::ExtensionRegistry::shipped())),
+        })
+    }
     /// Isolate legacy session preferences while sharing the application catalog.
     pub fn session(&self) -> Self {
         Self {
@@ -209,27 +222,21 @@ impl GmcpService {
                         ));
                     }
                     let progress_lease = context.progress_lease();
-                    let task = tasks.spawn(Default::default(), move |context| {
+                    let owner = context.principal().clone();
+                    let task = tasks.try_spawn_for(owner, Default::default(), move |context| {
                         let progress_lease = progress_lease.clone();
                         Box::pin(async move {
-                            let watch = watch_task_cancel(&context, &progress_lease, None);
-                            let result = handler(request, context.clone()).await;
-                            if let Some(w) = watch {
-                                w.abort();
-                            }
-                            let result = enforce_output_schema(
+                            let res = finish_task_run(&context, &progress_lease, None, async {
+                                handler(request, context.clone()).await
+                            });
+                            let out = res.await?;
+                            Ok(enforce_output_schema(
                                 output.as_deref(),
-                                result?,
+                                out,
                                 "Task output does not match outputSchema",
-                            );
-                            if result.is_error != Some(true) && !context.is_cancel_requested() {
-                                if let Some(lease) = &progress_lease {
-                                    let _ = lease.notify_edge(1.0, None).await;
-                                }
-                            }
-                            Ok(result)
+                            ))
                         })
-                    });
+                    })?;
                     Ok(CreateTaskResult::new(task).into())
                 })
             }),
@@ -315,12 +322,16 @@ fn compile_opt_schema(
         .transpose()
 }
 
-fn watch_task_cancel(
+async fn finish_task_run<F>(
     task: &crate::mcp::task_manager::TaskContext,
     lease: &Option<Arc<crate::mcp::service::ProgressLease>>,
     flag: Option<Arc<AtomicBool>>,
-) -> Option<tokio::task::JoinHandle<()>> {
-    (flag.is_some() || lease.is_some()).then(|| {
+    fut: F,
+) -> Result<CallToolResult, crate::mcp::task_manager::TaskExit>
+where
+    F: Future<Output = Result<CallToolResult, crate::mcp::task_manager::TaskExit>>,
+{
+    let watch = (flag.is_some() || lease.is_some()).then(|| {
         let (task, lease) = (task.clone(), lease.clone());
         tokio::spawn(async move {
             task.cancelled().await;
@@ -331,7 +342,21 @@ fn watch_task_cancel(
                 lease.stop();
             }
         })
-    })
+    });
+    let result = fut.await;
+    if let Some(w) = watch {
+        w.abort();
+    }
+    let result = result?;
+    if task.is_cancel_requested() {
+        return Err(crate::mcp::task_manager::TaskExit::Cancelled);
+    }
+    if result.is_error != Some(true) {
+        if let Some(lease) = lease {
+            let _ = lease.notify_edge(1.0, None).await;
+        }
+    }
+    Ok(result)
 }
 
 pub(crate) fn compile_schema(
@@ -580,40 +605,30 @@ impl ServerHandler for GmcpService {
                 .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
         {
             use crate::mcp::task_manager::TaskExit;
-            let task_name = name.clone();
-            let task_lease = progress_lease.clone();
-            let task = self.tasks.spawn(Default::default(), move |task| {
-                let progress_lease = task_lease.clone();
-                Box::pin(async move {
-                    if task.is_cancel_requested() {
-                        return Err(TaskExit::Cancelled);
-                    }
-                    let cancel = (task_name == "mission_run")
-                        .then(|| Arc::new(AtomicBool::new(task.is_cancel_requested())));
-                    let cancel_watch = watch_task_cancel(&task, &progress_lease, cancel.clone());
-                    let result = run_watched(
-                        progress_lease.as_deref(),
-                        (task_name, args),
-                        workspace,
-                        cancel,
-                        false,
-                    )
-                    .await;
-                    if let Some(watch) = cancel_watch {
-                        watch.abort();
-                    }
-                    let result = result.map_err(TaskExit::from)?;
-                    if task.is_cancel_requested() {
-                        return Err(TaskExit::Cancelled);
-                    }
-                    if result.is_error != Some(true) {
-                        if let Some(lease) = &progress_lease {
-                            let _ = lease.notify_edge(1.0, None).await;
+            let (task_name, task_lease) = (name.clone(), progress_lease.clone());
+            let owner = context.principal().clone();
+            let task = self
+                .tasks
+                .try_spawn_for(owner, Default::default(), move |task| {
+                    let progress_lease = task_lease.clone();
+                    Box::pin(async move {
+                        if task.is_cancel_requested() {
+                            return Err(TaskExit::Cancelled);
                         }
-                    }
-                    Ok(result)
-                })
-            });
+                        let cancel = Some(Arc::new(AtomicBool::new(task.is_cancel_requested())));
+                        let run = run_watched(
+                            progress_lease.as_deref(),
+                            (task_name, args),
+                            workspace,
+                            cancel.clone(),
+                            false,
+                        );
+                        finish_task_run(&task, &progress_lease, cancel, async move {
+                            run.await.map_err(TaskExit::from)
+                        })
+                        .await
+                    })
+                })?;
             let response = CallToolResponse::Task(CreateTaskResult::new(task));
             emit_tool_completion_log(self, &context, &name, &response).await?;
             return Ok(response);
@@ -764,7 +779,8 @@ impl ServerHandler for GmcpService {
     fn accepted_subscription_filter(
         &self,
         requested: &SubscriptionFilter,
-    ) -> Option<SubscriptionFilter> {
+        context: &RequestContext<RoleServer>,
+    ) -> Result<Option<SubscriptionFilter>, ErrorData> {
         let mut filter = requested.clone();
         if let Some(uris) = filter.resource_subscriptions.take() {
             let mut seen = BTreeSet::new();
@@ -774,67 +790,93 @@ impl ServerHandler for GmcpService {
                 .collect();
             filter.resource_subscriptions = (!admitted.is_empty()).then_some(admitted);
         }
-        Some(filter)
+        if let Some(ids) = requested.task_ids.as_deref() {
+            let admitted = self.tasks.authorize_tasks_for(context.principal(), ids)?;
+            filter.task_ids = (!admitted.is_empty()).then_some(admitted);
+        }
+        Ok(Some(filter))
     }
     fn prepare_subscription(&self) -> Box<dyn std::any::Any + Send> {
-        Box::new(self.changes.subscribe())
+        Box::new((self.changes.subscribe(), self.tasks.subscribe_events()))
     }
     async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
-        use broadcast::error::RecvError;
-        let mut changes = context
-            .take_prepared::<broadcast::Receiver<Change>>()
-            .unwrap_or_else(|| self.changes.subscribe());
+        use broadcast::error::RecvError::{Closed, Lagged};
+        type SubState = (
+            broadcast::Receiver<Change>,
+            broadcast::Receiver<(crate::mcp::task_manager::TaskPrincipal, DetailedTask)>,
+        );
+        fn keep_going(r: Result<(), SubscriptionSendError>) -> Result<bool, ErrorData> {
+            match r {
+                Ok(()) | Err(SubscriptionSendError::NotificationNotAccepted(_)) => Ok(true),
+                Err(SubscriptionSendError::SubscriptionClosed) => Ok(false),
+                Err(e) => Err(internal(e)),
+            }
+        }
+        let (mut changes, mut task_events) = context
+            .take_prepared::<SubState>()
+            .unwrap_or_else(|| (self.changes.subscribe(), self.tasks.subscribe_events()));
+        let sink = context.sink();
+        if let Some(ids) = &context.accepted().task_ids {
+            for snap in self.tasks.snapshots_for(context.principal(), ids) {
+                if snap.status().is_terminal() && !keep_going(sink.notify_task_status(&snap).await)?
+                {
+                    return Ok(());
+                }
+            }
+        }
         loop {
-            let change = tokio::select! {
+            let result = tokio::select! {
                 _ = context.cancelled() => return Ok(()),
                 msg = changes.recv() => match msg {
-                    Ok(c) => c,
-                    Err(RecvError::Closed) => return Ok(()),
-                    Err(RecvError::Lagged(n)) => return Err(internal(format!("Subscription lagged ({n} events dropped)"))),
-                }
-            };
-            let sink = context.sink();
-            let result = match change {
-                Change::Tools => sink.notify_tool_list_changed().await,
-                Change::Prompts => sink.notify_prompt_list_changed().await,
-                Change::Resources => sink.notify_resource_list_changed().await,
-                Change::Resource(uri) => {
-                    if self.admit_resource(&uri).is_err() {
-                        continue;
+                    Ok(Change::Tools) => sink.notify_tool_list_changed().await,
+                    Ok(Change::Prompts) => sink.notify_prompt_list_changed().await,
+                    Ok(Change::Resources) => sink.notify_resource_list_changed().await,
+                    Ok(Change::Resource(uri)) if self.admit_resource(&uri).is_ok() => {
+                        sink.notify_resource_updated(uri).await
                     }
-                    sink.notify_resource_updated(uri).await
+                    Ok(Change::Resource(_)) => continue,
+                    Err(Closed) => return Ok(()),
+                    Err(Lagged(n)) => return Err(internal(format!("Subscription lagged ({n} events dropped)"))),
+                },
+                ev = task_events.recv() => match ev {
+                    Ok((owner, task)) if owner == *context.principal() => sink.notify_task_status(&task).await,
+                    Ok(_) => continue,
+                    Err(Closed) => return Ok(()),
+                    Err(Lagged(n)) => return Err(internal(format!("Task subscription lagged ({n} events dropped)"))),
                 }
             };
-            match result {
-                Ok(()) | Err(SubscriptionSendError::NotificationNotAccepted(_)) => {}
-                Err(SubscriptionSendError::SubscriptionClosed) => return Ok(()),
-                Err(error) => return Err(internal(error)),
+            if !keep_going(result)? {
+                return Ok(());
             }
         }
     }
     async fn get_task(
         &self,
         request: GetTaskParams,
-        _: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<GetTaskResult, ErrorData> {
         self.tasks
-            .get_task(&request.task_id)
+            .get_task_for(&request.task_id, context.principal())
             .map(GetTaskResult::new)
     }
     async fn update_task(
         &self,
         request: UpdateTaskParams,
-        _: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<(), ErrorData> {
-        self.tasks
-            .update_task(&request.task_id, request.input_responses)
+        self.tasks.update_task_for(
+            &request.task_id,
+            context.principal(),
+            request.input_responses,
+        )
     }
     async fn cancel_task(
         &self,
         request: CancelTaskParams,
-        _: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<(), ErrorData> {
-        self.tasks.cancel_task(&request.task_id)
+        self.tasks
+            .cancel_task_for(&request.task_id, context.principal())
     }
 }
 

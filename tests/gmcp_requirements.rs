@@ -25474,12 +25474,14 @@ fn gmcp_req_203_012_05_interop() {
                         "susi://a".into(),
                         "susi://b".into(),
                     ]),
+                    task_ids: None,
                 };
                 let g = SubscriptionFilter {
                     tools_list_changed: Some(true),
                     prompts_list_changed: None,
                     resources_list_changed: r.then_some(true),
                     resource_subscriptions: Some(vec!["susi://a".into(), "susi://b".into()]),
+                    task_ids: None,
                 };
                 let inter = f.intersection(&g);
                 assert_eq!(inter.tools_list_changed, t.then_some(true));
@@ -30941,4 +30943,448 @@ fn gmcp_req_203_014_01_contract() {
         .get_task("missing-task-id")
         .expect_err("unknown task fails");
     assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+}
+
+#[test]
+fn gmcp_req_203_014_02_production() {
+    use serde_json::{json, Value};
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use susi_core::plane_bus::{topics, with_watched, PlaneBus, PlaneHandler};
+    use susi_gmcp::mcp::model::{CallToolResult, ContentBlock, InputRequest, Tool};
+    use susi_gmcp::mcp::ServiceExt;
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::server::GmcpServer;
+    use susi_wire_client::mcp::{
+        CallToolOutcome, PersistedTaskHandle, PersistedTaskHandleStore, Session, TaskStatus,
+        WireError, PROTOCOL_VERSION_2026_07_28,
+    };
+
+    let (_lock, _env, home) = gmcp_http_home_guard("014-prod");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let tok_alice = "tok-alice-203-014-02";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_alice}\n")).unwrap();
+
+    // Register deterministic PlaneBus tools exercised through the real GmcpServer HTTP runtime.
+    let echo_runs = Arc::new(AtomicUsize::new(0));
+    let wait_cancelled = Arc::new(AtomicBool::new(false));
+    struct ProdList;
+    impl PlaneHandler for ProdList {
+        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+            Ok(json!([
+                {"name": "prod_echo", "description": "Deterministic echo"},
+                {"name": "prod_wait", "description": "Cancellable wait"}
+            ]))
+        }
+    }
+    struct ProdExists;
+    impl PlaneHandler for ProdExists {
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+            Ok(json!({ "exists": matches!(name, "prod_echo" | "prod_wait") }))
+        }
+    }
+    struct ProdExec {
+        echo_runs: Arc<AtomicUsize>,
+        wait_cancelled: Arc<AtomicBool>,
+    }
+    impl PlaneHandler for ProdExec {
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+            let args = payload.get("args").cloned().unwrap_or(Value::Null);
+            let echo_runs = self.echo_runs.clone();
+            let wait_cancelled = self.wait_cancelled.clone();
+            with_watched(&payload, || match name {
+                "prod_echo" => {
+                    echo_runs.fetch_add(1, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(20));
+                    let msg = args.get("msg").and_then(Value::as_str).unwrap_or("");
+                    Ok(json!({ "text": format!("echo:{msg}") }))
+                }
+                "prod_wait" => {
+                    for _ in 0..300 {
+                        if susi_core::progress::is_cancelled() {
+                            wait_cancelled.store(true, Ordering::Release);
+                            return Ok(json!({ "text": "cancelled" }));
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Ok(json!({ "text": "finished" }))
+                }
+                other => Err(format!("unexpected tool {other}")),
+            })
+        }
+    }
+    PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(ProdList));
+    PlaneBus::global().register(topics::TOOLS_EXISTS, Arc::new(ProdExists));
+    PlaneBus::global().register(
+        topics::TOOLS_EXECUTE,
+        Arc::new(ProdExec {
+            echo_runs: echo_runs.clone(),
+            wait_cancelled: wait_cancelled.clone(),
+        }),
+    );
+
+    let spawn_server = || {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+        let port = listener.local_addr().unwrap().port();
+        let addr = format!("127.0.0.1:{port}");
+        let ws = root.to_path_buf();
+        std::thread::spawn(move || {
+            GmcpServer::start_http_server(ws, vec![listener], None, false);
+        });
+        for _ in 0..100 {
+            if TcpStream::connect(&addr).is_ok() {
+                return (addr, port);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("server did not start on {addr}");
+    };
+
+    let (addr1, port1) = spawn_server();
+    let mut alice = Session::open_2026_07_28(&addr1, Some(tok_alice), Duration::from_secs(15))
+        .expect("stateless 2026-07-28 discover must succeed");
+    assert_eq!(alice.protocol_version(), PROTOCOL_VERSION_2026_07_28);
+    assert!(alice.supports_server_tasks());
+
+    // 1. Non-opt-in call must run synchronously; opted-in call yields CreateTaskResult; subsequent non-opt-in must stay sync.
+    let sync_before = alice
+        .call_tool_with_tasks("prod_echo", &json!({"msg": "sync"}), false, &mut |_| {})
+        .unwrap();
+    match sync_before {
+        CallToolOutcome::Complete(val) => assert_eq!(val["content"][0]["text"], "echo:sync"),
+        other => panic!("expected sync Complete, got {other:?}"),
+    }
+
+    let async_outcome = alice
+        .call_tool_with_tasks("prod_echo", &json!({"msg": "async"}), true, &mut |_| {})
+        .unwrap();
+    let echo_handle = match async_outcome {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected CreateTaskResult Task handle, got {other:?}"),
+    };
+
+    let sync_after = alice
+        .call_tool_with_tasks("prod_echo", &json!({"msg": "after"}), false, &mut |_| {})
+        .unwrap();
+    assert!(matches!(sync_after, CallToolOutcome::Complete(_)));
+
+    // 2. Omitting io.modelcontextprotocol/tasks on tasks/get must fail with -32021.
+    let missing_cap = alice
+        .request(
+            "tasks/get",
+            &json!({"taskId": echo_handle.task_id}),
+            &mut |_| {},
+        )
+        .unwrap_err();
+    assert!(
+        matches!(missing_cap, WireError::Rpc(-32021, _)),
+        "expected -32021, got {missing_cap:?}"
+    );
+
+    // 3. HTTP Mcp-Name mismatch on tasks/get must fail with 400 / -32020 HEADER_MISMATCH.
+    let bad_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 9001,
+        "method": "tasks/get",
+        "params": {
+            "taskId": echo_handle.task_id,
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
+                "io.modelcontextprotocol/clientCapabilities": {
+                    "extensions": { "io.modelcontextprotocol/tasks": {} }
+                }
+            }
+        }
+    }))
+    .unwrap();
+    let mut raw_stream = TcpStream::connect(("127.0.0.1", port1)).unwrap();
+    raw_stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let raw_req = format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port1}\r\nConnection: close\r\nAuthorization: Bearer {tok_alice}\r\nAccept: application/json, text/event-stream\r\nContent-Type: application/json\r\nMCP-Protocol-Version: {PROTOCOL_VERSION_2026_07_28}\r\nMcp-Method: tasks/get\r\nMcp-Name: mismatched-task-id\r\nContent-Length: {}\r\n\r\n{bad_body}",
+        bad_body.len()
+    );
+    raw_stream.write_all(raw_req.as_bytes()).unwrap();
+    let mut raw_resp = String::new();
+    let _ = raw_stream.read_to_string(&mut raw_resp);
+    let raw_status: u16 = raw_resp
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    assert_eq!(raw_status, 400, "{raw_resp}");
+    assert!(raw_resp.contains("-32020"), "{raw_resp}");
+
+    // 4. Client handle persistence + polling to completion.
+    let handle_store_path = home.join("client-handles.json");
+    let mut store = PersistedTaskHandleStore::open(&handle_store_path).unwrap();
+    store
+        .save(PersistedTaskHandle::from_handle(
+            &addr1,
+            PROTOCOL_VERSION_2026_07_28,
+            &echo_handle,
+        ))
+        .unwrap();
+
+    let completed = alice
+        .poll_task_until_done(&echo_handle, Some(Duration::from_secs(10)), |_| {
+            Ok(json!({}))
+        })
+        .unwrap();
+    assert_eq!(completed.handle.status, TaskStatus::Completed);
+    assert_eq!(
+        completed.result.as_ref().unwrap()["content"][0]["text"],
+        "echo:async"
+    );
+    assert!(store.update_from_snapshot(&completed).unwrap());
+    assert_eq!(
+        PersistedTaskHandleStore::open(&handle_store_path)
+            .unwrap()
+            .get(&echo_handle.task_id)
+            .unwrap()
+            .status,
+        TaskStatus::Completed
+    );
+
+    // 5. Cancellation + terminal immutability (-32602).
+    let wait_handle = match alice
+        .call_tool_with_tasks("prod_wait", &json!({}), true, &mut |_| {})
+        .unwrap()
+    {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected Task handle for prod_wait, got {other:?}"),
+    };
+    alice.cancel_task(&wait_handle.task_id).unwrap();
+    let mut cancelled = None;
+    for _ in 0..20 {
+        let snap = alice.get_task(&wait_handle.task_id).unwrap();
+        if snap.handle.status.is_terminal() {
+            cancelled = Some(snap);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    let cancelled = cancelled.expect("cancelled task must settle to terminal state");
+    assert_eq!(cancelled.handle.status, TaskStatus::Cancelled);
+    assert!(
+        wait_cancelled.load(Ordering::Acquire),
+        "prod_wait must observe cooperative task cancellation"
+    );
+    assert!(matches!(
+        alice.cancel_task(&wait_handle.task_id),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    assert!(matches!(
+        alice.update_task(&wait_handle.task_id, &json!({})),
+        Err(WireError::Rpc(-32602, _))
+    ));
+
+    // 6. Restart survival & cross-bearer isolation across durable TaskManager HTTP service.
+    let runs_before_restart = echo_runs.load(Ordering::SeqCst);
+    let (addr2, _port2) = spawn_server();
+    let mut alice_restarted =
+        Session::open_2026_07_28(&addr2, Some(tok_alice), Duration::from_secs(15)).unwrap();
+    let persisted_id = PersistedTaskHandleStore::open(&handle_store_path)
+        .unwrap()
+        .get(&echo_handle.task_id)
+        .unwrap()
+        .task_id
+        .clone();
+    let resumed = alice_restarted.get_task(&persisted_id).unwrap();
+    assert_eq!(resumed.handle.status, TaskStatus::Completed);
+    assert_eq!(
+        resumed.result.as_ref().unwrap()["content"][0]["text"],
+        "echo:async"
+    );
+    assert_eq!(
+        echo_runs.load(Ordering::SeqCst),
+        runs_before_restart,
+        "durable completed task must be replayed without re-execution"
+    );
+
+    // Different bearer principal fails owner checks on persisted task handle.
+    let tok_bob = "tok-bob-203-014-02";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_bob}\n")).unwrap();
+    let mut bob = Session::open_2026_07_28(&addr2, Some(tok_bob), Duration::from_secs(15)).unwrap();
+    assert!(matches!(
+        bob.get_task(&persisted_id),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    assert!(matches!(
+        bob.cancel_task(&persisted_id),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    assert!(matches!(
+        bob.get_task("00000000-0000-4000-8000-000000000000"),
+        Err(WireError::Rpc(-32602, _))
+    ));
+
+    // 7. End-to-end MRTR composition (roots/list, elicitation/create, sampling/createMessage)
+    // and subscriptions/listen.taskIds notification push on durable GmcpService.
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let mrtr_store = home.join("mrtr-durable");
+        let svc = GmcpService::open_durable(root.to_path_buf(), mrtr_store).unwrap();
+        let mrtr_tool: Tool =
+            serde_json::from_value(json!({"name": "mrtr_triplet", "inputSchema": {"type": "object"}}))
+                .unwrap();
+        svc.register_task_tool(
+            mrtr_tool,
+            Arc::new(|_, ctx| {
+                Box::pin(async move {
+                    let roots: InputRequest =
+                        serde_json::from_value(json!({"method": "roots/list"})).unwrap();
+                    let r_ans = ctx.request_input("k-roots", roots).await?;
+                    let elicit: InputRequest = serde_json::from_value(json!({
+                        "method": "elicitation/create",
+                        "params": {"mode": "form", "message": "Confirm", "requestedSchema": {"type": "object"}}
+                    }))
+                    .unwrap();
+                    let e_ans = ctx.request_input("k-elicit", elicit).await?;
+                    let sample: InputRequest = serde_json::from_value(json!({
+                        "method": "sampling/createMessage",
+                        "params": {"messages": [{"role": "user", "content": {"type": "text", "text": "ping"}}], "maxTokens": 8}
+                    }))
+                    .unwrap();
+                    let s_ans = ctx.request_input("k-sample", sample).await?;
+                    Ok(CallToolResult {
+                        content: vec![ContentBlock::text("mrtr-complete")],
+                        structured_content: Some(json!({
+                            "roots": r_ans,
+                            "elicit": e_ans,
+                            "sample": s_ans,
+                        })),
+                        is_error: Some(false),
+                        meta: None,
+                        result_type: None,
+                    })
+                })
+            }),
+        )
+        .unwrap();
+
+        let sub_svc = svc.session();
+        let open_wire = |s: GmcpService| async move {
+            let (c, srv) = tokio::io::duplex(65536);
+            tokio::spawn(async move {
+                let running = s.serve(srv).await.unwrap();
+                running.waiting().await.unwrap();
+            });
+            BufReader::new(c)
+        };
+        let mut main_wire = open_wire(svc).await;
+        let mut sub_wire = open_wire(sub_svc).await;
+        async fn send_wire(w: &mut BufReader<tokio::io::DuplexStream>, msg: Value) {
+            let bytes = format!("{msg}\n").into_bytes();
+            w.get_mut().write_all(&bytes).await.unwrap();
+        }
+        async fn recv_wire(w: &mut BufReader<tokio::io::DuplexStream>) -> Value {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(5), w.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        }
+        let mod_req = |id: i64, method: &str, mut params: Value| {
+            params["_meta"] = json!({
+                "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
+                "io.modelcontextprotocol/clientCapabilities": {
+                    "extensions": { "io.modelcontextprotocol/tasks": {} }
+                }
+            });
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+        };
+
+        send_wire(&mut main_wire, mod_req(1, "server/discover", json!({}))).await;
+        assert_eq!(recv_wire(&mut main_wire).await["result"]["resultType"], "complete");
+        send_wire(&mut sub_wire, mod_req(1, "server/discover", json!({}))).await;
+        assert_eq!(recv_wire(&mut sub_wire).await["result"]["resultType"], "complete");
+
+        send_wire(&mut main_wire, mod_req(2, "tools/call", json!({"name": "mrtr_triplet"}))).await;
+        let created = recv_wire(&mut main_wire).await;
+        assert_eq!(created["result"]["resultType"], "task");
+        let mrtr_task_id = created["result"]["taskId"].as_str().unwrap().to_string();
+
+        // Subscribe to taskIds and confirm acknowledged precedes notifications/tasks.
+        send_wire(
+            &mut sub_wire,
+            mod_req(
+                2,
+                "subscriptions/listen",
+                json!({"notifications": {"taskIds": [mrtr_task_id]}}),
+            ),
+        )
+        .await;
+        assert_eq!(
+            recv_wire(&mut sub_wire).await["method"],
+            "notifications/subscriptions/acknowledged"
+        );
+
+        let answers = [
+            ("k-roots", json!({"roots": []})),
+            ("k-elicit", json!({"action": "accept"})),
+            ("k-sample", json!({"role": "assistant", "content": {"type": "text", "text": "pong"}})),
+        ];
+        let mut next_id = 10;
+        for (expected_key, answer) in answers {
+            let mut updated = false;
+            for _ in 0..30 {
+                send_wire(&mut main_wire, mod_req(next_id, "tasks/get", json!({"taskId": mrtr_task_id}))).await;
+                next_id += 1;
+                let snap = recv_wire(&mut main_wire).await;
+                if snap["result"]["inputRequests"].get(expected_key).is_some() {
+                    let mut map = serde_json::Map::new();
+                    map.insert(expected_key.to_string(), answer.clone());
+                    send_wire(
+                        &mut main_wire,
+                        mod_req(next_id, "tasks/update", json!({"taskId": mrtr_task_id, "inputResponses": Value::Object(map)})),
+                    )
+                    .await;
+                    next_id += 1;
+                    assert!(recv_wire(&mut main_wire).await.get("error").is_none());
+                    updated = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            assert!(updated, "never observed inputRequest {expected_key}");
+        }
+
+        let mut completed_final = false;
+        for _ in 0..40 {
+            send_wire(&mut main_wire, mod_req(next_id, "tasks/get", json!({"taskId": mrtr_task_id}))).await;
+            next_id += 1;
+            let snap = recv_wire(&mut main_wire).await;
+            if snap["result"]["status"] == "completed" {
+                assert_eq!(snap["result"]["result"]["structuredContent"]["sample"]["content"]["text"], "pong");
+                completed_final = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(completed_final, "mrtr_triplet task must complete");
+
+        let mut saw_sub_completed = false;
+        for _ in 0..16 {
+            let note = recv_wire(&mut sub_wire).await;
+            let m = note["method"].as_str().unwrap_or("");
+            assert!(m != "notifications/progress" && m != "notifications/message", "forbidden leakage: {note}");
+            if m == "notifications/tasks" && note["params"]["status"] == "completed" {
+                saw_sub_completed = true;
+                break;
+            }
+        }
+        assert!(saw_sub_completed, "subscription must deliver final notifications/tasks");
+    });
 }

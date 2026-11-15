@@ -14,6 +14,7 @@
 use super::message::*;
 use super::model::*;
 use super::service::{serve_directly, serve_server, CancellationToken, DropGuard, ServerHandler};
+use super::task_manager::{uuid_v4, TaskPrincipal};
 use super::transport::Transport;
 use hyper::body::Bytes;
 use hyper::body::{Body, Frame};
@@ -129,12 +130,11 @@ fn text_response(status: StatusCode, text: impl Into<Bytes>) -> BoxResponse {
     response
 }
 
-fn boxed(response: BoxResponse) -> Box<BoxResponse> {
-    Box::new(response)
-}
-
 fn internal_box(context: &str, error: impl std::fmt::Display) -> Box<BoxResponse> {
-    boxed(internal_error(context, error))
+    err_box(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Encounter an error when {context}: {error}"),
+    )
 }
 
 fn accepted_response() -> BoxResponse {
@@ -162,13 +162,6 @@ fn session_not_found() -> BoxResponse {
     text_response(StatusCode::NOT_FOUND, "Not Found: Session not found")
 }
 
-fn internal_error(context: &str, error: impl std::fmt::Display) -> BoxResponse {
-    text_response(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Encounter an error when {context}: {error}"),
-    )
-}
-
 fn jsonrpc_response(message: &ServerJsonRpcMessage, status: StatusCode) -> BoxResponse {
     let body = serde_json::to_vec(message).unwrap_or_default();
     let mut response = text_response(status, body);
@@ -180,7 +173,7 @@ fn jsonrpc_response(message: &ServerJsonRpcMessage, status: StatusCode) -> BoxRe
 }
 
 fn jsonrpc_error(id: Option<RequestId>, error: ErrorData) -> Box<BoxResponse> {
-    boxed(jsonrpc_response(
+    Box::new(jsonrpc_response(
         &ServerJsonRpcMessage::error(error, id),
         StatusCode::BAD_REQUEST,
     ))
@@ -190,16 +183,12 @@ fn invalid_request(id: Option<RequestId>, message: impl Into<String>) -> Box<Box
     jsonrpc_error(id, ErrorData::invalid_request(message.into(), None))
 }
 
-fn err_text(status: StatusCode, msg: impl Into<Bytes>) -> Box<BoxResponse> {
-    boxed(text_response(status, msg))
+fn err_box(status: StatusCode, msg: impl Into<Bytes>) -> Box<BoxResponse> {
+    Box::new(text_response(status, msg))
 }
 
 fn forbidden(msg: &'static str) -> Box<BoxResponse> {
-    err_text(StatusCode::FORBIDDEN, msg)
-}
-
-fn bad_req(msg: impl Into<Bytes>) -> Box<BoxResponse> {
-    err_text(StatusCode::BAD_REQUEST, msg)
+    err_box(StatusCode::FORBIDDEN, msg)
 }
 
 fn header_mismatch(id: Option<RequestId>, message: impl Into<String>) -> Box<BoxResponse> {
@@ -212,7 +201,7 @@ fn bad_request_text(message: &'static str) -> Box<BoxResponse> {
         http::header::CONTENT_TYPE,
         HeaderValue::from_static("text/plain; charset=utf-8"),
     );
-    boxed(response)
+    Box::new(response)
 }
 
 // ── Server-sent events ───────────────────────────────────────────────────
@@ -365,11 +354,11 @@ fn per_request_version(message: &ClientJsonRpcMessage) -> Option<ProtocolVersion
 fn legacy_session_id(headers: &HeaderMap) -> HttpResult<SessionId> {
     if !is_legacy_request(None, headers)? {
         // No event store: a stateless stream cannot be resumed.
-        return Err(boxed(method_not_allowed("POST")));
+        return Err(Box::new(method_not_allowed("POST")));
     }
     header_text(headers, HEADER_SESSION_ID)
         .map(SessionId::from)
-        .ok_or_else(|| boxed(session_id_required()))
+        .ok_or_else(|| Box::new(session_id_required()))
 }
 
 fn unsupported_media(msg: impl Into<Bytes>) -> BoxResponse {
@@ -381,7 +370,8 @@ fn validate_protocol_version_header(headers: &HeaderMap, allow_unknown: bool) ->
         return Ok(());
     };
     let Ok(version) = value.to_str() else {
-        return Err(bad_req(
+        return Err(err_box(
+            StatusCode::BAD_REQUEST,
             "Bad Request: Invalid MCP-Protocol-Version header encoding",
         ));
     };
@@ -389,9 +379,10 @@ fn validate_protocol_version_header(headers: &HeaderMap, allow_unknown: bool) ->
         .iter()
         .any(|v| v.as_str() == version);
     if !allow_unknown && !known {
-        return Err(bad_req(format!(
-            "Bad Request: Unsupported MCP-Protocol-Version: {version}"
-        )));
+        return Err(err_box(
+            StatusCode::BAD_REQUEST,
+            format!("Bad Request: Unsupported MCP-Protocol-Version: {version}"),
+        ));
     }
     Ok(())
 }
@@ -1269,6 +1260,7 @@ impl SessionWorker {
 #[derive(Clone)]
 struct SessionHandle {
     events: mpsc::Sender<SessionEvent>,
+    owner: TaskPrincipal,
 }
 
 impl SessionHandle {
@@ -1309,24 +1301,34 @@ pub struct LocalSessionManager {
 }
 
 impl LocalSessionManager {
-    async fn handle(&self, id: &SessionId) -> Option<SessionHandle> {
-        self.sessions.read().await.get(id).cloned()
+    async fn handle(&self, id: &SessionId, principal: &TaskPrincipal) -> Option<SessionHandle> {
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .filter(|h| &h.owner == principal)
+            .cloned()
     }
-    async fn close_session(&self, id: &SessionId) {
-        let handle = self.sessions.write().await.remove(id);
-        if let Some(handle) = handle {
+    async fn close_session(&self, id: &SessionId, owner: Option<&TaskPrincipal>) -> bool {
+        let mut sessions = self.sessions.write().await;
+        if owner.is_some_and(|p| sessions.get(id).is_some_and(|h| &h.owner != p)) {
+            return false;
+        }
+        if let Some(handle) = sessions.remove(id) {
             let _ = handle.events.send(SessionEvent::Close).await;
         }
+        true
     }
     fn create_session(
         &self,
+        owner: TaskPrincipal,
     ) -> (
         SessionId,
         SessionHandle,
         SessionTransport,
         SessionWorkerParts,
     ) {
-        let id: SessionId = super::task_manager::uuid_v4().into();
+        let id: SessionId = uuid_v4().into();
         let capacity = self.session_config.channel_capacity;
         let (events_tx, events_rx) = mpsc::channel(capacity);
         let (to_service, inbound) = mpsc::channel(capacity);
@@ -1341,7 +1343,10 @@ impl LocalSessionManager {
         };
         (
             id,
-            SessionHandle { events: events_tx },
+            SessionHandle {
+                events: events_tx,
+                owner,
+            },
             SessionTransport { inbound, outbound },
             SessionWorkerParts {
                 worker,
@@ -1393,7 +1398,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
     }
 
     fn service(&self) -> Result<S, Box<BoxResponse>> {
-        (self.service_factory)().map_err(|e| boxed(internal_error("get service", e)))
+        (self.service_factory)().map_err(|e| internal_box("get service", e))
     }
 
     /// Answer one HTTP request.
@@ -1407,10 +1412,15 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         {
             return *response;
         }
+        let principal = request
+            .extensions()
+            .get::<TaskPrincipal>()
+            .cloned()
+            .unwrap_or_default();
         let result = match *request.method() {
-            Method::POST => self.handle_post(request).await,
-            Method::GET => self.handle_get(request).await,
-            Method::DELETE => self.handle_delete(request).await,
+            Method::POST => self.handle_post(request, principal).await,
+            Method::GET => self.handle_get(request, &principal).await,
+            Method::DELETE => self.handle_delete(request, &principal).await,
             _ => return method_not_allowed("GET, POST, DELETE"),
         };
         result.unwrap_or_else(|response| *response)
@@ -1424,7 +1434,11 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         queued
     }
 
-    async fn handle_get<B>(&self, request: Request<B>) -> HttpResult<BoxResponse> {
+    async fn handle_get<B>(
+        &self,
+        request: Request<B>,
+        principal: &TaskPrincipal,
+    ) -> HttpResult<BoxResponse> {
         let headers = request.headers();
         if !header_text(headers, "accept").is_some_and(|a| a.contains(EVENT_STREAM_MIME_TYPE)) {
             return Ok(text_response(
@@ -1433,7 +1447,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             ));
         }
         let session_id = legacy_session_id(headers)?;
-        let Some(session) = self.session_manager.handle(&session_id).await else {
+        let Some(session) = self.session_manager.handle(&session_id, principal).await else {
             return Ok(session_not_found());
         };
         let keep_alive = self.config.sse_keep_alive;
@@ -1455,7 +1469,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let rx = session
             .call(|responder| SessionEvent::OpenCommonStream { responder })
             .await
-            .map_err(|e| boxed(internal_error("create standalone stream", e)))?;
+            .map_err(|e| internal_box("create standalone stream", e))?;
         Ok(sse_response(
             self.priming_queue(),
             Some(rx),
@@ -1464,9 +1478,19 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         ))
     }
 
-    async fn handle_delete<B>(&self, request: Request<B>) -> HttpResult<BoxResponse> {
+    async fn handle_delete<B>(
+        &self,
+        request: Request<B>,
+        principal: &TaskPrincipal,
+    ) -> HttpResult<BoxResponse> {
         let session_id = legacy_session_id(request.headers())?;
-        self.session_manager.close_session(&session_id).await;
+        if !self
+            .session_manager
+            .close_session(&session_id, Some(principal))
+            .await
+        {
+            return Ok(session_not_found());
+        }
         Ok(accepted_response())
     }
 
@@ -1480,7 +1504,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let mut body = std::pin::pin!(body);
         while let Some(frame) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
             let frame = frame.map_err(|e| {
-                err_text(
+                err_box(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Failed to read request body: {e}"),
                 )
@@ -1490,7 +1514,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             };
             use hyper::body::Buf;
             if data.remaining() > max.saturating_sub(collected.len()) {
-                return Err(err_text(
+                return Err(err_box(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     format!("Payload Too Large: request body exceeds {max} bytes"),
                 ));
@@ -1505,7 +1529,11 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         Ok(collected)
     }
 
-    async fn handle_post<B>(&self, request: Request<B>) -> HttpResult<BoxResponse>
+    async fn handle_post<B>(
+        &self,
+        request: Request<B>,
+        principal: TaskPrincipal,
+    ) -> HttpResult<BoxResponse>
     where
         B: Body + Send + 'static,
         B::Error: std::fmt::Display,
@@ -1541,16 +1569,18 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         };
         let headers = &parts.headers;
         if is_legacy_request(Some(&message), headers)? {
-            return self.handle_session_post(message, raw, headers).await;
+            return self
+                .handle_session_post(message, raw, headers, principal)
+                .await;
         }
         let service = self.service()?;
         validate_standard_headers(headers, &message, &raw, |name| {
             service.get_tool(name).map(|tool| tool.input_schema)
         })?;
         match message {
-            ClientJsonRpcMessage::Request(request) => {
-                Ok(self.serve_stateless(service, request, headers).await)
-            }
+            ClientJsonRpcMessage::Request(request) => Ok(self
+                .serve_stateless(service, request, headers, principal)
+                .await),
             ClientJsonRpcMessage::Notification(_) => Ok(accepted_response()),
             ClientJsonRpcMessage::Response { .. } | ClientJsonRpcMessage::Error { .. } => Err(
                 invalid_request(None, "stateless server does not accept JSON-RPC responses"),
@@ -1563,6 +1593,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         message: ClientJsonRpcMessage,
         raw: serde_json::Value,
         headers: &HeaderMap,
+        principal: TaskPrincipal,
     ) -> HttpResult<BoxResponse> {
         let tool_schema = |name: &str| {
             (self.service_factory)()
@@ -1571,7 +1602,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
                 .map(|tool| tool.input_schema)
         };
         if let Some(session_id) = header_text(headers, HEADER_SESSION_ID).map(SessionId::from) {
-            let Some(session) = self.session_manager.handle(&session_id).await else {
+            let Some(session) = self.session_manager.handle(&session_id, &principal).await else {
                 return Ok(session_not_found());
             };
             validate_standard_headers(headers, &message, &raw, tool_schema)?;
@@ -1580,11 +1611,11 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
                     let (id, rx) = session
                         .call(|responder| SessionEvent::OpenRequestStream { responder })
                         .await
-                        .map_err(|e| boxed(internal_error("get session", e)))?;
+                        .map_err(|e| internal_box("get session", e))?;
                     session
                         .push(message, Some(id))
                         .await
-                        .map_err(|e| boxed(internal_error("get session", e)))?;
+                        .map_err(|e| internal_box("get session", e))?;
                     Ok(sse_response(
                         VecDeque::new(),
                         Some(rx),
@@ -1598,7 +1629,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
                     session
                         .push(message, None)
                         .await
-                        .map_err(|e| boxed(internal_error("accept message", e)))?;
+                        .map_err(|e| internal_box("accept message", e))?;
                     Ok(accepted_response())
                 }
             };
@@ -1609,7 +1640,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         };
         if matches!(request.request, ClientRequest::Discover) {
             return Ok(self
-                .serve_stateless(self.service()?, request, headers)
+                .serve_stateless(self.service()?, request, headers, principal)
                 .await);
         }
         if !matches!(request.request, ClientRequest::Initialize(_)) {
@@ -1617,7 +1648,8 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         }
         let message = ClientJsonRpcMessage::Request(request);
         let service = self.service()?;
-        let (session_id, handle, transport, parts) = self.session_manager.create_session();
+        let (session_id, handle, transport, parts) =
+            self.session_manager.create_session(principal.clone());
         self.session_manager
             .sessions
             .write()
@@ -1631,10 +1663,12 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let manager = self.session_manager.clone();
         let closing = session_id.clone();
         tokio::spawn(async move {
-            if let Ok(running) = serve_server(service, transport, CancellationToken::new()).await {
+            if let Ok(running) =
+                serve_server(service, transport, CancellationToken::new(), principal).await
+            {
                 let _ = running.waiting().await;
             }
-            manager.close_session(&closing).await;
+            manager.close_session(&closing, None).await;
         });
         let answer = handle
             .call(|responder| SessionEvent::Initialize { message, responder })
@@ -1655,6 +1689,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         service: S,
         request: JsonRpcRequest,
         headers: &HeaderMap,
+        principal: TaskPrincipal,
     ) -> BoxResponse {
         let meta_malformed = !request
             .meta
@@ -1672,7 +1707,13 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             done: Arc::new(tokio::sync::Semaphore::new(0)),
         };
         let request_ct = CancellationToken::new();
-        let running = serve_directly(service, transport, Some(peer_info), request_ct.clone());
+        let running = serve_directly(
+            service,
+            transport,
+            Some(peer_info),
+            request_ct.clone(),
+            principal,
+        );
         tokio::spawn(async move {
             let _ = running.waiting().await;
         });
@@ -1681,7 +1722,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
         let first = receiver.recv().await;
         let disconnect = disconnect.disarm();
         let Some(first) = first else {
-            return internal_error(
+            return *internal_box(
                 "empty response",
                 "no response message received from handler",
             );

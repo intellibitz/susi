@@ -198,6 +198,16 @@ impl std::fmt::Display for ErrorData {
 
 impl std::error::Error for ErrorData {}
 
+macro_rules! err_ctor {
+    ($($fn_name:ident => $code:ident),* $(,)?) => {
+        $(
+            pub fn $fn_name(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
+                Self::new(ErrorCode::$code, message, data)
+            }
+        )*
+    };
+}
+
 impl ErrorData {
     pub fn new(
         code: ErrorCode,
@@ -210,12 +220,14 @@ impl ErrorData {
             data,
         }
     }
-    pub fn resource_not_found(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::RESOURCE_NOT_FOUND, message, data)
-    }
-    pub fn header_mismatch(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::HEADER_MISMATCH, message, data)
-    }
+    err_ctor!(
+        resource_not_found => RESOURCE_NOT_FOUND,
+        header_mismatch => HEADER_MISMATCH,
+        parse_error => PARSE_ERROR,
+        invalid_request => INVALID_REQUEST,
+        invalid_params => INVALID_PARAMS,
+        internal_error => INTERNAL_ERROR,
+    );
     pub fn unsupported_protocol_version(
         requested: ProtocolVersion,
         supported: &[ProtocolVersion],
@@ -233,21 +245,9 @@ impl ErrorData {
             Some(serde_json::json!({"requiredCapabilities": required})),
         )
     }
-    pub fn parse_error(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::PARSE_ERROR, message, data)
-    }
-    pub fn invalid_request(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::INVALID_REQUEST, message, data)
-    }
     /// `-32601` naming the method that has no handler.
     pub fn method_not_found(method: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::METHOD_NOT_FOUND, method, None)
-    }
-    pub fn invalid_params(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::INVALID_PARAMS, message, data)
-    }
-    pub fn internal_error(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
-        Self::new(ErrorCode::INTERNAL_ERROR, message, data)
     }
 }
 
@@ -362,18 +362,26 @@ impl MetaObject {
     }
 }
 
-impl std::ops::Deref for MetaObject {
-    type Target = JsonObject;
-    fn deref(&self) -> &JsonObject {
-        &self.0
-    }
+macro_rules! impl_deref {
+    ($ty:ty => $target:ty) => {
+        impl std::ops::Deref for $ty {
+            type Target = $target;
+            fn deref(&self) -> &$target {
+                &self.0
+            }
+        }
+    };
+    (mut $ty:ty => $target:ty) => {
+        impl_deref!($ty => $target);
+        impl std::ops::DerefMut for $ty {
+            fn deref_mut(&mut self) -> &mut $target {
+                &mut self.0
+            }
+        }
+    };
 }
 
-impl std::ops::DerefMut for MetaObject {
-    fn deref_mut(&mut self) -> &mut JsonObject {
-        &mut self.0
-    }
-}
+impl_deref!(mut MetaObject => JsonObject);
 
 /// `params._meta` of a request.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
@@ -452,18 +460,7 @@ impl RequestMetaObject {
     }
 }
 
-impl std::ops::Deref for RequestMetaObject {
-    type Target = MetaObject;
-    fn deref(&self) -> &MetaObject {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for RequestMetaObject {
-    fn deref_mut(&mut self) -> &mut MetaObject {
-        &mut self.0
-    }
-}
+impl_deref!(mut RequestMetaObject => MetaObject);
 
 /// `params._meta` of a notification.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
@@ -482,12 +479,7 @@ impl NotificationMetaObject {
     }
 }
 
-impl std::ops::Deref for NotificationMetaObject {
-    type Target = MetaObject;
-    fn deref(&self) -> &MetaObject {
-        &self.0
-    }
-}
+impl_deref!(NotificationMetaObject => MetaObject);
 
 // ── Implementation info and capabilities ─────────────────────────────────
 
@@ -682,50 +674,38 @@ impl ServerCapabilities {
 #[derive(Debug, Default)]
 pub struct ServerCapabilitiesBuilder(ServerCapabilities);
 
+macro_rules! cap_builders {
+    (init: $($f:ident => $field:ident : $ty:ty),*; flag: $($ff:ident => $ffield:ident . $sub:ident),*) => {
+        $(
+            pub fn $f(mut self) -> Self {
+                self.0.$field = Some(<$ty>::default());
+                self
+            }
+        )*
+        $(
+            pub fn $ff(mut self) -> Self {
+                if let Some(c) = self.0.$ffield.as_mut() {
+                    c.$sub = Some(true);
+                }
+                self
+            }
+        )*
+    };
+}
+
 impl ServerCapabilitiesBuilder {
-    pub fn enable_tools(mut self) -> Self {
-        self.0.tools = Some(ToolsCapability::default());
-        self
-    }
-    pub fn enable_tool_list_changed(mut self) -> Self {
-        if let Some(tools) = self.0.tools.as_mut() {
-            tools.list_changed = Some(true);
-        }
-        self
-    }
-    pub fn enable_resources(mut self) -> Self {
-        self.0.resources = Some(ResourcesCapability::default());
-        self
-    }
-    pub fn enable_resources_list_changed(mut self) -> Self {
-        if let Some(resources) = self.0.resources.as_mut() {
-            resources.list_changed = Some(true);
-        }
-        self
-    }
-    pub fn enable_resources_subscribe(mut self) -> Self {
-        if let Some(resources) = self.0.resources.as_mut() {
-            resources.subscribe = Some(true);
-        }
-        self
-    }
-    pub fn enable_prompts(mut self) -> Self {
-        self.0.prompts = Some(PromptsCapability::default());
-        self
-    }
-    pub fn enable_prompts_list_changed(mut self) -> Self {
-        if let Some(prompts) = self.0.prompts.as_mut() {
-            prompts.list_changed = Some(true);
-        }
-        self
-    }
-    pub fn enable_completions(mut self) -> Self {
-        self.0.completions = Some(JsonObject::new());
-        self
-    }
-    pub fn enable_logging(mut self) -> Self {
-        self.0.logging = Some(JsonObject::new());
-        self
+    cap_builders! {
+        init:
+            enable_tools => tools: ToolsCapability,
+            enable_resources => resources: ResourcesCapability,
+            enable_prompts => prompts: PromptsCapability,
+            enable_completions => completions: JsonObject,
+            enable_logging => logging: JsonObject;
+        flag:
+            enable_tool_list_changed => tools.list_changed,
+            enable_resources_list_changed => resources.list_changed,
+            enable_resources_subscribe => resources.subscribe,
+            enable_prompts_list_changed => prompts.list_changed
     }
     pub fn enable_tasks(mut self) -> Self {
         self.0
@@ -1055,35 +1035,33 @@ impl Default for CallToolResult {
 }
 
 impl CallToolResult {
-    pub fn success(content: Vec<ContentBlock>) -> Self {
+    fn make(content: Vec<ContentBlock>, structured_content: Option<Value>, err: bool) -> Self {
         Self {
             content,
-            is_error: Some(false),
+            structured_content,
+            is_error: Some(err),
             ..Self::default()
         }
+    }
+    pub fn success(content: Vec<ContentBlock>) -> Self {
+        Self::make(content, None, false)
     }
     pub fn error(content: Vec<ContentBlock>) -> Self {
-        Self {
-            content,
-            is_error: Some(true),
-            ..Self::default()
-        }
+        Self::make(content, None, true)
     }
     pub fn structured(value: Value) -> Self {
-        Self {
-            content: vec![ContentBlock::text(value.to_string())],
-            structured_content: Some(value),
-            is_error: Some(false),
-            ..Self::default()
-        }
+        Self::make(
+            vec![ContentBlock::text(value.to_string())],
+            Some(value),
+            false,
+        )
     }
     pub fn structured_error(value: Value) -> Self {
-        Self {
-            content: vec![ContentBlock::text(value.to_string())],
-            structured_content: Some(value),
-            is_error: Some(true),
-            ..Self::default()
-        }
+        Self::make(
+            vec![ContentBlock::text(value.to_string())],
+            Some(value),
+            true,
+        )
     }
 }
 
@@ -1095,23 +1073,19 @@ pub enum CallToolResponse {
     Task(CreateTaskResult),
 }
 
-impl From<CallToolResult> for CallToolResponse {
-    fn from(result: CallToolResult) -> Self {
-        Self::Complete(result)
-    }
+macro_rules! impl_response_from {
+    ($resp:ty, $variant:ident => $src:ty) => {
+        impl From<$src> for $resp {
+            fn from(result: $src) -> Self {
+                Self::$variant(result)
+            }
+        }
+    };
 }
 
-impl From<InputRequiredResult> for CallToolResponse {
-    fn from(result: InputRequiredResult) -> Self {
-        Self::InputRequired(result)
-    }
-}
-
-impl From<CreateTaskResult> for CallToolResponse {
-    fn from(result: CreateTaskResult) -> Self {
-        Self::Task(result)
-    }
-}
+impl_response_from!(CallToolResponse, Complete => CallToolResult);
+impl_response_from!(CallToolResponse, InputRequired => InputRequiredResult);
+impl_response_from!(CallToolResponse, Task => CreateTaskResult);
 
 // ── Content ──────────────────────────────────────────────────────────────
 
@@ -1321,17 +1295,8 @@ pub enum ReadResourceResponse {
     InputRequired(InputRequiredResult),
 }
 
-impl From<ReadResourceResult> for ReadResourceResponse {
-    fn from(result: ReadResourceResult) -> Self {
-        Self::Complete(result)
-    }
-}
-
-impl From<InputRequiredResult> for ReadResourceResponse {
-    fn from(result: InputRequiredResult) -> Self {
-        Self::InputRequired(result)
-    }
-}
+impl_response_from!(ReadResourceResponse, Complete => ReadResourceResult);
+impl_response_from!(ReadResourceResponse, InputRequired => InputRequiredResult);
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SubscribeRequestParams {
@@ -1422,17 +1387,8 @@ pub enum GetPromptResponse {
     InputRequired(InputRequiredResult),
 }
 
-impl From<GetPromptResult> for GetPromptResponse {
-    fn from(result: GetPromptResult) -> Self {
-        Self::Complete(result)
-    }
-}
-
-impl From<InputRequiredResult> for GetPromptResponse {
-    fn from(result: InputRequiredResult) -> Self {
-        Self::InputRequired(result)
-    }
-}
+impl_response_from!(GetPromptResponse, Complete => GetPromptResult);
+impl_response_from!(GetPromptResponse, InputRequired => InputRequiredResult);
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "type")]
@@ -1513,16 +1469,7 @@ pub enum LoggingLevel {
 impl LoggingLevel {
     /// RFC 5424 numeric severity ordering (`Debug = 0 .. Emergency = 7`).
     pub const fn severity(self) -> u8 {
-        match self {
-            Self::Debug => 0,
-            Self::Info => 1,
-            Self::Notice => 2,
-            Self::Warning => 3,
-            Self::Error => 4,
-            Self::Critical => 5,
-            Self::Alert => 6,
-            Self::Emergency => 7,
-        }
+        self as u8
     }
 
     /// True when an event at `event` severity meets or exceeds `self` threshold.
@@ -1622,34 +1569,40 @@ pub struct SubscriptionFilter {
     pub resources_list_changed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_subscriptions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_ids: Option<Vec<String>>,
 }
 
 fn both(a: Option<bool>, b: Option<bool>) -> Option<bool> {
     (a == Some(true) && b == Some(true)).then_some(true)
 }
 
+fn intersect_lists(a: Option<&Vec<String>>, b: Option<&Vec<String>>) -> Option<Vec<String>> {
+    a.and_then(|requested| {
+        b.map(|accepted| {
+            let mut seen = std::collections::BTreeSet::new();
+            requested
+                .iter()
+                .filter(|item| accepted.contains(item) && seen.insert((*item).clone()))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    })
+    .filter(|items| !items.is_empty())
+}
+
 impl SubscriptionFilter {
     /// What both filters ask for, deduplicated in requested order.
     pub fn intersection(&self, other: &Self) -> Self {
-        let resource_subscriptions = self
-            .resource_subscriptions
-            .as_ref()
-            .and_then(|requested| {
-                other.resource_subscriptions.as_ref().map(|accepted| {
-                    let mut seen = std::collections::BTreeSet::new();
-                    requested
-                        .iter()
-                        .filter(|uri| accepted.contains(uri) && seen.insert((*uri).clone()))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-            })
-            .filter(|uris| !uris.is_empty());
         Self {
             tools_list_changed: both(self.tools_list_changed, other.tools_list_changed),
             prompts_list_changed: both(self.prompts_list_changed, other.prompts_list_changed),
             resources_list_changed: both(self.resources_list_changed, other.resources_list_changed),
-            resource_subscriptions,
+            resource_subscriptions: intersect_lists(
+                self.resource_subscriptions.as_ref(),
+                other.resource_subscriptions.as_ref(),
+            ),
+            task_ids: intersect_lists(self.task_ids.as_ref(), other.task_ids.as_ref()),
         }
     }
     /// The part of this filter the advertised capabilities can deliver.
@@ -1667,6 +1620,10 @@ impl SubscriptionFilter {
             resource_subscriptions: resources
                 .is_some_and(|c| c.subscribe == Some(true))
                 .then(|| self.resource_subscriptions.clone())
+                .flatten(),
+            task_ids: capabilities
+                .supports_tasks()
+                .then(|| self.task_ids.clone())
                 .flatten(),
         }
     }
@@ -1710,7 +1667,8 @@ pub struct Task {
     pub poll_interval_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskPayload {
     Working,
     InputRequired { input_requests: InputRequests },
