@@ -21,6 +21,11 @@
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794724346,
+    "commit": "e1bf278b816fc0ecc3d628fdd5fcc3c919982a02",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Contract freeze stage (`GMCP-203-014-01`) pins all 46 `VC-203-014` clauses, canonical data models, 2025-11-25 deprecation decisions, threat mitigations, SLOs, fixtures, and resolved ambiguities ahead of runtime implementation in `T-CODEXGMCPROADMAP-101`..`106`.",
     "Disk persistence across process restarts, principal ownership enforcement, `jsonrpc_gate.rs`/`transport.rs` task allowlisting, `SubscriptionFilter.taskIds` (`notifications/tasks`), poll rate limits, concurrency caps, and `susi-wire-client` task polling/retries are specified in `docs/gmcp/contract-203-014.md` for `T-CODEXGMCPROADMAP-101`..`106` rather than implemented here.",
