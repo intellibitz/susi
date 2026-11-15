@@ -490,7 +490,11 @@ impl<R: CommandRunner> SusiTarget<R> {
         let relative = format!(".agents/tasks/{id}.json");
         claim.require_scope(&relative)?;
         let argv = parse_acceptance(accept)?;
-        let record = serde_json::json!({"id":id,"title":title,"status":"claimed","owner":claim.name,"native_worker":claim.name,"scopes":claim.scopes,"accept":{"cmd":argv},"workflow":"susi-local-v2","base":claim.base});
+        // `created_by` and `created_unix` are what the task queue requires of every record.
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        let record = serde_json::json!({"id":id,"title":title,"status":"claimed","owner":claim.name,"native_worker":claim.name,"created_by":claim.name,"created_unix":created,"scopes":claim.scopes,"accept":{"cmd":argv},"workflow":"susi-local-v2","base":claim.base});
         let path = worktree.join(relative);
         check_task_path(worktree, &path)?;
         std::fs::create_dir_all(
