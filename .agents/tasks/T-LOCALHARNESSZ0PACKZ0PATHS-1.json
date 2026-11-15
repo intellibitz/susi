@@ -15,6 +15,7 @@
   "created_by": "harness-pack-paths",
   "created_unix": 1794781043,
   "id": "T-LOCALHARNESSZ0PACKZ0PATHS-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-pack-paths",
   "owner": "harness-pack-paths",
   "scopes": [
@@ -23,7 +24,7 @@
     "crates/susi-config/src/extensions.rs",
     "crates/susi-config/src/tests/extensions.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Refuse backslash escapes in pack manifest paths on every host",
   "workflow": "susi-local-v2"
 }
