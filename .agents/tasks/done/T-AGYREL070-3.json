@@ -3,12 +3,12 @@
     "feature_id":  "F-CORE-RELEASE-0.21.70-1",
     "title":  "Prepare Susi Core v0.21.70 release bump on snapshot v0-21-70-rc3",
     "goal":  "Bump Susi Core version metadata from 0.21.69 to 0.21.70 across the 12 allowed release bump files atop snapshot v0-21-70-rc3 (main 100896195442bd2092339f55fa261d440078ba03) for exact-tree Windows x86_64 release qualification.",
-    "state":  "in-progress",
-    "status":  "in-progress",
+    "state":  "done",
+    "status":  "completed",
     "owner":  "AGYREL070",
     "created_by":  "AGYREL070",
     "created_unix":  1794739328,
-    "updated_unix":  1794739328,
+    "updated_unix":  1794742834,
     "size":  "s",
     "deps":  [
                  "T-AGYREL070-2"
@@ -43,5 +43,10 @@
                },
     "limitations":  [
                         "Linux x86_64 reference build and qualification are owed on an x86_64-unknown-linux-gnu host."
-                    ]
+                    ],
+    "closed":  {
+                   "at_unix":  1794742834,
+                   "commit":  "7e8c10157ba884bc9a63ec4b5406d0a0a132b741",
+                   "by":  "AGYREL070"
+               }
 }
