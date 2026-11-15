@@ -19,9 +19,14 @@
       "runtime_native"
     ]
   },
-  "base_commit": "5810c79fe233f6ffb506db6f62938964cfabb78d",
   "created_by": "FIXTURESTORAGE1",
   "created_unix": 1793634920,
+  "closed": {
+    "at_unix": 1794765312,
+    "commit": "9ff08730050ca448a0385256992e005383cb1041",
+    "by": "AG3HOUSEKEEP"
+  },
+  "base_commit": "5810c79fe233f6ffb506db6f62938964cfabb78d",
   "implementation_commit": "f667919cf899840217dccdd6f15fddb3152a85fc",
   "notes": "Original bounded structural draft fixture storage landed in f667919cf899840217dccdd6f15fddb3152a85fc. During Lean Core migration, crates/susi-gemi/src/engines/speculative.rs moved to Commercial susi-gpu-fabric in a5c4be5f3bd77876e76484231671cac499ffb86c ([iter 341/400] refactor(susi-gemi): migrate speculative and token_stream to susi-gpu-fabric and decouple runtime_native), with crates/susi-gemi/src/engines/runtime_native.rs retaining Core's decoupled native routing boundary.",
   "reuse": {
@@ -42,6 +47,6 @@
     "crates/susi-gemi/src/engines/runtime_native.rs",
     "tests/task_record_schema_debt.json"
   ],
-  "state": "open",
-  "status": "implemented"
+  "state": "closed",
+  "status": "completed"
 }
