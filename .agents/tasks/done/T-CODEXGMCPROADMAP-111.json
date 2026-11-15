@@ -21,10 +21,16 @@
     "roadmap":  "VC-203-020",
     "created_by":  "CODEXGMCPROADMAP",
     "created_unix":  1792256247,
-    "state":  "open",
-    "status":  "implemented",
+    "state":  "closed",
+    "status":  "done",
     "base_commit":  "19dba42c8b098bac0013abdbcb2190c8ac592d63",
     "implementation_commit":  "33f2f16758c234113e02e86890f8ce4d15f46463",
+    "verified_commit":  "3a13ec806b624aee7ea704cc315fd9234d33691e",
+    "closed":  {
+                   "at_unix":  1794779402,
+                   "commit":  "3a13ec806b624aee7ea704cc315fd9234d33691e",
+                   "by":  "AG2FEATURES"
+               },
     "limitations":  [
                         "Interoperability and quality (`GMCP-203-020-05`) ships runnable minimal-through-production SDK/plugin examples (`crates/susi-gmcp/examples/01_minimal_tool.rs`..`06_production_plugin_server.rs`) and proves both-role `2026-07-28` and `2025-11-25` wire interop, official fixture replay, direct-vs-gateway differential behavior, deterministic property invariants, cross-transport parity, published SLO and multi-principal fairness budgets, and retained regression fixtures `R1..R3`; CLI/API operations, runbook, and drift detection diagnostics ship next in `T-CODEXGMCPROADMAP-112`, and final `.M` mastery sealing ships in `T-CODEXGMCPROADMAP-113`.",
                         "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
@@ -44,7 +50,7 @@
               },
     "scopes":  [
                    ".agents/gmcp/evidence",
-                   ".agents/tasks/T-CODEXGMCPROADMAP-111.json",
+                   ".agents/tasks",
                    "crates/susi-gmcp/examples",
                    "docs/gmcp/contract-203-020.md",
                    "tests/gmcp_requirements/vc_203_020.rs"
