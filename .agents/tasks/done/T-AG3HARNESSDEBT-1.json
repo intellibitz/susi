@@ -4,7 +4,7 @@
   "title": "Normalize and deduplicate T-LOCALHARNESSZ0* task records to restore task_records governance",
   "goal": "Remove the four duplicate open .agents/tasks/T-LOCALHARNESSZ0*.json files introduced by 06e38eab029ebbf4ba83d784f636b72234e542be and normalize their four .agents/tasks/done/T-LOCALHARNESSZ0*.json records to strict susi.task_record/v1 provenance so cargo test --offline --locked --test task_records passes 3/3 without expanding task_record_schema_debt.json.",
   "size": "s",
-  "state": "open",
+  "state": "closed",
   "status": "completed",
   "deps": [],
   "accept": {
@@ -43,5 +43,11 @@
     ".agents/tasks/done/T-LOCALHARNESSZ0GMCPZ0ALLOWS-1.json",
     ".agents/tasks/done/T-LOCALHARNESSZ0PLANNERZ0HELD-1.json",
     ".agents/tasks/done/T-LOCALHARNESSZ0RUSTSRCZ0HINT-1.json"
-  ]
+  ],
+  "implementation_commit": "eb69f9eec586ec281247a73173ed9d947f62fdc0",
+  "closed": {
+    "at_unix": 1794770515,
+    "commit": "eb69f9eec586ec281247a73173ed9d947f62fdc0",
+    "by": "AG3HOUSEKEEP"
+  }
 }
