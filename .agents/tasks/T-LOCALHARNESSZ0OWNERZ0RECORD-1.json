@@ -1,0 +1,28 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "owner_records_written_by_other_susi_tools_still_parse"
+    ]
+  },
+  "base": "a517d34273d1e8de491b24fe53a2c48d9f785960",
+  "created_by": "harness-owner-record",
+  "created_unix": 1794784352,
+  "id": "T-LOCALHARNESSZ0OWNERZ0RECORD-1",
+  "native_worker": "harness-owner-record",
+  "owner": "harness-owner-record",
+  "scopes": [
+    ".agents/tasks/done/t-localharnessz0ownerz0record-1.json",
+    ".agents/tasks/t-localharnessz0ownerz0record-1.json",
+    "crates/susi-core/src/worktree_isolation.rs"
+  ],
+  "status": "claimed",
+  "title": "Accept worktree owner records written by other Susi tools",
+  "workflow": "susi-local-v2"
+}
