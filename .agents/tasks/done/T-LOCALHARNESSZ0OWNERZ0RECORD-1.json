@@ -1,4 +1,12 @@
 {
+  "schema": "susi.task_record/v1",
+  "id": "T-LOCALHARNESSZ0OWNERZ0RECORD-1",
+  "title": "Accept worktree owner records written by other Susi tools",
+  "goal": "Core accepts a worktree owner record written by another Susi tool (fewer fields) instead of refusing the commit as a corrupt record, so which Susi binary answers a git hook no longer decides whether a commit is allowed.",
+  "size": "s",
+  "state": "closed",
+  "status": "completed",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,19 +19,44 @@
       "owner_records_written_by_other_susi_tools_still_parse"
     ]
   },
-  "base": "a517d34273d1e8de491b24fe53a2c48d9f785960",
   "created_by": "harness-owner-record",
   "created_unix": 1794784352,
-  "id": "T-LOCALHARNESSZ0OWNERZ0RECORD-1",
-  "integration": "pending_native_receipt",
-  "native_worker": "harness-owner-record",
   "owner": "harness-owner-record",
+  "native_worker": "harness-owner-record",
+  "workflow": "susi-local-v2",
   "scopes": [
     ".agents/tasks/done/t-localharnessz0ownerz0record-1.json",
     ".agents/tasks/t-localharnessz0ownerz0record-1.json",
     "crates/susi-core/src/worktree_isolation.rs"
   ],
-  "status": "verified",
-  "title": "Accept worktree owner records written by other Susi tools",
-  "workflow": "susi-local-v2"
+  "reuse": {
+    "decision": "existing",
+    "searched": "crates/susi-core/src/worktree_isolation.rs (WorktreeOwner, resolve identity, process_is_alive) and the two Susi Commercial Apps writers of the same file.",
+    "reason": "Serde defaults on the fields core does not need to decide ownership; process_is_alive already treats an empty host as this host. No new code path."
+  },
+  "base_commit": "a517d34273d1e8de491b24fe53a2c48d9f785960",
+  "implementation_commit": "a6a4b67589887cd467817597534f0ab865001236",
+  "closed": {
+    "at_unix": 1794784477,
+    "commit": "40e9543e65bdac0eec1bfd980dfddece4405f94c",
+    "by": "harness-owner-record"
+  },
+  "integration": {
+    "workflow": "susi harness run (mission core-owner-record), native local workflow integrate",
+    "integrated_commit": "d4324be1762c18ecd9e3fa28d0bdaec4de58f653",
+    "main_commit": "d4324be1762c18ecd9e3fa28d0bdaec4de58f653",
+    "main_mode": "fast_forward",
+    "integration_base": "a517d34273d1e8de491b24fe53a2c48d9f785960"
+  },
+  "results": {
+    "worker": "governed subscription worker, one attempt, landed on the first pass",
+    "gate_format": "exit 0",
+    "gate_licenses": "exit 0",
+    "gate_clippy_deny_warnings": "exit 0",
+    "gate_workspace_tests": "5397 passed, 0 failed",
+    "gate_task_acceptance": "1 passed, 0 failed",
+    "gate_doc_tests": "exit 0",
+    "also_proves": "T-LOCALHARNESSZ0INTEGRATEZ0MAIN-1: main had passed the local integration head and integrate built on the fetched main with no operator step",
+    "found_by": "a commit in a core worktree was refused with: corrupt worktree owner ... missing field role"
+  }
 }
