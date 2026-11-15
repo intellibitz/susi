@@ -8,10 +8,17 @@ The operator's path from an empty shell to a mission SUSI runs on itself.
 |---|---|
 | `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in the environment | the gateway reports a missing key on the first call that needs it |
 | a `susi-commercial` binary (Susi Commercial Apps' dev workflow) that can run `workflow` and `tasks` | `susi-commercial workflow check` |
+| the pinned toolchain's `rust-src` component | `rustup component add rust-src` in the checkout; the first `susi local workflow list` then builds the verified standard library the native workflow compiles with |
+| `cargo-deny` | the landing gate runs `cargo deny --offline --locked check licenses` |
+| a board target and an agent name | `SUSI_BOARD_REMOTE_URL` (or `git config susi.board.remote-url`, or a `board` remote) and `SUSI_AGENT`: a core checkout has no board of its own, and a mission posts its claim before the first task |
 
-Nothing else is installed: the harness routes to the providers directly and the
-worker runs in process, so there is no proxy binary and no external agent runtime
-to put on `PATH`.
+The harness itself installs nothing else: it routes to the providers directly
+and the native worker runs in process, so there is no proxy binary and no
+external agent runtime to put on `PATH`. The last three rows are what the
+native workflow under it needs; on Linux that workflow also needs a C compiler
+and the system ICU and OpenSSL 3 headers
+([NATIVE-BUILDS.md](../toolchain/windows-stdlib/NATIVE-BUILDS.md)). With no
+provider key at all, see "No provider key" below.
 
 A dev build must not be installed over the release binary (Mandate 48). Use
 `target/debug/susi.exe` for a dev mission, or cut a release.
@@ -92,6 +99,21 @@ What happens:
 6. When the next attempt's worst-case estimate would cross the cap, the task is
    left unstarted and the report says `budget_exhausted`. Nothing is retried.
 
+### No provider key: a subscription CLI worker
+
+```sh
+SUSI_HARNESS_CLI_GOVERNED=1 susi harness run plan.json --repo . \
+  --gateway http://127.0.0.1:9188 --model cli:claude:sonnet --timeout 2700
+```
+
+`--model cli:<tool>[:<model>]` runs an installed coding CLI as the worker on
+its own subscription: it needs no provider key and makes no gateway call
+(`--gateway` is still a required flag, and nothing needs to listen there).
+`SUSI_HARNESS_CLI_GOVERNED` runs that worker governed
+([harness.md](harness.md), "A governed CLI worker"). A subscription mission
+gives each task one attempt, with no ladder to escalate on. A plan entry with
+no `task` mints its own task record, named `T-LOCAL…` after the worktree.
+
 ## 5. Read the result
 
 ```sh
@@ -111,6 +133,7 @@ operator commands.
 | a task failed on every model | the error is about the task or the environment, not the model. Fix the acceptance/scope; the ladder deliberately stopped instead of spending more. |
 | operator paused | send `{"command":"resume","mission_id":"…"}` to `POST /api/command` (or append a resume command to the control log), rerun the same command. |
 | operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
+| the landing failed: `native integration failed … candidate retained` | the accepted work and its claim are kept, and the message names the gate's log. Fix what the gate found (it may be the base, not the candidate: a test already red on main stops every landing), then land the same candidate from the repository with `susi local workflow integrate <claim>`. Rerunning the mission does not land it: `workflow start` refuses the claim the candidate still holds. |
 | a claim is stale | `susi-commercial tasks audit`; the queue reports the holder and the lease. |
 | a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
 
