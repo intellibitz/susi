@@ -19,6 +19,11 @@
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794732436,
+    "commit": "e39d24982ab6df0ac0cf810d203d70a1467fb25f",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Phase 1 deliverable for T-CODEXGMCPROADMAP-101 keeps this task record OPEN; remaining VC-203-014 work packages (T-CODEXGMCPROADMAP-102 through T-CODEXGMCPROADMAP-106), .agents/gmcp/evidence/VC-203-014.jsonl creation, and Phase 2 task closure occur in follow-on stages."
   ],
