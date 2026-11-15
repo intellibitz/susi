@@ -42,7 +42,12 @@
     ".agents/tasks/T-CLAUDECLOUDREL-6.json",
     "releases/v0.21.68.json"
   ],
-  "state": "open",
-  "status": "open",
-  "updated_unix": 1794718202
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794719529,
+  "closed": {
+    "at_unix": 1794719529,
+    "commit": "ebeb4b8614ce9747ea2bd069dce00cb3c174ba59",
+    "by": "AGYREL068"
+  }
 }
