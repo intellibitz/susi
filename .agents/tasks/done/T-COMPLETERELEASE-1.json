@@ -4,8 +4,8 @@
   "title": "Require complete executed release gates and immutable admission evidence under policy v6",
   "goal": "Execute complete release admission gates (format, default-licenses, native-advisories, all-features-policy, workspace-clippy, workspace-tests, production-build, unsafe-measurement, unsafe-ratchet, native-provenance) against exact candidate commits and bind raw logs, exact argv, outer test counts, and external coordinator authorization bytes in a mandatory susi/complete-release-gates/v1 receipt while rejecting partial, stale, tampered, or unrooted receipts (landed in 2f4c65a9f4dc6d422e3948adde84369b797eec3e with deterministic promotion refinement in 0a21547853749649f41ef19df1c24c425045723b).",
   "size": "m",
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "deps": [
     "T-PROVENANCE-1",
     "T-UNSAFECOMPLETE-1",
@@ -51,5 +51,11 @@
     "tests/task_record_schema_debt.json",
     "xtask/src/bin/local-release.rs",
     "xtask/src/complete_release_gates.rs"
-  ]
+  ],
+  "verified_commit": "61add7b3c2c211f3e2e608f4dd6a157b129514a2",
+  "closed": {
+    "at_unix": 1794774228,
+    "commit": "61add7b3c2c211f3e2e608f4dd6a157b129514a2",
+    "by": "AG3HOUSEKEEP"
+  }
 }
