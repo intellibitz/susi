@@ -676,7 +676,20 @@ pub fn verify_pack_dir_for_sdk(
         )
     })?;
     validate_manifest(&manifest)?;
-    let digests = verify_pack_integrity(root, &manifest, &ExtensionsState::default())?;
+    let ext_root = extensions_root();
+    let in_host_root = root.parent() == Some(ext_root.as_path())
+        || (root
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            == ext_root.canonicalize().ok()
+            && ext_root.is_dir());
+    let state = if in_host_root {
+        read_state()?
+    } else {
+        ExtensionsState::default()
+    };
+    let digests = verify_pack_integrity(root, &manifest, &state)?;
     Ok((manifest, digests))
 }
 

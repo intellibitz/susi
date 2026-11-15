@@ -20,5 +20,32 @@
   },
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "completed",
+  "base_commit": "61add7b3c2c211f3e2e608f4dd6a157b129514a2",
+  "limitations": [
+    "Adversarial and failure behavior (`GMCP-203-020-04`) hardens panic/crash isolation across SDK request dispatch, durable `TaskManager` tasks, and plugin `initializer`/`on_unload` hooks (`CatchUnwind`), enforces in-flight SDK tool cancellation on `notifications/cancelled`, binds `verify_pack_dir_for_sdk` and `sync_active_pack` to host `state.json` quarantine/TOFU signer-digest checks with immediate compromised-plugin eviction, and verifies deterministic negative, attack, race, corruption, and fault-injection fixtures; subsequent vector stages (`T-CODEXGMCPROADMAP-111`..`113`) add interop/version matrix, operations/scale, and final `.M` mastery suites.",
+    "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-gmcp/src/sdk.rs",
+      "crates/susi-gmcp/src/protocol.rs",
+      "crates/susi-gmcp/src/mcp/service.rs",
+      "crates/susi-gmcp/src/mcp/task_manager.rs",
+      "crates/susi-config/src/extensions.rs"
+    ],
+    "target": "crates/susi-gmcp/src/sdk.rs",
+    "why": "Hardened existing `GmcpService`, `serve_inner`, `TaskManager`, `sync_active_pack`, and `verify_pack_dir_for_sdk` production paths with `#![forbid(unsafe_code)]` panic containment, request cancellation, and host TOFU/quarantine eviction rather than introducing parallel error or supervisor layers."
+  },
+  "scopes": [
+    "crates/susi-gmcp/src",
+    "crates/susi-config/src/extensions.rs",
+    "docs/gmcp/contract-203-020.md",
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "tests/gmcp_requirements"
+  ]
 }

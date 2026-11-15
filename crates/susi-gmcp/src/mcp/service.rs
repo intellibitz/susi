@@ -1370,6 +1370,25 @@ async fn send_err<T: Transport>(
     send_now(transport, ServerJsonRpcMessage::error(error, Some(id))).await
 }
 
+pub(crate) struct CatchUnwind<F>(pub F);
+impl<F: Future + Unpin> Future for CatchUnwind<F> {
+    type Output = Result<F::Output, Box<dyn std::any::Any + Send>>;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let inner = &mut self.get_mut().0;
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            std::pin::Pin::new(inner).poll(cx)
+        }));
+        match res {
+            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+            Ok(std::task::Poll::Ready(v)) => std::task::Poll::Ready(Ok(v)),
+            Err(p) => std::task::Poll::Ready(Err(p)),
+        }
+    }
+}
+
 fn into_rpc_message(res: Result<ServerResult, ErrorData>, id: RequestId) -> ServerJsonRpcMessage {
     match res {
         Ok(result) => ServerJsonRpcMessage::response(result, id),
@@ -1575,9 +1594,12 @@ fn serve_inner<S: ServerHandler, T: Transport>(
                     let id = request.id;
                     let body = request.request;
                     tokio::spawn(async move {
-                        let answer =
-                            into_rpc_message(handle_request(&*service, body, context).await, id);
-                        let _ = sink.send(answer).await;
+                        let res = CatchUnwind(Box::pin(handle_request(&*service, body, context)))
+                            .await
+                            .unwrap_or_else(|_| {
+                                Err(ErrorData::internal_error("Request handler panicked", None))
+                            });
+                        let _ = sink.send(into_rpc_message(res, id)).await;
                     });
                 }
                 Event::Peer(ClientJsonRpcMessage::Notification(notification)) => {

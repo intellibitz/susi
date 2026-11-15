@@ -154,8 +154,7 @@ pub fn require_client_elicitation(ctx: &RequestContext<RoleServer>) -> Result<()
     };
     ensure_cap(
         ctx.client_capabilities()
-            .and_then(|c| c.elicitation)
-            .is_some(),
+            .is_some_and(|c| c.elicitation.is_some()),
         req,
     )
 }
@@ -166,7 +165,8 @@ pub fn require_client_sampling(ctx: &RequestContext<RoleServer>) -> Result<(), E
         ..Default::default()
     };
     ensure_cap(
-        ctx.client_capabilities().and_then(|c| c.sampling).is_some(),
+        ctx.client_capabilities()
+            .is_some_and(|c| c.sampling.is_some()),
         req,
     )
 }
@@ -177,7 +177,7 @@ pub fn require_client_roots(ctx: &RequestContext<RoleServer>) -> Result<(), Erro
         ..Default::default()
     };
     ensure_cap(
-        ctx.client_capabilities().and_then(|c| c.roots).is_some(),
+        ctx.client_capabilities().is_some_and(|c| c.roots.is_some()),
         req,
     )
 }
@@ -920,19 +920,27 @@ impl GmcpService {
             }
         };
 
-        if report.tools_changed {
-            let _ = self.changes.send(Change::Tools);
-        }
-        if report.resources_changed {
-            let _ = self.changes.send(Change::Resources);
-        }
-        if report.prompts_changed {
-            let _ = self.changes.send(Change::Prompts);
-        }
+        self.emit_catalog_changes(
+            report.tools_changed,
+            report.resources_changed,
+            report.prompts_changed,
+        );
         for uri in &report.updated_uris {
             let _ = self.changes.send(Change::Resource(uri.clone()));
         }
         Ok(report)
+    }
+
+    fn emit_catalog_changes(&self, tools: bool, resources: bool, prompts: bool) {
+        for (changed, ev) in [
+            (tools, Change::Tools),
+            (resources, Change::Resources),
+            (prompts, Change::Prompts),
+        ] {
+            if changed {
+                let _ = self.changes.send(ev);
+            }
+        }
     }
 
     pub fn attach_plugin(
@@ -957,33 +965,18 @@ impl GmcpService {
             None => BTreeMap::new(),
         };
 
-        let missing_perms: Vec<String> = bundle
-            .manifest
-            .permissions
-            .iter()
-            .filter(|p| !policy.granted_permissions.contains(*p))
-            .cloned()
-            .collect();
+        let missing = |req: &[String], have: &BTreeSet<String>| -> Vec<String> {
+            req.iter().filter(|x| !have.contains(*x)).cloned().collect()
+        };
+        let missing_perms = missing(&bundle.manifest.permissions, &policy.granted_permissions);
         if !missing_perms.is_empty() {
             return Err(PluginError::PermissionDenied(plugin_id, missing_perms));
         }
-        let missing_caps: Vec<String> = bundle
-            .manifest
-            .requires
-            .iter()
-            .filter(|c| !policy.host_capabilities.contains(*c))
-            .cloned()
-            .collect();
+        let missing_caps = missing(&bundle.manifest.requires, &policy.host_capabilities);
         if !missing_caps.is_empty() {
             return Err(PluginError::IncompatibleCapability(plugin_id, missing_caps));
         }
-        let missing_optional: Vec<String> = bundle
-            .manifest
-            .optional
-            .iter()
-            .filter(|c| !policy.host_capabilities.contains(*c))
-            .cloned()
-            .collect();
+        let missing_optional = missing(&bundle.manifest.optional, &policy.host_capabilities);
 
         let cancel = CancellationToken::new();
         let spawned_tasks: Arc<Mutex<Vec<(String, TaskPrincipal)>>> =
@@ -1127,7 +1120,8 @@ impl GmcpService {
                 }
             }
             if let Some(init) = &bundle.initializer {
-                if let Err(reason) = init(&cancel) {
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| init(&cancel)));
+                if let Err(reason) = ran.unwrap_or_else(|_| Err("initializer panicked".into())) {
                     cancel.cancel();
                     return Err(PluginError::InitFailed(plugin_id, reason));
                 }
@@ -1178,15 +1172,7 @@ impl GmcpService {
             );
             emit
         };
-        if emit_tools {
-            let _ = self.changes.send(Change::Tools);
-        }
-        if emit_resources {
-            let _ = self.changes.send(Change::Resources);
-        }
-        if emit_prompts {
-            let _ = self.changes.send(Change::Prompts);
-        }
+        self.emit_catalog_changes(emit_tools, emit_resources, emit_prompts);
         Ok(PluginLoadedReport {
             id: plugin_id,
             version,
@@ -1231,17 +1217,13 @@ impl GmcpService {
             (rt, rr, rp, re)
         };
         if let Some(cb) = loaded.on_unload {
-            cb();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb()));
         }
-        if removed_tools > 0 {
-            let _ = self.changes.send(Change::Tools);
-        }
-        if removed_resources > 0 {
-            let _ = self.changes.send(Change::Resources);
-        }
-        if removed_prompts > 0 {
-            let _ = self.changes.send(Change::Prompts);
-        }
+        self.emit_catalog_changes(
+            removed_tools > 0,
+            removed_resources > 0,
+            removed_prompts > 0,
+        );
         Ok(PluginUnloadReport {
             id: plugin_id.to_string(),
             removed_tools,
@@ -1277,7 +1259,10 @@ impl GmcpService {
             return Ok(None);
         }
         if self.plugins.read().contains_key(&pack.id) {
-            verify_pack_dir_for_sdk(&pack.root).map_err(PluginError::IntegrityFailed)?;
+            if let Err(reason) = verify_pack_dir_for_sdk(&pack.root) {
+                let _ = self.unload_plugin(&pack.id);
+                return Err(PluginError::IntegrityFailed(reason));
+            }
             return Ok(None);
         }
         let mut bundle = decorate(PluginBundle::from_pack_dir(&pack.root)?);

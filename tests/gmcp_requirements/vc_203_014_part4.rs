@@ -64,62 +64,39 @@ fn gmcp_req_203_014_06_operations() {
     std::fs::write(cfg_dir.join("api_token"), format!("{token}\n")).unwrap();
 
     let ops_runs = Arc::new(AtomicUsize::new(0));
-    struct OpsList;
-    impl PlaneHandler for OpsList {
-        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-            let mut merged = if let Ok(Value::Array(tools)) =
-                PlaneBus::global().request_local_prefix(topics::TOOLS_LIST, payload)
-            {
-                tools
-            } else {
-                Vec::new()
-            };
-            if !merged
-                .iter()
-                .any(|item| item.get("name").and_then(Value::as_str) == Some("ops_task_echo"))
-            {
-                merged.push(json!({"name": "ops_task_echo", "description": "Ops task echo"}));
+    struct OpsPlane(Arc<AtomicUsize>);
+    impl PlaneHandler for OpsPlane {
+        fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+            let name = payload.get("name").and_then(Value::as_str);
+            match topic {
+                topics::TOOLS_LIST => {
+                    let mut m = match PlaneBus::global().request_local_prefix(topic, payload) {
+                        Ok(Value::Array(v)) => v,
+                        _ => Vec::new(),
+                    };
+                    if !m.iter().any(|i| i.get("name").and_then(Value::as_str) == Some("ops_task_echo")) {
+                        m.push(json!({"name": "ops_task_echo", "description": "Ops task echo"}));
+                    }
+                    Ok(Value::Array(m))
+                }
+                topics::TOOLS_EXISTS if name == Some("ops_task_echo") => Ok(json!({ "exists": true })),
+                topics::TOOLS_EXECUTE if name == Some("ops_task_echo") => {
+                    let (args, runs) = (payload.get("args").cloned().unwrap_or(Value::Null), self.0.clone());
+                    with_watched(&payload, || {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(15));
+                        Ok(json!({ "text": format!("ops:{}", args.get("msg").and_then(Value::as_str).unwrap_or("ok")) }))
+                    })
+                }
+                _ => PlaneBus::global().request_local_prefix(topic, payload),
             }
-            Ok(Value::Array(merged))
-        }
-    }
-    struct OpsExists;
-    impl PlaneHandler for OpsExists {
-        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-            if payload.get("name").and_then(Value::as_str) == Some("ops_task_echo") {
-                Ok(json!({ "exists": true }))
-            } else {
-                PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
-            }
-        }
-    }
-    struct OpsExec {
-        runs: Arc<AtomicUsize>,
-    }
-    impl PlaneHandler for OpsExec {
-        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-            if payload.get("name").and_then(Value::as_str) != Some("ops_task_echo") {
-                return PlaneBus::global().request_local_prefix(topics::TOOLS_EXECUTE, payload);
-            }
-            let args = payload.get("args").cloned().unwrap_or(Value::Null);
-            let runs = self.runs.clone();
-            with_watched(&payload, || {
-                runs.fetch_add(1, Ordering::SeqCst);
-                std::thread::sleep(Duration::from_millis(15));
-                let msg = args.get("msg").and_then(Value::as_str).unwrap_or("ok");
-                Ok(json!({ "text": format!("ops:{msg}") }))
-            })
         }
     }
     susi_daemon::composition::wire_mcp_serve_substrate(&home.join(".susi"));
-    PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(OpsList));
-    PlaneBus::global().register(topics::TOOLS_EXISTS, Arc::new(OpsExists));
-    PlaneBus::global().register(
-        topics::TOOLS_EXECUTE,
-        Arc::new(OpsExec {
-            runs: ops_runs.clone(),
-        }),
-    );
+    let ops_plane: Arc<dyn PlaneHandler> = Arc::new(OpsPlane(ops_runs.clone()));
+    for t in [topics::TOOLS_LIST, topics::TOOLS_EXISTS, topics::TOOLS_EXECUTE] {
+        PlaneBus::global().register(t, Arc::clone(&ops_plane));
+    }
 
     let tasks_meta = |req_id: &str| -> Value {
         json!({
@@ -963,45 +940,20 @@ fn gmcp_req_203_014_06_operations() {
         .contains("task interrupted by server restart"));
 
     // ── 6. Runbook Contract Bindings & Retained Evidence Verification ────────
-    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-014.md"))
-        .expect("docs/gmcp/contract-203-014.md readable");
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-014.md")).unwrap();
     for required in [
-        "## Operations and non-claims",
-        "## Operations and incident runbook",
-        "### Inspectable state",
-        "### Configuration validation",
-        "### Bounded metrics, logs and traces",
-        "### Diagnostics and incident triage",
-        "### Examples",
-        "### Incident triage",
-        "### Migration (schema evolution and upstream specification re-pinning)",
-        "### Rollback",
-        "### Production guarantees and non-claims",
-        "STORE_VERSION = 1",
-        "DEFAULT_TASK_TTL_MS = 300_000",
-        "DEFAULT_POLL_INTERVAL_MS = 1_000",
-        "MAX_TASK_TTL_MS = 86_400_000",
-        "MAX_ACTIVE_TASKS_PER_PRINCIPAL = 64",
-        "MAX_GLOBAL_ACTIVE_TASKS = 512",
-        "MAX_RETAINED_TERMINAL_TASKS = 2048",
-        "MAX_INPUT_REQUESTS_PER_TASK = 128",
-        "MAX_SUBSCRIPTION_TASK_IDS = 64",
-        "MAX_INPUT_RESPONSE_BYTES = 1_048_576",
-        "-32021",
-        "-32020",
-        "-32601",
-        "-32602",
-        "-32000",
-        "-32603",
-        "hash_drift",
-        "unfetchable",
+        "## Operations and non-claims", "## Operations and incident runbook", "### Inspectable state",
+        "### Configuration validation", "### Bounded metrics, logs and traces", "### Diagnostics and incident triage",
+        "### Examples", "### Incident triage", "### Migration (schema evolution and upstream specification re-pinning)",
+        "### Rollback", "### Production guarantees and non-claims", "STORE_VERSION = 1", "DEFAULT_TASK_TTL_MS = 300_000",
+        "DEFAULT_POLL_INTERVAL_MS = 1_000", "MAX_TASK_TTL_MS = 86_400_000", "MAX_ACTIVE_TASKS_PER_PRINCIPAL = 64",
+        "MAX_GLOBAL_ACTIVE_TASKS = 512", "MAX_RETAINED_TERMINAL_TASKS = 2048", "MAX_INPUT_REQUESTS_PER_TASK = 128",
+        "MAX_SUBSCRIPTION_TASK_IDS = 64", "MAX_INPUT_RESPONSE_BYTES = 1_048_576", "-32021", "-32020", "-32601",
+        "-32602", "-32000", "-32603", "hash_drift", "unfetchable",
         "5fc22b9b5ff248703927c69855f751a061c2d6170f4dc3923204452f859f91a5",
         "bef1bef9f939e09eed8f1928da4d3b36924f4a43b72ffc47a5c1e673f1c1a23b",
     ] {
-        assert!(
-            contract.contains(required),
-            "docs/gmcp/contract-203-014.md missing runbook section/token `{required}`"
-        );
+        assert!(contract.contains(required), "missing `{required}`");
     }
 
     let ledger_sha = susi_paths::hex::encode(Sha256::digest(
@@ -1623,75 +1575,50 @@ fn gmcp_vc_203_014_mastery() {
 
     let wait_cancelled = Arc::new(AtomicBool::new(false));
     {
-        struct MasteryList;
-        impl PlaneHandler for MasteryList {
-            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-                let mut merged = if let Ok(Value::Array(tools)) =
-                    PlaneBus::global().request_local_prefix(topics::TOOLS_LIST, payload)
-                {
-                    tools
-                } else {
-                    Vec::new()
-                };
-                for name in ["mastery_echo", "mastery_wait"] {
-                    if !merged
-                        .iter()
-                        .any(|i| i.get("name").and_then(Value::as_str) == Some(name))
-                    {
-                        merged.push(json!({"name": name, "description": name}));
-                    }
-                }
-                Ok(Value::Array(merged))
-            }
-        }
-        struct MasteryExists;
-        impl PlaneHandler for MasteryExists {
-            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+        struct MasteryPlane(Arc<AtomicBool>);
+        impl PlaneHandler for MasteryPlane {
+            fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
                 let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
-                if matches!(name, "mastery_echo" | "mastery_wait") {
-                    return Ok(json!({ "exists": true }));
-                }
-                PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
-            }
-        }
-        struct MasteryExec {
-            cancelled: Arc<AtomicBool>,
-        }
-        impl PlaneHandler for MasteryExec {
-            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-                let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
-                if !matches!(name, "mastery_echo" | "mastery_wait") {
-                    return PlaneBus::global().request_local_prefix(topics::TOOLS_EXECUTE, payload);
-                }
-                let args = payload.get("args").cloned().unwrap_or(Value::Null);
-                let cancelled = Arc::clone(&self.cancelled);
-                susi_core::plane_bus::with_watched(&payload, || match name {
-                    "mastery_echo" => Ok(json!({
-                        "text": format!("echo:{}", args["msg"].as_str().unwrap_or(""))
-                    })),
-                    "mastery_wait" => {
-                        for _ in 0..300 {
-                            if susi_core::progress::is_cancelled() {
-                                cancelled.store(true, Ordering::Release);
-                                return Ok(json!({ "text": "cancelled" }));
+                match topic {
+                    topics::TOOLS_LIST => {
+                        let mut m = match PlaneBus::global().request_local_prefix(topic, payload) {
+                            Ok(Value::Array(v)) => v,
+                            _ => Vec::new(),
+                        };
+                        for n in ["mastery_echo", "mastery_wait"] {
+                            if !m.iter().any(|i| i.get("name").and_then(Value::as_str) == Some(n)) {
+                                m.push(json!({"name": n, "description": n}));
                             }
-                            std::thread::sleep(Duration::from_millis(10));
                         }
-                        Ok(json!({ "text": "timeout" }))
+                        Ok(Value::Array(m))
                     }
-                    other => Err(format!("unexpected tool {other}")),
-                })
+                    topics::TOOLS_EXISTS if matches!(name, "mastery_echo" | "mastery_wait") => {
+                        Ok(json!({ "exists": true }))
+                    }
+                    topics::TOOLS_EXECUTE if matches!(name, "mastery_echo" | "mastery_wait") => {
+                        let (args, cancelled) = (payload.get("args").cloned().unwrap_or(Value::Null), Arc::clone(&self.0));
+                        susi_core::plane_bus::with_watched(&payload, || match name {
+                            "mastery_echo" => Ok(json!({ "text": format!("echo:{}", args["msg"].as_str().unwrap_or("")) })),
+                            _ => {
+                                for _ in 0..300 {
+                                    if susi_core::progress::is_cancelled() {
+                                        cancelled.store(true, Ordering::Release);
+                                        return Ok(json!({ "text": "cancelled" }));
+                                    }
+                                    std::thread::sleep(Duration::from_millis(10));
+                                }
+                                Ok(json!({ "text": "timeout" }))
+                            }
+                        })
+                    }
+                    _ => PlaneBus::global().request_local_prefix(topic, payload),
+                }
             }
         }
-        let bus = PlaneBus::global();
-        bus.register(topics::TOOLS_LIST, Arc::new(MasteryList));
-        bus.register(topics::TOOLS_EXISTS, Arc::new(MasteryExists));
-        bus.register(
-            topics::TOOLS_EXECUTE,
-            Arc::new(MasteryExec {
-                cancelled: Arc::clone(&wait_cancelled),
-            }),
-        );
+        let mp: Arc<dyn PlaneHandler> = Arc::new(MasteryPlane(Arc::clone(&wait_cancelled)));
+        for t in [topics::TOOLS_LIST, topics::TOOLS_EXISTS, topics::TOOLS_EXECUTE] {
+            PlaneBus::global().register(t, Arc::clone(&mp));
+        }
     }
 
     let tok_alice = "tok-alice-014-mastery";
@@ -1856,93 +1783,32 @@ fn gmcp_vc_203_014_mastery() {
                 "server/discover" => send_http(
                     &mut stream,
                     "200 OK",
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "protocolVersion": PROTOCOL_VERSION_2026_07_28,
-                            "capabilities": {"tools": {}, "extensions": {TASKS_EXTENSION_ID: {}}},
-                            "serverInfo": {"name": "mastery-peer", "version": "1.0"}
-                        }
-                    })
-                    .to_string(),
+                    &json!({"jsonrpc":"2.0","id":id,"result":{"protocolVersion":PROTOCOL_VERSION_2026_07_28,"capabilities":{"tools":{},"extensions":{TASKS_EXTENSION_ID:{}}},"serverInfo":{"name":"mastery-peer","version":"1.0"}}}).to_string(),
                 ),
-                "tools/call" => {
-                    if rpc["params"]["name"] == "flaky_side_effect" {
-                        flaky_tool_cl.fetch_add(1, Ordering::SeqCst);
-                        send_http(
-                            &mut stream,
-                            "503 Service Unavailable",
-                            r#"{"error":"busy"}"#,
-                        );
-                    } else {
-                        send_http(
-                            &mut stream,
-                            "200 OK",
-                            &json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "result": {
-                                    "resultType": "task",
-                                    "taskId": "peer-mastery-tid",
-                                    "status": "working",
-                                    "createdAt": "2026-11-15T12:00:00Z",
-                                    "lastUpdatedAt": "2026-11-15T12:00:00Z",
-                                    "ttlMs": 15000,
-                                    "pollIntervalMs": 5
-                                }
-                            })
-                            .to_string(),
-                        );
-                    }
+                "tools/call" if rpc["params"]["name"] == "flaky_side_effect" => {
+                    flaky_tool_cl.fetch_add(1, Ordering::SeqCst);
+                    send_http(&mut stream, "503 Service Unavailable", r#"{"error":"busy"}"#);
                 }
+                "tools/call" => send_http(
+                    &mut stream,
+                    "200 OK",
+                    &json!({"jsonrpc":"2.0","id":id,"result":{"resultType":"task","taskId":"peer-mastery-tid","status":"working","createdAt":"2026-11-15T12:00:00Z","lastUpdatedAt":"2026-11-15T12:00:00Z","ttlMs":15000,"pollIntervalMs":5}}).to_string(),
+                ),
                 "tasks/get" => {
                     let n = get_hits_cl.fetch_add(1, Ordering::SeqCst) + 1;
                     if n == 1 {
-                        send_http(
-                            &mut stream,
-                            "503 Service Unavailable",
-                            r#"{"error":"transient"}"#,
-                        );
+                        send_http(&mut stream, "503 Service Unavailable", r#"{"error":"transient"}"#);
                     } else if !answered {
                         send_http(
                             &mut stream,
                             "200 OK",
-                            &json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "result": {
-                                    "resultType": "complete",
-                                    "taskId": "peer-mastery-tid",
-                                    "status": "input_required",
-                                    "createdAt": "2026-11-15T12:00:00Z",
-                                    "lastUpdatedAt": "2026-11-15T12:00:01Z",
-                                    "ttlMs": 15000,
-                                    "pollIntervalMs": 5,
-                                    "inputRequests": {"ask_root": {"method": "roots/list"}}
-                                }
-                            })
-                            .to_string(),
+                            &json!({"jsonrpc":"2.0","id":id,"result":{"resultType":"complete","taskId":"peer-mastery-tid","status":"input_required","createdAt":"2026-11-15T12:00:00Z","lastUpdatedAt":"2026-11-15T12:00:01Z","ttlMs":15000,"pollIntervalMs":5,"inputRequests":{"ask_root":{"method":"roots/list"}}}}).to_string(),
                         );
                     } else {
                         send_http(
                             &mut stream,
                             "200 OK",
-                            &json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "result": {
-                                    "resultType": "complete",
-                                    "taskId": "peer-mastery-tid",
-                                    "status": "completed",
-                                    "createdAt": "2026-11-15T12:00:00Z",
-                                    "lastUpdatedAt": "2026-11-15T12:00:02Z",
-                                    "ttlMs": 15000,
-                                    "pollIntervalMs": 5,
-                                    "result": {"content": [{"type": "text", "text": "retried-ok"}], "isError": false}
-                                }
-                            })
-                            .to_string(),
+                            &json!({"jsonrpc":"2.0","id":id,"result":{"resultType":"complete","taskId":"peer-mastery-tid","status":"completed","createdAt":"2026-11-15T12:00:00Z","lastUpdatedAt":"2026-11-15T12:00:02Z","ttlMs":15000,"pollIntervalMs":5,"result":{"content":[{"type":"text","text":"retried-ok"}],"isError":false}}}).to_string(),
                         );
                     }
                 }
@@ -2005,145 +1871,55 @@ fn gmcp_vc_203_014_mastery() {
         ("GMCP-203-014-06", "gmcp_req_203_014_06_operations"),
     ];
     let make_row = |req: &str, test_fn: &str| {
-        json!({
-            "requirement": req,
-            "check": format!("cargo test --locked --test gmcp_requirements {test_fn}"),
-            "exit": 0,
-            "detail": "synthetic valid row",
-            "recorded_unix": now,
-            "artifact_sha256": ledger_hash,
-            "identity": "AG2FEATURES",
-            "tested_commit": "0".repeat(40),
-            "tested_artifacts": head_digest
-        })
+        json!({"requirement":req,"check":format!("cargo test --locked --test gmcp_requirements {test_fn}"),"exit":0,"detail":"synthetic valid row","recorded_unix":now,"artifact_sha256":ledger_hash,"identity":"AG2FEATURES","tested_commit":"0".repeat(40),"tested_artifacts":head_digest})
     };
     let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| make_row(r, t)).collect();
-    let good_text = good_lines
-        .iter()
-        .map(Value::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let ev_ctx = EvidenceCtx {
-        root,
-        ledger_hash: &ledger_hash,
-        test_src: &test_src,
-        head_digest: &head_digest,
-        now,
-    };
-    let check_ev = |txt: &str, committed: bool| {
-        verify_vc_203_014_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()))
-    };
+    let good_text = good_lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+    let ev_ctx = EvidenceCtx { root, ledger_hash: &ledger_hash, test_src: &test_src, head_digest: &head_digest, now };
+    let check_ev = |txt: &str, committed: bool| verify_vc_203_014_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()));
     assert!(check_ev(&good_text, false).is_ok());
+    assert!(check_ev(&good_lines[..5].iter().map(Value::to_string).collect::<Vec<_>>().join("\n"), false).is_err());
 
-    let missing_text = good_lines[..5]
-        .iter()
-        .map(Value::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(check_ev(&missing_text, false).is_err());
-
-    for mutate in [
-        Box::new(|v: &mut Value| v["recorded_unix"] = json!(1_700_000_000_u64))
-            as Box<dyn Fn(&mut Value)>,
-        Box::new(|v: &mut Value| v["recorded_unix"] = json!(now + 120)),
-        Box::new(|v: &mut Value| v["artifact_sha256"] = json!("deadbeef")),
-        Box::new(|v: &mut Value| v["tested_artifacts"] = json!("stale-digest")),
-        Box::new(|v: &mut Value| v["identity"] = json!("")),
-        Box::new(|v: &mut Value| v["exit"] = json!(1)),
-        Box::new(|v: &mut Value| {
-            v.as_object_mut()
-                .unwrap()
-                .insert("waived".into(), json!(true));
-        }),
-        Box::new(|v: &mut Value| {
-            v.as_object_mut()
-                .unwrap()
-                .insert("mock".into(), json!(true));
-        }),
-        Box::new(|v: &mut Value| {
-            v["check"] = json!(
-                "cargo test --locked --test gmcp_requirements gmcp_req_203_014_99_nonexistent"
-            );
-        }),
-    ] {
+    let mutators: [Box<dyn Fn(&mut Value)>; 9] = [
+        Box::new(|v| v["recorded_unix"] = json!(1_700_000_000_u64)),
+        Box::new(|v| v["recorded_unix"] = json!(now + 120)),
+        Box::new(|v| v["artifact_sha256"] = json!("deadbeef")),
+        Box::new(|v| v["tested_artifacts"] = json!("stale-digest")),
+        Box::new(|v| v["identity"] = json!("")),
+        Box::new(|v| v["exit"] = json!(1)),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("waived".into(), json!(true)); }),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("mock".into(), json!(true)); }),
+        Box::new(|v| v["check"] = json!("cargo test --locked --test gmcp_requirements gmcp_req_203_014_99_nonexistent")),
+    ];
+    for mutate in mutators {
         let mut bad = good_lines[0].clone();
         mutate(&mut bad);
-        let txt = std::iter::once(&bad)
-            .chain(&good_lines[1..])
-            .map(Value::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let txt = std::iter::once(&bad).chain(&good_lines[1..]).map(Value::to_string).collect::<Vec<_>>().join("\n");
         assert!(check_ev(&txt, false).is_err());
     }
-    let unlinked_txt = format!("{good_text}\n{}", good_lines[0]);
-    assert!(check_ev(&unlinked_txt, false).is_err());
+    assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
 
-    // Live VC-203-014 committed evidence must satisfy every single rule strictly.
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-014.jsonl"))
-        .expect("VC-203-014 must retain an evidence artifact");
-    let covered = check_ev(&evidence, true)
-        .expect("committed VC-203-014.jsonl must pass full strict verification");
-    assert_eq!(covered.len(), 6);
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-014.jsonl")).unwrap();
+    assert_eq!(check_ev(&evidence, true).expect("VC-203-014.jsonl valid").len(), 6);
 
-    // ── 5. Roadmap & verdict delivery binding ────────────────────────────
-    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap();
-    let roadmap_json: Value = serde_json::from_str(&roadmap_text).unwrap();
-    let vc_entry = roadmap_json["vectors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["id"] == "VC-203-014")
-        .expect("VC-203-014 must exist in roadmap.json");
-    assert!(
-        vc_entry["progress"]
-            .as_str()
-            .unwrap_or_default()
-            .starts_with("DELIVERED"),
-        "VC-203-014 must be marked DELIVERED in roadmap.json"
-    );
+    let roadmap_json: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap()).unwrap();
+    let vc_entry = roadmap_json["vectors"].as_array().unwrap().iter().find(|e| e["id"] == "VC-203-014").unwrap();
+    assert!(vc_entry["progress"].as_str().unwrap_or_default().starts_with("DELIVERED"));
 
-    let verdict_text =
-        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-014.json"))
-            .expect("VC-203-014.json verdict must exist");
-    let verdict: Value = serde_json::from_str(&verdict_text).unwrap();
-    assert_eq!(verdict["vector"], "VC-203-014");
-    assert_eq!(verdict["verdict"], "delivered");
+    let verdict: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-014.json")).unwrap()).unwrap();
+    assert!(verdict["vector"] == "VC-203-014" && verdict["verdict"] == "delivered");
     let tracked = verdict["tracked_by"].as_array().unwrap();
     assert_eq!(tracked.len(), 7);
-    for tid in [
-        "T-CODEXGMCPROADMAP-100",
-        "T-CODEXGMCPROADMAP-101",
-        "T-CODEXGMCPROADMAP-102",
-        "T-CODEXGMCPROADMAP-103",
-        "T-CODEXGMCPROADMAP-104",
-        "T-CODEXGMCPROADMAP-105",
-        "T-CODEXGMCPROADMAP-106",
-    ] {
-        assert!(tracked.contains(&json!(tid)), "missing tracked_by {tid}");
+    for n in 100..=106 {
+        assert!(tracked.contains(&json!(format!("T-CODEXGMCPROADMAP-{n}"))));
     }
 
-    // ── 6. Reject locally modified proof artifacts Closed ───────────────
     let status = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--",
-            ".agents/gmcp",
-            "docs/gmcp",
-            "tests/gmcp_requirements.rs",
-            "tests/gmcp_requirements",
-            "crates/susi-gmcp",
-            ".agents/roadmap.json",
-            ".agents/roadmap-verdicts",
-        ])
+        .args(["status", "--porcelain", "--", ".agents/gmcp", "docs/gmcp", "tests/gmcp_requirements.rs", "tests/gmcp_requirements", "crates/susi-gmcp", ".agents/roadmap.json", ".agents/roadmap-verdicts"])
         .current_dir(root)
         .output()
-        .expect("git status must run");
-    assert!(
-        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "locally modified artifacts are not proof:\n{}",
-        String::from_utf8_lossy(&status.stdout)
-    );
+        .unwrap();
+    assert!(status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
 
     let _ = _http_srv;
     let _ = std::fs::remove_dir_all(&scratch);

@@ -536,13 +536,27 @@ impl TaskManager {
             }
             g.emit(&id);
         }
-        let fut = make_future(TaskContext {
-            task_id: id.clone(),
-            inner: self.inner.clone(),
-        });
+        let fut = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            make_future(TaskContext {
+                task_id: id.clone(),
+                inner: self.inner.clone(),
+            })
+        })) {
+            Ok(fut) => fut,
+            Err(_) => {
+                let mut g = lock(&self.inner);
+                if let Some(e) = g.tasks.get_mut(&id) {
+                    e.settle_res(Err(TaskExit::Error(err_int("task panicked"))));
+                    let _ = g.sync(&id);
+                }
+                return Ok(task);
+            }
+        };
         let (arc, tid) = (self.inner.clone(), id.clone());
         let handle = tokio::spawn(async move {
-            let res = fut.await;
+            let res = super::service::CatchUnwind(fut)
+                .await
+                .unwrap_or_else(|_| Err(TaskExit::Error(err_int("task panicked"))));
             let mut g = lock(&arc);
             if let Some(e) = g.tasks.get_mut(&tid) {
                 e.settle_res(res);

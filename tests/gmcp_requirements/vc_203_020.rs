@@ -6,18 +6,12 @@
 #[test]
 fn gmcp_req_203_020_01_contract() {
     use sha2::{Digest, Sha256};
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::Arc;
-    use susi_config::extensions::{
-        validate_manifest, ExtensionManifest, HOST_PACK_API_MAJOR, KNOWN_PERMISSIONS,
-    };
-    use susi_gmcp::mcp::model::Tool;
-    use susi_gmcp::protocol::GmcpService;
+    use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
+    use susi_config::extensions::{validate_manifest, ExtensionManifest, HOST_PACK_API_MAJOR, KNOWN_PERMISSIONS};
+    use susi_gmcp::{mcp::model::{CallToolResult, Tool}, protocol::GmcpService};
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let contract_path = root.join("docs/gmcp/contract-203-020.md");
-    let contract = std::fs::read_to_string(&contract_path).expect("contract-203-020.md");
-
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-020.md")).expect("contract");
     for section in [
         "Normative clause", "Pinned sources", "Canonical data model", "Behavior table",
         "Compatibility and deprecation decisions", "Threat model", "SLOs and resource budgets",
@@ -25,54 +19,21 @@ fn gmcp_req_203_020_01_contract() {
     ] {
         assert!(contract.contains(&format!("## {section}")), "missing `## {section}`");
     }
+    let ledger = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).expect("ledger");
+    assert!(ledger.rows > 0 && ledger.documents > 0);
 
-    let ledger_report = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).expect("ledger");
-    assert!(ledger_report.rows > 0 && ledger_report.documents > 0);
+    let sources: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/gmcp/sources.json")).expect("sources")).expect("json");
+    let upstream_commits: BTreeMap<&str, &str> = sources["upstream"].as_object().expect("u").iter().map(|(r, m)| (r.as_str(), m["commit"].as_str().expect("c"))).collect();
+    let source_files: BTreeMap<&str, (&str, &str)> = sources["files"].as_array().expect("f").iter().map(|f| (f["document"].as_str().expect("d"), (f["repo"].as_str().expect("r"), f["sha256"].as_str().expect("s")))).collect();
 
-    let sources: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/gmcp/sources.json")).expect("sources.json"))
-            .expect("valid json");
-    let upstream_commits: BTreeMap<&str, &str> = sources["upstream"]
-        .as_object()
-        .expect("upstream")
-        .iter()
-        .map(|(r, m)| (r.as_str(), m["commit"].as_str().expect("commit")))
-        .collect();
-    let source_files: BTreeMap<&str, (&str, &str)> = sources["files"]
-        .as_array()
-        .expect("files")
-        .iter()
-        .map(|f| {
-            (
-                f["document"].as_str().expect("doc"),
-                (f["repo"].as_str().expect("repo"), f["sha256"].as_str().expect("sha256")),
-            )
-        })
-        .collect();
-
-    let pinned_rows: Vec<&str> = contract
-        .lines()
-        .filter(|l| {
-            ["| modelcontextprotocol |", "| ext-tasks |", "| ext-apps |", "| ext-auth |"]
-                .iter()
-                .any(|p| l.starts_with(p))
-        })
-        .collect();
-    assert!(pinned_rows.len() >= 14, "expected >=14 pinned rows, got {}", pinned_rows.len());
+    let pinned_rows: Vec<&str> = contract.lines().filter(|l| ["| modelcontextprotocol |", "| ext-tasks |", "| ext-apps |", "| ext-auth |"].iter().any(|p| l.starts_with(p))).collect();
+    assert!(pinned_rows.len() >= 14);
     for row in pinned_rows {
-        let cells: Vec<&str> = row
-            .trim_matches('|')
-            .split('|')
-            .map(|c| c.trim().trim_matches('`'))
-            .collect();
-        assert_eq!(cells.len(), 4, "bad pinned row: {row}");
+        let cells: Vec<&str> = row.trim_matches('|').split('|').map(|c| c.trim().trim_matches('`')).collect();
         let (repo, doc, commit, sha) = (cells[0], cells[1], cells[2], cells[3]);
         let (expected_repo, expected_sha) = source_files.get(doc).copied().expect("pinned doc");
-        assert_eq!(repo, expected_repo);
-        assert_eq!(Some(commit), upstream_commits.get(repo).copied());
-        assert_eq!(sha, expected_sha);
-        let disk_bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc)).expect("spec");
-        let disk_sha: String = Sha256::digest(&disk_bytes).iter().map(|b| format!("{b:02x}")).collect();
+        assert!(repo == expected_repo && Some(commit) == upstream_commits.get(repo).copied() && sha == expected_sha);
+        let disk_sha: String = Sha256::digest(std::fs::read(root.join(".agents/gmcp/spec").join(doc)).expect("spec")).iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(disk_sha, sha);
     }
 
@@ -81,13 +42,9 @@ fn gmcp_req_203_020_01_contract() {
     let mut ids = BTreeSet::new();
     for row in sdk_rows {
         let cells: Vec<&str> = row.trim_matches('|').split('|').map(str::trim).collect();
-        assert!(cells.len() >= 4);
-        let (id, level, clause, path) = (cells[0], cells[1], cells[2], cells[3]);
-        assert!(ids.insert(id.to_string()));
-        assert!(["must", "must_not", "should", "should_not", "may"].contains(&level));
-        assert!(!clause.is_empty() && confined_repo_path(path) && root.join(path).exists());
+        assert!(ids.insert(cells[0].to_string()) && ["must", "must_not", "should", "should_not", "may"].contains(&cells[1]));
+        assert!(!cells[2].is_empty() && confined_repo_path(cells[3]) && root.join(cells[3]).exists());
     }
-
     let lower = contract.to_lowercase();
     for m in [
         "schema", "context", "middleware", "fixture", "hot reload", "permission", "compatibility",
@@ -125,92 +82,45 @@ fn gmcp_req_203_020_01_contract() {
 
     let derived = serde_json::Value::Object(susi_gmcp::mcp::schema::root::<QueryArgs>());
     assert_eq!(derived["$schema"], "https://json-schema.org/draft/2020-12/schema");
-    assert_eq!(derived["type"], "object");
-    assert_eq!(derived["properties"]["query"]["description"], "Search expression.");
-    assert_eq!(derived["properties"]["filter"]["$ref"], "#/$defs/FilterSpec");
-    assert_eq!(derived["properties"]["limit"]["default"], 0);
+    assert_eq!((derived["type"].as_str(), derived["properties"]["query"]["description"].as_str(), derived["properties"]["filter"]["$ref"].as_str()), (Some("object"), Some("Search expression."), Some("#/$defs/FilterSpec")));
+    assert_eq!((derived["properties"]["limit"]["default"].as_u64(), derived["properties"]["labels"]["type"].as_str()), (Some(0), Some("array")));
     assert_eq!(derived["properties"]["includeArchived"]["type"], serde_json::json!(["boolean", "null"]));
-    assert_eq!(derived["properties"]["labels"]["type"], "array");
     assert_eq!(derived["$defs"]["FilterSpec"]["properties"]["tag"]["type"], serde_json::json!(["string", "null"]));
-    let required: BTreeSet<&str> = derived["required"]
-        .as_array()
-        .expect("required")
-        .iter()
-        .filter_map(serde_json::Value::as_str)
-        .collect();
-    assert_eq!(required, BTreeSet::from(["query", "filter", "labels"]));
+    assert_eq!(derived["required"].as_array().expect("req").iter().filter_map(serde_json::Value::as_str).collect::<BTreeSet<_>>(), BTreeSet::from(["query", "filter", "labels"]));
 
     let scratch = std::env::temp_dir().join(format!("gmcp-203-020-contract-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).expect("scratch");
     let service = GmcpService::new(scratch.clone());
-
-    let valid_tool = Tool::new_with_raw("sdk_contract_query", None, susi_gmcp::mcp::schema::root::<QueryArgs>());
-    service
-        .register_tool(
-            valid_tool,
-            Arc::new(|_p, _c| Box::pin(async { Ok(susi_gmcp::mcp::model::CallToolResult::success(vec![]).into()) })),
-        )
-        .expect("valid derived schema");
-
+    let noop: susi_gmcp::protocol::ToolHandler = Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+    service.register_tool(Tool::new_with_raw("sdk_contract_query", None, susi_gmcp::mcp::schema::root::<QueryArgs>()), Arc::clone(&noop)).expect("valid");
     let bad_schema = serde_json::Map::from_iter([("$ref".into(), serde_json::json!("https://evil.example/s.json"))]);
-    let bad_tool = Tool::new_with_raw("sdk_remote_ref_rejected", None, bad_schema);
-    assert!(service
-        .register_tool(
-            bad_tool,
-            Arc::new(|_p, _c| Box::pin(async { Ok(susi_gmcp::mcp::model::CallToolResult::success(vec![]).into()) })),
-        )
-        .is_err());
+    assert!(service.register_tool(Tool::new_with_raw("sdk_remote_ref_rejected", None, bad_schema), noop).is_err());
     let _ = std::fs::remove_dir_all(&scratch);
 
-    assert_eq!(HOST_PACK_API_MAJOR, 1);
-    assert_eq!(
-        KNOWN_PERMISSIONS,
-        &["filesystem.read", "filesystem.write", "network.egress", "process.exec"]
-    );
-
-    let valid_digest = "a".repeat(64);
+    assert_eq!((HOST_PACK_API_MAJOR, KNOWN_PERMISSIONS), (1, &["filesystem.read", "filesystem.write", "network.egress", "process.exec"][..]));
     let valid_manifest: ExtensionManifest = serde_json::from_value(serde_json::json!({
-        "id": "sdk-sample-pack",
-        "name": "SDK Sample Pack",
-        "version": "0.1.0",
-        "apiVersion": "1.0",
-        "capabilities": ["mcp.tools.sample"],
-        "requires": ["gmcp.server.v1"],
-        "optional": ["gmcp.tasks.v1"],
-        "permissions": ["filesystem.read"],
-        "files": { "tools": "catalog/tools.json" },
-        "checksums": { "tools": format!("sha256:{valid_digest}") },
-        "x-vendor-metadata": {"tier": "contract-fixture"}
-    }))
-    .expect("manifest");
+        "id": "sdk-sample-pack", "name": "SDK Sample Pack", "version": "0.1.0", "apiVersion": "1.0",
+        "capabilities": ["mcp.tools.sample"], "requires": ["gmcp.server.v1"], "optional": ["gmcp.tasks.v1"],
+        "permissions": ["filesystem.read"], "files": { "tools": "catalog/tools.json" },
+        "checksums": { "tools": format!("sha256:{}", "a".repeat(64)) }, "x-vendor-metadata": {"tier": "contract-fixture"}
+    })).expect("manifest");
     validate_manifest(&valid_manifest).expect("valid manifest");
     assert_eq!(valid_manifest.extra.get("x-vendor-metadata"), Some(&serde_json::json!({"tier": "contract-fixture"})));
 
-    let assert_err = |m: &ExtensionManifest, needle: &str| {
-        assert!(validate_manifest(m).expect_err("must fail").contains(needle));
-    };
-    let mut m = valid_manifest.clone();
-    m.permissions = vec!["kernel.root".into()];
-    assert_err(&m, "unknown permission");
-
-    let mut m = valid_manifest.clone();
-    m.api_version = "2.0".into();
-    assert_err(&m, "incompatible with host major");
-
-    let mut m = valid_manifest.clone();
-    m.permissions.clear();
-    m.files.insert("tools".into(), "../outside/tools.json".into());
-    assert_err(&m, "without declaring `filesystem.read`");
-
-    let mut m = valid_manifest.clone();
-    m.signatures.insert("tools".into(), "b".repeat(128));
-    m.signer = None;
-    assert_err(&m, "without a signer");
-
-    let mut m = valid_manifest;
-    m.checksums.insert("tools".into(), "sha256:not-a-hex-digest".into());
-    assert_err(&m, "invalid SHA-256 checksum");
+    type MutManifest = fn(&mut ExtensionManifest);
+    let cases: [(MutManifest, &str); 5] = [
+        (|m| m.permissions = vec!["kernel.root".into()], "unknown permission"),
+        (|m| m.api_version = "2.0".into(), "incompatible with host major"),
+        (|m| { m.permissions.clear(); m.files.insert("tools".into(), "../outside/tools.json".into()); }, "without declaring `filesystem.read`"),
+        (|m| { m.signatures.insert("tools".into(), "b".repeat(128)); m.signer = None; }, "without a signer"),
+        (|m| { m.checksums.insert("tools".into(), "sha256:not-a-hex-digest".into()); }, "invalid SHA-256 checksum"),
+    ];
+    for (mutate, needle) in cases {
+        let mut m = valid_manifest.clone();
+        mutate(&mut m);
+        assert!(validate_manifest(&m).expect_err("must fail").contains(needle));
+    }
 
     for manifest_rel in ["crates/susi-gmcp/Cargo.toml", "crates/susi-abi/Cargo.toml"] {
         let cargo_toml = std::fs::read_to_string(root.join(manifest_rel)).expect("Cargo.toml");
@@ -674,5 +584,305 @@ fn gmcp_req_203_020_03_integration() {
         h2.shutdown().await;
     });
     GmcpService::unbind_direct_server("sdk-integ");
+    assert!(!root.join(".agents/gmcp/evidence/VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
+}
+
+/// GMCP-203-020-04: adversarial and failure behavior across validation, authorization,
+/// isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry,
+/// rollback, and recovery (`docs/gmcp/contract-203-020.md` Threat Model #1..#10).
+#[test]
+fn gmcp_req_203_020_04_adversarial() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeMap;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use std::time::Duration;
+    use susi_gmcp::{
+        extensions::ExtensionStatus,
+        mcp::{
+            model::{
+                CallToolResult, ClientCapabilities, CompleteResult, CompletionInfo, ContentBlock,
+                ReadResourceResult, Resource, ResourceContents, TaskStatus, Tool,
+            },
+            task_manager::{
+                TaskExit, TaskOptions, TaskPrincipal, MAX_ACTIVE_TASKS_PER_PRINCIPAL,
+                MAX_INPUT_RESPONSE_BYTES,
+            },
+            ErrorData,
+        },
+        protocol::{GmcpService, MAX_RESOURCE_BYTES},
+        sdk::{
+            examples::{production_reference_server, sample_plugin_bundle},
+            CatalogUpdate, PluginBundle, PluginError, PluginPolicy, TestHarness,
+        },
+        susi_config::extensions as pack_ext,
+    };
+
+    async fn req(h: &TestHarness, m: &str, p: serde_json::Value) -> serde_json::Value {
+        h.request_modern(m, p, Default::default()).await.expect("rpc")
+    }
+
+    let (_lock, _env, home) = gmcp_http_home_guard("020-04-adv");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (ws, tasks_dir, cfg_dir) = (home.join("ws"), home.join("tasks"), susi_paths::SusiDirs::config_dir());
+    std::fs::create_dir_all(&ws).expect("ws");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg");
+    pack_ext::invalidate_extension_caches();
+
+    let (svc, audit_log) = production_reference_server(ws.clone(), tasks_dir).expect("sdk");
+    let noop: susi_gmcp::protocol::ToolHandler =
+        Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+    let policy = PluginPolicy::strict().grant_permission("filesystem.read");
+
+    // 1. Validation & bounded-resource rejection (depth bomb, unresolvable/file:// $ref, cyclic $defs).
+    let mut deep = json!({ "type": "string" });
+    for _ in 0..66 {
+        deep = json!({ "type": "array", "items": deep });
+    }
+    let deep_map = serde_json::Map::from_iter([("type".into(), json!("object")), ("properties".into(), json!({ "x": deep }))]);
+    let unres_map = serde_json::Map::from_iter([("$ref".into(), json!("#/$defs/Missing"))]);
+    let file_ref = serde_json::Map::from_iter([("$ref".into(), json!("file:///etc/passwd"))]);
+    for bad in [deep_map, unres_map, file_ref] {
+        let t = Tool::new_with_raw("bad_schema", None, bad);
+        assert!(svc.register_tool(t.clone(), Arc::clone(&noop)).is_err());
+        assert!(svc.reload_catalog(CatalogUpdate::new().with_tool(t.clone(), Arc::clone(&noop))).is_err());
+        let b = sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).with_tool(t, Arc::clone(&noop));
+        assert!(matches!(svc.attach_plugin(b, &policy), Err(PluginError::SchemaRejected(..))));
+    }
+    let cyc_map = serde_json::Map::from_iter([("$defs".into(), json!({ "L": { "$ref": "#/$defs/L" } })), ("$ref".into(), json!("#/$defs/L"))]);
+    svc.register_tool(Tool::new_with_raw("cyc_schema", None, cyc_map), Arc::clone(&noop)).expect("cyc");
+    let cyc_res = svc.call_tool_sync("cyc_schema", json!({})).expect("cyc call");
+    assert!(cyc_res["result"]["isError"] == true && cyc_res["result"]["content"][0]["text"].as_str().expect("t").contains("inputSchema"));
+    for reserved in ["", "susi", "native", "gmcp", "local", "builtin", "core"] {
+        assert!(svc.bind_direct_server(reserved).is_err());
+    }
+
+    // 2. Principal secret hashing, cross-principal isolation, and bounded active task quotas.
+    let raw_secret = "raw-top-secret-bearer-020";
+    let (p_a, p_b) = (TaskPrincipal::from_bearer_token(raw_secret), TaskPrincipal::from_bearer_token("other-020"));
+    assert!(!p_a.as_str().contains(raw_secret) && p_a != p_b);
+
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("rt");
+    rt.block_on(async {
+        let wait_fn = |tc: susi_gmcp::mcp::task_manager::TaskContext| -> susi_gmcp::mcp::task_manager::TaskFuture {
+            Box::pin(async move { tc.cancelled().await; Err(TaskExit::Cancelled) })
+        };
+        let t_a = svc.tasks.try_spawn_for(p_a.clone(), TaskOptions::default(), wait_fn).expect("a");
+        assert!(svc.tasks.get_task_for(&t_a.task_id, &p_b).is_err());
+        assert!(svc.tasks.update_task_for(&t_a.task_id, &p_b, []).is_err());
+        assert!(svc.tasks.cancel_task_for(&t_a.task_id, &p_b).is_err());
+        let ids_a = vec![t_a.task_id.clone()];
+        assert!(svc.tasks.authorize_tasks_for(&p_b, &ids_a).is_err() && svc.tasks.snapshots_for(&p_b, &ids_a).is_empty());
+        assert!(svc.tasks.update_task_for(&t_a.task_id, &p_a, [("k".into(), json!("x".repeat(MAX_INPUT_RESPONSE_BYTES + 16)))]).is_err());
+
+        let mut b_ids = Vec::with_capacity(MAX_ACTIVE_TASKS_PER_PRINCIPAL);
+        for _ in 0..MAX_ACTIVE_TASKS_PER_PRINCIPAL {
+            b_ids.push(svc.tasks.try_spawn_for(p_b.clone(), TaskOptions::default(), wait_fn).expect("slot").task_id);
+        }
+        assert_eq!(svc.tasks.try_spawn_for(p_b.clone(), TaskOptions::default(), |_tc| Box::pin(async { Ok(CallToolResult::success(vec![])) })).expect_err("65th").code.0, -32000);
+        let t_a2 = svc.tasks.try_spawn_for(p_a.clone(), TaskOptions::default(), |_tc| Box::pin(async { Ok(CallToolResult::success(vec![])) })).expect("a2");
+        for id in &b_ids { svc.tasks.cancel_task_for(id, &p_b).expect("cb"); }
+        svc.tasks.cancel_task_for(&t_a.task_id, &p_a).expect("ca");
+        for _ in 0..30 { if svc.tasks.running_task_count() == 0 { break; } tokio::time::sleep(Duration::from_millis(10)).await; }
+        assert_eq!(svc.tasks.running_task_count(), 0);
+        assert!(svc.tasks.cancel_task_for(&t_a.task_id, &p_a).is_err() && svc.tasks.update_task_for(&t_a2.task_id, &p_a, []).is_err());
+
+        // 3. Framing limit, missing _meta, resource traversal/sealing, completions & stale cursor.
+        let tiny_h = TestHarness::spawn_with_limit(svc.clone(), 512);
+        assert!(tiny_h.request_modern("server/discover", json!({ "pad": "Z".repeat(700) }), Default::default()).await.is_err());
+        tiny_h.shutdown().await;
+
+        let h = TestHarness::spawn(svc.clone());
+        audit_log.write().clear();
+        let no_meta = h.request_raw(json!({"jsonrpc":"2.0","id":901,"method":"tools/call","params":{"name":"summarize_items","arguments":{}}})).await.expect("nm");
+        assert!(no_meta["error"].is_object() && audit_log.read().is_empty());
+        assert_eq!(req(&h, "unknown/method", json!({})).await["error"]["code"], -32601);
+
+        let long_uri = format!("memo://items/{}", "a".repeat(2100));
+        for u in ["memo://items/../secret", "memo://items/%2e%2e/secret", "memo://bad space", long_uri.as_str()] {
+            assert!(req(&h, "resources/read", json!({"uri": u})).await["error"].is_object());
+        }
+        let mk_res = |u: &str, c: Vec<ResourceContents>| {
+            svc.register_resource(Resource::new(u, "adv"), Arc::new(move |_r, _x| {
+                let c = c.clone();
+                Box::pin(async move { Ok(ReadResourceResult { result_type: None, ttl_ms: None, cache_scope: None, contents: c, meta: None }.into()) })
+            }));
+        };
+        mk_res("memo://adv-empty", vec![]);
+        mk_res("memo://adv-b64", vec![ResourceContents::BlobResourceContents { uri: "memo://adv-b64".into(), mime_type: Some("application/octet-stream".into()), blob: "bad!!!".into(), meta: None }]);
+        mk_res("memo://adv-mime", vec![ResourceContents::TextResourceContents { uri: "memo://adv-mime".into(), mime_type: Some("bad mime".into()), text: "x".into(), meta: None }]);
+        mk_res("memo://adv-giant", vec![ResourceContents::TextResourceContents { uri: "memo://adv-giant".into(), mime_type: Some("text/plain".into()), text: "B".repeat(MAX_RESOURCE_BYTES + 1), meta: None }]);
+        for u in ["memo://adv-empty", "memo://adv-b64", "memo://adv-mime", "memo://adv-giant"] {
+            assert!(req(&h, "resources/read", json!({"uri": u})).await["error"].is_object());
+        }
+
+        svc.register_completion("adv_comp".into(), Arc::new(|_r, _c| Box::pin(async {
+            let values = (0..150).map(|i| format!("v{i:03}")).collect();
+            Ok(CompleteResult { result_type: None, completion: CompletionInfo { values, total: Some(150), has_more: Some(false) }, meta: None })
+        })));
+        let comp = req(&h, "completion/complete", json!({"ref":{"type":"ref/prompt","name":"adv_comp"},"argument":{"name":"x","value":""}})).await;
+        assert!(comp["result"]["completion"]["values"].as_array().expect("v").len() == 100 && comp["result"]["completion"]["hasMore"] == true);
+
+        let obj_schema = serde_json::Map::from_iter([("type".into(), json!("object"))]);
+        let mut many = CatalogUpdate::new();
+        for i in 0..102 { many = many.with_tool(Tool::new_with_raw(format!("pg_{i:03}"), None, obj_schema.clone()), Arc::clone(&noop)); }
+        svc.reload_catalog(many).expect("102");
+        let cursor = req(&h, "tools/list", json!({})).await["result"]["nextCursor"].as_str().expect("cur").to_string();
+        svc.reload_catalog(CatalogUpdate::new().with_tool(Tool::new_with_raw("summarize_items", None, obj_schema.clone()), Arc::clone(&noop))).expect("1");
+        assert!(req(&h, "tools/list", json!({"cursor": cursor})).await["error"].is_object());
+
+        // 4. Subscription resource_guard filtering + dynamic guard tightening.
+        mk_res("memo://welcome", vec![ResourceContents::TextResourceContents { uri: "memo://welcome".into(), mime_type: Some("text/plain".into()), text: "ok".into(), meta: None }]);
+        let mut sub_h = TestHarness::spawn(svc.clone());
+        assert!(sub_h.initialize_legacy("2025-11-25", ClientCapabilities::default()).await.is_ok());
+        assert!(sub_h.request_session("resources/subscribe", json!({"uri": "memo://secret/keys"})).await.expect("d")["error"].is_object());
+        assert!(sub_h.request_session("resources/subscribe", json!({"uri": "memo://welcome"})).await.expect("o")["result"].is_object());
+        while sub_h.next_notification(Duration::from_millis(15)).await.is_some() {}
+        svc.set_resource_guard(Arc::new(|u| (u != "memo://welcome" && !u.starts_with("memo://secret/")).then_some(()).ok_or_else(|| ErrorData::invalid_params("denied", None))));
+        svc.resource_updated("memo://welcome".into());
+        assert!(sub_h.next_notification(Duration::from_millis(80)).await.is_none());
+        svc.set_resource_guard(Arc::new(|u| (!u.starts_with("memo://secret/")).then_some(()).ok_or_else(|| ErrorData::invalid_params("denied", None))));
+        sub_h.shutdown().await;
+
+        // 5. Fault-injection: panicking tool, panicking task, & in-flight cancellation drop.
+        let att = Arc::new(AtomicUsize::new(0));
+        let att_c = Arc::clone(&att);
+        svc.register_tool(Tool::new_with_raw("flaky_panic", None, obj_schema.clone()), Arc::new(move |_r, _c| {
+            let n = att_c.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move { assert!(n > 0, "boom"); Ok(CallToolResult::success(vec![ContentBlock::text("retry-ok")]).into()) })
+        })).expect("flaky");
+        assert_eq!(req(&h, "tools/call", json!({"name": "flaky_panic", "arguments": {}})).await["error"]["code"], -32603);
+        assert_eq!(req(&h, "tools/call", json!({"name": "flaky_panic", "arguments": {}})).await["result"]["content"][0]["text"], "retry-ok");
+
+        let p_task = svc.tasks.spawn(TaskOptions::default(), |_tc| Box::pin(async { panic!("task boom") }));
+        for _ in 0..30 { if svc.tasks.running_task_count() == 0 { break; } tokio::time::sleep(Duration::from_millis(10)).await; }
+        assert!(svc.tasks.get_task(&p_task.task_id).expect("s").task.status == TaskStatus::Failed && svc.tasks.running_task_count() == 0);
+
+        let (drop_guard, (etx, erx)) = (Arc::new(()), tokio::sync::oneshot::channel());
+        let (eslot, dg) = (std::sync::Mutex::new(Some(etx)), Arc::clone(&drop_guard));
+        svc.register_tool(Tool::new_with_raw("slow_op", None, obj_schema.clone()), Arc::new(move |_r, _c| {
+            let (held, tx) = (Arc::clone(&dg), eslot.lock().expect("l").take());
+            Box::pin(async move { if let Some(t) = tx { let _ = t.send(()); } tokio::time::sleep(Duration::from_secs(30)).await; drop(held); Ok(CallToolResult::success(vec![]).into()) })
+        })).expect("slow");
+        let bg_durable = svc.tasks.spawn(TaskOptions::default(), wait_fn);
+        let hc = Arc::new(TestHarness::spawn(svc.clone()));
+        let hc2 = Arc::clone(&hc);
+        let c_req = json!({"jsonrpc":"2.0","id":955,"method":"tools/call","params":{"name":"slow_op","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}});
+        let slow_fut = tokio::spawn(async move { hc2.request_raw(c_req).await });
+        erx.await.expect("entered");
+        assert_eq!(Arc::strong_count(&drop_guard), 3);
+        hc.notify("notifications/cancelled", json!({ "requestId": 955 })).await.expect("cancel");
+        for _ in 0..40 { if Arc::strong_count(&drop_guard) == 2 { break; } tokio::time::sleep(Duration::from_millis(10)).await; }
+        assert!(Arc::strong_count(&drop_guard) == 2 && svc.tasks.get_task(&bg_durable.task_id).expect("bg").task.status == TaskStatus::Working);
+        svc.tasks.cancel_task(&bg_durable.task_id).expect("clean bg");
+        slow_fut.abort();
+        let _ = slow_fut.await;
+        assert!(req(&hc, "server/discover", json!({})).await["result"].is_object());
+
+        // 6. Plugin negative admission, panicking hooks, & 8-way concurrency race.
+        for bad_rel in ["NUL.json", "/etc/passwd"] {
+            let mut m = sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).manifest;
+            m.files.insert("bad".into(), bad_rel.into());
+            assert!(pack_ext::validate_manifest(&m).is_err());
+        }
+        let bare = PluginBundle::new(sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).manifest);
+        assert!(matches!(svc.attach_plugin(bare.with_extension("bare_ext", ExtensionStatus::Experimental, 1, Default::default()), &policy), Err(PluginError::ExtensionRejected(..))));
+        let col = PluginBundle::new(sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).manifest).with_tool(Tool::new_with_raw("flaky_panic", None, obj_schema.clone()), Arc::clone(&noop));
+        assert!(matches!(svc.attach_plugin(col, &policy), Err(PluginError::Collision("tool", ..))));
+        assert!(matches!(svc.unload_plugin("missing"), Err(PluginError::NotLoaded(_))));
+
+        let p_init = sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).with_initializer(Arc::new(|_| panic!("init boom")));
+        assert!(matches!(svc.attach_plugin(p_init, &policy), Err(PluginError::InitFailed(_, ref m)) if m.contains("panicked")) && svc.loaded_plugins().is_empty());
+        svc.attach_plugin(sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).with_on_unload(Arc::new(|| panic!("unload boom"))), &policy).expect("attach");
+        assert!(matches!(svc.attach_plugin(sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()), &policy), Err(PluginError::AlreadyLoaded(_))));
+        svc.unload_plugin("sdk-sample-plugin").expect("unload isolated");
+        assert!(svc.loaded_plugins().is_empty());
+
+        let mut joins = Vec::new();
+        for i in 0..8usize {
+            let (s, pol, sch, nt) = (svc.clone(), policy.clone(), obj_schema.clone(), Arc::clone(&noop));
+            joins.push(tokio::spawn(async move {
+                let rh = TestHarness::spawn(s.clone());
+                for _ in 0..4 {
+                    match i % 4 {
+                        0 => { let _ = req(&rh, "tools/list", json!({})).await; }
+                        1 => { let _ = req(&rh, "resources/read", json!({"uri": "memo://welcome"})).await; }
+                        2 => { let _ = s.reload_catalog(CatalogUpdate::new().with_tool(Tool::new_with_raw("flaky_panic", None, sch.clone()), Arc::clone(&nt))); }
+                        _ => {
+                            let mut b = PluginBundle::new(sample_plugin_bundle(None, BTreeMap::new(), BTreeMap::new()).manifest);
+                            b.manifest.id = format!("race-plug-{i}");
+                            if s.attach_plugin(b, &pol).is_ok() { let _ = s.unload_plugin(&format!("race-plug-{i}")); }
+                        }
+                    }
+                }
+                rh.shutdown().await;
+            }));
+        }
+        for j in joins { j.await.expect("race"); }
+        assert!(svc.loaded_plugins().is_empty());
+
+        // 7. Ed25519 signed host pack quarantine, runtime eviction, state corruption & recovery.
+        pack_ext::create_pack("adv-signed-pack").expect("create");
+        let pack_dir = cfg_dir.join("extensions").join("adv-signed-pack");
+        std::fs::create_dir_all(pack_dir.join("catalog")).expect("cat");
+        let art_bytes = br#"{"tools":["plugin_lookup","plugin_watch"]}"#;
+        std::fs::write(pack_dir.join("catalog/plugin.json"), art_bytes).expect("art");
+        let digest: String = Sha256::digest(art_bytes).iter().map(|b| format!("{b:02x}")).collect();
+        let (files, csums) = (BTreeMap::from([("catalog".into(), "catalog/plugin.json".into())]), BTreeMap::from([("catalog".into(), format!("sha256:{digest}"))]));
+        let write_signed = |sk: &SigningKey| {
+            let mut b = sample_plugin_bundle(Some(pack_dir.clone()), csums.clone(), files.clone());
+            b.manifest.id = "adv-signed-pack".into();
+            b.manifest.signer = Some(susi_paths::hex::encode(sk.verifying_key().to_bytes()));
+            b.manifest.signatures.insert("catalog".into(), susi_paths::hex::encode(sk.sign(art_bytes).to_bytes()));
+            std::fs::write(pack_dir.join("manifest.json"), serde_json::to_vec_pretty(&b.manifest).expect("j")).expect("wm");
+        };
+        write_signed(&SigningKey::from_bytes(&[7u8; 32]));
+        assert!(pack_ext::load_pack("adv-signed-pack").expect("load").active);
+        let decorate = |base: PluginBundle| { let mut b = sample_plugin_bundle(Some(pack_dir.clone()), csums.clone(), files.clone()); b.manifest = base.manifest; b };
+        assert_eq!(svc.sync_active_pack(&policy, decorate).expect("s1").expect("l").id, "adv-signed-pack");
+        let caps = ClientCapabilities::builder().enable_tasks().build();
+        let p_tid = h.request_modern("tools/call", json!({"name": "plugin_watch", "arguments": {"key": "live"}}), caps).await.expect("w")["result"]["taskId"].as_str().expect("id").to_string();
+        assert_eq!(svc.tasks.running_task_count(), 1);
+
+        write_signed(&SigningKey::from_bytes(&[9u8; 32]));
+        assert!(matches!(svc.sync_active_pack(&policy, |b| b), Err(PluginError::IntegrityFailed(ref m)) if m.contains("signer changed")));
+        for _ in 0..30 { if svc.tasks.running_task_count() == 0 { break; } tokio::time::sleep(Duration::from_millis(10)).await; }
+        assert!(svc.loaded_plugins().is_empty() && svc.tasks.get_task(&p_tid).expect("ev").task.status == TaskStatus::Cancelled);
+        assert!(pack_ext::load_pack("adv-signed-pack").expect_err("q").contains("signer changed"));
+        assert!(pack_ext::verify_pack_dir_for_sdk(&pack_dir).expect_err("qe").contains("quarantined"));
+
+        let state_file = cfg_dir.join("extensions").join("state.json");
+        let saved = std::fs::read_to_string(&state_file).expect("saved");
+        std::fs::write(&state_file, "{corrupt").expect("corrupt");
+        assert!(pack_ext::verify_pack_dir_for_sdk(&pack_dir).expect_err("dmg").contains("damaged"));
+        std::fs::write(&state_file, saved).expect("restore");
+        assert!(pack_ext::readmit_pack("adv-signed-pack").expect("readmit").active);
+        assert_eq!(svc.sync_active_pack(&policy, decorate).expect("rec").expect("r").id, "adv-signed-pack");
+        assert_eq!(req(&h, "tools/call", json!({"name": "plugin_lookup", "arguments": {"key": "ok"}})).await["result"]["content"][0]["text"], "plugin:ok");
+        pack_ext::unload_pack("adv-signed-pack").expect("unload");
+        assert!(svc.sync_active_pack(&policy, |b| b).expect("us").is_none());
+        h.shutdown().await;
+    });
+
+    // 8. Durable task store crash reconciliation (`Working` -> `Failed`) & corruption rejection.
+    let crash_dir = home.join("crash-store");
+    let crash_svc = GmcpService::open_durable(ws.clone(), crash_dir.clone()).expect("open");
+    let orphan_id = rt.block_on(async {
+        crash_svc.tasks.spawn(TaskOptions::default(), |tc| Box::pin(async move { tc.cancelled().await; Err(TaskExit::Cancelled) })).task_id
+    });
+    let working_bytes = std::fs::read(crash_dir.join("tasks.json")).expect("bytes");
+    drop(crash_svc);
+    std::fs::write(crash_dir.join("tasks.json"), working_bytes).expect("crash");
+    let recovered = GmcpService::open_durable(ws.clone(), crash_dir.clone()).expect("reconcile");
+    assert_eq!(recovered.tasks.get_task(&orphan_id).expect("orphan").task.status, TaskStatus::Failed);
+    drop(recovered);
+    for bad_bytes in [&b"{truncated"[..], &b"[99,[]]"[..]] {
+        std::fs::write(crash_dir.join("tasks.json"), bad_bytes).expect("bad");
+        assert!(GmcpService::open_durable(ws.clone(), crash_dir.clone()).is_err());
+    }
     assert!(!root.join(".agents/gmcp/evidence/VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
 }

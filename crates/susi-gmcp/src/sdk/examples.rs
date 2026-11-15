@@ -225,17 +225,9 @@ pub fn production_reference_server(
                     .into());
                 }
                 let mut requests = InputRequests::new();
-                requests.insert(
-                    "confirm".into(),
-                    mrtr_elicitation(
-                        format!("Approve operation `{}`?", input.operation),
-                        json!({
-                            "type": "object",
-                            "properties": { "approved": { "type": "boolean" } },
-                            "required": ["approved"]
-                        }),
-                    )?,
-                );
+                let schema = json!({"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]});
+                let prompt = format!("Approve operation `{}`?", input.operation);
+                requests.insert("confirm".into(), mrtr_elicitation(prompt, schema)?);
                 Ok(mrtr_input_required(requests, Some(format!("op:{}", input.operation)))?.into())
             },
         )
@@ -244,40 +236,20 @@ pub fn production_reference_server(
             "Durable task workflow pausing for MRTR operator input via TaskContext",
             |input: ApprovalTaskInput, task_ctx| async move {
                 task_ctx.set_status_message(format!("awaiting approval for {}", input.ticket));
-                let req = mrtr_elicitation(
-                    format!("Approve ticket {}?", input.ticket),
-                    json!({
-                        "type": "object",
-                        "properties": { "decision": { "type": "string" } },
-                        "required": ["decision"]
-                    }),
-                )
-                .map_err(TaskExit::Error)?;
+                let schema = json!({"type":"object","properties":{"decision":{"type":"string"}},"required":["decision"]});
+                let req = mrtr_elicitation(format!("Approve ticket {}?", input.ticket), schema)
+                    .map_err(TaskExit::Error)?;
                 let answer = task_ctx.request_input("approve", req).await?;
-                let decision = answer
-                    .get("decision")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                Ok(CallToolResult::structured(
-                    json!({ "ticket": input.ticket, "decision": decision }),
-                ))
+                let decision = answer.get("decision").and_then(Value::as_str).unwrap_or("unknown");
+                Ok(CallToolResult::structured(json!({ "ticket": input.ticket, "decision": decision })))
             },
         )
         .resource_guard(Arc::new(|uri| {
-            if uri.starts_with("memo://secret/") {
-                return Err(ErrorData::invalid_params(
-                    "Resource guard denied secret URI",
-                    None,
-                ));
-            }
-            Ok(())
+            (!uri.starts_with("memo://secret/"))
+                .then_some(())
+                .ok_or_else(|| ErrorData::invalid_params("Resource guard denied secret URI", None))
         }))
-        .text_resource(
-            "memo://welcome",
-            "welcome",
-            "text/plain",
-            "Welcome to the Susi GMCP SDK reference server.",
-        )
+        .text_resource("memo://welcome", "welcome", "text/plain", "Welcome to the Susi GMCP SDK reference server.")
         .template(
             template,
             Arc::new(|req, _ctx| {

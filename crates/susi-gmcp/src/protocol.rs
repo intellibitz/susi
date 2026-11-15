@@ -602,10 +602,8 @@ impl ServerHandler for GmcpService {
         if let Some(tool) = registered {
             let arguments = Value::Object(request.arguments.clone().unwrap_or_default());
             if !tool.input.is_valid(&arguments) {
-                return Ok(CallToolResult::error(vec![ContentBlock::text(
-                    "Arguments do not match inputSchema",
-                )])
-                .into());
+                let err = ContentBlock::text("Arguments do not match inputSchema");
+                return Ok(CallToolResult::error(vec![err]).into());
             }
             let log_ctx = context.clone();
             let tool_name = request.name.to_string();
@@ -615,13 +613,26 @@ impl ServerHandler for GmcpService {
                 let inner = dispatch;
                 dispatch = Arc::new(move |req, ctx| mw(req, ctx, inner.clone()));
             }
-            let mut response = dispatch(request, context).await?;
+            let cancel = context.ct.clone();
+            let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                dispatch(request, context)
+            }))
+            .map_err(|_| internal("Tool execution panicked"))?;
+            let (mut fut, grace) = (
+                crate::mcp::service::CatchUnwind(raw),
+                std::time::Duration::from_millis(25),
+            );
+            let mut response = tokio::select! {
+                biased;
+                r = &mut fut => r.map_err(|_| internal("Tool execution panicked"))??,
+                () = cancel.cancelled() => tokio::time::timeout(grace, &mut fut)
+                    .await
+                    .map_err(|_| internal("Tool call cancelled"))?
+                    .map_err(|_| internal("Tool execution panicked"))??,
+            };
             if let CallToolResponse::Complete(res) = response {
-                let mut checked = enforce_output_schema(
-                    tool.output.as_deref(),
-                    res,
-                    "Tool output does not match outputSchema",
-                );
+                let msg = "Tool output does not match outputSchema";
+                let mut checked = enforce_output_schema(tool.output.as_deref(), res, msg);
                 checked.result_type = Some(ResultType::COMPLETE);
                 response = checked.into();
             }
