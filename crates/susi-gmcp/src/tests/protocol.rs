@@ -1362,12 +1362,27 @@ mod task_extension_unit_tests {
         let done_json = serde_json::to_value(&restored_done).unwrap();
         assert_eq!(done_json["result"]["structuredContent"]["persisted"], 42);
 
-        // In-flight task must settle deterministically with -32603.
+        // In-flight task must settle deterministically with -32603 and diagnostic statusMessage.
         let settled_inflight = reopened.get_task_for(&inflight_id, &alice).unwrap();
         assert_eq!(settled_inflight.status(), TaskStatus::Failed);
+        assert_eq!(
+            settled_inflight.task.status_message.as_deref(),
+            Some("task interrupted by server restart")
+        );
         let err_json = serde_json::to_value(&settled_inflight).unwrap();
         assert_eq!(err_json["error"]["code"], -32603);
         drop(reopened);
+
+        // Duplicate taskId or mismatched status/payload in tasks.json must fail closed.
+        let mut raw_store: Value =
+            serde_json::from_slice(&std::fs::read(&store_file).unwrap()).unwrap();
+        let first_item = raw_store[1][0].clone();
+        raw_store[1].as_array_mut().unwrap().push(first_item);
+        std::fs::write(&store_file, serde_json::to_vec(&raw_store).unwrap()).unwrap();
+        assert!(
+            TaskManager::open(dir.path()).is_err(),
+            "duplicate taskId in tasks.json must fail closed"
+        );
 
         // Corrupt JSON on disk must fail closed rather than silently resetting state.
         std::fs::write(&store_file, b"{corrupt").unwrap();

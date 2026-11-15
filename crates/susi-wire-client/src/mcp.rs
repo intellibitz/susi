@@ -385,6 +385,7 @@ impl Session {
     /// Fetch the current [`TaskSnapshot`] for `task_id` via `tasks/get`.
     /// Retries only bounded transient I/O or 429/502/503/504 HTTP responses.
     pub fn get_task(&mut self, task_id: &str) -> Result<TaskSnapshot, WireError> {
+        validate_task_id(task_id)?;
         let value = self.request_idempotent_task("tasks/get", task_id)?;
         TaskSnapshot::from_get_result(&value)
     }
@@ -392,6 +393,7 @@ impl Session {
     /// Deliver `inputResponses` for an `input_required` task via `tasks/update`.
     /// Not retried blindly because responses mutate task input state.
     pub fn update_task(&mut self, task_id: &str, input_responses: &Value) -> Result<(), WireError> {
+        validate_task_id(task_id)?;
         if !input_responses.is_object() {
             return Err(WireError::Protocol(
                 "tasks/update inputResponses must be a JSON object".into(),
@@ -402,15 +404,16 @@ impl Session {
             "inputResponses": input_responses,
         });
         let caps = client_capabilities_with_tasks();
-        let _ = self.request_with_capabilities("tasks/update", &params, &caps, &mut |_| {})?;
-        Ok(())
+        let value = self.request_with_capabilities("tasks/update", &params, &caps, &mut |_| {})?;
+        ensure_task_ack(&value, &self.version, "tasks/update")
     }
 
     /// Cancel `task_id` via `tasks/cancel`.
     /// Retries only bounded transient I/O or 429/502/503/504 HTTP responses.
     pub fn cancel_task(&mut self, task_id: &str) -> Result<(), WireError> {
-        let _ = self.request_idempotent_task("tasks/cancel", task_id)?;
-        Ok(())
+        validate_task_id(task_id)?;
+        let value = self.request_idempotent_task("tasks/cancel", task_id)?;
+        ensure_task_ack(&value, &self.version, "tasks/cancel")
     }
 
     /// Poll `initial` honoring `pollIntervalMs`, bounded by `ttlMs` and optional
@@ -1035,6 +1038,39 @@ impl PersistedTaskHandleStore {
         }
         Ok(())
     }
+}
+
+fn validate_task_id(task_id: &str) -> Result<(), WireError> {
+    if task_id.is_empty() || task_id.bytes().any(|b| !(0x20..0x7f).contains(&b)) {
+        return Err(WireError::Protocol(
+            "taskId must be non-empty printable ASCII".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_task_ack(value: &Value, version: &str, method: &str) -> Result<(), WireError> {
+    if !value.is_object() {
+        return Err(WireError::Protocol(format!(
+            "{method} response must be a JSON object"
+        )));
+    }
+    let rt = value.get("resultType").and_then(Value::as_str);
+    if version == PROTOCOL_VERSION_2026_07_28 {
+        if rt != Some("complete") {
+            return Err(WireError::Protocol(format!(
+                "{method} expected resultType \"complete\", got {rt:?}"
+            )));
+        }
+    } else if value
+        .get("resultType")
+        .is_some_and(|v| v.as_str() != Some("complete"))
+    {
+        return Err(WireError::Protocol(format!(
+            "{method} returned invalid resultType {rt:?}"
+        )));
+    }
+    Ok(())
 }
 
 fn expected_mcp_name<'a>(method: &str, params: Option<&'a Value>) -> Option<&'a str> {
@@ -2101,6 +2137,42 @@ mod tests {
             matches!(&cancel_err, WireError::Protocol(msg) if msg.contains("cancelled")),
             "{cancel_err:?}"
         );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn task_ack_and_task_id_validation_reject_forged_result_types_and_control_chars() {
+        let (addr, _seen, server) = scripted(vec![
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"input_required\"}}",
+        ]);
+        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
+        for bad_id in ["", "bad\r\nEvil: 1", "bad\u{0000}id"] {
+            assert!(matches!(
+                session.get_task(bad_id),
+                Err(WireError::Protocol(_))
+            ));
+            assert!(matches!(
+                session.update_task(bad_id, &json!({})),
+                Err(WireError::Protocol(_))
+            ));
+            assert!(matches!(
+                session.cancel_task(bad_id),
+                Err(WireError::Protocol(_))
+            ));
+        }
+        assert!(matches!(
+            session.update_task("valid-id", &json!({})),
+            Err(WireError::Protocol(_))
+        ));
+        assert!(matches!(
+            session.cancel_task("valid-id"),
+            Err(WireError::Protocol(_))
+        ));
         server.join().unwrap();
     }
 }

@@ -20,5 +20,22 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Phase 1 deliverable for T-CODEXGMCPROADMAP-103 keeps this task record OPEN; cross-spec interop matrix, operations runbooks/SLOs, and final VC-203-014.jsonl + mastery verdict seal remain in T-CODEXGMCPROADMAP-104 through T-CODEXGMCPROADMAP-106."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Hardened existing TaskManager durable store validation (rejecting empty/duplicate taskId and tampered status/payload entries fail-closed and populating diagnostic statusMessage on Failed settlements) and susi-wire-client Session task ack/taskId validation (enforcing resultType == complete on tasks/update and tasks/cancel and rejecting control-character/empty taskIds), reusing GmcpServer, GmcpService, StdioSession, NetGuard, jsonrpc_gate, and PersistedTaskHandleStore harnesses.",
+    "searched": "docs/gmcp/contract-203-014.md, crates/susi-gmcp/src/{protocol.rs,server.rs,jsonrpc_gate.rs,mcp/{http.rs,message.rs,model.rs,service.rs,task_manager.rs,transport.rs}}, crates/susi-wire-client/src/mcp.rs, crates/susi-gmcp/src/tests/protocol.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-wire-client, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "crates/susi-gmcp/src/mcp/task_manager.rs",
+    "crates/susi-gmcp/src/tests/protocol.rs",
+    "crates/susi-wire-client/src/mcp.rs",
+    "tests/gmcp_requirements.rs"
+  ]
 }

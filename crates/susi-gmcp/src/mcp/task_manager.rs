@@ -163,6 +163,9 @@ impl TaskEntry {
         self.task.status = self.status();
     }
     fn settle(&mut self, payload: TaskPayload, at: Option<Instant>, ts_ms: u64) {
+        if let (TaskPayload::Failed { error: e }, None) = (&payload, &self.task.status_message) {
+            self.task.status_message = e.get("message").and_then(|v| v.as_str()).map(Into::into);
+        }
         self.terminal = Some((payload, at, Some(ts_ms)));
         self.pending.clear();
         self.touch();
@@ -198,16 +201,9 @@ impl TaskEntry {
         DetailedTask::new(self.task.clone(), p)
     }
     fn persisted(&self) -> Stored {
-        let d = self.detailed();
-        let term = self.terminal.as_ref().and_then(|t| t.2);
-        Stored(
-            self.owner.clone(),
-            d.task,
-            d.payload,
-            self.used_keys.clone(),
-            self.created.1,
-            term,
-        )
+        let (d, term) = (self.detailed(), self.terminal.as_ref().and_then(|t| t.2));
+        let (o, u) = (self.owner.clone(), self.used_keys.clone());
+        Stored(o, d.task, d.payload, u, self.created.1, term)
     }
 }
 
@@ -478,16 +474,18 @@ impl TaskManager {
             if ver != STORE_VERSION {
                 return Err(err_int(format!("unsupported task store version {ver}")));
             }
+            let mut seen = HashSet::new();
             for Stored(owner, task, payload, used, created_ms, term_ms) in items {
+                let bad_entry = task.task_id.is_empty() || task.status != payload.status();
+                if bad_entry || !seen.insert(task.task_id.clone()) {
+                    return Err(err_int("corrupt task store entry"));
+                }
                 let mut e = TaskEntry::working(owner, task, created_ms);
                 (e.created.0, e.used_keys, e.terminal) =
                     (None, used, Some((payload, None, term_ms)));
                 if !e.status().is_terminal() {
-                    e.settle(
-                        fail_payload("task interrupted by server restart"),
-                        None,
-                        now_ms,
-                    );
+                    let fail = fail_payload("task interrupted by server restart");
+                    e.settle(fail, None, now_ms);
                 }
                 if retained(&e, now_ms) {
                     tasks.insert(e.task.task_id.clone(), e);
@@ -566,11 +564,8 @@ impl TaskManager {
         let fallback = opts.clone();
         self.try_spawn_for(TaskPrincipal::local(), opts, make_future)
             .unwrap_or_else(|_| {
-                let mut t = make_task(
-                    uuid_v4(),
-                    Some("active task limit exceeded".into()),
-                    &fallback,
-                );
+                let msg = Some("active task limit exceeded".into());
+                let mut t = make_task(uuid_v4(), msg, &fallback);
                 t.status = TaskStatus::Failed;
                 t
             })
@@ -579,18 +574,11 @@ impl TaskManager {
     pub fn get_task_for(&self, id: &str, owner: &TaskPrincipal) -> Result<DetailedTask, ErrorData> {
         let mut g = lock(&self.inner);
         let e = g.owned_mut(id, owner)?;
-        let (now, iv) = (
-            Instant::now(),
-            e.task
-                .poll_interval_ms
-                .unwrap_or(DEFAULT_POLL_INTERVAL_MS)
-                .max(1),
-        );
+        let iv = e.task.poll_interval_ms.unwrap_or(DEFAULT_POLL_INTERVAL_MS);
+        let (now, iv) = (Instant::now(), iv.max(1));
         let dt = now.duration_since(e.poll.1).as_secs_f64();
-        e.poll = (
-            (e.poll.0 + dt * 1_000.0 / iv as f64).min(POLL_BURST_ALLOWANCE),
-            now,
-        );
+        let tokens = (e.poll.0 + dt * 1_000.0 / iv as f64).min(POLL_BURST_ALLOWANCE);
+        e.poll = (tokens, now);
         if e.poll.0 < 1.0 {
             return Err(busy(
                 "tasks/get rate limit exceeded; respect pollIntervalMs",
