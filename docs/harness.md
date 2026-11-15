@@ -541,8 +541,10 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
 - **Harness subcommands are refused.** A worker command whose text names `workflow finish|sync|start`
   or `tasks claim|close|release`, or that invokes a `susi`/`susi<N>` binary at command position, is
   refused: claim, close and publish belong to the harness.
-- **A failed mission releases its claim.** The worktree stays for diagnosis, but the claim does not
-  outlive the attempt, so the next mission can retry without a manual forced release.
+- **A rejected attempt releases its claim; a failed landing keeps it.** A rejected attempt with
+  nothing committed releases its claim, so the next mission can retry. A failed landing keeps the
+  accepted candidate and its claim; rerunning the mission re-verifies that candidate (gate and
+  acceptance) and lands it without another worker turn.
 - **Stale worktree cleanup.** When `workflow start` refuses because a killed mission left its
   directory or branch behind, the harness removes it and retries once. A directory is removed by
   hand only when it is a worktree of this clone (registered, or prunable); anything else at that
