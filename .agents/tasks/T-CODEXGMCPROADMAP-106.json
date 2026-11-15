@@ -23,5 +23,31 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Linux/Unix domain socket transport checks in `gmcp_req_203_014_03_integration` through `gmcp_vc_203_014_mastery` are compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process `GmcpService`/`TaskManager::open`, embedded adapter, `susi mcp serve` stdio, and Streamable HTTP `/mcp` + Wire SDK `Session` parity.",
+    "Non-resumable in-flight tasks interrupted by ungraceful server termination reconcile deterministically once to `failed` (`-32603`) on process restart while settled terminal payloads replay within `ttlMs` without re-executing side effects; multi-node distributed task replication remains out of scope.",
+    "Phase 1 keeps T-CODEXGMCPROADMAP-106 open until shipped to `origin/main` with two-phase `record-gmcp` + `record-gmcp --mastery` evidence bound in `.agents/gmcp/evidence/VC-203-014.jsonl`; Phase 2 executes formal task closure."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "tests/gmcp_requirements/vc_203_014_part4.rs",
+      "docs/gmcp/contract-203-014.md",
+      "crates/susi-gmcp/src/mcp/task_manager.rs",
+      "crates/susi-gmcp/src/protocol.rs",
+      "crates/susi-wire-client/src/mcp.rs"
+    ],
+    "target": "tests/gmcp_requirements/vc_203_014_part4.rs",
+    "why": "Reused shipped `TaskManager`, `GmcpService`, `GmcpServer`, `StdioGate`, `susi_wire_client::mcp::{Session, PersistedTaskHandleStore}`, `susi_gmcp::requirements_ledger`, and `susi mcp` CLI/tool surfaces (closing the pre-cancelled `TaskContext::request_input` race in `task_manager.rs` at zero net lines) to prove end-to-end VC-203-014 mastery and commit-bound evidence verification."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/roadmap-verdicts",
+    ".agents/roadmap.json",
+    ".agents/tasks",
+    "crates/susi-gmcp/src/mcp/task_manager.rs",
+    "tests/gmcp_requirements",
+    "tests/gmcp_requirements.rs"
+  ]
 }

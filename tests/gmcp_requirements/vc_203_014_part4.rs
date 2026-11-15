@@ -1032,3 +1032,1121 @@ fn gmcp_req_203_014_06_operations() {
     let _ = std::fs::remove_file(cfg_dir.join("api_token"));
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// GMCP-203-014-M: Vector mastery gate for VC-203-014 (Official Tasks extension and durable long-running work).
+///
+/// Proves the complete VC-203-014 mastery target on the shipped production path across server and client
+/// (`get`, `update`, `cancel`, `notifications/tasks`, state transitions, TTL expiry, bounded retries,
+/// ownership isolation, server-directed execution, single-settlement restart durability, MRTR + progress
+/// composition, terminal-state invariants, and rejection of stale/cross-user/forged/replayed handles),
+/// strictly verifies retained `GMCP-203-014-01..06` evidence (rejecting missing, stale, unsigned,
+/// locally modified, waived, mock-only, unlinked-supersession, wrong-digest, or zero-test evidence),
+/// and confirms `.agents/roadmap.json` + `.agents/roadmap-verdicts/VC-203-014.json` delivery.
+#[test]
+fn gmcp_vc_203_014_mastery() {
+    use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeSet;
+    use std::io::Read;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use susi_gmcp::mcp::model::{
+        CallToolResult, ContentBlock, InputRequest, TaskPayload, TaskStatus as ServerTaskStatus,
+        TASKS_EXTENSION_ID,
+    };
+    use susi_gmcp::mcp::task_manager::{TaskExit, TaskManager, TaskOptions, TaskPrincipal};
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::server::GmcpServer;
+    use susi_wire_client::mcp::{
+        CallToolOutcome, PersistedTaskHandle, PersistedTaskHandleStore, Session,
+        TaskStatus as ClientTaskStatus, WireError, PROTOCOL_VERSION_2026_07_28,
+    };
+
+    struct EvidenceCtx<'a> {
+        root: &'a Path,
+        ledger_hash: &'a str,
+        test_src: &'a str,
+        head_digest: &'a str,
+        now: u64,
+    }
+
+    fn verify_vc_203_014_evidence(
+        ctx: &EvidenceCtx<'_>,
+        evidence_text: &str,
+        committed_artifacts: Option<&[String]>,
+    ) -> Result<BTreeSet<String>, String> {
+        const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
+        let names = |record: &Value, target: &Value| {
+            LINK.iter()
+                .all(|field| record["supersedes"][*field] == target[*field])
+        };
+        let mut order: Vec<String> = Vec::new();
+        let mut chains: std::collections::HashMap<String, Vec<Value>> =
+            std::collections::HashMap::new();
+        for line in evidence_text.lines().filter(|l| !l.trim().is_empty()) {
+            let record: Value = serde_json::from_str(line)
+                .map_err(|e| format!("evidence line is not valid JSON: {e}"))?;
+            let requirement = record["requirement"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            match chains.get_mut(&requirement) {
+                Some(chain) => {
+                    if !chain.iter().any(|earlier| names(&record, earlier)) {
+                        return Err(format!(
+                            "{requirement}: unlinked duplicate record missing supersedes link"
+                        ));
+                    }
+                    chain.push(record);
+                }
+                None => {
+                    order.push(requirement.clone());
+                    chains.insert(requirement, vec![record]);
+                }
+            }
+        }
+        let newest: Vec<Value> = order
+            .into_iter()
+            .filter_map(|req| {
+                let chain = chains.remove(&req)?;
+                let tips: Vec<&Value> = chain
+                    .iter()
+                    .filter(|r| !chain.iter().any(|later| names(later, r)))
+                    .collect();
+                tips.into_iter()
+                    .max_by_key(|r| r["recorded_unix"].as_u64().unwrap_or(0))
+                    .cloned()
+            })
+            .collect();
+
+        let mut covered = BTreeSet::new();
+        for record in newest {
+            let req = record["requirement"].as_str().unwrap_or_default();
+            if req.ends_with("-M") {
+                continue;
+            }
+            if record.get("waived").is_some() || record.get("mock").is_some() {
+                return Err(format!("{req}: waived or mock-only evidence rejected"));
+            }
+            for field in [
+                "requirement",
+                "check",
+                "exit",
+                "detail",
+                "recorded_unix",
+                "artifact_sha256",
+                "identity",
+            ] {
+                if record[field].is_null() {
+                    return Err(format!("{req}: incomplete evidence missing {field}"));
+                }
+            }
+            if record["exit"] != 0 {
+                return Err(format!("{req}: non-zero exit evidence rejected"));
+            }
+            if record["identity"].as_str().unwrap_or_default().is_empty() {
+                return Err(format!("{req}: unsigned empty identity rejected"));
+            }
+            if record["detail"].as_str().unwrap_or_default().is_empty() {
+                return Err(format!("{req}: empty detail rejected"));
+            }
+            if record["artifact_sha256"].as_str().unwrap_or_default() != ctx.ledger_hash {
+                return Err(format!("{req}: stale artifact_sha256 rejected"));
+            }
+            let recorded = record["recorded_unix"].as_u64().unwrap_or(0);
+            if recorded <= 1_792_256_000 || recorded > ctx.now + 60 {
+                return Err(format!("{req}: stale or future recorded_unix {recorded}"));
+            }
+            let check = record["check"].as_str().unwrap_or_default();
+            if let Some(test_name) =
+                check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+            {
+                if !test_name.starts_with("gmcp_")
+                    || test_name.contains(char::is_whitespace)
+                    || !is_test_fn(ctx.test_src, test_name)
+                {
+                    return Err(format!("{req}: zero-test missing fn {test_name}"));
+                }
+            } else if !check
+                .split_whitespace()
+                .filter(|t| !t.starts_with('-'))
+                .any(|t| ctx.root.join(t).exists())
+            {
+                return Err(format!("{req}: check references no committed artifact"));
+            }
+            if let Some(artifacts) = committed_artifacts {
+                assert_bound_to_tested_commit(ctx.root, &record, artifacts, ctx.head_digest);
+            } else {
+                let commit = record["tested_commit"].as_str().unwrap_or_default();
+                if commit.len() != 40 || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(format!("{req}: invalid tested_commit"));
+                }
+                if record["tested_artifacts"].as_str() != Some(ctx.head_digest) {
+                    return Err(format!("{req}: stale tested_artifacts digest"));
+                }
+            }
+            covered.insert(req.to_string());
+        }
+        for req in [
+            "GMCP-203-014-01",
+            "GMCP-203-014-02",
+            "GMCP-203-014-03",
+            "GMCP-203-014-04",
+            "GMCP-203-014-05",
+            "GMCP-203-014-06",
+        ] {
+            if !covered.contains(req) {
+                return Err(format!("missing evidence record for {req}"));
+            }
+        }
+        Ok(covered)
+    }
+
+    let (_lock, _env, home) = gmcp_http_home_guard("014-mastery");
+    struct RestoreMasteryPlane;
+    impl Drop for RestoreMasteryPlane {
+        fn drop(&mut self) {
+            let bus = PlaneBus::global();
+            bus.unregister(topics::TOOLS_LIST);
+            bus.unregister(topics::TOOLS_EXISTS);
+            bus.unregister(topics::TOOLS_EXECUTE);
+            susi_tools::plane_handler::register();
+        }
+    }
+    let _restore_plane = RestoreMasteryPlane;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+
+    // ── 1. Production ledger report & CLI/tool parity ────────────────────
+    let report = ledger_report(root);
+    assert_eq!(report["verified"], true, "ledger must verify: {report}");
+    assert_eq!(report["revisions"]["ext-tasks@2026-07-28"], 46);
+    assert_eq!(ledger_tool_report(root), report);
+    assert_eq!(susi_json(root, &home, &["mcp", "ledger"]), report);
+
+    // ── 2. Contract & pinned specification artifacts verified ────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-014.md"))
+        .expect("contract-203-014.md must exist");
+    for token in [
+        "EXT-TASKS-specification-2026-07-28-tasks-md-0059",
+        "EXT-TASKS-specification-2026-07-28-tasks-md-0300",
+        "EXT-TASKS-specification-2026-07-28-tasks-md-0350",
+        "EXT-TASKS-specification-2026-07-28-tasks-md-0507",
+        "EXT-TASKS-specification-2026-07-28-tasks-md-0903",
+        "## Operations and non-claims",
+        "## Operations and incident runbook",
+        "### Bounded metrics, logs and traces",
+        "### Production guarantees and non-claims",
+    ] {
+        assert!(
+            contract.contains(token),
+            "contract-203-014.md missing required clause/section: {token}"
+        );
+    }
+    let sources: Value = serde_json::from_slice(
+        &std::fs::read(root.join(".agents/gmcp/sources.json")).expect("sources.json readable"),
+    )
+    .expect("sources.json valid JSON");
+    for doc in [
+        "ext-tasks/specification/2026-07-28/tasks.md",
+        "docs/specification/2025-11-25/basic/utilities/tasks.mdx",
+        "schema/2026-07-28/schema.json",
+        "schema/2026-07-28/schema.ts",
+        "schema/2025-11-25/schema.json",
+    ] {
+        let bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc))
+            .unwrap_or_else(|e| panic!("pinned spec {doc} missing: {e}"));
+        let hex = susi_paths::hex::encode(Sha256::digest(&bytes));
+        let pinned = sources["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["document"] == doc)
+            .and_then(|f| f["sha256"].as_str());
+        assert_eq!(pinned, Some(hex.as_str()), "pinned hash mismatch for {doc}");
+    }
+
+    // ── 3a. Durable TaskManager MRTR, unique keys, TTL expiry & restart survival ─
+    let rt = adapter_runtime(&home);
+    let durable_dir = scratch.join("durable-tasks");
+    let mrtr_runs = Arc::new(AtomicUsize::new(0));
+    let (mrtr_tid, inflight_tid) = rt.block_on(async {
+        let mgr = TaskManager::open(&durable_dir).expect("open durable TaskManager");
+        let principal_a = TaskPrincipal::from_bearer_token("mastery-alpha-secret");
+        let principal_b = TaskPrincipal::from_bearer_token("mastery-beta-secret");
+        let runs_cl = Arc::clone(&mrtr_runs);
+
+        let mrtr_task = mgr
+            .try_spawn_for(
+                principal_a.clone(),
+                TaskOptions {
+                    ttl_ms: Some(30_000),
+                    poll_interval_ms: Some(1),
+                    status_message: Some("awaiting roots".into()),
+                },
+                move |ctx| {
+                    Box::pin(async move {
+                        runs_cl.fetch_add(1, Ordering::SeqCst);
+                        let req1: InputRequest =
+                            serde_json::from_value(json!({"method": "roots/list"})).unwrap();
+                        let ans = ctx.request_input("ask_workspace", req1).await?;
+                        let req2: InputRequest =
+                            serde_json::from_value(json!({"method": "roots/list"})).unwrap();
+                        let dup = ctx.request_input("ask_workspace", req2).await;
+                        assert!(matches!(dup, Err(TaskExit::Error(_))));
+                        Ok(CallToolResult {
+                            content: vec![ContentBlock::text(format!(
+                                "root={}",
+                                ans["uri"].as_str().unwrap_or("")
+                            ))],
+                            structured_content: None,
+                            is_error: Some(false),
+                            meta: None,
+                            result_type: None,
+                        })
+                    })
+                },
+            )
+            .expect("spawn MRTR task");
+
+        let mut saw_ir = false;
+        for _ in 0..40 {
+            let d = mgr.get_task_for(&mrtr_task.task_id, &principal_a).unwrap();
+            if d.task.status == ServerTaskStatus::InputRequired {
+                saw_ir = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(saw_ir, "MRTR task must enter input_required");
+        assert_eq!(
+            mgr.get_task_for(&mrtr_task.task_id, &principal_b)
+                .unwrap_err()
+                .code
+                .0,
+            -32602
+        );
+        mgr.update_task_for(
+            &mrtr_task.task_id,
+            &principal_a,
+            [
+                ("stale_unknown_key".to_string(), json!({"ignored": true})),
+                (
+                    "ask_workspace".to_string(),
+                    json!({"uri": "file:///mastery"}),
+                ),
+            ],
+        )
+        .unwrap();
+        let mut settled = false;
+        for _ in 0..40 {
+            let d = mgr.get_task_for(&mrtr_task.task_id, &principal_a).unwrap();
+            if d.task.status == ServerTaskStatus::Completed {
+                settled = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(settled, "MRTR task must settle completed");
+        assert_eq!(
+            mgr.update_task_for(&mrtr_task.task_id, &principal_a, [])
+                .unwrap_err()
+                .code
+                .0,
+            -32602
+        );
+        assert_eq!(
+            mgr.cancel_task_for(&mrtr_task.task_id, &principal_a)
+                .unwrap_err()
+                .code
+                .0,
+            -32602
+        );
+
+        let exp_task = mgr
+            .try_spawn_for(
+                principal_a.clone(),
+                TaskOptions {
+                    ttl_ms: Some(80),
+                    poll_interval_ms: Some(1),
+                    status_message: None,
+                },
+                |ctx| {
+                    Box::pin(async move {
+                        ctx.cancelled().await;
+                        Err(TaskExit::Cancelled)
+                    })
+                },
+            )
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(110)).await;
+        let exp_snap = mgr.get_task_for(&exp_task.task_id, &principal_a).unwrap();
+        assert_eq!(exp_snap.task.status, ServerTaskStatus::Failed);
+        tokio::time::sleep(Duration::from_millis(110)).await;
+        assert_eq!(
+            mgr.get_task_for(&exp_task.task_id, &principal_a)
+                .unwrap_err()
+                .code
+                .0,
+            -32602
+        );
+
+        let inflight = mgr
+            .try_spawn_for(
+                principal_a,
+                TaskOptions {
+                    ttl_ms: Some(30_000),
+                    poll_interval_ms: Some(1),
+                    status_message: Some("in-flight before restart".into()),
+                },
+                |ctx| {
+                    Box::pin(async move {
+                        ctx.cancelled().await;
+                        Err(TaskExit::Cancelled)
+                    })
+                },
+            )
+            .unwrap();
+        (mrtr_task.task_id, inflight.task_id)
+    });
+
+    {
+        let principal_a = TaskPrincipal::from_bearer_token("mastery-alpha-secret");
+        let raw_disk = std::fs::read_to_string(durable_dir.join("tasks.json")).unwrap();
+        assert!(
+            !raw_disk.contains("mastery-alpha-secret"),
+            "tasks.json must store hashed principal, never raw bearer secret"
+        );
+        let reopened = TaskManager::open(&durable_dir).expect("reopen durable TaskManager");
+        assert_eq!(
+            mrtr_runs.load(Ordering::SeqCst),
+            1,
+            "completed task must never re-execute on restart"
+        );
+        let survived = reopened.get_task_for(&mrtr_tid, &principal_a).unwrap();
+        assert_eq!(survived.task.status, ServerTaskStatus::Completed);
+        let TaskPayload::Completed { result } = survived.payload else {
+            panic!("expected Completed payload after restart");
+        };
+        assert_eq!(
+            serde_json::to_value(result).unwrap()["content"][0]["text"],
+            "root=file:///mastery"
+        );
+        let reconciled = reopened.get_task_for(&inflight_tid, &principal_a).unwrap();
+        assert_eq!(reconciled.task.status, ServerTaskStatus::Failed);
+        let TaskPayload::Failed { error } = reconciled.payload else {
+            panic!("expected Failed payload on interrupted task");
+        };
+        assert_eq!(error.get("code"), Some(&json!(-32603)));
+    }
+
+    // ── 3b. Cross-transport server-directed creation, progress, SSE/stdio subscriptions & HTTP/Wire SDK ─
+    let tasks_meta = |req_id: &str| -> Value {
+        json!({
+            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
+            "io.modelcontextprotocol/requestId": req_id,
+            "io.modelcontextprotocol/clientCapabilities": {
+                "extensions": { TASKS_EXTENSION_ID: {} }
+            }
+        })
+    };
+    let plain_meta = |req_id: &str| -> Value {
+        let mut meta = adapter_modern_meta()["_meta"].clone();
+        meta["io.modelcontextprotocol/requestId"] = json!(req_id);
+        meta
+    };
+
+    let direct = GmcpService::new(root.to_path_buf());
+    let discover_ext = serde_json::to_value(direct.discover_result()).unwrap()["capabilities"]
+        ["extensions"]
+        .clone();
+    assert!(discover_ext[TASKS_EXTENSION_ID].is_object());
+
+    let (mut embedded, emb_sess) = embedded_adapter(&rt, root);
+    let emb_sync = embedded.call(
+        "m014-emb-sync",
+        "tools/call",
+        json!({
+            "name": "ledger_verify",
+            "arguments": {},
+            "_meta": plain_meta("m014-emb-sync")
+        }),
+    );
+    assert_eq!(emb_sync["result"]["resultType"], "complete");
+    let emb_task = embedded.call(
+        "m014-emb-task",
+        "tools/call",
+        json!({
+            "name": "ledger_verify",
+            "arguments": {},
+            "_meta": tasks_meta("m014-emb-task")
+        }),
+    );
+    assert_eq!(emb_task["result"]["resultType"], "task");
+    let emb_tid = emb_task["result"]["taskId"].as_str().unwrap().to_string();
+    for i in 0..20 {
+        let gid = format!("m014-emb-get-{i}");
+        let g = embedded.call(
+            &gid,
+            "tasks/get",
+            json!({"taskId": emb_tid, "_meta": tasks_meta(&gid)}),
+        );
+        if g["result"]["status"] == "completed" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let emb_nocap = embedded.call(
+        "m014-emb-nocap",
+        "tasks/get",
+        json!({"taskId": emb_tid, "_meta": plain_meta("m014-emb-nocap")}),
+    );
+    assert_eq!(emb_nocap["error"]["code"], -32021);
+    assert_eq!(
+        embedded.call(
+            "m014-emb-list",
+            "tasks/list",
+            json!({"_meta": tasks_meta("m014-emb-list")})
+        )["error"]["code"],
+        -32601
+    );
+    drop(embedded);
+    adapter_session_ended(&rt, emb_sess, "014-mastery-embedded");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, sock_sess) = socket_adapter(&rt, root);
+        let sock_disc = socket.call("m014-sock", "server/discover", adapter_modern_meta());
+        assert_eq!(
+            sock_disc["result"]["capabilities"]["extensions"],
+            discover_ext
+        );
+        drop(socket);
+        adapter_session_ended(&rt, sock_sess, "014-mastery-socket");
+    }
+
+    let cli_home = home.join("cli-mastery-home");
+    std::fs::create_dir_all(cli_home.join(".susi")).unwrap();
+    let mut cli_mod = StdioSession::spawn_raw(root, &cli_home);
+    let mut cli_meta = tasks_meta("m014-cli-spawn");
+    cli_meta["progressToken"] = json!("m014-prog-1");
+    let cli_created = cli_mod
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m014-cli-spawn",
+                "method": "tools/call",
+                "params": {"name": "ledger_verify", "arguments": {}, "_meta": cli_meta}
+            }),
+            Duration::from_secs(30),
+        )
+        .unwrap();
+    assert_eq!(cli_created["result"]["resultType"], "task");
+    let cli_tid = cli_created["result"]["taskId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut cli_done = false;
+    for idx in 0..20 {
+        let gid = format!("m014-cli-get-{idx}");
+        let snap = cli_mod
+            .request_verbatim(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": gid,
+                    "method": "tasks/get",
+                    "params": {"taskId": cli_tid, "_meta": tasks_meta(&format!("m014-cli-get-{idx}"))}
+                }),
+                Duration::from_secs(15),
+            )
+            .unwrap();
+        if snap["result"]["status"] == "completed" {
+            cli_done = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(60));
+    }
+    assert!(cli_done, "susi mcp serve task must complete");
+    assert!(cli_mod.pending.iter().any(|n| {
+        n["method"] == "notifications/progress" && n["params"]["progressToken"] == "m014-prog-1"
+    }));
+    cli_mod.pending.clear();
+
+    cli_mod.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "m014-cli-sub",
+        "method": "subscriptions/listen",
+        "params": {
+            "notifications": {"taskIds": [cli_tid]},
+            "_meta": tasks_meta("m014-cli-sub")
+        }
+    }));
+    let sub_deadline = Instant::now() + Duration::from_secs(10);
+    let (mut saw_ack, mut saw_note) = (false, false);
+    while Instant::now() < sub_deadline && !(saw_ack && saw_note) {
+        if let Ok(msg) = cli_mod.rx.recv_timeout(Duration::from_millis(200)) {
+            let m = msg["method"].as_str().unwrap_or("");
+            assert!(m != "notifications/progress" && m != "notifications/message");
+            if m == "notifications/subscriptions/acknowledged" {
+                saw_ack = true;
+            } else if m == "notifications/tasks" && msg["params"]["taskId"] == cli_tid {
+                assert!(saw_ack);
+                assert_eq!(msg["params"]["status"], "completed");
+                saw_note = true;
+            }
+        }
+    }
+    assert!(saw_ack && saw_note);
+    drop(cli_mod);
+
+    let mut cli_restarted = StdioSession::spawn_raw(root, &cli_home);
+    let replayed = cli_restarted
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m014-cli-replay",
+                "method": "tasks/get",
+                "params": {"taskId": cli_tid, "_meta": tasks_meta("m014-cli-replay")}
+            }),
+            Duration::from_secs(30),
+        )
+        .unwrap();
+    assert_eq!(replayed["result"]["status"], "completed");
+    drop(cli_restarted);
+
+    let wait_cancelled = Arc::new(AtomicBool::new(false));
+    {
+        struct MasteryList;
+        impl PlaneHandler for MasteryList {
+            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+                let mut merged = if let Ok(Value::Array(tools)) =
+                    PlaneBus::global().request_local_prefix(topics::TOOLS_LIST, payload)
+                {
+                    tools
+                } else {
+                    Vec::new()
+                };
+                for name in ["mastery_echo", "mastery_wait"] {
+                    if !merged
+                        .iter()
+                        .any(|i| i.get("name").and_then(Value::as_str) == Some(name))
+                    {
+                        merged.push(json!({"name": name, "description": name}));
+                    }
+                }
+                Ok(Value::Array(merged))
+            }
+        }
+        struct MasteryExists;
+        impl PlaneHandler for MasteryExists {
+            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+                let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+                if matches!(name, "mastery_echo" | "mastery_wait") {
+                    return Ok(json!({ "exists": true }));
+                }
+                PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
+            }
+        }
+        struct MasteryExec {
+            cancelled: Arc<AtomicBool>,
+        }
+        impl PlaneHandler for MasteryExec {
+            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+                let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+                if !matches!(name, "mastery_echo" | "mastery_wait") {
+                    return PlaneBus::global().request_local_prefix(topics::TOOLS_EXECUTE, payload);
+                }
+                let args = payload.get("args").cloned().unwrap_or(Value::Null);
+                let cancelled = Arc::clone(&self.cancelled);
+                susi_core::plane_bus::with_watched(&payload, || match name {
+                    "mastery_echo" => Ok(json!({
+                        "text": format!("echo:{}", args["msg"].as_str().unwrap_or(""))
+                    })),
+                    "mastery_wait" => {
+                        for _ in 0..300 {
+                            if susi_core::progress::is_cancelled() {
+                                cancelled.store(true, Ordering::Release);
+                                return Ok(json!({ "text": "cancelled" }));
+                            }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Ok(json!({ "text": "timeout" }))
+                    }
+                    other => Err(format!("unexpected tool {other}")),
+                })
+            }
+        }
+        let bus = PlaneBus::global();
+        bus.register(topics::TOOLS_LIST, Arc::new(MasteryList));
+        bus.register(topics::TOOLS_EXISTS, Arc::new(MasteryExists));
+        bus.register(
+            topics::TOOLS_EXECUTE,
+            Arc::new(MasteryExec {
+                cancelled: Arc::clone(&wait_cancelled),
+            }),
+        );
+    }
+
+    let tok_alice = "tok-alice-014-mastery";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_alice}\n")).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mastery HTTP /mcp");
+    let http_addr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let http_root = root.to_path_buf();
+    let _http_srv = std::thread::spawn(move || {
+        GmcpServer::start_http_server(http_root, vec![listener], None, false);
+    });
+    for _ in 0..50 {
+        if TcpStream::connect(&http_addr).is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let mut alice =
+        Session::open_2026_07_28(&http_addr, Some(tok_alice), Duration::from_secs(15)).unwrap();
+    let echo_h = match alice
+        .call_tool_with_tasks(
+            "mastery_echo",
+            &json!({"msg": "live"}),
+            true,
+            &mut |_| {},
+        )
+        .unwrap()
+    {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected Task handle, got {other:?}"),
+    };
+    let hstore_path = scratch.join("mastery-handles.json");
+    let mut hstore = PersistedTaskHandleStore::open(&hstore_path).unwrap();
+    hstore
+        .save(PersistedTaskHandle::from_handle(
+            &http_addr,
+            PROTOCOL_VERSION_2026_07_28,
+            &echo_h,
+        ))
+        .unwrap();
+    assert!(!std::fs::read_to_string(&hstore_path)
+        .unwrap()
+        .contains(tok_alice));
+    let echo_done = alice
+        .poll_task_until_done(&echo_h, Some(Duration::from_secs(10)), |_| Ok(json!({})))
+        .unwrap();
+    assert_eq!(echo_done.handle.status, ClientTaskStatus::Completed);
+    assert!(hstore.update_from_snapshot(&echo_done).unwrap());
+
+    {
+        let bad_body = json!({
+            "jsonrpc": "2.0",
+            "id": "bad-mcp-name",
+            "method": "tasks/get",
+            "params": {"taskId": echo_h.task_id, "_meta": tasks_meta("bad-mcp-name")}
+        })
+        .to_string();
+        let mut s = TcpStream::connect(&http_addr).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: {http_addr}\r\nAuthorization: Bearer {tok_alice}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: {PROTOCOL_VERSION_2026_07_28}\r\nMcp-Method: tasks/get\r\nMcp-Name: forged-other-id\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{bad_body}",
+            bad_body.len()
+        );
+        s.write_all(req.as_bytes()).unwrap();
+        let mut raw = String::new();
+        s.read_to_string(&mut raw).unwrap();
+        assert!(
+            raw.starts_with("HTTP/1.1 400") && raw.contains("-32020"),
+            "unexpected Mcp-Name mismatch response: {raw}"
+        );
+    }
+
+    let wait_h = match alice
+        .call_tool_with_tasks("mastery_wait", &json!({}), true, &mut |_| {})
+        .unwrap()
+    {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected Task handle for mastery_wait, got {other:?}"),
+    };
+    alice.cancel_task(&wait_h.task_id).unwrap();
+    let mut cancelled_ok = false;
+    for _ in 0..20 {
+        if alice.get_task(&wait_h.task_id).unwrap().handle.status == ClientTaskStatus::Cancelled {
+            cancelled_ok = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(cancelled_ok && wait_cancelled.load(Ordering::Acquire));
+    alice.close().unwrap();
+
+    let tok_bob = "tok-bob-014-mastery";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_bob}\n")).unwrap();
+    let mut bob =
+        Session::open_2026_07_28(&http_addr, Some(tok_bob), Duration::from_secs(15)).unwrap();
+    assert!(matches!(
+        bob.get_task(&echo_h.task_id),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    assert!(matches!(
+        bob.update_task(&echo_h.task_id, &json!({})),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    assert!(matches!(
+        bob.cancel_task(&echo_h.task_id),
+        Err(WireError::Rpc(-32602, _))
+    ));
+    bob.close().unwrap();
+
+    let peer_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let peer_addr = format!("127.0.0.1:{}", peer_listener.local_addr().unwrap().port());
+    let peer_stop = Arc::new(AtomicBool::new(false));
+    let peer_stop_cl = Arc::clone(&peer_stop);
+    let flaky_tool_hits = Arc::new(AtomicUsize::new(0));
+    let flaky_tool_cl = Arc::clone(&flaky_tool_hits);
+    let get_hits = Arc::new(AtomicUsize::new(0));
+    let get_hits_cl = Arc::clone(&get_hits);
+    let peer_srv = std::thread::spawn(move || {
+        let send_http = |stream: &mut TcpStream, status: &str, body: &str| {
+            let resp = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        };
+        let mut answered = false;
+        while !peer_stop_cl.load(Ordering::Acquire) {
+            let Ok((mut stream, _)) = peer_listener.accept() else {
+                break;
+            };
+            if peer_stop_cl.load(Ordering::Acquire) {
+                break;
+            }
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let mut rdr = BufReader::new(stream.try_clone().unwrap());
+            let mut req_line = String::new();
+            if rdr.read_line(&mut req_line).unwrap_or(0) == 0 {
+                continue;
+            }
+            let mut content_len = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if rdr.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':') {
+                    if k.trim().eq_ignore_ascii_case("content-length") {
+                        content_len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+            }
+            let mut body = vec![0u8; content_len];
+            if rdr.read_exact(&mut body).is_err() {
+                continue;
+            }
+            let Ok(rpc) = serde_json::from_slice::<Value>(&body) else {
+                continue;
+            };
+            let id = rpc["id"].clone();
+            match rpc["method"].as_str().unwrap_or("") {
+                "server/discover" => send_http(
+                    &mut stream,
+                    "200 OK",
+                    &json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "protocolVersion": PROTOCOL_VERSION_2026_07_28,
+                            "capabilities": {"tools": {}, "extensions": {TASKS_EXTENSION_ID: {}}},
+                            "serverInfo": {"name": "mastery-peer", "version": "1.0"}
+                        }
+                    })
+                    .to_string(),
+                ),
+                "tools/call" => {
+                    if rpc["params"]["name"] == "flaky_side_effect" {
+                        flaky_tool_cl.fetch_add(1, Ordering::SeqCst);
+                        send_http(
+                            &mut stream,
+                            "503 Service Unavailable",
+                            r#"{"error":"busy"}"#,
+                        );
+                    } else {
+                        send_http(
+                            &mut stream,
+                            "200 OK",
+                            &json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "resultType": "task",
+                                    "taskId": "peer-mastery-tid",
+                                    "status": "working",
+                                    "createdAt": "2026-11-15T12:00:00Z",
+                                    "lastUpdatedAt": "2026-11-15T12:00:00Z",
+                                    "ttlMs": 15000,
+                                    "pollIntervalMs": 5
+                                }
+                            })
+                            .to_string(),
+                        );
+                    }
+                }
+                "tasks/get" => {
+                    let n = get_hits_cl.fetch_add(1, Ordering::SeqCst) + 1;
+                    if n == 1 {
+                        send_http(
+                            &mut stream,
+                            "503 Service Unavailable",
+                            r#"{"error":"transient"}"#,
+                        );
+                    } else if !answered {
+                        send_http(
+                            &mut stream,
+                            "200 OK",
+                            &json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "resultType": "complete",
+                                    "taskId": "peer-mastery-tid",
+                                    "status": "input_required",
+                                    "createdAt": "2026-11-15T12:00:00Z",
+                                    "lastUpdatedAt": "2026-11-15T12:00:01Z",
+                                    "ttlMs": 15000,
+                                    "pollIntervalMs": 5,
+                                    "inputRequests": {"ask_root": {"method": "roots/list"}}
+                                }
+                            })
+                            .to_string(),
+                        );
+                    } else {
+                        send_http(
+                            &mut stream,
+                            "200 OK",
+                            &json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "resultType": "complete",
+                                    "taskId": "peer-mastery-tid",
+                                    "status": "completed",
+                                    "createdAt": "2026-11-15T12:00:00Z",
+                                    "lastUpdatedAt": "2026-11-15T12:00:02Z",
+                                    "ttlMs": 15000,
+                                    "pollIntervalMs": 5,
+                                    "result": {"content": [{"type": "text", "text": "retried-ok"}], "isError": false}
+                                }
+                            })
+                            .to_string(),
+                        );
+                    }
+                }
+                "tasks/update" => {
+                    answered = true;
+                    send_http(
+                        &mut stream,
+                        "200 OK",
+                        &json!({"jsonrpc": "2.0", "id": id, "result": {"resultType": "complete"}})
+                            .to_string(),
+                    );
+                }
+                _ => send_http(&mut stream, "400 Bad Request", "{}"),
+            }
+        }
+    });
+    let mut peer_cli =
+        Session::open_2026_07_28(&peer_addr, Some("peer-tok"), Duration::from_secs(10)).unwrap();
+    assert!(matches!(
+        peer_cli.call_tool_with_tasks("flaky_side_effect", &json!({}), true, &mut |_| {}),
+        Err(WireError::Http(503, _))
+    ));
+    assert_eq!(flaky_tool_hits.load(Ordering::SeqCst), 1);
+    let ph = match peer_cli
+        .call_tool_with_tasks("retry_mrtr", &json!({}), true, &mut |_| {})
+        .unwrap()
+    {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected Task outcome, got {other:?}"),
+    };
+    let psnap = peer_cli
+        .poll_task_until_done(&ph, Some(Duration::from_secs(10)), |_| {
+            Ok(json!({"ask_root": {"roots": []}}))
+        })
+        .unwrap();
+    assert_eq!(psnap.handle.status, ClientTaskStatus::Completed);
+    assert!(get_hits.load(Ordering::SeqCst) >= 3);
+    peer_stop.store(true, Ordering::Release);
+    let _ = TcpStream::connect(&peer_addr);
+    peer_srv.join().unwrap();
+
+    // ── 4. Negative evidence-rejection suite & live VC-203-014 proof ─────
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = read_all_gmcp_requirements_sources(root);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let artifacts = evidence_artifacts(root, "VC-203-014");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must digest artifacts");
+
+    let valid_tests = [
+        ("GMCP-203-014-01", "gmcp_req_203_014_01_contract"),
+        ("GMCP-203-014-02", "gmcp_req_203_014_02_production"),
+        ("GMCP-203-014-03", "gmcp_req_203_014_03_integration"),
+        ("GMCP-203-014-04", "gmcp_req_203_014_04_adversarial"),
+        ("GMCP-203-014-05", "gmcp_req_203_014_05_interop"),
+        ("GMCP-203-014-06", "gmcp_req_203_014_06_operations"),
+    ];
+    let make_row = |req: &str, test_fn: &str| {
+        json!({
+            "requirement": req,
+            "check": format!("cargo test --locked --test gmcp_requirements {test_fn}"),
+            "exit": 0,
+            "detail": "synthetic valid row",
+            "recorded_unix": now,
+            "artifact_sha256": ledger_hash,
+            "identity": "AG2FEATURES",
+            "tested_commit": "0".repeat(40),
+            "tested_artifacts": head_digest
+        })
+    };
+    let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| make_row(r, t)).collect();
+    let good_text = good_lines
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let ev_ctx = EvidenceCtx {
+        root,
+        ledger_hash: &ledger_hash,
+        test_src: &test_src,
+        head_digest: &head_digest,
+        now,
+    };
+    let check_ev = |txt: &str, committed: bool| {
+        verify_vc_203_014_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()))
+    };
+    assert!(check_ev(&good_text, false).is_ok());
+
+    let missing_text = good_lines[..5]
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(check_ev(&missing_text, false).is_err());
+
+    for mutate in [
+        Box::new(|v: &mut Value| v["recorded_unix"] = json!(1_700_000_000_u64))
+            as Box<dyn Fn(&mut Value)>,
+        Box::new(|v: &mut Value| v["recorded_unix"] = json!(now + 120)),
+        Box::new(|v: &mut Value| v["artifact_sha256"] = json!("deadbeef")),
+        Box::new(|v: &mut Value| v["tested_artifacts"] = json!("stale-digest")),
+        Box::new(|v: &mut Value| v["identity"] = json!("")),
+        Box::new(|v: &mut Value| v["exit"] = json!(1)),
+        Box::new(|v: &mut Value| {
+            v.as_object_mut()
+                .unwrap()
+                .insert("waived".into(), json!(true));
+        }),
+        Box::new(|v: &mut Value| {
+            v.as_object_mut()
+                .unwrap()
+                .insert("mock".into(), json!(true));
+        }),
+        Box::new(|v: &mut Value| {
+            v["check"] = json!(
+                "cargo test --locked --test gmcp_requirements gmcp_req_203_014_99_nonexistent"
+            );
+        }),
+    ] {
+        let mut bad = good_lines[0].clone();
+        mutate(&mut bad);
+        let txt = std::iter::once(&bad)
+            .chain(&good_lines[1..])
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(check_ev(&txt, false).is_err());
+    }
+    let unlinked_txt = format!("{good_text}\n{}", good_lines[0]);
+    assert!(check_ev(&unlinked_txt, false).is_err());
+
+    // Live VC-203-014 committed evidence must satisfy every single rule strictly.
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-014.jsonl"))
+        .expect("VC-203-014 must retain an evidence artifact");
+    let covered = check_ev(&evidence, true)
+        .expect("committed VC-203-014.jsonl must pass full strict verification");
+    assert_eq!(covered.len(), 6);
+
+    // ── 5. Roadmap & verdict delivery binding ────────────────────────────
+    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap();
+    let roadmap_json: Value = serde_json::from_str(&roadmap_text).unwrap();
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "VC-203-014")
+        .expect("VC-203-014 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-014 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict_text =
+        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-014.json"))
+            .expect("VC-203-014.json verdict must exist");
+    let verdict: Value = serde_json::from_str(&verdict_text).unwrap();
+    assert_eq!(verdict["vector"], "VC-203-014");
+    assert_eq!(verdict["verdict"], "delivered");
+    let tracked = verdict["tracked_by"].as_array().unwrap();
+    assert_eq!(tracked.len(), 7);
+    for tid in [
+        "T-CODEXGMCPROADMAP-100",
+        "T-CODEXGMCPROADMAP-101",
+        "T-CODEXGMCPROADMAP-102",
+        "T-CODEXGMCPROADMAP-103",
+        "T-CODEXGMCPROADMAP-104",
+        "T-CODEXGMCPROADMAP-105",
+        "T-CODEXGMCPROADMAP-106",
+    ] {
+        assert!(tracked.contains(&json!(tid)), "missing tracked_by {tid}");
+    }
+
+    // ── 6. Reject locally modified proof artifacts Closed ───────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "tests/gmcp_requirements",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = _http_srv;
+    let _ = std::fs::remove_dir_all(&scratch);
+    let _ = std::fs::remove_file(cfg_dir.join("api_token"));
+    let _ = std::fs::remove_dir_all(&home);
+}

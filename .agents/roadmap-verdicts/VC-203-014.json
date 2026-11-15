@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-014",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_014_01_contract through _06_operations plus gmcp_vc_203_014_mastery (7 tests): docs/gmcp/contract-203-014.md binds all 46 ext-tasks@2026-07-28 ledger rows, pinned specification and schema files in .agents/gmcp/sources.json, threat model, resource budgets, non-claims, and incident runbook; production code in crates/susi-gmcp/src/mcp/{task_manager,model,service,message,http,transport}.rs, crates/susi-gmcp/src/{protocol,jsonrpc_gate,extensions,eco_mcp_features}.rs, crates/susi-wire-client/src/mcp.rs, and src/cli/mcp_cli.rs implements server-directed CreateTaskResult, durable TaskManager persistence and crash-safe restart settlement without duplicate execution, explicit state machine and terminal-state immutability, MRTR inputRequests/tasks/update with lifetime-unique keys, correlated progress notifications, subscriptions/listen notifications/tasks stream purity, cooperative tasks/cancel, TTL expiry and purge, Streamable HTTP Mcp-Name binding, bounded client retries and PersistedTaskHandleStore, and hashed-principal ownership isolation; mastery verification consumes and strictly verifies retained commit-bound non-waived non-mock evidence for GMCP-203-014-01..06 while rejecting missing, stale, unsigned, locally modified, waived, mock-only, unlinked, wrong-digest, and zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-100",
+    "T-CODEXGMCPROADMAP-101",
+    "T-CODEXGMCPROADMAP-102",
+    "T-CODEXGMCPROADMAP-103",
+    "T-CODEXGMCPROADMAP-104",
+    "T-CODEXGMCPROADMAP-105",
+    "T-CODEXGMCPROADMAP-106"
+  ],
+  "recorded_by": "AG2FEATURES",
+  "recorded_unix": 1794752422
+}

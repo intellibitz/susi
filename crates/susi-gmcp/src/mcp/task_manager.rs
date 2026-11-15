@@ -392,21 +392,21 @@ impl TaskContext {
         key: impl Into<String>,
         req: InputRequest,
     ) -> Result<serde_json::Value, TaskExit> {
-        let key = key.into();
-        let (tx, rx) = oneshot::channel();
+        let (key, (tx, rx)) = (key.into(), oneshot::channel());
         {
             let mut g = lock(&self.inner);
-            let e = g
-                .tasks
-                .get_mut(&self.task_id)
-                .ok_or_else(|| TaskExit::Error(err_int("task missing")))?;
+            let Some(e) = g.tasks.get_mut(&self.task_id) else {
+                return Err(TaskExit::Error(err_int("task missing")));
+            };
+            if e.cancel.0 || e.terminal.is_some() {
+                return Err(TaskExit::Cancelled);
+            }
             if e.used_keys.len() >= MAX_INPUT_REQUESTS_PER_TASK {
                 return Err(TaskExit::Error(bad("max inputRequests per task exceeded")));
             }
             if !e.used_keys.insert(key.clone()) {
-                return Err(TaskExit::Error(err_int(format!(
-                    "inputRequests key {key:?} already used"
-                ))));
+                let msg = format!("inputRequests key {key:?} already used");
+                return Err(TaskExit::Error(err_int(msg)));
             }
             e.pending.insert(key, (req, tx));
             e.touch();
