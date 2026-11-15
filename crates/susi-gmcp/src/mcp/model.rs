@@ -396,7 +396,9 @@ impl RequestMetaObject {
             return Ok(None);
         };
         let is_valid_json = match raw {
-            Value::String(s) => !s.is_empty(),
+            Value::String(s) => {
+                !s.is_empty() && s.len() <= 1024 && !s.chars().any(char::is_control)
+            }
             Value::Number(n) => n.is_i64() || n.is_u64(),
             Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => false,
         };

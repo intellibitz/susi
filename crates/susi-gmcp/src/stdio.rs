@@ -49,6 +49,7 @@ impl<R> BoundedLines<R> {
     /// call; the bound error is returned once per call spent inside an
     /// oversized line.
     fn scan(&mut self, mut slice: &[u8], out: &mut ReadBuf<'_>) -> io::Result<()> {
+        let initial = out.filled().len();
         while !slice.is_empty() {
             if self.dropping {
                 return match slice.iter().position(|b| *b == b'\n') {
@@ -63,33 +64,32 @@ impl<R> BoundedLines<R> {
                     None => Err(Self::oversized(true)),
                 };
             }
-            match slice.iter().position(|b| *b == b'\n') {
-                Some(p) => {
-                    if self.length.saturating_add(p) > self.limit {
-                        // Oversized — but the terminator is already here,
-                        // so the stream is past the dead line. Stash the
-                        // tail; the next call resumes cleanly.
-                        self.length = 0;
-                        self.pending.extend_from_slice(&slice[p + 1..]);
-                        return Err(Self::oversized(false));
-                    }
-                    self.length = 0;
-                    out.put_slice(&slice[..=p]);
-                    slice = &slice[p + 1..];
-                }
-                None => {
-                    if self.length.saturating_add(slice.len()) > self.limit {
-                        // The terminator is still inbound — drop every
-                        // byte until it arrives.
-                        self.dropping = true;
-                        self.length = 0;
-                        return Err(Self::oversized(true));
-                    }
-                    self.length = self.length.saturating_add(slice.len());
-                    out.put_slice(slice);
+            let newline = slice.iter().position(|b| *b == b'\n');
+            let seg_len = newline.unwrap_or(slice.len());
+            if self.length.saturating_add(seg_len) > self.limit {
+                // Keep prior valid lines already written in this chunk intact;
+                // defer the oversized line to `pending` so the next poll raises
+                // the error cleanly without BufReader discarding earlier bytes.
+                if out.filled().len() > initial {
+                    self.pending.extend_from_slice(slice);
                     return Ok(());
                 }
+                self.length = 0;
+                if let Some(p) = newline {
+                    self.pending.extend_from_slice(&slice[p + 1..]);
+                } else {
+                    self.dropping = true;
+                }
+                return Err(Self::oversized(newline.is_none()));
             }
+            let Some(p) = newline else {
+                self.length = self.length.saturating_add(slice.len());
+                out.put_slice(slice);
+                return Ok(());
+            };
+            self.length = 0;
+            out.put_slice(&slice[..=p]);
+            slice = &slice[p + 1..];
         }
         Ok(())
     }

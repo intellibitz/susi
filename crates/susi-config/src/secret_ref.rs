@@ -185,6 +185,7 @@ pub(crate) fn credential_field(name: &str) -> bool {
         "credential",
         "credentials",
         "authorization",
+        "proxy_authorization",
         "bearer",
         "auth",
         "resolved",
@@ -283,6 +284,26 @@ fn match_field(text: &str) -> Option<FieldMatch<'_>> {
         };
         while j < b.len() && !stop(b[j]) {
             j += 1;
+        }
+        let token = &text[i..j];
+        let is_auth_field = name.eq_ignore_ascii_case("auth")
+            || name.to_ascii_lowercase().ends_with("authorization");
+        if is_auth_field
+            && (token.eq_ignore_ascii_case("bearer")
+                || token.eq_ignore_ascii_case("basic")
+                || token.eq_ignore_ascii_case("token")
+                || token.eq_ignore_ascii_case("digest"))
+        {
+            let mut k = j;
+            while k < b.len() && matches!(b[k], b' ' | b'\t') {
+                k += 1;
+            }
+            if k > j && k < b.len() && !stop(b[k]) {
+                j = k;
+                while j < b.len() && !stop(b[j]) {
+                    j += 1;
+                }
+            }
         }
         (j, None)
     };
@@ -393,7 +414,8 @@ mod tests {
         let boundary = vault.issue_boundary("deploy");
 
         let raw = "ref=secret://deploy/key api_key=sk-live-999 \"client_secret\": \"top-val\" \
-                   Authorization: \"Bearer tok-xyz\" bearer=tok-bare resolved=\"multi word secret\" \
+                   Authorization: \"Bearer tok-xyz\" Authorization: Bearer tok-unquoted \
+                   Proxy-Authorization: Basic dXNlcjpwYXNz bearer=tok-bare resolved=\"multi word secret\" \
                    embedded=abc123secret-with-more-bytes \
                    max_generation_tokens=4096 api_key_env=OPENAI_API_KEY unresolved=1\n";
 
@@ -402,12 +424,16 @@ mod tests {
         assert!(!scrubbed.contains("sk-live-999"));
         assert!(!scrubbed.contains("top-val"));
         assert!(!scrubbed.contains("tok-xyz"));
+        assert!(!scrubbed.contains("tok-unquoted"));
+        assert!(!scrubbed.contains("dXNlcjpwYXNz"));
         assert!(!scrubbed.contains("tok-bare"));
         assert!(!scrubbed.contains("multi word secret"));
         assert!(!scrubbed.contains("abc123secret"));
         assert!(scrubbed.contains("secret://deploy/key"));
         assert!(scrubbed.contains("api_key=[REDACTED]"));
         assert!(scrubbed.contains("\"client_secret\": \"[REDACTED]\""));
+        assert!(scrubbed.contains("Authorization: [REDACTED]"));
+        assert!(scrubbed.contains("Proxy-Authorization: [REDACTED]"));
         assert!(scrubbed.contains("resolved=\"[REDACTED]\""));
         assert!(scrubbed.contains("max_generation_tokens=4096"));
         assert!(scrubbed.contains("api_key_env=OPENAI_API_KEY"));

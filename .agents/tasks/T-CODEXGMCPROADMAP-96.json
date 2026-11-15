@@ -20,5 +20,24 @@
   },
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Adversarial stage (GMCP-203-012-04) validates fail-closed bounds, dynamic ACL/traversal denial, race/exhaustion recovery, covert-channel redaction/payload bounds, progress monotonicity/NaN/token caps, and transport fault injection across stdio, HTTP SSE, and GmcpService; cross-spec interop matrix and operations runbooks remain in T-CODEXGMCPROADMAP-97..98.",
+    "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are created and sealed by T-CODEXGMCPROADMAP-99 once requirements 01-06 land; existing retained evidence is updated via Two-Phase Evidence against the implementation commit."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses shared GmcpService, GmcpServer, StdioGate, http_envelope_rejection, RequestMetaObject::parse_progress_token, SubscriptionSink, TaskManager, redact_for_export, BoundedLines, and tests/gmcp_requirements.rs harnesses (StdioSession, AdapterClient, gmcp_http_home_guard) while tightening RequestMetaObject::parse_progress_token string token bounds (crates/susi-gmcp/src/mcp/model.rs), fixing unquoted auth scheme token redaction and Proxy-Authorization coverage in redact_for_export (crates/susi-config/src/secret_ref.rs), and preventing BoundedLines::scan from discarding prior valid lines when an oversized line lands in the same read chunk (crates/susi-gmcp/src/stdio.rs).",
+    "searched": "Susi Core: docs/gmcp/contract-203-012.md, crates/susi-gmcp/src/{protocol.rs,jsonrpc_gate.rs,stdio.rs,mcp/{model.rs,service.rs,http.rs,message.rs}}, crates/susi-config/src/{config.rs,secret_ref.rs}, crates/susi-error/src/redact.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp/src/{mcp/model.rs,stdio.rs}, crates/susi-config/src/secret_ref.rs, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    "crates/susi-gmcp/src/mcp/model.rs",
+    "crates/susi-gmcp/src/stdio.rs",
+    "crates/susi-gmcp/src/tests/protocol.rs",
+    "crates/susi-config/src/secret_ref.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-96.json",
+    ".agents/gmcp/evidence"
+  ]
 }

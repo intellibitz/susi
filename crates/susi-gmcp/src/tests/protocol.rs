@@ -1266,4 +1266,25 @@ mod http_unit_tests {
         let priming = SseEvent::priming("0", Duration::from_secs(3));
         assert_eq!(&priming.to_bytes()[..], b"data: \nid: 0\nretry: 3000\n\n");
     }
+
+    #[tokio::test]
+    async fn bounded_lines_preserves_valid_lines_before_oversized_in_same_chunk() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let input = b"{bad\n{bad2\n123456\nok\n";
+        let mut reader = BufReader::new(crate::stdio::BoundedLines::new(&input[..], 5));
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "{bad\n");
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "{bad2\n");
+        line.clear();
+        assert!(
+            reader.read_line(&mut line).await.is_err(),
+            "oversized line must error without discarding preceding lines"
+        );
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "ok\n");
+    }
 }
