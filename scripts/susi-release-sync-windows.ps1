@@ -39,12 +39,24 @@ if ($Action -in 'install-timer','uninstall-timer') {
     if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
         throw 'Git for Windows bash.exe was not found; cannot register susi-release-sync scheduled task.'
     }
+    $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $TaskAction = New-ScheduledTaskAction -Execute $BashExe -WorkingDirectory $BinDir -Argument ('"' + $SyncScript + '"')
     $TriggerHourly = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(10) -RepetitionInterval (New-TimeSpan -Hours 1)
-    $TriggerLogon = New-ScheduledTaskTrigger -AtLogOn
-    $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    $TriggerHourly.Repetition.StopAtDurationEnd = $false
+    $TriggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
+    $Principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Limited
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger @($TriggerHourly, $TriggerLogon) -Principal $Principal -Settings $Settings -Force | Out-Null
+    try {
+        Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger @($TriggerHourly, $TriggerLogon) -Principal $Principal -Settings $Settings -Force -ErrorAction Stop | Out-Null
+    } catch {
+        try {
+            Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger $TriggerHourly -Principal $Principal -Settings $Settings -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $TrCmd = '"' + $BashExe + '" "' + $SyncScript + '"'
+            & schtasks.exe /Create /SC HOURLY /MO 1 /TN $TaskName /TR $TrCmd /RL LIMITED /F | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Failed to register $TaskName via Register-ScheduledTask and schtasks.exe (exit $LASTEXITCODE)." }
+        }
+    }
     exit 0
 }
 $Legacy = Join-Path $BinDir 'susi-engine.exe'

@@ -287,8 +287,9 @@ if ($InstallService) {
             $HostExe = Join-Path ([Environment]::SystemDirectory) 'wscript.exe'
             $Action = New-ScheduledTaskAction -Execute $HostExe -WorkingDirectory $GlobalBinDir -Argument ('//B //NoLogo "' + $Compat + '"')
         }
-        $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+        $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
+        $Principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
         Write-Host "  Registered Susi to start at logon." -ForegroundColor Green
     } catch {
