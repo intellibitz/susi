@@ -33,8 +33,6 @@ struct TaskRecord {
     created_unix: u64,
     #[serde(default)]
     status: Option<String>,
-    #[serde(default)]
-    native_worker: Option<String>,
 }
 
 /// The queue stores acceptance as argv; a hand-written task may still hold the
@@ -108,11 +106,14 @@ pub fn plan_batch(
             already_done += 1;
             continue;
         }
-        let open = task
-            .status
-            .as_deref()
-            .is_none_or(|s| s.eq_ignore_ascii_case("open"));
-        if task.native_worker.is_some() || !open {
+        // A status past `claimed` means a worker has taken the task further;
+        // a `claimed` record is a reservation the queue still offers.
+        let free = |s: &str| {
+            ["open", "claimed"]
+                .iter()
+                .any(|f| s.eq_ignore_ascii_case(f))
+        };
+        if task.status.as_deref().is_some_and(|s| !free(s)) {
             held += 1;
             continue;
         }
@@ -642,9 +643,9 @@ mod tests {
             );
             write_task(&tasks, &format!("{id}.json"), &body);
         };
-        put("T-H1", r#""native_worker":"w1","#);
+        put("T-H1", r#""status":"in_progress","native_worker":"w1","#);
         put("T-H2", r#""status":"implemented_pending_integration","#);
-        put("T-O", r#""status":"open","#);
+        put("T-O", r#""status":"claimed","native_worker":"w2","#);
         let m = ["a".to_string()];
         let plan = plan_batch(dir.path(), "m", 10, &m, None, &[]).unwrap();
         let ids: Vec<_> = plan.tasks.iter().filter_map(|t| t.task.clone()).collect();
