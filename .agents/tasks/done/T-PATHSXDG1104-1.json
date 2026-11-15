@@ -16,6 +16,11 @@
   },
   "created_by": "PATHSXDG1104",
   "created_unix": 1793758100,
+  "closed": {
+    "at_unix": 1794740496,
+    "commit": "461286163c635bfac236687a3b1b232665a1cf23",
+    "by": "AG3HOUSEKEEP"
+  },
   "reuse": {
     "decision": "existing",
     "reason": "Extended existing crates/susi-paths/src/xdg.rs layout resolvers into OS-parameterized helpers and added ports.json-aware host_token_in in crates/susi-paths/src/lib.rs reusing zc_ports_file::PortsFile::read_from_home and existing constant-time bearer comparison helpers.",
