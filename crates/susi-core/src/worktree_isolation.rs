@@ -23,15 +23,21 @@ fn active_in_process_leases() -> &'static Mutex<HashSet<PathBuf>> {
     ACTIVE.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// Recorded active owner of an isolated agent worktree.
+/// Recorded active owner of an isolated agent worktree. Other Susi tools write
+/// this file with fewer fields: only `agent`, `pid` and `branch` decide
+/// ownership, and an empty `host` means this host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorktreeOwner {
     pub agent: String,
+    #[serde(default)]
     pub role: String,
+    #[serde(default)]
     pub host: String,
     pub pid: u32,
     pub branch: String,
+    #[serde(default)]
     pub worktree_path: PathBuf,
+    #[serde(default, alias = "started_unix")]
     pub acquired_unix: u64,
 }
 
@@ -718,5 +724,21 @@ mod tests {
         assert_ne!(parent.path, child.path);
         assert_ne!(parent.branch, child.branch);
         assert!(!is_primary_checkout(&child.path).unwrap());
+    }
+
+    /// Records written by the Susi Commercial Apps tools carry fewer fields.
+    #[test]
+    fn owner_records_written_by_other_susi_tools_still_parse() {
+        for text in [
+            r#"{"agent":"claude","pid":7,"branch":"local-agent/x","acquired_unix":1}"#,
+            r#"{"agent":"claude","branch":"local-agent/x","pid":7,"started_unix":1}"#,
+        ] {
+            let owner: WorktreeOwner = serde_json::from_str(text).expect("owner record");
+            assert_eq!(owner.agent, "claude");
+            assert_eq!((owner.pid, owner.acquired_unix), (7, 1));
+            assert!(owner.host.is_empty() && owner.role.is_empty());
+        }
+        // A record without an owner identity is still refused.
+        assert!(serde_json::from_str::<WorktreeOwner>(r#"{"pid":7,"branch":"b"}"#).is_err());
     }
 }
