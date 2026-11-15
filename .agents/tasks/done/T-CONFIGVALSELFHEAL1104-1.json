@@ -1,17 +1,51 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-CONFIGVALSELFHEAL1104-1",
-  "title": "Expand inline unit tests for config, validate, selfheal, and credential in susi-config",
-  "touch": [
-    "crates/susi-config/src/config.rs",
-    "crates/susi-config/src/validate.rs",
-    "crates/susi-config/src/selfheal.rs",
-    "crates/susi-config/src/credential.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-config --lib",
-      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-CONFIGVALSELFHEAL1104-1",
+    "title":  "Expand inline unit tests for config, validate, selfheal, and credential in susi-config",
+    "goal":  "Expand inline unit tests across config, validate, selfheal, and credential modules in crates/susi-config.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "CONFIGVALSELFHEAL1104",
+    "created_unix":  1793774172,
+    "authored":  true,
+    "base_commit":  "764feb69c62bd60025908c1d1af6a064ec0588c2",
+    "implementation_commit":  "fb8e9b104ba524f0129f263ddfc85894fea41cc9",
+    "verified_commit":  "fb8e9b104ba524f0129f263ddfc85894fea41cc9",
+    "notes":  "Landed and closed in squash merge fb8e9b104ba524f0129f263ddfc85894fea41cc9 (#1446). Historical module selfheal.rs migrated out under Lean Core; surviving Core scopes target config.rs, credential.rs, and validate.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-config/src/config.rs, crates/susi-config/src/credential.rs, crates/susi-config/src/validate.rs",
+                  "target":  "crates/susi-config/src/config.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop SusiConfig and CredentialRef in crates/susi-config.",
+                  "reused_symbols":  [
+                                         "susi_config::config::SusiConfig",
+                                         "susi_config::credential::CredentialRef"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-CONFIGVALSELFHEAL1104-1.json",
+                   "crates/susi-config/src/config.rs",
+                   "crates/susi-config/src/credential.rs",
+                   "crates/susi-config/src/validate.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793774172,
+                   "commit":  "fb8e9b104ba524f0129f263ddfc85894fea41cc9",
+                   "by":  "CONFIGVALSELFHEAL1104"
+               }
 }

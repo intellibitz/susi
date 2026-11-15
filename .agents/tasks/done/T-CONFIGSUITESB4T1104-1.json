@@ -1,17 +1,48 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-CONFIGSUITESB4T1104-1",
-  "title": "Expand unit tests to 4 in susi-config vc_201_067_mastery, zc_setting_registry, state_backup, and vc_201_065 (CEO Job #142, D-OS-8)",
-  "touch": [
-    "crates/susi-config/src/tests/vc_201_067_mastery.rs",
-    "crates/susi-config/src/tests/zc_setting_registry.rs",
-    "crates/susi-config/src/tests/state_backup.rs",
-    "crates/susi-config/src/tests/vc_201_065.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-config --lib",
-      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-CONFIGSUITESB4T1104-1",
+    "title":  "Expand unit tests to 4 in susi-config vc_201_067_mastery, zc_setting_registry, state_backup, and vc_201_065 (CEO Job #142, D-OS-8)",
+    "goal":  "Expand unit test suites to at least 4 tests across vc_201_067_mastery, zc_setting_registry, state_backup, and vc_201_065 in crates/susi-config (CEO Job #142, D-OS-8).",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCCFGVAL1104",
+    "created_unix":  1793782320,
+    "authored":  true,
+    "base_commit":  "715443b2b2e5dfbafea1812b22ffca987d259d35",
+    "implementation_commit":  "79ff754f38ef46a22f623cbb98d9eea4fd257ce4",
+    "verified_commit":  "c3d1b64913788fa154a6db2fb8d98b38a4c381f0",
+    "notes":  "Landed in 79ff754f38ef46a22f623cbb98d9eea4fd257ce4 and closed in c3d1b64913788fa154a6db2fb8d98b38a4c381f0. Historical test modules state_backup.rs, vc_201_067_mastery.rs, and zc_setting_registry.rs migrated out under Lean Core; surviving Core scope targets crates/susi-config/src/tests/vc_201_065.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-config/src/tests/vc_201_065.rs, crates/susi-config/src/config.rs",
+                  "target":  "crates/susi-config/src/tests/vc_201_065.rs",
+                  "why":  "Expanded unit tests directly atop SusiConfig in crates/susi-config/src/tests/vc_201_065.rs.",
+                  "reused_symbols":  [
+                                         "susi_config::config::SusiConfig"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-CONFIGSUITESB4T1104-1.json",
+                   "crates/susi-config/src/tests/vc_201_065.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793782329,
+                   "commit":  "c3d1b64913788fa154a6db2fb8d98b38a4c381f0",
+                   "by":  "ZCCFGVAL1104"
+               }
 }
