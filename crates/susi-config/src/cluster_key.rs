@@ -668,17 +668,37 @@ pub fn ban_row_matches(row: &serde_json::Value, node_id: &str, address: &str) ->
 /// rekey never serves a stale key.
 pub fn cached_file_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
     use std::sync::{Mutex, OnceLock};
-    type BytesCache = Mutex<std::collections::HashMap<std::path::PathBuf, ((u128, u64), Vec<u8>)>>;
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct FileStamp {
+        mtime_ns: u128,
+        len: u64,
+        dev: u64,
+        ino: u64,
+    }
+    #[cfg(unix)]
+    fn dev_ino(meta: &fs::Metadata) -> (u64, u64) {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino())
+    }
+    #[cfg(not(unix))]
+    fn dev_ino(_meta: &fs::Metadata) -> (u64, u64) {
+        (0, 0)
+    }
+    type BytesCache = Mutex<std::collections::HashMap<std::path::PathBuf, (FileStamp, Vec<u8>)>>;
     static CACHE: OnceLock<BytesCache> = OnceLock::new();
     let meta = fs::metadata(path).ok()?;
-    let stamp = (
-        meta.modified()
+    let (dev, ino) = dev_ino(&meta);
+    let stamp = FileStamp {
+        mtime_ns: meta
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos())
             .unwrap_or(0),
-        meta.len(),
-    );
+        len: meta.len(),
+        dev,
+        ino,
+    };
     let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let key = path.to_path_buf();
     {
@@ -689,7 +709,7 @@ pub fn cached_file_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
             }
         }
     }
-    let bytes = fs::read(path).ok()?;
+    let bytes = crate::read_atomic_bytes(path).ok()?;
     cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())

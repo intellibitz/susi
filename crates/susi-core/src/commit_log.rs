@@ -746,23 +746,36 @@ pub fn load_term() -> TermState {
     load_term_from(&term_path())
 }
 
-/// Test seam: load term state from an explicit path. Mtime-cached —
-/// the intake path consults term state on every record, and an
-/// anti-entropy pull of hundreds of records should not re-parse the
-/// file each time; `save_term_to`'s atomic rename changes the stamp.
-pub fn load_term_from(path: &std::path::Path) -> TermState {
+fn parse_term_bytes(raw: &[u8]) -> TermState {
     let default = || TermState {
         term: 0,
         leader: String::new(),
         updated_at: 0,
     };
+    let Ok(text) = std::str::from_utf8(raw) else {
+        return default();
+    };
+    serde_json::from_str(text).unwrap_or_else(|_| default())
+}
+
+/// Test seam: load term state from an explicit path. Stamp-cached (`mtime`,
+/// `len`, `(dev, ino)`) — the intake path consults term state on every record,
+/// and an anti-entropy pull of hundreds of records should not re-parse the
+/// file each time; `save_term_to`'s atomic rename replaces the inode/stamp.
+pub fn load_term_from(path: &std::path::Path) -> TermState {
     let Some(raw) = crate::susi_config::cluster_key::cached_file_bytes(path) else {
-        return default();
+        return parse_term_bytes(&[]);
     };
-    let Ok(text) = String::from_utf8(raw) else {
-        return default();
+    parse_term_bytes(&raw)
+}
+
+/// Read persisted term state directly without consulting `cached_file_bytes`,
+/// used inside `FileLock`-protected read-modify-write critical sections.
+fn load_term_uncached(path: &Path) -> TermState {
+    let Ok(raw) = crate::susi_config::read_atomic_bytes(path) else {
+        return parse_term_bytes(&[]);
     };
-    serde_json::from_str(&text).unwrap_or_else(|_| default())
+    parse_term_bytes(&raw)
 }
 
 /// Persist term state atomically (temp + rename — a crash mid-write
@@ -783,6 +796,7 @@ pub fn save_term_to(path: &Path, state: &TermState) -> EaiResult<()> {
 /// the process — two threads claiming leadership concurrently must not
 /// interleave a lost bump.
 static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+const TERM_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Cross-process mutual exclusion for file read-modify-write.
 ///
@@ -812,10 +826,13 @@ pub fn claim_leadership_at(path: &Path, leader: &str) -> u64 {
     // caller then seals under current leadership, which receivers flag as
     // a conflict, rather than minting a phantom term that was never
     // durably claimed.
-    let Some(_file_lock) = path.parent().and_then(|dir| FileLock::acquire(dir, "term")) else {
-        return load_term_from(path).term;
+    let Some(_file_lock) = path
+        .parent()
+        .and_then(|dir| FileLock::acquire_within(dir, "term", TERM_LOCK_TIMEOUT))
+    else {
+        return load_term_uncached(path).term;
     };
-    let mut state = load_term_from(path);
+    let mut state = load_term_uncached(path);
     if state.leader != leader {
         state.term += 1;
         state.leader = leader.to_string();
@@ -859,8 +876,10 @@ pub fn check_term_at(path: &Path, record: &CommitRecord) -> TermVerdict {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Same cross-process serialization as claim_leadership_at — term
     // adoption is a read-modify-write and must not interleave a claim.
-    let _file_lock = path.parent().and_then(|dir| FileLock::acquire(dir, "term"));
-    let state = load_term_from(path);
+    let _file_lock = path
+        .parent()
+        .and_then(|dir| FileLock::acquire_within(dir, "term", TERM_LOCK_TIMEOUT));
+    let state = load_term_uncached(path);
     if record.term > state.term {
         let next = TermState {
             term: record.term,
