@@ -1,0 +1,35 @@
+{
+  "id": "T-VENDORSMALLCRATES4T1104-1",
+  "title": "test(vendor): expand inline unit tests to 4 in rcgen, wasmtime, mcp-server, and windows-runtime",
+  "goal": "Expand inline unit tests to 4 in susi-vendor-rcgen, susi-vendor-wasmtime, susi-vendor-mcp-server, and susi-windows-runtime.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    "crates/susi-vendor-rcgen/src/lib.rs",
+    "crates/susi-vendor-wasmtime/src/lib.rs",
+    "crates/susi-vendor-mcp-server/src/lib.rs",
+    "crates/susi-windows-runtime/src/lib.rs",
+    ".agents/tasks/T-VENDORSMALLCRATES4T1104-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-rcgen",
+      "-p",
+      "susi-vendor-wasmtime",
+      "-p",
+      "susi-vendor-mcp-server",
+      "-p",
+      "susi-windows-runtime",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORSMALLCRATES4T1104",
+  "created_unix": 1793786576,
+  "status": "retired",
+  "retired_reason": "Already landed in 545240064; susi-vendor-mcp-server was removed from core in 6692630d3 (feat(gmcp): serve MCP without the rmcp SDK), while remaining crates susi-vendor-rcgen (5/5), susi-vendor-wasmtime (40/40 + 1 ignored), and susi-windows-runtime (5/5) pass --lib."
+}
