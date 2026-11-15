@@ -667,10 +667,17 @@ fn kill_tree(pid: u32) {
     }
     #[cfg(not(windows))]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .output();
+        let _ = Command::new("kill").args(kill_tree_args(pid)).output();
     }
+}
+
+/// The `kill` arguments that signal the process group `pid` leads. The `--`
+/// is load-bearing: without it procps-ng reads `-<pid>` as an option and
+/// takes its first digit as the target, so a pid beginning with 1 became
+/// `kill(-1, SIGTERM)` and signalled every process the user owns.
+#[cfg(not(windows))]
+fn kill_tree_args(pid: u32) -> [String; 3] {
+    ["-TERM".to_string(), "--".to_string(), format!("-{pid}")]
 }
 
 /// True when any command-position word in `command` invokes the susi CLI. A
@@ -762,6 +769,20 @@ mod tools_window;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A group id passed to `kill` without `--` is parsed as an option by
+    /// procps-ng, which then signals its first digit: `-TERM -1234` became
+    /// `kill(-1, SIGTERM)`, every process the user owns.
+    #[cfg(not(windows))]
+    #[test]
+    fn kill_tree_separates_the_group_id_from_the_options() {
+        for pid in [1_u32, 19, 1234, 16330, 21406] {
+            assert_eq!(
+                kill_tree_args(pid),
+                ["-TERM".to_string(), "--".to_string(), format!("-{pid}")]
+            );
+        }
+    }
 
     #[test]
     fn tool_registry_lists_the_six_native_tools() {
