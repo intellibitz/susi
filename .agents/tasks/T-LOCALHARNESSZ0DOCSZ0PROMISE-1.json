@@ -1,0 +1,28 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "base": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
+  "id": "T-LOCALHARNESSZ0DOCSZ0PROMISE-1",
+  "native_worker": "harness-docs-promise",
+  "owner": "harness-docs-promise",
+  "scopes": [
+    ".agents/tasks/done/t-localharnessz0docsz0promise-1.json",
+    ".agents/tasks/t-localharnessz0docsz0promise-1.json",
+    "docs/ceo-mandate-81.md",
+    "docs/gmcp/contract-203-020.md"
+  ],
+  "status": "claimed",
+  "title": "Reword three core doc sentences that break the no-UI-or-plugins docs promise",
+  "workflow": "susi-local-v2"
+}
