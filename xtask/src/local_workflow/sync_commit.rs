@@ -53,7 +53,12 @@ where
             .collect::<Result<Vec<_>>>()?
     };
     let previous = integration_head(root)?;
-    let base = previous.clone().unwrap_or_else(|| inputs[0].0.base.clone());
+    // New claims start from `claim_base`: a fetched main that descends from the
+    // local head is the newest landing. Integrate onto that same commit.
+    let base = match &previous {
+        Some(_) => claim_base(root)?,
+        None => inputs[0].0.base.clone(),
+    };
     // Dependency chains must be rooted in accepted history. Two unaccepted
     // workers cannot authorize each other's common, unowned starting commit.
     let mut admitted = vec![false; inputs.len()];
@@ -74,7 +79,7 @@ where
         }
         if admitted == before {
             return Err(
-                "integration history does not contain the claim base; reconcile explicitly".into(),
+                "integration history does not contain the claim base: publish the local integration, fetch, then integrate again".into(),
             );
         }
     }
@@ -228,7 +233,7 @@ where
         let receipt = format!(
             "susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n",
             claim.base,
-            previous.as_deref().unwrap_or("none"),
+            previous.as_ref().map_or("none", |_| base.as_str()),
             evidence.join("\n")
         );
         let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;

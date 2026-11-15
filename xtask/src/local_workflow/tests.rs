@@ -1205,6 +1205,46 @@ fn release_accepts_work_the_publisher_landed_on_fetched_main() {
     assert_eq!(claim_base(&repo).unwrap(), side);
 }
 
+/// A main that moved through a push made elsewhere is the newest landing:
+/// the next claim starts from it, and `integrate` builds on it too instead
+/// of refusing a claim base its stale local head cannot contain.
+#[test]
+fn integrate_builds_on_a_fetched_main_that_passed_the_local_head() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    worker(&repo, "zero", "zero.rs", "zero");
+    let stale = integrate_with(&repo, &["zero"], |_, _| Ok(local_gate_evidence())).unwrap();
+    // Someone else pushed on top of that landing; a fetch mirrors it.
+    let tree = git(&repo, &["rev-parse", &format!("{stale}^{{tree}}")]).unwrap();
+    let moved = git(
+        &repo,
+        &["commit-tree", &tree, "-p", &stale, "-m", "elsewhere"],
+    )
+    .unwrap();
+    git(&repo, &["update-ref", FETCHED_MAIN_REF, &moved]).unwrap();
+    let source = git(
+        &worker(&repo, "one", "one.rs", "one"),
+        &["rev-parse", "HEAD"],
+    )
+    .unwrap();
+    let head = integrate_with(&repo, &["one"], |_, _| Ok(local_gate_evidence())).unwrap();
+    assert!(is_ancestor(&repo, &moved, &head).unwrap());
+    assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
+    let receipt_ref = format!("refs/susi/integration/receipts/one/{source}");
+    let receipt = git(&repo, &["cat-file", "blob", &receipt_ref]).unwrap();
+    assert!(receipt.contains(&format!("previous={moved}")), "{receipt}");
+    let tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
+    assert!(receipt_matches(&repo, &receipt_ref, &receipt, &head, &tree).unwrap());
+    // A local head with work the fetched main lacks still wins: diverged.
+    let side = git(&repo, &["commit-tree", &tree, "-p", &stale, "-m", "side"]).unwrap();
+    git(&repo, &["update-ref", FETCHED_MAIN_REF, &side]).unwrap();
+    worker(&repo, "two", "two.rs", "two");
+    let next = integrate_with(&repo, &["two"], |_, _| Ok(local_gate_evidence())).unwrap();
+    assert!(
+        is_ancestor(&repo, &head, &next).unwrap() && !is_ancestor(&repo, &side, &next).unwrap()
+    );
+}
+
 #[test]
 fn failed_gate_retains_source_claim_and_previous_integration() {
     let scratch = Scratch::new();
