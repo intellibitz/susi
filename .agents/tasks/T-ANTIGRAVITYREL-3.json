@@ -1,0 +1,44 @@
+{
+  "id": "T-ANTIGRAVITYREL-3",
+  "title": "Record committed release metadata for Susi Core v0.21.69",
+  "goal": "Archive T-ANTIGRAVITYREL-2 and commit releases/v0.21.69.json matching the qualified tag v0.21.69 on Linux x86_64 and advance origin/main.",
+  "vision": "V-1",
+  "size": "xs",
+  "deps": [
+    "T-ANTIGRAVITYREL-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "ANTIGRAVITYREL02169",
+  "created_unix": 1794733877,
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.69-1",
+  "reuse": {
+    "decision": "existing",
+    "searched": "releases/v0.21.68.json and tests/release_records.rs",
+    "source": "Existing susi-release-record/v1 schema and release-qualify v0.21.69 output.",
+    "reason": "Record committed release metadata for qualified tag v0.21.69."
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification remain owed on a Windows x86_64 host."
+  ],
+  "owner": "ANTIGRAVITYREL02169",
+  "scopes": [
+    ".agents/tasks/T-ANTIGRAVITYREL-2.json",
+    ".agents/tasks/done/T-ANTIGRAVITYREL-2.json",
+    ".agents/tasks/T-ANTIGRAVITYREL-3.json",
+    "releases/v0.21.69.json"
+  ],
+  "state": "open",
+  "status": "in_progress",
+  "updated_unix": 1794733877
+}
