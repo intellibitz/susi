@@ -24,6 +24,11 @@
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794753397,
+    "commit": "5a9aa0bc009fdf8fd505c1a2ad51440e7371708d",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Linux/Unix domain socket transport checks in `gmcp_req_203_014_03_integration` through `gmcp_vc_203_014_mastery` are compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process `GmcpService`/`TaskManager::open`, embedded adapter, `susi mcp serve` stdio, and Streamable HTTP `/mcp` + Wire SDK `Session` parity.",
     "Non-resumable in-flight tasks interrupted by ungraceful server termination reconcile deterministically once to `failed` (`-32603`) on process restart while settled terminal payloads replay within `ttlMs` without re-executing side effects; multi-node distributed task replication remains out of scope.",
