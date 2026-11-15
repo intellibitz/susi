@@ -1,6 +1,6 @@
 # Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin lifecycle
 
-Status: **implemented** (requirements GMCP-203-020-01..02, vector VC-203-020)
+Status: **implemented** (requirements GMCP-203-020-01..03, vector VC-203-020)
 Baseline date: **2026-11-15**
 
 ## Normative clause

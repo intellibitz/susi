@@ -69,7 +69,7 @@ sdk_schema! {
     }
 }
 
-fn text_read_response(uri: String, mime: &str, text: String) -> ReadResourceResponse {
+pub(crate) fn text_read_response(uri: String, mime: &str, text: String) -> ReadResourceResponse {
     ReadResourceResult {
         result_type: Some(ResultType::COMPLETE),
         ttl_ms: Some(0),
@@ -97,7 +97,36 @@ fn make_audit_middleware(tag: &'static str, log: AuditLog) -> ToolMiddleware {
     })
 }
 
-/// Stage 1 minimal runnable example (`01_minimal_tool`).
+fn make_prompt(name: &str, title: &str, desc: &str, arg: Option<(&str, &str)>) -> Prompt {
+    Prompt {
+        name: name.into(),
+        title: Some(title.into()),
+        description: Some(desc.into()),
+        arguments: arg.map(|(n, d)| {
+            vec![PromptArgument {
+                name: n.into(),
+                title: Some(n.into()),
+                description: Some(d.into()),
+                required: Some(true),
+            }]
+        }),
+        icons: None,
+        meta: None,
+    }
+}
+
+fn prompt_msg(role: Role, desc: String, text: String) -> GetPromptResponse {
+    GetPromptResult {
+        result_type: Some(ResultType::COMPLETE),
+        description: Some(desc),
+        messages: vec![PromptMessage {
+            role,
+            content: ContentBlock::text(text),
+        }],
+        meta: None,
+    }
+    .into()
+}
 pub fn minimal_echo_server(workspace: PathBuf) -> Result<GmcpService, ErrorData> {
     ServerBuilder::new("sdk-minimal-echo", "0.1.0", workspace)
         .title("SDK Minimal Echo Server")
@@ -140,19 +169,12 @@ pub fn production_reference_server(
         meta: None,
         annotations: None,
     };
-    let prompt = Prompt {
-        name: "draft_brief".into(),
-        title: Some("Draft Executive Brief".into()),
-        description: Some("Assemble a structured brief for a topic".into()),
-        arguments: Some(vec![PromptArgument {
-            name: "topic".into(),
-            title: Some("Topic".into()),
-            description: Some("Subject of the brief".into()),
-            required: Some(true),
-        }]),
-        icons: None,
-        meta: None,
-    };
+    let prompt = make_prompt(
+        "draft_brief",
+        "Draft Executive Brief",
+        "Assemble a structured brief for a topic",
+        Some(("topic", "Subject of the brief")),
+    );
     let ext_settings = Map::from_iter([("profile".into(), json!("production-reference"))]);
 
     let service = ServerBuilder::new("sdk-production-ref", "1.2.0", workspace)
@@ -281,18 +303,11 @@ pub fn production_reference_server(
                         .and_then(|a| a.get("topic"))
                         .and_then(Value::as_str)
                         .unwrap_or("general");
-                    Ok(GetPromptResult {
-                        result_type: Some(ResultType::COMPLETE),
-                        description: Some(format!("Executive brief on {topic}")),
-                        messages: vec![PromptMessage {
-                            role: Role::User,
-                            content: ContentBlock::text(format!(
-                                "Prepare a concise brief covering: {topic}"
-                            )),
-                        }],
-                        meta: None,
-                    }
-                    .into())
+                    Ok(prompt_msg(
+                        Role::User,
+                        format!("Executive brief on {topic}"),
+                        format!("Prepare a concise brief covering: {topic}"),
+                    ))
                 })
             }),
         )
@@ -364,14 +379,12 @@ pub fn sample_plugin_bundle(
         Some("Cancellable plugin task".into()),
         schema,
     );
-    let prompt = Prompt {
-        name: "plugin_help".into(),
-        title: Some("Plugin Help".into()),
-        description: Some("Guidance contributed by sdk-sample-plugin".into()),
-        arguments: None,
-        icons: None,
-        meta: None,
-    };
+    let prompt = make_prompt(
+        "plugin_help",
+        "Plugin Help",
+        "Guidance contributed by sdk-sample-plugin",
+        None,
+    );
 
     let mut bundle = PluginBundle::new(manifest)
         .with_tool(
@@ -416,16 +429,11 @@ pub fn sample_plugin_bundle(
             prompt,
             Arc::new(|_req, _ctx| {
                 Box::pin(async move {
-                    Ok(GetPromptResult {
-                        result_type: Some(ResultType::COMPLETE),
-                        description: Some("Plugin help prompt".into()),
-                        messages: vec![PromptMessage {
-                            role: Role::Assistant,
-                            content: ContentBlock::text("sdk-sample-plugin is active."),
-                        }],
-                        meta: None,
-                    }
-                    .into())
+                    Ok(prompt_msg(
+                        Role::Assistant,
+                        "Plugin help prompt".into(),
+                        "sdk-sample-plugin is active.".into(),
+                    ))
                 })
             }),
         )
