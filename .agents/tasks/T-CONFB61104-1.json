@@ -1,14 +1,10 @@
 {
   "id": "T-CONFB61104-1",
   "title": "B1 stateful MCP session conformance on 9093 and B6 A2A agent card skill/capability honesty check",
-  "state": "closed",
-  "created_by": "CONFB61104",
-  "created_at_unix": 1793755560,
-  "scope": {
-    "files": [
-      "crates/susi-conformance/src/lib.rs"
-    ]
-  },
+  "state": "open",
+  "goal": "Generalize mcp_session into mcp_session_at to verify stateful MCP 2025-06-18 session flow on both 9090 (MCP) and 9093 (MCP_ALIAS), add validate_agent_card_honesty wired into a2a_card to enforce streaming=true, required per-capability skills (missions, agents, frameworks, models), and absence of dishonest desktop UI/egui claims, and add unit tests in crates/susi-conformance/src/lib.rs (B1, B6; landed in 5086c898f #1381).",
+  "size": "m",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -19,9 +15,18 @@
       "susi-conformance"
     ]
   },
-  "closed": {
-    "commit": "e99dac675a1353133db1445612d919ca9071f1db",
-    "by": "CONFB61104",
-    "at_unix": 1793755580
-  }
+  "created_by": "CONFB61104",
+  "created_unix": 1793755560,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Generalized existing mcp_session and a2a_card checks directly inside crates/susi-conformance/src/lib.rs (landed in squash commit 5086c898f0a90c679d4f8a2d27d28f174bfb279f #1381) without adding new crates or external dependencies.",
+    "searched": "crates/susi-conformance/src/lib.rs",
+    "source": "intellibitz/susi crates/susi-conformance (5086c898f #1381)"
+  },
+  "scopes": [
+    ".agents/tasks/T-CONFB61104-1.json",
+    "crates/susi-conformance/src/lib.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "status": "completed"
 }
