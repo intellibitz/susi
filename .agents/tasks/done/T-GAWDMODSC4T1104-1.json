@@ -1,0 +1,38 @@
+{
+  "id": "T-GAWDMODSC4T1104-1",
+  "title": "Expand final 6 crates/susi-gawd/src/*.rs modules to 4 unit tests each",
+  "goal": "Expand inline unit tests to 4 in each of crates/susi-gawd/src/{cloud_session,lane_overlap_warning,model_rate_arbitration,orchestrator_tier,tasks_from_brain,zc_agent_identity}.rs.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-GAWDMODSC4T1104-1.json",
+    "crates/susi-gawd/src/cloud_session.rs",
+    "crates/susi-gawd/src/lane_overlap_warning.rs",
+    "crates/susi-gawd/src/model_rate_arbitration.rs",
+    "crates/susi-gawd/src/orchestrator_tier.rs",
+    "crates/susi-gawd/src/tasks_from_brain.rs",
+    "crates/susi-gawd/src/zc_agent_identity.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Expanded inline #[cfg(test)] suites directly inside the 6 existing crates/susi-gawd/src modules landed in cb8ab859e62a prior to lean-core module pruning and Commercial migration.",
+    "searched": "crates/susi-gawd/src/{cloud_session,lane_overlap_warning,model_rate_arbitration,orchestrator_tier,tasks_from_brain,zc_agent_identity}.rs",
+    "source": "intellibitz/susi crates/susi-gawd"
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "lane_overlap_warning"
+    ]
+  },
+  "created_by": "GAWDMODSC4T1104",
+  "created_unix": 1793790691,
+  "status": "retired",
+  "retired_reason": "Already landed in cb8ab859e62a2572e0fbe185a265f9c64c580d29; all 6 target modules were subsequently removed from crates/susi-gawd/src/ during lean-core cleanup (lane_overlap_warning.rs pruned in 0cc638bf6, tasks_from_brain.rs pruned in 1e98a4408, model_rate_arbitration.rs migrated to susi-frontier-lab in 3213dbc50, orchestrator_tier.rs migrated to susi-fleet-command in 42aa879aa, and cloud_session.rs + zc_agent_identity.rs migrated to susi-dev-workflow in e9914677a), leaving accept.cmd filter lane_overlap_warning vacuous (0 matched out of 287 susi-gawd lib tests)."
+}
