@@ -1,0 +1,42 @@
+{
+  "id": "T-AGYREL070-4",
+  "title": "Record committed release metadata for Susi Core v0.21.70",
+  "goal": "Commit releases/v0.21.70.json matching the Windows x86_64 qualified tag v0.21.70 (commit f452d39d710e505bc27c464be187d7250a45c632) and prepare publish/v0.21.70-record atop origin/main.",
+  "vision": "V-1",
+  "size": "xs",
+  "deps": [
+    "T-AGYREL070-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "AGYREL070",
+  "created_unix": 1794742837,
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.70-1",
+  "reuse": {
+    "decision": "existing",
+    "searched": "releases/v0.21.69.json and tests/release_records.rs",
+    "source": "Existing susi-release-record/v1 schema and release-qualify v0.21.70 output.",
+    "reason": "Record committed release metadata for qualified tag v0.21.70."
+  },
+  "limitations": [
+    "Linux x86_64 reference build and qualification are owed on an x86_64-unknown-linux-gnu host."
+  ],
+  "owner": "AGYREL070",
+  "scopes": [
+    ".agents/tasks/T-AGYREL070-4.json",
+    "releases/v0.21.70.json"
+  ],
+  "state": "in-progress",
+  "status": "in-progress",
+  "updated_unix": 1794742837
+}
