@@ -50,7 +50,12 @@
     "crates/susi-server/Cargo.toml",
     "tests/architecture_tests.rs"
   ],
-  "state": "open",
-  "status": "in_progress",
-  "updated_unix": 1794727980
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794728793,
+  "closed": {
+    "at_unix": 1794728793,
+    "commit": "8240d1af7bcb7a927edd4db5bbb0b20d1fa422fd",
+    "by": "ANTIGRAVITYREL02169"
+  }
 }
