@@ -1,0 +1,41 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "architecture_tests",
+      "every_panic_path_allow_is_justified"
+    ]
+  },
+  "base": "9ff08730050ca448a0385256992e005383cb1041",
+  "id": "T-LOCALHARNESSZ0GMCPZ0ALLOWS-1",
+  "native_worker": "harness-gmcp-allows",
+  "owner": "harness-gmcp-allows",
+  "scopes": [
+    ".agents/tasks/done/t-localharnessz0gmcpz0allows-1.json",
+    ".agents/tasks/t-localharnessz0gmcpz0allows-1.json",
+    "crates/susi-gmcp/src/content.rs",
+    "crates/susi-gmcp/src/direct_call.rs",
+    "crates/susi-gmcp/src/embed_provider.rs",
+    "crates/susi-gmcp/src/mcp_probe.rs",
+    "crates/susi-gmcp/src/mcp_profile.rs",
+    "crates/susi-gmcp/src/schema_check.rs",
+    "crates/susi-gmcp/src/stdio.rs",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/tools/adapter_tools.rs",
+    "crates/susi-gmcp/src/tools/forward.rs",
+    "crates/susi-gmcp/src/tools/harness_tools.rs",
+    "crates/susi-gmcp/src/tools/host_ops.rs",
+    "crates/susi-gmcp/src/tools/host_view_tools.rs",
+    "crates/susi-gmcp/src/tools/provider_tools.rs",
+    "crates/susi-gmcp/src/tools/semantic_index.rs"
+  ],
+  "status": "claimed",
+  "title": "Remove the redundant unjustified test-module panic-path allows in susi-gmcp",
+  "workflow": "susi-local-v2"
+}
