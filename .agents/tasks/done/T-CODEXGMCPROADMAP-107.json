@@ -24,6 +24,11 @@
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
+  "closed": {
+    "at_unix": 1794756328,
+    "commit": "7ca838ba59d3a0571bd92623805193c15fac3c40",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Contract freeze stage (`GMCP-203-020-01`) pins `SDK-001`..`SDK-018` in `docs/gmcp/contract-203-020.md` alongside positive and negative schema-derivation, tool-registration, plugin-manifest admission, and zero-vendor-boundary fixtures in `gmcp_req_203_020_01_contract` ahead of runtime SDK implementation in `T-CODEXGMCPROADMAP-108`..`113`.",
     "Unified `ServerBuilder`, composable request/tool `Middleware`, in-memory authoring `TestHarness`, atomic catalog/plugin hot reload, transactional plugin attach/rollback, leak-free plugin unload, and runnable minimal-through-production server examples are specified in `docs/gmcp/contract-203-020.md` for `T-CODEXGMCPROADMAP-108`..`113` rather than implemented in production crates here.",
@@ -45,7 +50,7 @@
     "docs/gmcp/contract-203-020.md",
     ".agents/gmcp/fixtures",
     ".agents/gmcp/evidence",
-    ".agents/tasks/T-CODEXGMCPROADMAP-107.json",
+    ".agents/tasks",
     "tests/gmcp_requirements.rs",
     "tests/gmcp_requirements"
   ]
