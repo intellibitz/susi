@@ -220,7 +220,7 @@ default branch, build `susi` natively with the recorded profile, features and
 environment, and install the result only when it reports the tag's version.
 
 They need git and a Rust toolchain installed through rustup. The tag's
-`rust-toolchain.toml` pins the compiler (1.99.0 for v0.21.52); when that
+`rust-toolchain.toml` pins the compiler (for example, 1.99.0); when that
 toolchain is not installed the installers stop and print the
 `rustup toolchain install` command. They never install system software.
 

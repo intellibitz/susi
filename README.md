@@ -156,7 +156,7 @@ qualification, promotion and rollback have separate evidence gates.
 From source, a person installs with `install.sh` (x86_64 Linux) or
 `install.ps1` (x86_64 Windows) from a clone of this repository. They need git
 and a Rust toolchain from [rustup](https://rustup.rs): the release tag pins its
-compiler in `rust-toolchain.toml` (1.99.0 for v0.21.52), and when that
+compiler in `rust-toolchain.toml` (for example, 1.99.0), and when that
 toolchain is missing the installer stops and prints the `rustup toolchain
 install` command. It never installs software for you and downloads no binary.
 
