@@ -115,11 +115,15 @@ fn load_config_or_warn() -> Arc<crate::susi_sandbox::manager::SusiConfig> {
 }
 
 fn open_durable_service(workspace: &Path) -> Option<GmcpService> {
-    GmcpService::open_durable(
+    crate::sdk::ServerBuilder::from_identity(
+        GmcpService::server_identity(),
         workspace.to_path_buf(),
-        susi_paths::SusiDirs::data_dir().join("gmcp-tasks"),
     )
-    .map_err(|e| eprintln!("[GMCP] Task store failed (fail-closed): {e}"))
+    .durable_tasks(susi_paths::SusiDirs::data_dir().join("gmcp-tasks"))
+    .with_host_tools(true)
+    .with_builtin_catalog()
+    .build()
+    .map_err(|e| eprintln!("[GMCP] Server initialization failed (fail-closed): {e}"))
     .ok()
 }
 
@@ -146,10 +150,6 @@ impl GmcpServer {
         let Some(service) = open_durable_service(workspace) else {
             return;
         };
-        if let Err(e) = crate::catalog::install(&service) {
-            eprintln!("[GMCP] Catalog failed: {e}");
-            return;
-        }
         runtime.block_on(async move {
             let transport = crate::jsonrpc_gate::StdioGate::new(
                 crate::stdio::BoundedLines::new(tokio::io::stdin(), limit),
@@ -191,10 +191,6 @@ impl GmcpServer {
             let Some(application) = open_durable_service(&workspace) else {
                 return;
             };
-            if let Err(e) = crate::catalog::install(&application) {
-                eprintln!("[GMCP] Catalog failed: {e}");
-                return;
-            }
             let service = http_service(application);
             eprintln!("[GMCP] Streamable HTTP available at /mcp (alias /messages)");
 

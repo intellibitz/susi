@@ -18,5 +18,34 @@
   },
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "completed",
+  "limitations": [
+    "Production path (`GMCP-203-020-02`) implements `ServerBuilder`, `sdk_schema!`, MRTR builders/capability guards, outer-to-inner `ToolMiddleware`, atomic `reload_catalog`, `PluginBundle` / `PluginPolicy` / `attach_plugin` / `unload_plugin`, `verify_pack_dir_for_sdk`, in-process duplex `TestHarness`, and runnable minimal-through-production examples wired into `GmcpServer`; subsequent vector stages (`T-CODEXGMCPROADMAP-109`..`113`) add dedicated security/adversarial, transport-matrix, scale/budget, operations/CLI, and final `.M` mastery suites.",
+    "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery).",
+    "Phase 1 keeps `.agents/tasks/T-CODEXGMCPROADMAP-108.json` open until the implementation and refreshed shared GMCP evidence land on `origin/main`."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-gmcp/src/protocol.rs",
+      "crates/susi-gmcp/src/mcp/schema.rs",
+      "crates/susi-gmcp/src/extensions.rs",
+      "crates/susi-gmcp/src/server.rs",
+      "crates/susi-config/src/extensions.rs"
+    ],
+    "target": "crates/susi-gmcp/src/sdk.rs",
+    "why": "Built `ServerBuilder`, `sdk_schema!`, `ToolMiddleware`, `reload_catalog`, `TestHarness`, and transactional `attach_plugin`/`unload_plugin` directly over existing `GmcpService`, `StructSchema`, `TaskManager`, `ExtensionRegistry`, `StdioGate`, `BoundedLines`, and `susi_config::extensions::validate_manifest`/`verify_pack_integrity` rather than introducing parallel server or plugin runtimes."
+  },
+  "scopes": [
+    "crates/susi-gmcp/src",
+    "crates/susi-config/src/extensions.rs",
+    "docs/gmcp/contract-203-020.md",
+    ".agents/gmcp/evidence",
+    ".agents/gmcp/fixtures",
+    ".agents/tasks",
+    "tests/gmcp_requirements.rs",
+    "tests/gmcp_requirements"
+  ]
 }

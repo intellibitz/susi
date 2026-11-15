@@ -357,7 +357,7 @@ impl CloudVendorEntry {
 
 /// Pack id used when no installed pack is active: every reader then serves
 /// core's compiled defaults. Core never creates a pack directory for it.
-const DEFAULT_PACK_ID: &str = "default";
+pub const DEFAULT_PACK_ID: &str = "default";
 /// Compiled cloud-vendor aliases (NP-04: core's key resolver depends on
 /// them). Plain compiled defaults, not a pack.
 pub(crate) const BUNDLED_CLOUD_VENDORS: &str = include_str!("../../../config/cloud-vendors.json");
@@ -654,6 +654,30 @@ fn verify_pack_integrity(
         }
     }
     Ok(digests)
+}
+
+/// Validate an on-disk plugin/extension-pack directory (`manifest.json`, confined
+/// relative `files`, SHA-256 `checksums`, and Ed25519 `signatures`/`signer`)
+/// without creating or mutating host `~/.susi/extensions/state.json`.
+pub fn verify_pack_dir_for_sdk(
+    root: &Path,
+) -> Result<(ExtensionManifest, BTreeMap<String, String>), String> {
+    let manifest_path = root.join("manifest.json");
+    let raw = std::fs::read(&manifest_path).map_err(|e| {
+        format!(
+            "plugin manifest {} is unavailable: {e}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: ExtensionManifest = serde_json::from_slice(&raw).map_err(|e| {
+        format!(
+            "plugin manifest {} is invalid JSON: {e}",
+            manifest_path.display()
+        )
+    })?;
+    validate_manifest(&manifest)?;
+    let digests = verify_pack_integrity(root, &manifest, &ExtensionsState::default())?;
+    Ok((manifest, digests))
 }
 
 /// A relative escape must be explicit in the mapping and permitted. A link

@@ -32,6 +32,19 @@ pub type ToolHandler = Arc<
         + Send
         + Sync,
 >;
+/// Next stage in a composable [`ToolMiddleware`] chain.
+pub type ToolNext = ToolHandler;
+/// Composable outer-to-inner tool middleware executed after `jsonrpc_gate` and
+/// compiled `inputSchema` validation and before `outputSchema` enforcement.
+pub type ToolMiddleware = Arc<
+    dyn Fn(
+            CallToolRequestParams,
+            RequestContext<RoleServer>,
+            ToolNext,
+        ) -> ProtocolFuture<CallToolResponse>
+        + Send
+        + Sync,
+>;
 /// Largest payload one `resources/read` serves; a bigger read is refused, never truncated.
 pub const MAX_RESOURCE_BYTES: usize = 8 * 1024 * 1024;
 /// Access control run before a read or subscribe reaches its provider.
@@ -80,7 +93,7 @@ pub const DISCOVER_TTL_MS: u64 = 0;
 pub const DISCOVER_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 #[derive(Clone, Debug)]
-enum Change {
+pub(crate) enum Change {
     Tools,
     Resources,
     Prompts,
@@ -104,20 +117,20 @@ impl McpGatewayProxy {
 
 #[derive(Clone)]
 pub(crate) struct RegisteredTool {
-    definition: Tool,
-    handler: ToolHandler,
+    pub(crate) definition: Tool,
+    pub(crate) handler: ToolHandler,
     pub(crate) input: Arc<crate::schema_check::Validator>,
-    output: Option<Arc<crate::schema_check::Validator>>,
+    pub(crate) output: Option<Arc<crate::schema_check::Validator>>,
 }
 
 #[derive(Default)]
 pub(crate) struct Catalog {
     pub(crate) tools: BTreeMap<String, RegisteredTool>,
-    resources: BTreeMap<String, (Resource, ResourceHandler)>,
-    templates: BTreeMap<String, (ResourceTemplate, ResourceHandler)>,
-    prompts: BTreeMap<String, (Prompt, PromptHandler)>,
-    completions: BTreeMap<String, CompletionHandler>,
-    resource_guard: Option<ResourceGuard>,
+    pub(crate) resources: BTreeMap<String, (Resource, ResourceHandler)>,
+    pub(crate) templates: BTreeMap<String, (ResourceTemplate, ResourceHandler)>,
+    pub(crate) prompts: BTreeMap<String, (Prompt, PromptHandler)>,
+    pub(crate) completions: BTreeMap<String, CompletionHandler>,
+    pub(crate) resource_guard: Option<ResourceGuard>,
 }
 
 pub use crate::mcp::service::{
@@ -127,16 +140,29 @@ pub use crate::mcp::service::{
 
 #[derive(Clone)]
 pub struct GmcpService {
-    workspace: PathBuf,
+    pub(crate) workspace: PathBuf,
+    pub(crate) server_info: Implementation,
+    pub(crate) instructions: Option<String>,
+    pub(crate) include_host_tools: bool,
     pub(crate) catalog: Arc<RwLock<Catalog>>,
-    changes: broadcast::Sender<Change>,
+    pub(crate) changes: broadcast::Sender<Change>,
     pub tasks: crate::mcp::task_manager::TaskManager,
-    legacy_subscriptions: Arc<RwLock<BTreeSet<String>>>,
-    log_level: Arc<RwLock<Option<LoggingLevel>>>,
-    extensions: Arc<RwLock<crate::extensions::ExtensionRegistry>>,
+    pub(crate) legacy_subscriptions: Arc<RwLock<BTreeSet<String>>>,
+    pub(crate) log_level: Arc<RwLock<Option<LoggingLevel>>>,
+    pub(crate) extensions: Arc<RwLock<crate::extensions::ExtensionRegistry>>,
+    pub(crate) middlewares: Arc<RwLock<Vec<ToolMiddleware>>>,
+    pub(crate) plugins: Arc<RwLock<BTreeMap<String, crate::sdk::LoadedPlugin>>>,
 }
 
 impl GmcpService {
+    /// Workspace root bound to this service instance.
+    pub fn workspace(&self) -> &std::path::Path {
+        &self.workspace
+    }
+    /// Append a composable tool middleware in deterministic outer-to-inner order.
+    pub fn register_middleware(&self, middleware: ToolMiddleware) {
+        self.middlewares.write().push(middleware);
+    }
     /// The extension registry that drives advertised capabilities.
     pub fn extensions(&self) -> Arc<RwLock<crate::extensions::ExtensionRegistry>> {
         self.extensions.clone()
@@ -145,12 +171,17 @@ impl GmcpService {
         let (changes, _) = broadcast::channel(256);
         Self {
             workspace,
+            server_info: Self::server_identity(),
+            instructions: None,
+            include_host_tools: true,
             catalog: Default::default(),
             changes,
             tasks: Default::default(),
             legacy_subscriptions: Default::default(),
             log_level: Default::default(),
             extensions: Arc::new(RwLock::new(crate::extensions::ExtensionRegistry::shipped())),
+            middlewares: Default::default(),
+            plugins: Default::default(),
         }
     }
     /// Construct a service backed by a durable disk-persisted task store (fail-closed if corrupt).
@@ -158,12 +189,17 @@ impl GmcpService {
         let (changes, _) = broadcast::channel(256);
         Ok(Self {
             workspace,
+            server_info: Self::server_identity(),
+            instructions: None,
+            include_host_tools: true,
             catalog: Default::default(),
             changes,
             tasks: crate::mcp::task_manager::TaskManager::open(store_dir)?,
             legacy_subscriptions: Default::default(),
             log_level: Default::default(),
             extensions: Arc::new(RwLock::new(crate::extensions::ExtensionRegistry::shipped())),
+            middlewares: Default::default(),
+            plugins: Default::default(),
         })
     }
     /// Isolate legacy session preferences while sharing the application catalog.
@@ -293,19 +329,21 @@ impl GmcpService {
     }
     pub(crate) fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
         let mut tools = BTreeMap::new();
-        for tool in ToolRegistry::list_tools() {
-            // Built-in handlers carry the typed schema their `#[tool]`
-            // declares; dynamically discovered proxies (external
-            // `server:tool`, reflexes) forward arguments unchanged and say so
-            // (their own schema is dropped at discovery: `args::passthrough`).
-            let input_schema = crate::tools::args::core_input_schema(&tool.name)
-                .unwrap_or_else(crate::tools::args::passthrough);
-            let definition = Tool::new_with_raw(
-                tool.name.clone(),
-                Some(tool.description.into()),
-                input_schema,
-            );
-            tools.insert(tool.name, definition);
+        if self.include_host_tools {
+            for tool in ToolRegistry::list_tools() {
+                // Built-in handlers carry the typed schema their `#[tool]`
+                // declares; dynamically discovered proxies (external
+                // `server:tool`, reflexes) forward arguments unchanged and say so
+                // (their own schema is dropped at discovery: `args::passthrough`).
+                let input_schema = crate::tools::args::core_input_schema(&tool.name)
+                    .unwrap_or_else(crate::tools::args::passthrough);
+                let definition = Tool::new_with_raw(
+                    tool.name.clone(),
+                    Some(tool.description.into()),
+                    input_schema,
+                );
+                tools.insert(tool.name, definition);
+            }
         }
         for (name, tool) in &self.catalog.read().tools {
             tools.insert(name.clone(), tool.definition.clone());
@@ -314,7 +352,7 @@ impl GmcpService {
     }
 }
 
-fn compile_opt_schema(
+pub(crate) fn compile_opt_schema(
     schema: Option<&Arc<JsonObject>>,
 ) -> Result<Option<Arc<crate::schema_check::Validator>>, ErrorData> {
     schema
@@ -322,7 +360,7 @@ fn compile_opt_schema(
         .transpose()
 }
 
-async fn finish_task_run<F>(
+pub(crate) async fn finish_task_run<F>(
     task: &crate::mcp::task_manager::TaskContext,
     lease: &Option<Arc<crate::mcp::service::ProgressLease>>,
     flag: Option<Arc<AtomicBool>>,
@@ -384,10 +422,10 @@ pub(crate) fn compile_schema(
         .map_err(|e| invalid(&format!("Invalid tool schema: {e}")))
 }
 
-fn internal(error: impl std::fmt::Display) -> ErrorData {
+pub(crate) fn internal(error: impl std::fmt::Display) -> ErrorData {
     ErrorData::internal_error(error.to_string(), None)
 }
-fn invalid(message: &str) -> ErrorData {
+pub(crate) fn invalid(message: &str) -> ErrorData {
     ErrorData::invalid_params(message.to_owned(), None)
 }
 
@@ -453,7 +491,8 @@ impl ServerHandler for GmcpService {
     }
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig {
-            server_info: Self::server_identity(),
+            server_info: self.server_info.clone(),
+            instructions: self.instructions.clone(),
             ..ServerConfig::default()
         };
         info.capabilities = ServerCapabilities::builder()
@@ -570,7 +609,13 @@ impl ServerHandler for GmcpService {
             }
             let log_ctx = context.clone();
             let tool_name = request.name.to_string();
-            let mut response = (tool.handler)(request, context).await?;
+            let middlewares = self.middlewares.read().clone();
+            let mut dispatch: ToolNext = tool.handler.clone();
+            for mw in middlewares.into_iter().rev() {
+                let inner = dispatch;
+                dispatch = Arc::new(move |req, ctx| mw(req, ctx, inner.clone()));
+            }
+            let mut response = dispatch(request, context).await?;
             if let CallToolResponse::Complete(res) = response {
                 let mut checked = enforce_output_schema(
                     tool.output.as_deref(),
@@ -917,7 +962,7 @@ fn seal_resource(mut response: ReadResourceResponse) -> Result<ReadResourceRespo
 /// second. A line that arrives sooner waits, and a newer one replaces it.
 const PROGRESS_GAP: std::time::Duration = std::time::Duration::from_millis(100);
 
-fn enforce_output_schema(
+pub(crate) fn enforce_output_schema(
     schema: Option<&crate::schema_check::Validator>,
     result: CallToolResult,
     msg: &str,
@@ -995,10 +1040,15 @@ async fn emit_tool_completion_log(
     } else {
         (LoggingLevel::Info, json!("Tool finished"))
     };
-    ctx.emit_logging_message(threshold, level, Some("susi-gmcp".to_string()), data)
-        .await
-        .map(|_| ())
-        .map_err(internal)
+    ctx.emit_logging_message(
+        threshold,
+        level,
+        Some(service.server_info.name.clone()),
+        data,
+    )
+    .await
+    .map(|_| ())
+    .map_err(internal)
 }
 
 /// Relay a watched tool's progress lines strictly between 0.0 and 1.0,

@@ -146,6 +146,16 @@ impl ExtensionRegistry {
         Ok(())
     }
 
+    /// True when an extension id is currently registered (enabled or disabled).
+    pub fn contains(&self, id: &str) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    /// Remove a registered extension id (used on transactional plugin unload).
+    pub fn unregister(&mut self, id: &str) -> bool {
+        self.entries.remove(id).is_some()
+    }
+
     /// Disable (or re-enable) an extension; returns false for unknown ids.
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> bool {
         match self.entries.get_mut(id) {

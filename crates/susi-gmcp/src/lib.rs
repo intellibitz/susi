@@ -42,6 +42,7 @@ pub mod mcp_wrapper;
 pub mod protocol;
 pub mod requirements_ledger;
 pub mod schema_check;
+pub mod sdk;
 pub mod server;
 pub mod stdio;
 pub mod tool_registry;
