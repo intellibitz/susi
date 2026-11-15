@@ -24,7 +24,12 @@
                    ".agents/tasks/T-AGYREL070-1.json",
                    "crates/susi-gawd-a2a/src/tests/handler_paths.rs"
                ],
-    "state":  "in-progress",
-    "status":  "in-progress",
-    "updated_unix":  1794732806
+    "state":  "done",
+    "status":  "completed",
+    "updated_unix":  1794733573,
+    "closed":  {
+                   "at_unix":  1794733573,
+                   "commit":  "2e89eaa229a08b49a549e6eb596fa37433e98990",
+                   "by":  "AGYREL070"
+               }
 }
