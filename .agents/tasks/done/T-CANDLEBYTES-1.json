@@ -4,35 +4,6 @@
   "goal": "Eliminate unsafe pointer copies and reconstructed Vec ownership in vendored candle-core safetensors buffer decoding, enforce pre-decode alignment and overflow validation across numeric dtypes, and replace recursive F8-to-F64 trait dispatch with inherent float8 conversion (landed across 5486401ecec5cba78130593b7834d9fedcaa6d05..57468e3a29f7a01d971082ccda61b2be8283edce; crates/susi-gemi/tests/tensor_byte_boundary.rs and active candle-core workspace linkage later migrated to Commercial susi-gpu-fabric in 71d7a90bd1583487deb7a7c46ce597bdd53557df).",
   "size": "m",
   "deps": [],
-  "state": "open",
-  "status": "completed",
-  "created_by": "CANDLEBYTES1",
-  "created_unix": 1793643842,
-  "implementation_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
-  "notes": "crates/susi-gemi/tests/tensor_byte_boundary.rs and active candle-core workspace membership migrated out of Lean Core to Commercial susi-gpu-fabric in 71d7a90bd1583487deb7a7c46ce597bdd53557df (vendor/candle-core remains retained on disk under exclude = [\"vendor\"] and is verified at the Core boundary by architecture_tests::the_lockfile_carries_fixed_zip_and_the_approved_candle_sources).",
-  "reuse": {
-    "searched": [
-      "vendor/candle-core/src/safetensors.rs",
-      "vendor/candle-core/src/dtype.rs",
-      "tests/architecture_tests.rs"
-    ],
-    "decision": "reuse",
-    "justification": "Patched the retained vendored candle-core safetensors and dtype modules directly using self_cell-owned byte buffers and inherent float8 conversions without adding new dependencies or unsafe blocks.",
-    "reused_symbols": [
-      "candle_core::safetensors::load_buffer",
-      "candle_core::safetensors::BufferedSafetensors",
-      "candle_core::safetensors::SliceSafetensors",
-      "candle_core::dtype::DType",
-      "candle_core::dtype::WithDType"
-    ]
-  },
-  "scopes": [
-    ".agents/tasks/T-CANDLEBYTES-1.json",
-    "tests/architecture_tests.rs",
-    "tests/task_record_schema_debt.json",
-    "vendor/candle-core/src/dtype.rs",
-    "vendor/candle-core/src/safetensors.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -43,5 +14,39 @@
       "architecture_tests",
       "the_lockfile_carries_fixed_zip_and_the_approved_candle_sources"
     ]
-  }
+  },
+  "created_by": "CANDLEBYTES1",
+  "created_unix": 1793643842,
+  "closed": {
+    "at_unix": 1794759563,
+    "commit": "4a7678f3b6c8be0905e320913a398834e306047e",
+    "by": "AG3HOUSEKEEP"
+  },
+  "implementation_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+  "notes": "crates/susi-gemi/tests/tensor_byte_boundary.rs and active candle-core workspace membership migrated out of Lean Core to Commercial susi-gpu-fabric in 71d7a90bd1583487deb7a7c46ce597bdd53557df (vendor/candle-core remains retained on disk under exclude = [\"vendor\"] and is verified at the Core boundary by architecture_tests::the_lockfile_carries_fixed_zip_and_the_approved_candle_sources).",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Patched the retained vendored candle-core safetensors and dtype modules directly using self_cell-owned byte buffers and inherent float8 conversions without adding new dependencies or unsafe blocks.",
+    "reused_symbols": [
+      "candle_core::safetensors::load_buffer",
+      "candle_core::safetensors::BufferedSafetensors",
+      "candle_core::safetensors::SliceSafetensors",
+      "candle_core::dtype::DType",
+      "candle_core::dtype::WithDType"
+    ],
+    "searched": [
+      "vendor/candle-core/src/safetensors.rs",
+      "vendor/candle-core/src/dtype.rs",
+      "tests/architecture_tests.rs"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-CANDLEBYTES-1.json",
+    "tests/architecture_tests.rs",
+    "tests/task_record_schema_debt.json",
+    "vendor/candle-core/src/dtype.rs",
+    "vendor/candle-core/src/safetensors.rs"
+  ],
+  "state": "closed",
+  "status": "completed"
 }
