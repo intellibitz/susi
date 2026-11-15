@@ -43,7 +43,7 @@ const CORE_VERIFY_PACKAGES: [&str; 7] = [
 /// fixed sleeps, socket read/connect deadlines, or OS `tasklist`/`netstat`/`git`
 /// subprocess sweeps) skipped in the sub-10s inner loop unless `--full-soak`
 /// is passed. Every skipped soak test is recorded verbatim in the provenance manifest.
-const SOAK_SKIP_FILTERS: [&str; 25] = [
+const SOAK_SKIP_FILTERS: &[&str] = &[
     "http_wire::the_http_surfaces_answer_byte_for_byte_as_recorded",
     "tools::helpers::confine_tests::secure_external_url_blocks_non_http_and_internal_hosts",
     "commit_log::tests::file_lock_excludes_second_holder_and_releases_on_drop",
@@ -57,7 +57,7 @@ const SOAK_SKIP_FILTERS: [&str; 25] = [
     "registry::tests::dispatch_capability_nests_a_live_tool_under_an_admitted_envelope",
     "plain_http::tests::a_refused_connection_is_an_error_naming_the_target",
     "reflex_trainer::tests::cycle_log_is_bounded_and_newest_last",
-    "patch_cycle::tests::susi_repo_runs_the_full_gate_even_with_an_override_command",
+    "patch_cycle::tests::",
     "native_verifier::inline_tests::",
     "vc_201_007_",
     "vc_201_015_mastery_tests::vc_201_015_mastery_production_patch_path_executes_the_gate",
@@ -69,10 +69,25 @@ const SOAK_SKIP_FILTERS: [&str; 25] = [
     "model_catalogue_drift_tests::",
     "provider_contract::tests::provider_contract_opt_in_gate",
     "git_governor::tests::",
+    "keepass_bridge::tests::",
+    "extensions::extensions_state_lock_tests::",
+    "extensions_tests::",
+    "cluster_key::inline_tests::",
+    "cluster_key_tests::",
+    "mac_policy::tests::",
+    "json_util::tests::",
+    "vault_store::tests::",
+    "vc_201_065_mastery_tests::",
+    "vc_201_076_mastery_tests::",
+    "mcp_bus_tests::",
+    "inline_tests::gmcp_host_dispatch_",
+    "routing_placement_tests::",
+    "vc_201_013_mastery_tests::",
 ];
 
-const HARNESS_SOAK_SKIP_FILTERS: [&str; 35] = [
+const HARNESS_SOAK_SKIP_FILTERS: &[&str] = &[
     "storage_guard::tests::",
+    "scheduler::tests::",
     "workflow_runner::tests::",
     "operator::tests::a_harness_submission_witnesses_the_remote_and_notes_a_loss",
     "ledger::tests::concurrent_appenders_never_interleave_ledger_rows",
@@ -788,18 +803,57 @@ struct BinaryRunResult {
     elapsed_ms: u64,
 }
 
+struct TestSandboxGuard {
+    home: PathBuf,
+    shm_parent: Option<PathBuf>,
+}
+
+impl Drop for TestSandboxGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.home);
+        if let Some(parent) = &self.shm_parent {
+            let _ = fs::remove_dir(parent);
+        }
+    }
+}
+
+fn allocate_test_sandbox(ws: &WorkspaceEnv, slot: usize, target_name: &str) -> TestSandboxGuard {
+    let leaf = format!("{slot}-{target_name}");
+    #[cfg(target_os = "linux")]
+    {
+        let shm = Path::new("/dev/shm");
+        if fs::symlink_metadata(shm).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) {
+            let parent = shm.join(format!("susi-fast-release-{}", std::process::id()));
+            let candidate = parent.join(&leaf);
+            let _ = fs::remove_dir_all(&candidate);
+            if fs::create_dir_all(&candidate).is_ok() {
+                return TestSandboxGuard {
+                    home: candidate,
+                    shm_parent: Some(parent),
+                };
+            }
+        }
+    }
+    let fallback = ws
+        .target_dir
+        .join("fast-release")
+        .join("test-homes")
+        .join(leaf);
+    let _ = fs::remove_dir_all(&fallback);
+    TestSandboxGuard {
+        home: fallback,
+        shm_parent: None,
+    }
+}
+
 fn execute_test_binary(
     ws: &WorkspaceEnv,
     binary: &crate::test_runner::Binary,
     slot: usize,
     full_soak: bool,
 ) -> Result<BinaryRunResult, String> {
-    let home = ws
-        .target_dir
-        .join("fast-release")
-        .join("test-homes")
-        .join(format!("{slot}-{}", binary.target_name));
-    let _ = fs::remove_dir_all(&home);
+    let sandbox = allocate_test_sandbox(ws, slot, &binary.target_name);
+    let home = &sandbox.home;
     let susi_home = home.join("susi-home");
     let appdata = home.join("AppData/Roaming");
     let localappdata = home.join("AppData/Local");
@@ -853,8 +907,11 @@ fn execute_test_binary(
         .env("CARGO_PRIMARY_PACKAGE", "1")
         .env("CARGO_TARGET_DIR", &ws.target_dir)
         .env("CARGO_TARGET_TMPDIR", &tmp_dir)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
+        .env("TMPDIR", &tmp_dir)
+        .env("TMP", &tmp_dir)
+        .env("TEMP", &tmp_dir)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
         .env("SUSI_HOME", &susi_home)
         .env("APPDATA", &appdata)
         .env("LOCALAPPDATA", &localappdata)
@@ -863,7 +920,7 @@ fn execute_test_binary(
         .env("XDG_STATE_HOME", &xdg_state)
         .env("XDG_CACHE_HOME", &xdg_cache)
         .env("SUSI_NO_REGISTRY_ENV", "1")
-        .env("RUST_TEST_THREADS", "6")
+        .env("RUST_TEST_THREADS", "12")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(cargo_home) = cargo_home {
@@ -893,7 +950,7 @@ fn execute_test_binary(
         .output()
         .map_err(|e| format!("failed to start test binary {}: {e}", binary.id()))?;
     let elapsed_ms = millis_u64(started.elapsed().as_millis());
-    let _ = fs::remove_dir_all(&home);
+    drop(sandbox);
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1690,5 +1747,28 @@ test result: ok. 497 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; fi
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_ne!(mode & 0o111, 0, "staged binary mode was {mode:o}");
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn allocate_test_sandbox_creates_and_cleans_up_on_drop() {
+        let base = env::temp_dir().join(format!("susi-fast-rel-sb-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let ws = WorkspaceEnv {
+            root: base.clone(),
+            target_dir: base.join("target"),
+            out_dir: base.join("out"),
+            host: "x86_64-unknown-linux-gnu".to_owned(),
+            rustc_version: "rustc 1.99.0".to_owned(),
+            workspace_version: "0.21.69".to_owned(),
+            sysroot: None,
+        };
+        let sandbox = allocate_test_sandbox(&ws, 999, "unit_sandbox");
+        fs::create_dir_all(&sandbox.home).unwrap();
+        let home_path = sandbox.home.clone();
+        assert!(home_path.is_dir());
+        drop(sandbox);
+        assert!(!home_path.exists());
+        let _ = fs::remove_dir_all(&base);
     }
 }

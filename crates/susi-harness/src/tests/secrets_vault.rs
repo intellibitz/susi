@@ -3,9 +3,8 @@ use super::*;
 #[test]
 fn sealed_vault_supplies_harness_keys_without_dotenv_or_process_env() {
     let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    let root = std::env::temp_dir().join(format!("susi_harness_sealed_{}", std::process::id()));
-    let dir = root.join(".susi");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = susi_paths::tempfile::tempdir().unwrap();
+    let dir = root.path().join(".susi");
     std::fs::create_dir_all(&dir).unwrap();
     let restore = |k: &str, v: Option<std::ffi::OsString>| match v {
         Some(val) => std::env::set_var(k, val),
@@ -52,5 +51,5 @@ fn sealed_vault_supplies_harness_keys_without_dotenv_or_process_env() {
     for (k, v) in prev {
         restore(k, v);
     }
-    let _ = std::fs::remove_dir_all(&root);
+    drop(root);
 }
