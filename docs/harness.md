@@ -552,8 +552,9 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
 - **Seeded target.** A new mission worktree gets a cargo target of its own, copied from the clone's
   warm snapshot of `origin/main` (`scripts/seed-target.sh`), so only the workspace crates (and the
   vendored path crates) rebuild instead of the whole registry graph, and no other worktree's build
-  can stand in for the mission's. The gate runs clippy directly: there is nothing to `cargo clean`.
-  For one release, a mission worktree whose `target/` is still a link to the clone's old shared
+  can stand in for the mission's. The gate runs clippy directly, on the packages the scopes touch
+  (a top-level path means the root package the worktree's own `Cargo.toml` names): there is nothing
+  to `cargo clean`. For one release, a mission worktree whose `target/` is still a link to the clone's old shared
   target (nothing could seed it) has the touched packages cleaned first, as before.
 - **No merge wait.** A finish publishes its close receipt to the remote and returns; the merge is
   the machinery's, and one accepted-but-unmerged close pipelines, so the next task may be claimed at
