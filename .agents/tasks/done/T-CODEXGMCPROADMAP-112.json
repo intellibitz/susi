@@ -23,10 +23,16 @@
     "roadmap":  "VC-203-020",
     "created_by":  "CODEXGMCPROADMAP",
     "created_unix":  1792256247,
-    "state":  "open",
-    "status":  "implemented",
+    "state":  "closed",
+    "status":  "done",
     "base_commit":  "8bf31bfb78fb69bbda80bc5b92835dbb011e7333",
     "implementation_commit":  "a67767d839d73b8bc46a1e21ff68bacf3d73f358",
+    "verified_commit":  "2674a4ea6283d2b7428d77791f50831f66fce1b1",
+    "closed":  {
+                   "at_unix":  1794786242,
+                   "commit":  "2674a4ea6283d2b7428d77791f50831f66fce1b1",
+                   "by":  "AG2FEATURES"
+               },
     "limitations":  [
                         "Operations and evidence (`GMCP-203-020-06`) ships `GmcpService::ops_snapshot()`, updated production plugin example `06_production_plugin_server`, CLI/API inspection parity (`susi mcp ledger/status/list/tools/call`, `susi extensions status/list/validate/load/unload`), fail-closed startup/config/pack/durable-task validation, bounded SSE telemetry \u0026 Bearer redaction, live catalog rollback \u0026 compromised host-pack eviction drills, operational runbook `docs/gmcp/contract-203-020.md`, and automated drift detection across all 14 pinned `VC-203-020` authority specs; final `.M` vector mastery sealing ships next in `T-CODEXGMCPROADMAP-113`.",
                         "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay strictly absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
