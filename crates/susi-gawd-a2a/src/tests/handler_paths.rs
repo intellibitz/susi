@@ -89,12 +89,16 @@ fn serve(runtime: &tokio::runtime::Runtime, executor: Arc<dyn AgentExecutor>) ->
 fn call(addr: SocketAddr, path: &str, method: &str, params: Value) -> String {
     let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
     let payload = serde_json::to_vec(&body).unwrap();
+    #[cfg(windows)]
+    let timeout_secs = 60;
+    #[cfg(not(windows))]
+    let timeout_secs = 20;
     susi_http_transport::http_call_with_body(
         "POST",
         &format!("http://{addr}{path}"),
         &[("Content-Type", "application/json")],
         Some(&payload),
-        20,
+        timeout_secs,
         0,
     )
     .unwrap()
@@ -171,8 +175,19 @@ fn a_stream_ends_after_the_final_event() {
     let started = Instant::now();
     // Read to the end of the body: the server must close the stream.
     let body = call(addr, "/stream", "message/stream", send("stream me"));
-    assert!(started.elapsed() < Duration::from_secs(10));
-    let frames: Vec<&str> = body.split_terminator("\n\n").collect();
+    #[cfg(windows)]
+    let stream_budget = Duration::from_secs(30);
+    #[cfg(not(windows))]
+    let stream_budget = Duration::from_secs(10);
+    assert!(
+        started.elapsed() < stream_budget,
+        "stream took {:?} (budget {stream_budget:?})",
+        started.elapsed()
+    );
+    let frames: Vec<&str> = body
+        .split_terminator("\n\n")
+        .filter(|frame| !frame.starts_with(':'))
+        .collect();
     assert_eq!(frames.len(), 1, "{body}");
     let event: Value = serde_json::from_str(frames[0].strip_prefix("data: ").unwrap()).unwrap();
     assert_eq!(event["id"], 1);

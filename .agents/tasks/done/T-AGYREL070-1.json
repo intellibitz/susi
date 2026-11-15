@@ -1,0 +1,35 @@
+{
+    "id":  "T-AGYREL070-1",
+    "title":  "Give Windows GAWD A2A handler_paths stream test 30s/60s parallel budget",
+    "goal":  "Increase Windows-only timeout_secs (20 -\u003e 60) and stream_budget (10s -\u003e 30s) in crates/susi-gawd-a2a/src/tests/handler_paths.rs while keeping 20s/10s on non-Windows and filtering SSE keep-alive comment frames so parallel Windows qualification runs reliably.",
+    "size":  "xs",
+    "deps":  [
+                 "T-AGYREL069-3"
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-a2a"
+                           ]
+               },
+    "created_by":  "AGYREL070",
+    "created_unix":  1794732806,
+    "feature_id":  "F-CORE-RELEASE-0.21.70-1",
+    "owner":  "AGYREL070",
+    "scopes":  [
+                   ".agents/tasks/T-AGYREL070-1.json",
+                   "crates/susi-gawd-a2a/src/tests/handler_paths.rs"
+               ],
+    "state":  "done",
+    "status":  "completed",
+    "updated_unix":  1794733573,
+    "closed":  {
+                   "at_unix":  1794733573,
+                   "commit":  "2e89eaa229a08b49a549e6eb596fa37433e98990",
+                   "by":  "AGYREL070"
+               }
+}

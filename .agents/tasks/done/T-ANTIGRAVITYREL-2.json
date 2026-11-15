@@ -39,7 +39,12 @@
     "crates/susi-config/src/cluster_key.rs",
     "crates/susi-core/src/commit_log.rs"
   ],
-  "state": "open",
-  "status": "in_progress",
-  "updated_unix": 1794730200
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794730712,
+  "closed": {
+    "at_unix": 1794730712,
+    "commit": "9c4b009dffee69fadcc8123e40d49ad38d351e8a",
+    "by": "ANTIGRAVITYREL02169"
+  }
 }
