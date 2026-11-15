@@ -33,6 +33,8 @@ struct TaskRecord {
     created_unix: u64,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    native_worker: Option<String>,
 }
 
 /// The queue stores acceptance as argv; a hand-written task may still hold the
@@ -106,14 +108,14 @@ pub fn plan_batch(
             already_done += 1;
             continue;
         }
-        // A status past `claimed` means a worker has taken the task further;
-        // a `claimed` record is a reservation the queue still offers.
-        let free = |s: &str| {
-            ["open", "claimed"]
-                .iter()
-                .any(|f| s.eq_ignore_ascii_case(f))
+        // Another worker has the task when its status is past `claimed`, or
+        // when it names a worker without being merely `claimed`: a `claimed`
+        // record is a reservation the queue still offers.
+        let free = match task.status.as_deref().map(str::to_ascii_lowercase) {
+            Some(status) if status != "open" => status == "claimed",
+            _ => task.native_worker.is_none(),
         };
-        if task.status.as_deref().is_some_and(|s| !free(s)) {
+        if !free {
             held += 1;
             continue;
         }
@@ -643,7 +645,7 @@ mod tests {
             );
             write_task(&tasks, &format!("{id}.json"), &body);
         };
-        put("T-H1", r#""status":"in_progress","native_worker":"w1","#);
+        put("T-H1", r#""native_worker":"w1","#);
         put("T-H2", r#""status":"implemented_pending_integration","#);
         put("T-O", r#""status":"claimed","native_worker":"w2","#);
         let m = ["a".to_string()];

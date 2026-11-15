@@ -442,9 +442,10 @@ claims that id with the scopes the task declares, runs its acceptance, commits
 the worker's change, and lands it through `workflow finish` — the task record is
 already on the branch, so nothing is re-minted. Selection is dependency-ready
 only, P0 before P1, smaller first, and **scope-disjoint** within a batch: two
-workers editing the same tree would only conflict at merge. A task whose record carries a `status`
-past `claimed` (`in_progress`, `implemented`, `verified` and the like) has been
-taken further by another worker and is never planned. `--roadmap VC-…`
+workers editing the same tree would only conflict at merge. A task another worker has is never
+planned: one whose record carries a `status` past `claimed` (`in_progress`,
+`implemented`, `verified` and the like), or names a `native_worker` without
+being merely `claimed`. `--roadmap VC-…`
 narrows a batch to one vector.
 
 Mandate 61 requires the harness to own the complete native local loop. The
