@@ -23,6 +23,11 @@
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794712111,
+    "commit": "a98cdd7c62327c273acac9656bc39ae6891bc798",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Operations and evidence stage (GMCP-203-012-06) verifies inspectable CLI/API state (susi mcp ledger, susi mcp status, server/discover, initialize, subscriptions/listen ack metadata), fail-closed CLI and .susi/config.json max_rpc_body_bytes validation with stderr/stdout stream isolation, bounded subscription/progress/logging metrics and W3C traceparent propagation, deterministic air-gapped drift checks across all 6 pinned VC-203-012 specifications (hash_drift and unfetchable), retained append-only evidence chain integrity, and the operator runbook/migration/rollback guidance in docs/gmcp/contract-203-012.md.",
     "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are created and sealed by T-CODEXGMCPROADMAP-99 once requirements 01-06 land because gmcp_mastery_records_are_retained_and_current enforces that every .jsonl file under .agents/gmcp/evidence/ already contains a passing mastery record bound to fn gmcp_vc_203_012_mastery."
