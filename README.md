@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # susi
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.21.68-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
@@ -8,11 +16,7 @@ Susi is an open, local-first AI operating substrate: one Rust daemon on your
 machine that puts the models, agents and tools you already have behind a
 standards socket on ports `9090-9094`, so any MCP client, ACP agent,
 OpenAI/Anthropic SDK or A2A peer talks to all of them the same way. It is built
-around **five Apache-2.0 core pillars** — **GAWD** (evidence-gated swarm & A2A
-coordination), **GEMI** (local/cloud model inference router), **GMCP** (MCP
-protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
-Protocol standard open socket), and **Susi Harness** (recursive driver/engine
-with built-in parallel multi-agent workflow) — routes work across local engines
+around **three Apache-2.0 core pillars**: **GAWD** (agent coordination, A2A, ACP and Susi Harness with parallel multi-agent workflow), **GEMI** (model inference routing), and **GMCP** (MCP protocol and governed tools). It routes work across local engines
 (Ollama, llama.cpp, vLLM) and cloud providers by evidence, lets agents declare a
 mission complete only with receipts, and seals what they did into an append-only
 HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever.
@@ -193,7 +197,7 @@ pipeline budget (`docs/lean-core.md`). Both `intellibitz/susi` and
 `intellibitz/susi-commercial-apps` operate on the **Raw Source (`main`) ->
 Distill (`release`)** model, and cloud raw-source feature pickup
 ([`docs/harvest.md`](docs/harvest.md)) enforces **Pure `Apache-2.0` ONLY**
-compliance while routing 5-pillar primitives to Core and commercial add-ons to
+compliance while routing 3-pillar primitives to Core and commercial add-ons to
 `susi-commercial-apps`. Each commit carries `Task: T-<AGENT>-<n>`
 with its record in [`.agents/tasks/`](.agents/tasks/), features land
 continuously on `main` and are deterministically distilled by Susi into

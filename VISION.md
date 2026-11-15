@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # SUSI vision
 
 SUSI is the operating layer for AI ecosystems: one governed substrate for
@@ -9,12 +17,8 @@ discovery, admission, placement, identity, capability control, lifecycle,
 coordination, evidence, audit, observability, and recovery.
 
 The free Apache-2.0 core (`intellibitz/susi`) is a pure CLI plus standards socket
-engineered for a `<10s` warm build+test+release loop and organized around **five
-primary core pillars** on `susi-core` — `susi-gawd` (evidence-gated swarm and A2A
-coordination), `susi-gemi` (local and cloud model inference router), `susi-gmcp`
-(MCP protocol server and governed tool plane), **ACP** (Agent Client Protocol /
-Agent Communication Protocol standard open socket), and `susi-harness` (recursive
-driver/engine with built-in parallel multi-agent workflow): it has no UI, bundles
+engineered for a `<10s` warm build+test+release loop and organized around **three
+primary core pillars** on `susi-core`: GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow), GEMI (model inference routing), GMCP (MCP and governed tools): it has no UI, bundles
 no plugin content, starts no third-party software on its own, and is released
 only for x86_64 Windows and Linux (the source stays portable). Every add-on
 feature, enterprise pack, SSO/RBAC gateway, FinOps plane, corporate fleet
@@ -199,7 +203,7 @@ grow disconnected catalogs.
   [`docs/harvest.md`](docs/harvest.md)) over new vendor-specific core branches
   or external crate bloat: both `intellibitz/susi` and
   `intellibitz/susi-commercial-apps` operate on **Raw Source (`main`) ->
-  Distill (`release`)**, routing lean 5-pillar socket primitives to Core and
+  Distill (`release`)**, routing lean 3-pillar socket primitives to Core and
   routing innovative product features, enterprise packs, and visual interfaces
   (all UIs and visual views live in Susi Commercial Apps) to the commercial
   suite.

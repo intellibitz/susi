@@ -1,4 +1,12 @@
-# CEO Mandate 74: Autonomous CTO Ecosystem Mandate — <10s Core, 5 Pillars, Remote Pull & Merge, Distilled Releases, and Open-World Harvest
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
+# CEO Mandate 74: Autonomous CTO Ecosystem Mandate — <10s Core, 3 Pillars, Remote Pull & Merge, Distilled Releases, and Open-World Harvest
 
 Effective 2026-11-11 (extended 2026-11-12 by [CEO Mandate 75](ceo-mandate-75.md),
 which codifies the **Raw Source (`main`) -> Distill (`release`)** pipeline,
@@ -20,7 +28,7 @@ states current implementation truth vs. active engineering work.
 **Agent reminder (one line):** Follow CEO Mandate 74 (`docs/ceo-mandate-74.md`):
 work in your own isolated worktree with remote pull and merge at every step,
 keep Susi core build+test+release under 10 seconds across its 5 Apache-2.0
-pillars (`GAWD`, `GEMI`, `GMCP`, `ACP`, `Susi Harness`), dump labelled work
+pillars (`GAWD` including A2A, ACP and Susi Harness; `GEMI`; `GMCP`), dump labelled work
 straight into `main` with no gates and no PRs, let Susi distill releases with
 conflict-free parallel picks, harvest Apache-2.0 code with full attribution, keep
 all add-ons closed/licensed/paid in `susi-commercial-apps`, and treat GitHub as a
@@ -77,18 +85,14 @@ storage bucket only.
    keep `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `VISION.md`, `ARCHITECTURE.md`,
    `README.md`, `docs/ceo-agent-mandate.md`, `docs/lean-core.md`, and
    `.agents/identity.json` synchronized without drift.
-8. **Susi Core (`intellibitz/susi`) is Apache-2.0 and free forever, built on 5
+8. **Susi Core (`intellibitz/susi`) is Apache-2.0 and free forever, built on 3
    primary core pillars:**
-   - **GAWD** (`susi-gawd*` — evidence-gated swarm & A2A coordination)
-   - **GEMI** (`susi-gemi*` — local & cloud model inference router)
-   - **GMCP** (`susi-gmcp` — MCP protocol server & tool plane)
-   - **ACP** (`susi-core::acp` — Agent Client Protocol / Agent
-     Communication Protocol open standard socket: JSON-RPC/HTTP session, agent
-     discovery & capabilities, prompt/turn streaming & cancellation, capability
-     admission & conformance)
-   - **Susi Harness** (`susi-harness` — driver & engine with built-in parallel
-     multi-agent workflow, isolated worktrees/targets/`SUSI_HOME`, capacity
-     admission, and serialized integration)
+   - **GAWD**: evidence-gated swarm and A2A, ACP standard socket (sessions,
+     discovery, streaming, cancellation, admission and conformance), and
+     Susi Harness parallel multi-agent workflow with isolated state,
+     capacity admission and serialized integration.
+   - **GEMI**: local and cloud model inference routing.
+   - **GMCP**: MCP protocol server and governed tool plane.
 9. **Susi Commercial Apps (`intellibitz/susi-commercial-apps`) is closed,
    licensed, and paid corporate software:** Strictly proprietary, licensed
    (`SUSI-ENT-v1` / Ed25519 `SUSI-CUST-v1`), and paid software built for
@@ -374,20 +378,18 @@ rules (DCO or CLA). Signing a CLA, or contributing to an organization for the
 first time, is an outward legal act: it needs CEO authorization. Commercial code,
 credentials and private plans never go upstream.
 
-## 6. Susi Core (5 Pillars, Apache-2.0 Free Forever) vs. Susi Commercial Apps (Closed, Licensed, Paid)
+## 6. Susi Core (3 Pillars, Apache-2.0 Free Forever) vs. Susi Commercial Apps (Closed, Licensed, Paid)
 
 - **Susi Core (`intellibitz/susi`)** is Apache-2.0 and free forever, engineered
-  for a `<10s` warm build+test+release cycle and organized strictly around **5
+  for a `<10s` warm build+test+release cycle and organized strictly around **3
   primary core pillars**:
-  1. **GAWD**: evidence-gated multi-agent swarm & A2A coordination;
-  2. **GEMI**: local & cloud model inference router with auditable placement;
-  3. **GMCP**: MCP protocol server & governed tool plane;
-  4. **ACP**: Agent Client Protocol / Agent Communication Protocol standard open
-     socket (session lifecycle, agent capability discovery, streaming turns &
-     cancellation, capability admission & conformance);
-  5. **Susi Harness**: recursive driver & engine with built-in parallel
-     multi-agent workflow, isolated worktrees/targets/`SUSI_HOME`, capacity
-     admission and serialized integration.
+  1. **GAWD**: evidence-gated swarm and A2A coordination; ACP standard
+     socket with session lifecycle, capability discovery, streaming,
+     cancellation, admission and conformance; Susi Harness recursive
+     driver/engine with parallel workflow, isolated worktrees/targets/homes,
+     capacity admission and serialized integration.
+  2. **GEMI**: local and cloud model inference routing with auditable placement.
+  3. **GMCP**: MCP protocol server and governed tool plane.
   Third-party product implementations, visual views and add-on packs stay out of
   core (`AGENTS.md`, open-core boundary; all visual views and curated plugin
   packs live in Susi Commercial Apps).
@@ -469,7 +471,7 @@ Apache-2.0 section 4 audits enforced on release gates (`T-CARBONDISTILL-2`).
 Active 2026-11-11 CTO wave deliverables (verified independently before claiming
 completion per Mandate 1): unified `<10s` warm core `build + test + release`
 pipeline (`fast-release` timing breakdown `build_ms`, `test_ms`, `release_ms`,
-`total_ms < 10_000` with durable evidence), first-class **ACP** 5th core pillar
+`total_ms < 10_000` with durable evidence), first-class **ACP** capability within GAWD
 socket admission & conformance alongside parallel Susi Harness workflow, remote
 pull-and-merge reconciliation wired across every workflow step in both `susi` and
 `susi-commercial-apps`, and enterprise ACP/corporate add-on packs in

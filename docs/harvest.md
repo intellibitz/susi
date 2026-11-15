@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # Harvest: `local-harvest`
 
 `local-harvest` is the tooling for [CEO Mandate 74, section 5](ceo-mandate-74.md#5-harvest-the-open-source-world-is-the-oyster)
@@ -58,7 +66,7 @@ local-harvest audit --range origin/main..HEAD
 local-harvest raw-features --url https://codeberg.org/acme/widgets.git \
   [--rev main] [--slug widgets] [--limit 50] [--json]
 
-# 7. Classify candidate paths/features into `core` (5 lean pillars) vs `commercial`
+# 7. Classify candidate paths/features into `core` (3 lean pillars) vs `commercial`
 local-harvest route --path crates/susi-core/src/acp/frame.rs \
   [--map src/frame.rs=crates/susi-core/src/acp/frame.rs] [--feature F-ACP-FRAME-1] \
   [--summary "ACP wire frame helper"] [--target auto|core|commercial] \
@@ -82,7 +90,7 @@ Rust modules together with their classified `core` vs. `commercial` destination.
 
 - **`core`** (`intellibitz/susi`) is selected **only** for zero-UI,
   zero-vendor-product protocol and runtime substrate capabilities inside Susi
-  Core's 5 lean open-socket pillars (`gawd`, `gemi`, `gmcp`, `acp`, `harness`).
+  Core's 3 lean open-socket pillars (`gawd`, including A2A/ACP/harness; `gemi`; `gmcp`).
 - **`commercial`** (`intellibitz/susi-commercial-apps`) is selected for all
   add-on product features, desktop and visual interfaces (all UIs and visual
   views live in Susi Commercial Apps), enterprise and department packs,

@@ -4,7 +4,7 @@
 //! `local-harvest` pins an upstream commit in a local quarantine ref
 //! (`refs/susi/upstream/<slug>/<sha>`), verifies Pure `Apache-2.0` compliance of
 //! every requested file at that exact commit, routes capabilities between Susi
-//! Core's 5 lean socket pillars (`gawd`, `gemi`, `gmcp`, `acp`, `harness`) and
+//! Core's 3 lean socket pillars (`gawd`, `gemi`, `gmcp`; ACP and harness belong to GAWD) and
 //! Susi Commercial Apps (`susi-commercial-apps`), imports approved blobs
 //! together with a `susi-harvest-manifest-v1` manifest, regenerates
 //! `THIRD_PARTY_NOTICES`, discovers raw-branch features (`raw-features`), and
@@ -2035,7 +2035,13 @@ fn classify_candidate_route(input: RouteInput<'_>) -> RouteVerdict {
         pillars.insert("harness");
     }
 
-    let pillars_vec: Vec<&'static str> = pillars.into_iter().collect();
+    let pillars_vec: Vec<&'static str> = pillars
+        .into_iter()
+        .filter_map(susi_core::pillars::CorePillar::from_capability)
+        .map(susi_core::pillars::CorePillar::as_str)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let signals_vec: Vec<String> = commercial_signals.into_iter().collect();
 
     if !signals_vec.is_empty() {
@@ -2054,7 +2060,7 @@ fn classify_candidate_route(input: RouteInput<'_>) -> RouteVerdict {
         }
     } else if !pillars_vec.is_empty() {
         let reasons = vec![format!(
-            "lean zero-UI, zero-vendor-product protocol/substrate capability inside Susi Core's 5 pillars ({})",
+            "lean zero-UI, zero-vendor-product protocol/substrate capability inside Susi Core's 3 pillars ({})",
             pillars_vec.join(", ")
         )];
         RouteVerdict {
@@ -2068,7 +2074,7 @@ fn classify_candidate_route(input: RouteInput<'_>) -> RouteVerdict {
         }
     } else {
         let reasons = vec![
-            "candidate does not target Susi Core's 5 lean socket pillars (gawd, gemi, gmcp, acp, harness); routed to susi-commercial-apps to keep Susi Core lean & <10s (Mandate 75)".to_owned(),
+            "candidate does not target Susi Core's 3 lean socket pillars (gawd, gemi, gmcp; ACP and harness belong to GAWD); routed to susi-commercial-apps to keep Susi Core lean & <10s (Mandate 75)".to_owned(),
         ];
         RouteVerdict {
             target: "commercial",
@@ -3841,7 +3847,7 @@ mod tests {
             .iter()
             .any(|m| m["path"] == "src/acp_frame.rs" && m["route"] == "core"));
 
-        // 2. route classifies 5-pillar ACP substrate to `core` and UI `.tsx` to `commercial`.
+        // 2. route classifies GAWD ACP substrate to `core` and UI `.tsx` to `commercial`.
         let r_core: Value = serde_json::from_str(
             &fx.run(&[
                 "route",
@@ -3866,7 +3872,7 @@ mod tests {
             .run(&["route", "--path", "ui/dashboard.tsx", "--target", "core"])
             .is_err());
 
-        // 3. pickup refuses UI/commercial targets inside Core checkout, and imports 5-pillar Apache-2.0 cleanly.
+        // 3. pickup refuses UI/commercial targets inside Core checkout, and imports three-pillar Apache-2.0 cleanly.
         let refused_ui = fx
             .run(&[
                 "pickup",
@@ -3949,6 +3955,47 @@ mod tests {
             default_slug_from_url("https://example.invalid/org/cloud-acp-substrate.git/"),
             "cloud-acp-substrate"
         );
+    }
+
+    #[test]
+    fn canonical_three_pillar_routing_preserves_gawd_capabilities_and_commercial_boundary() {
+        let fx = Fixture::new();
+        for path in [
+            "crates/susi-gawd/src/swarm.rs",
+            "crates/susi-gawd-acp/src/frame.rs",
+            "crates/susi-core/src/acp_codec.rs",
+            "crates/susi-harness/src/workflow_runner.rs",
+        ] {
+            let route: Value =
+                serde_json::from_str(&fx.run(&["route", "--path", path, "--json"]).unwrap())
+                    .unwrap();
+            assert_eq!(route["target"], "core");
+            assert_eq!(route["pillars"], json!(["gawd"]));
+        }
+        let route: Value = serde_json::from_str(
+            &fx.run(&[
+                "route",
+                "--path",
+                "crates/susi-gawd/src/swarm.rs",
+                "--path",
+                "crates/susi-harness/src/workflow_runner.rs",
+                "--path",
+                "crates/susi-gemi/src/router.rs",
+                "--path",
+                "crates/susi-gmcp/src/server.rs",
+                "--json",
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(route["pillars"], json!(["gawd", "gemi", "gmcp"]));
+        let ui: Value = serde_json::from_str(
+            &fx.run(&["route", "--path", "ui/acp-dashboard.tsx", "--json"])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ui["target"], "commercial");
+        assert_eq!(ui["allowed_in_core"], false);
     }
 }
 

@@ -2,7 +2,7 @@
 
 This document is the **enforceable** crate-boundary contract for the SUSI
 substrate. It maps a ports-and-adapters modularization checklist onto SUSI’s
-identity — the five Apache-2.0 core pillars (**GAWD** / **GEMI** / **GMCP** /
+identity — the three Apache-2.0 core pillars (**GAWD** / **GEMI** / **GMCP** /
 **ACP** / **Susi Harness**), host-contract ports, `CapabilityRegistry`,
 extension packs, evidence-gated swarm — **without** renaming the workspace into
 a foreign `apps/core/modules/adapters` tree.
@@ -27,7 +27,7 @@ CLI (susi) / daemon / HTTP servers
         ↓
 composition roots (wire hooks, packs, discovery, bind)
         ↓
-five primary core pillars: GAWD (swarm/agents/a2a) · GEMI (inference/models) · GMCP (MCP socket) · ACP (Agent Client/Communication Protocol socket) · Susi Harness (parallel multi-agent workflow)
+three primary core pillars: GAWD (swarm/agents/a2a) · GEMI (inference/models) · GMCP (MCP socket) · ACP (Agent Client/Communication Protocol socket) · Susi Harness (parallel multi-agent workflow)
         ↕  (in-process only: `susi_core::plane_bus` — no Cargo edges between planes)
         ↓
 susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)

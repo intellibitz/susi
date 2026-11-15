@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # Susi architecture: the socket, its pillars and what sits on it
 
 This is the narrative architecture of the open Susi core: what the five-port
@@ -70,14 +78,13 @@ The diagram names the runtime correctly: the reflex sandbox is Wasmi, a
 pure-Rust interpreter with fuel, memory and output bounds. No Wasmtime, native
 JIT or WASI-common runtime is linked anywhere in the workspace.
 
-## Four core pillars on `susi-core`
+## Three core pillars on `susi-core`
 
 | Pillar | Crate(s) | Role in the Open-Standards RSI AI OS Router |
 |---|---|---|
-| **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a` | Evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
+| **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a`, `susi-gawd-acp`, `susi-harness` | ACP and parallel multi-agent harness workflow; evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
 | **GEMI** | `susi-gemi`, `susi-gemi-models` | Unified local (Ollama, llama.cpp, vLLM, GGUF/Candle) and cloud (OpenAI, Anthropic, Gemini, OpenRouter) inference router (`:9091`) |
 | **GMCP** | `susi-gmcp` | Standards-compliant MCP 2025-11-25 HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources |
-| **Harness** | `susi-harness` | Unique parallel multi-agent self-build workflow: isolated worktree reservations, serialized combined-tree verification, and metered cost accounting |
 
 Note (2026-11-08): the GEMI row still names GGUF/Candle because that was the
 tree when it was written. The in-process Candle engine left core in the
@@ -470,8 +477,8 @@ Where it stands on 2026-11-08:
 
 | measure | 2026-11-07 start | now |
 |---|---|---|
-| third-party crates compiled for the four pillars | 331 | 259 |
-| workspace crates compiled for the four pillars | 59 | 50 |
+| third-party crates compiled for the historical four-root measurement closure | 331 | 259 |
+| workspace crates compiled for the historical four-root measurement closure | 59 | 50 |
 | vendor facades named directly by the pillar crates | 26 | 23 |
 | cold `cargo build -p susi`, wall clock, idle machine | 165 s (196 s under load) | 81.7 s on landed `240ee4dfb` |
 | rustc CPU-seconds, all units | 1,872 s (471 units) | 822.7 s (417 units) |

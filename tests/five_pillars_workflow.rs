@@ -1,14 +1,11 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! End-to-end workspace integration test verifying that all 5 Apache-2.0 Susi
-//! Core pillars cooperate cleanly without vendor bloat or external cloud coupling:
-//! 1. **GAWD** (`susi_gawd` — swarm & `MissionDag` coordination)
-//! 2. **GEMI** (`susi_gemi` — local/cloud inference model catalog & router)
-//! 3. **GMCP** (`susi_gmcp` — MCP protocol & tool resource plane)
-//! 4. **ACP** (`susi_gawd::acp` — standard open-socket JSON-RPC/HTTP/SSE & stdio pillar)
-//! 5. **Susi Harness** (`susi_harness` — parallel isolated multi-agent workflow with
-//!    pure-Git remote pull & merge on every step and release distillation)
+//! End-to-end integration of the three core pillars:
+//! GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow),
+//! GEMI (inference routing), and GMCP (MCP protocol/tool plane).
+//! The legacy filename is retained for existing test selectors.
+//! Protocol endpoints, imports and capabilities are unchanged.
 
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -103,11 +100,11 @@ fn run_git(dir: &Path, args: &[&str]) -> String {
 }
 
 #[test]
-fn five_core_pillars_cooperate_end_to_end_with_remote_reconcile_and_distillation() {
+fn three_core_pillars_cooperate_with_gawd_acp_and_harness_end_to_end() {
     let sandbox = ScopedSandbox::new("five-pillars-workflow");
 
     // 1. GAWD: build a dependency-ordered swarm MissionDag.
-    let mut dag = MissionDag::new("Verify five Apache-2.0 core pillars");
+    let mut dag = MissionDag::new("Verify three Apache-2.0 core pillars with GAWD capabilities");
     let n_a = dag.push_node("Implement pillar-a slice", "Scoped worker A", vec![0]);
     let n_b = dag.push_node("Implement pillar-b slice", "Scoped worker B", vec![0]);
     let n_distill = dag.push_node(
@@ -210,7 +207,7 @@ fn five_core_pillars_cooperate_end_to_end_with_remote_reconcile_and_distillation
         .to_owned();
 
     let (sse_status, sse_events) = auth_client
-        .prompt_stream_sse(5, &session_id, "Inspect 5 pillars substrate")
+        .prompt_stream_sse(5, &session_id, "Inspect 3 pillars substrate")
         .unwrap();
     assert_eq!(sse_status, 200);
     assert!(sse_events.iter().any(|(ev, _)| ev == "acp.turn.event"));

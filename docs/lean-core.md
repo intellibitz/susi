@@ -1,19 +1,16 @@
-# Lean core: the program, the 5 pillars, and the <10s pipeline budget
+> Current architecture: GAWD (including A2A, ACP and parallel Susi Harness), GEMI, GMCP. See [Mandate 80](ceo-mandate-80.md). Historical four-root measurements below retain their original coverage and values.
+
+# Lean core: the program, the 3 pillars, and the <10s pipeline budget
 
 CEO directive, 2026-11-07 (expanded 2026-11-11 under [CEO Mandate 74](ceo-mandate-74.md)
 and 2026-11-12 under [CEO Mandate 75](ceo-mandate-75.md)):
-Susi core (`intellibitz/susi`) is minimal, Apache-2.0 and free forever. **GAWD**
-(swarm & A2A coordination), **GEMI** (model inference router), **GMCP** (MCP
-protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
-Protocol open standard socket), and **Susi Harness** (recursive driver & engine
-with built-in parallel multi-agent workflow) are the **five primary core
-pillars**. Core compiles, builds, tests, runs and releases with nothing but Rust
+Susi core (`intellibitz/susi`) is minimal, Apache-2.0 and free forever. Its three architectural pillars are GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow), GEMI (model inference routing) and GMCP (MCP and governed tools). Core compiles, builds, tests, runs and releases with nothing but Rust
 on the **Raw Source (`main`) -> Distill (`release`)** model, targeting an
 **under-10-second (`< 10.0s` / `total_ms < 10_000`) warm
 build + test + release pipeline budget** alongside the cold `<60s` compile
 budget. Cloud raw-source feature pickup (`local-harvest raw-features`, `route`,
 `pickup`, [`docs/harvest.md`](harvest.md)) accepts **Pure `Apache-2.0` ONLY** and
-admits into Core only lean, zero-UI, zero-vendor-product 5-pillar substrate
+admits into Core only lean, zero-UI, zero-vendor-product three-pillar substrate
 capabilities (preferring pure-`Apache-2.0` raw-source pickup over adding new
 external crate dependencies). Every add-on feature, enterprise pack, SSO/RBAC,
 FinOps, fleet governance plane, and visual interface (all UIs and curated plugin
@@ -57,9 +54,9 @@ test pins it.
 
 ## Crate classification (93 workspace crates)
 
-Assumption to confirm with the CEO: the `susi`/`susid` binaries stay as the
+Current classification under Mandate 80: the `susi`/`susid` binaries stay as the
 socket host and composition root (D-SP-4 thin client); "only four components"
-means four pillars plus the host that serves them.
+means the three architectural pillars plus their host; the harness is a GAWD capability (Mandate 80).
 
 | Bucket | Crates | Rule |
 |--------|--------|------|
@@ -120,7 +117,7 @@ preserving distinct debug vs. candidate/production artifact isolation (Mandate 6
 ## Compile budget: 60 seconds (CEO mandate 2026-11-07 22:50)
 
 The measure: a cold `cargo build -p susi` (dev profile, offline, fresh target
-directory) of the host binary with the four pillars on the CEO laptop (28
+directory) of the host binary with the historical four-root measurement closure on the CEO laptop (28
 threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
@@ -348,7 +345,7 @@ config, core and the tail.
   tree measures 427 units and 990.5 CPU-seconds, after wave 3's jsonschema cut landed too). The
   daemon's crown sandbox probes carry the compiled bytes of their fixtures with the WAT source in
   doc comments, and a new test (`sandbox_check_runs_the_embedded_binary_probes`) runs them through
-  the live sandbox check. No ceiling moved: `susi-vendor-wasmtime` is not in the four pillars'
+  the live sandbox check. No ceiling moved: `susi-vendor-wasmtime` is not in the historical four-root measurement closure'
   closure, so the third-party count, the workspace count and the line pins stay where wave 3 left
   them. Two build-time runs at `6f1df35c7` (126.2 s / 1,397.6 CPU-s and 134.9 s / 1,302.8 CPU-s)
   were taken while other agents' gates held the CPU; they are not budget numbers.
@@ -860,7 +857,7 @@ config, core and the tail.
   (`axum`, `axum-core`, `form_urlencoded`, `matchit`, `mime`, `ryu`,
   `serde_path_to_error`, `serde_urlencoded`, `sync_wrapper`, `tower`) leave
   `Cargo.lock`; `tower-service` remains because GMCP still uses it. The
-  four-pillar reach is unchanged at 39 workspace crates, 141 third-party
+  historical four-root reach is unchanged at 39 workspace crates, 141 third-party
   crates and 15 direct facade edges because these listeners are outside the
   pillar closure. The platform TLS identity now exposes both its async and
   blocking accept paths, so the std server does not bypass certificate or
@@ -898,7 +895,7 @@ config, core and the tail.
   `susi-error` and `susi-gemi-models`. Clean-target offline cold `cargo build
   --offline --locked -p susi` (`CARBON_JOBS=24`) measured 29.36 s on Linux
   x86_64; pillar reach stays 38 workspace, 141 third-party, 14 direct facade
-  edges (both removed facades sat outside the four-pillar normal closure).
+  edges (both removed facades sat outside the historical four-root normal closure).
 - 2026-11-11 (T-AGYCLOUD-8, Linux x86_64, 2-vCPU cloud VM): the
   `susi-vendor-tower-service` facade leaves core. `susi-gmcp` (`server.rs`,
   `protocol_tests.rs`) calls `StreamableHttpService::handle` directly without
@@ -964,7 +961,7 @@ config, core and the tail.
   35 -> 34, direct facade edges 11 -> 10 (`susi-gmcp` shipped lines unchanged at
   25,860). GMCP requirement and `--mastery` evidence re-recorded in both phases.
 - 2026-11-11 (T-AGYWIN-1, Windows x86_64, CEO workstation): `susi-vendor-tracing`
-  leaves the four-pillar workspace closure across `susi-core`, `susi-gemi` and
+  leaves the historical four-root workspace closure across `susi-core`, `susi-gemi` and
   `susi-sandbox-client`, replacing the remaining diagnostic macros in those three
   crates with direct `std::io::stderr` reporting (`eprintln!`). Pillar workspace
   reach ratchets 34 -> 33 and direct facade edges ratchet 10 -> 9 (`tracing` and
@@ -1051,7 +1048,7 @@ config, core and the tail.
   `tls_codec`, `tls_codec_derive`, `x509-cert`; `Cargo.lock` 199 -> 194
   packages; 161 cumulative `Cargo.lock` packages removed across
   T-CARBONLEAN-1..13) and lowers `THIRD_PARTY_CEILING` 114 -> 108
-  (`rustls-pki-types` also leaves the four-pillar closure).
+  (`rustls-pki-types` also leaves the historical four-root closure).
 - 2026-11-11 (T-CARBONLEAN-14, Linux x86_64, CEO laptop): remove unused `log`
   dependency from `vendor/native-tls` (`src/imp/openssl.rs` had four non-fatal
   CA-probe/store `debug!` calls with no `log` logger registered in Susi Core),
@@ -1073,7 +1070,7 @@ config, core and the tail.
   `inout`, `opaque-debug`, `poly1305`, `universal-hash`; `Cargo.lock` `193 ->
   185` packages; 170 cumulative `Cargo.lock` packages removed across
   T-CARBONLEAN-1..15) and lowers `THIRD_PARTY_CEILING` `107 -> 99` (crossing
-  under 100 third-party crates across the four pillars from the 331 baseline).
+  under 100 third-party crates across the historical four-root measurement closure from the 331 baseline).
 - 2026-11-11 (T-CARBONLEAN-16, Linux x86_64, CEO laptop): back
   `crates/susi-vendor-x25519-dalek` directly with `curve25519-dalek 4.1.3`
   (`EdwardsPoint::mul_base_clamped`, `MontgomeryPoint::mul_clamped`, and

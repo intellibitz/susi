@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness"];
+const CLOSURE_ROOTS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness"];
 
 /// Third-party (non-workspace) crates the four pillars compile. 2026-11-07:
 /// 331 before the lean-core program began, 313 after wave 1 (rayon, flume
@@ -399,11 +399,11 @@ fn pillar_reach(metadata: &Value) -> Reach {
     let roots: Vec<&str> = members
         .iter()
         .copied()
-        .filter(|id| PILLARS.contains(&names[id]))
+        .filter(|id| CLOSURE_ROOTS.contains(&names[id]))
         .collect();
     assert_eq!(
         roots.len(),
-        PILLARS.len(),
+        CLOSURE_ROOTS.len(),
         "every pillar is a workspace member"
     );
     let mut direct_facades = BTreeSet::new();

@@ -29,7 +29,7 @@ pub const MANIFEST_SCHEMA: &str = "susi-fast-release-manifest/v1";
 pub const REPORT_SCHEMA: &str = "susi-fast-release-report/v1";
 
 /// Core pillar crates verified on every `fast-release` run.
-const CORE_PILLARS: [&str; 7] = [
+const CORE_VERIFY_PACKAGES: [&str; 7] = [
     "susi-core",
     "susi-config",
     "susi-gawd-acp",
@@ -728,7 +728,10 @@ fn run_build_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<(usize, usize), 
 }
 
 fn discover_core_pillars(root: &Path) -> Vec<String> {
-    let mut pillars: Vec<String> = CORE_PILLARS.iter().map(|s| (*s).to_owned()).collect();
+    let mut pillars: Vec<String> = CORE_VERIFY_PACKAGES
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
     if root.join("crates/susi-acp/Cargo.toml").is_file() {
         pillars.push("susi-acp".to_owned());
     }
@@ -968,7 +971,7 @@ fn run_test_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<TestStageSummary,
         return Err("Stage 2 produced zero pillar test executables".to_owned());
     }
 
-    // Overlap execution of the 5 core pillar unit test binaries on worker threads
+    // Overlap execution of the core capability unit test binaries on worker threads
     // while the coordinator thread compiles & runs `tests/lean_core_ceilings.rs`.
     let results: Mutex<Vec<BinaryRunResult>> = Mutex::new(Vec::new());
     let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
