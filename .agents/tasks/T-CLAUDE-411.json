@@ -22,6 +22,10 @@
   "scopes": [
     "tests/hermetic_scope.rs",
     "tests/gmcp_requirements/vc_203_014_part4.rs",
+    "tests/host_only_privacy.rs",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    "docs/harness-runbook.md",
     ".agents/gmcp/evidence",
     ".agents/tasks/T-CLAUDE-411.json"
   ],
@@ -29,5 +33,14 @@
     "decision": "existing",
     "searched": "scripts/gmcp-record-evidence.sh and .agents/gmcp/evidence/README.md (the two-phase re-record), tests/gmcp_requirements/adapter_support.rs (adapter_handshake, already used at the fixed sites of T-CLAUDECLOUDREL-3 and -5 and in this file's own operations test), scripts/check-hermetic-tests.sh and the World fixture in tests/hermetic_scope.rs (the fake cargo already answers metadata from a file).",
     "reason": "Every piece exists: the recorder script, the handshake helper and the fake cargo's metadata file. Nothing new is built."
+  },
+  "status": "implemented",
+  "results": {
+    "gmcp": "Both phases of scripts/gmcp-record-evidence.sh re-run on Linux x86_64: 90 requirement checks, then 15 mastery tests, all passed and recorded. cargo test --offline --locked -p susi --test gmcp_requirements: every requirement, mastery and evidence-currency test passes; gmcp_vc_203_014_mastery passes on Linux for the first time (its socket adapter now handshakes before it closes).",
+    "hermetic_scope": "cargo test --offline --locked -p susi --test hermetic_scope: 9 passed. The nextest test writes its own metadata with one library package and one binary-only package, since no workspace member is bin-only any more.",
+    "host_only_privacy": "Environmental, not a product fault. Both tests need a routed address local_only keeps local (private or link-local). This cloud container's only routed address is 192.0.2.2, a documentation range the policy rightly treats as an internet host, so 'local_only reaches the LAN listener' cannot hold there. The tests now fail at once naming that precondition (0.13 s) instead of timing out after 24 s. Proof: in a private network namespace given 10.99.0.2 on loopback and a default route through it, both tests pass unchanged (2 passed).",
+    "ceiling": "CEO decision 2026-11-15 ('raise any test run limit so harness continues to run'): TEST_RUST_CEILING 127,000 -> 129,000, recorded in docs/lean-core.md.",
+    "cause": "The stale evidence was this agent's own regression: 06e38eab0 changed crates/susi-gmcp/src and docs/gmcp without re-recording, and the verification before that landing ran only part of the GMCP suite.",
+    "coordination": "tests/host_only_privacy.rs is named in T-CODEXHOSTONLYSERIAL-1 (worker codex-host-only-serial); that work is on main with its results recorded and no live claim, and this change only adds a precondition assertion. Board and claim pushes are refused from this cloud session (HTTP 403), so this record and the commit trailers carry the coordination."
   }
 }

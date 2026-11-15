@@ -21,8 +21,8 @@
 //!   the routed address is refused in every mode (remote plaintext is
 //!   retired; machines talk over the sealed peer channel).
 //!
-//! Both need a routed non-loopback IPv4 interface (the gate host has one);
-//! without one they fail naming that, rather than pass vacuously. Every
+//! Both need a routed private or link-local IPv4 address (the gate host has
+//! one); without one they fail naming that, rather than pass vacuously. Every
 //! accept, read and wait is bounded, so a regression fails, never hangs.
 
 use std::io::{Read, Write};
@@ -57,6 +57,11 @@ fn lan_ip() -> IpAddr {
     assert!(
         !ip.is_loopback() && !ip.is_unspecified(),
         "this test needs a routed non-loopback IPv4 address on this host (found {ip})"
+    );
+    assert!(
+        matches!(ip, IpAddr::V4(v4) if v4.is_private() || v4.is_link_local()),
+        "this test needs a routed private or link-local IPv4 address, the reach local_only \
+         keeps local: to the privacy policy {ip} is an internet host, never a LAN peer"
     );
     ip
 }

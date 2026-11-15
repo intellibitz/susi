@@ -134,6 +134,7 @@ operator commands.
 | operator paused | send `{"command":"resume","mission_id":"…"}` to `POST /api/command` (or append a resume command to the control log), rerun the same command. |
 | operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
 | the landing failed: `native integration failed … candidate retained` | the accepted work and its claim are kept, and the message names the gate's log. Fix what the gate found (it may be the base, not the candidate: a test already red on main stops every landing), then land the same candidate from the repository with `susi local workflow integrate <claim>`. Rerunning the mission does not land it: `workflow start` refuses the claim the candidate still holds. |
+| the landing gate fails in `host_only_privacy`: `this test needs a routed private or link-local IPv4 address` | the host's only routed address is outside the reach `local_only` keeps local (a cloud container, or a host with only a public address), so the privacy tests cannot run and no landing passes its gate there. Land from a host with a LAN address, or run the landing inside a private network namespace that has one (`unshare -n`, loopback up with a private address and a default route through it): the gate is offline and needs no other network. |
 | a claim is stale | `susi-commercial tasks audit`; the queue reports the holder and the lease. |
 | a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
 
