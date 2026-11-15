@@ -16486,6 +16486,10 @@ fn gmcp_req_203_007_06_operations() {
             socket_discover, embedded_discover,
             "Unix socket and in-process adapters must expose identical discovery state"
         );
+        // A served session ends as `Closed` only once it was negotiated, as
+        // on the in-process adapter above; a client that closes before
+        // `initialize` ends it as a failed negotiation.
+        adapter_handshake(&mut socket, "ops-socket");
         drop(socket);
         adapter_session_ended(&runtime, socket_session, "unix socket");
     }
@@ -18539,6 +18543,10 @@ fn gmcp_req_203_011_06_operations() {
             socket_discover, embedded_discover,
             "Unix socket and in-process adapters must agree on discovery state"
         );
+        // A served session ends as `Closed` only once it was negotiated, as
+        // on the in-process adapter above; a client that closes before
+        // `initialize` ends it as a failed negotiation.
+        adapter_handshake(&mut socket, "ops-socket");
         drop(socket);
         adapter_session_ended(&runtime, socket_session, "unix socket");
     }
@@ -19155,6 +19163,10 @@ fn gmcp_vc_203_011_mastery() {
             socket_discover["result"], embedded_discover["result"],
             "Unix socket discovery must match embedded adapter"
         );
+        // A served session ends as `Closed` only once it was negotiated, as
+        // on the in-process adapter above; a client that closes before
+        // `initialize` ends it as a failed negotiation.
+        adapter_handshake(&mut socket, "mastery-socket");
         drop(socket);
         adapter_session_ended(&runtime, socket_session, "mastery unix socket");
     }
