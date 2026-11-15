@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDE-411",
+  "title": "Turn the red GMCP mastery and hermetic-scope tests green on Linux",
+  "goal": "On Linux x86_64 the root package's GMCP suite fails 16 tests and hermetic_scope fails 1. (1) The landing of 06e38eab0 removed 15 redundant allows under crates/susi-gmcp/src and reworded docs/gmcp/contract-203-020.md without re-recording the VC-203 evidence bound to those files, so every vector's records went stale and all 15 mastery tests plus gmcp_mastery_records_are_retained_and_current fail closed; re-record both phases with scripts/gmcp-record-evidence.sh. (2) gmcp_vc_203_014_mastery also closes its Unix-socket adapter without the initialize handshake (the pattern T-CLAUDECLOUDREL-3 and -5 fixed elsewhere); add the handshake. (3) hermetic_scope's nextest test names xtask as its bin-only package, but every workspace member has had a library since xtask gained one, so the test supplies its own metadata with a bin-only package instead.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1794774259,
+  "owner": "claude",
+  "scopes": [
+    "tests/hermetic_scope.rs",
+    "tests/gmcp_requirements/vc_203_014_part4.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CLAUDE-411.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "scripts/gmcp-record-evidence.sh and .agents/gmcp/evidence/README.md (the two-phase re-record), tests/gmcp_requirements/adapter_support.rs (adapter_handshake, already used at the fixed sites of T-CLAUDECLOUDREL-3 and -5 and in this file's own operations test), scripts/check-hermetic-tests.sh and the World fixture in tests/hermetic_scope.rs (the fake cargo already answers metadata from a file).",
+    "reason": "Every piece exists: the recorder script, the handshake helper and the fake cargo's metadata file. Nothing new is built."
+  }
+}

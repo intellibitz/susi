@@ -210,21 +210,23 @@ fn a_test_that_writes_into_the_instance_fails_the_check() {
 }
 
 /// The local finish gate's single test run. nextest retries a failing *test*
-/// alone and runs one process per test, so the gate does not rerun a whole crate
-/// for one flake; the doc-tests nextest never runs follow for the selected crates
-/// that have a library (`-p` on a bin-only package is a cargo error).
+/// alone, one process per test; the doc-tests it never runs follow for the
+/// selected crates that have a library (`-p` on a bin-only package is a cargo
+/// error). No workspace member is bin-only now, so the metadata is a fixture.
 #[test]
 fn the_nextest_runner_retries_per_test_and_runs_doc_tests_for_library_crates_only() {
     let w = World::new("nextest", false);
+    let meta = r#"{"packages":[{"name":"susi-paths","version":"0","targets":[{"kind":["lib"]}],"manifest_path":""},{"name":"bin-only","version":"0","targets":[{"kind":["bin"]}],"manifest_path":""}]}"#;
+    std::fs::write(w.root.join("cached-metadata.json"), meta).unwrap();
     let (code, out) = w.run_with(
         &[("SUSI_HERMETIC_RUNNER", "nextest")],
-        &["-p", "susi-paths", "-p", "xtask"],
+        &["-p", "susi-paths", "-p", "bin-only"],
     );
     assert_eq!(code, 0, "{out}");
     let calls = w.cargo_calls();
     assert!(
         calls.contains(
-            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p susi-paths -p xtask"
+            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p susi-paths -p bin-only"
         ),
         "one hermetic nextest pass over the selection, a crate with no tests passing: {calls}"
     );
@@ -232,8 +234,8 @@ fn the_nextest_runner_retries_per_test_and_runs_doc_tests_for_library_crates_onl
     assert_eq!(
         doc_calls,
         ["test --locked --doc -p susi-paths"],
-        "doc-tests for the library crate only - xtask is bin-only, and asking cargo for \
-         its doc-tests is an error: {calls}"
+        "doc-tests for the library crate only - a bin-only package has none, and asking cargo \
+         for them is an error: {calls}"
     );
     assert!(
         !calls.contains("test --locked --no-fail-fast"),

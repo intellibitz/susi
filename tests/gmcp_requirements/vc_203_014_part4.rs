@@ -1480,6 +1480,7 @@ fn gmcp_vc_203_014_mastery() {
             sock_disc["result"]["capabilities"]["extensions"],
             discover_ext
         );
+        adapter_handshake(&mut socket, "m014-sock-init");
         drop(socket);
         adapter_session_ended(&rt, sock_sess, "014-mastery-socket");
     }
