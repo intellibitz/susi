@@ -762,13 +762,13 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
     let core = sb.create_core_worktree("core-router-check");
     let comm = sb.create_commercial_worktree("comm-router-check");
 
-    // All 5 Susi Core pillars route to `core`.
+    // Three pillars: ACP and harness capabilities both route to GAWD.
     for (pillar_path, expected_pillar) in [
         ("crates/susi-gawd/src/swarm_bus.rs", "gawd"),
         ("crates/susi-gemi/src/router_ table.rs", "gemi"),
         ("crates/susi-gmcp/src/mcp_frame.rs", "gmcp"),
-        ("crates/susi-core/src/acp_codec.rs", "acp"),
-        ("crates/susi-harness/src/lane_sched.rs", "harness"),
+        ("crates/susi-core/src/acp_codec.rs", "gawd"),
+        ("crates/susi-harness/src/lane_sched.rs", "gawd"),
     ] {
         let clean = pillar_path.replace(' ', "_");
         let (ok, out, err) = run_harvest(
@@ -781,6 +781,7 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
         );
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["target"], "core");
+        assert_eq!(v["pillars"], json!([expected_pillar]));
         assert!(v["pillars"]
             .as_array()
             .unwrap()

@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # Susi agent instructions
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
@@ -28,9 +36,8 @@ Read docs/ceo-mandate-74.md (Mandate 74, wins where older text differs): work in
 your own isolated worktree with remote pull and merge reconciliation at every
 workflow step (`start`, `sync`, `commit`, `distill`, `ship`, `release`, and
 parallel harness steps), keep Susi core build+test+release under 10 seconds
-(`<10s` warm pipeline budget) across its 5 free-forever Apache-2.0 pillars
-(`GAWD`, `GEMI`, `GMCP`, `ACP`, and `Susi Harness` with parallel multi-agent
-workflow), dump labelled `Task:` work straight into main with no gates and no
+(`<10s` warm pipeline budget) across its 3 free-forever Apache-2.0 pillars
+(`GAWD` including A2A, ACP and parallel multi-agent `Susi Harness`; `GEMI`; `GMCP`), dump labelled `Task:` work straight into main with no gates and no
 PRs, let Susi deterministically distill qualified releases with conflict-free
 parallel picks, harvest pure Apache-2.0 code with full attribution, keep all add-on
 features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
@@ -83,7 +90,7 @@ feature stream with final-paragraph `Task:`/`Feature:`/`Harvest:`/`Origin:`/`Ori
 trailers -> Susi-owned `refs/candidates/release/*` distillation with
 one-version-one-cut `release_version_guard` -> immutable `vX.Y.Z` snapshots),
 freely pick up capabilities from cloud raw sources (`local-harvest raw-features`,
-`route`, `pickup`) into Susi Core's 5 `<10s` lean socket pillars or into closed,
+`route`, `pickup`) into Susi Core's 3 `<10s` lean socket pillars or into closed,
 licensed, paid `susi-commercial-apps`, enforce **Pure `Apache-2.0` ONLY** for all
 cloud raw-source harvesting (full Apache-2.0 section 4(a)–(d) notices, refusing
 standalone MIT/BSD, `Apache-2.0 WITH LLVM-exception`, `AND`, copyleft and

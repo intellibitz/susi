@@ -66,6 +66,7 @@ pub mod pattern;
 pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
+pub mod pillars;
 pub use susi_config::plain_http;
 pub mod plane_bus;
 pub mod plane_bus_ipc;

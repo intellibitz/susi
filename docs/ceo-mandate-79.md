@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # CEO Mandate 79: Vision-Driven Continuous Self-Improvement — Distill the Apache-2.0 World
 
 Effective 2026-11-12. Binding on every agent in the Susi AI ecosystem — local,
@@ -82,7 +90,7 @@ after `workflow check`, and whenever it finishes a task. One cycle:
    moved past the commit Susi last distilled, or that was never harvested, is
    work.
 3. **Harvest what serves a vision.** Look at the new raw material
-   (`workflow harvest raw-features --url <url>`), route it (Core's five lean
+   (`workflow harvest raw-features --url <url>`), route it (Core's three lean
    pillars, or Commercial Apps), and take only the part that serves a standing
    vision, under Mandates 75 and 78: pure `Apache-2.0`, pinned commit,
    manifest, notices, `Origin:` trailers, Rust, and the old code deleted.
@@ -97,7 +105,7 @@ after `workflow check`, and whenever it finishes a task. One cycle:
 ## 4. Where the result goes
 
 Routing is Mandate 75's and does not change: lean socket primitives inside the
-five open pillars go to the free Apache-2.0 core; every add-on feature, UI,
+three open pillars go to the free Apache-2.0 core; every add-on feature, UI,
 pack, connector and governance plane goes to closed, licensed, paid Susi
 Commercial Apps. Commercial code never moves into core. Core vision records
 are public: they carry no commercial detail and no secret.

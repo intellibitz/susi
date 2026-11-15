@@ -100,6 +100,26 @@ fn require_array<'a>(doc: &'a Value, path: &str) -> &'a Vec<Value> {
 
 fn validate_identity(doc: &Value) {
     assert_eq!(doc["audience"], "agent-governance");
+
+    let architectural_pillars = require_array(doc, "/core_architecture/pillars");
+    let names: Vec<&str> = architectural_pillars
+        .iter()
+        .map(|pillar| pillar.as_str().expect("identity: pillar must be a string"))
+        .collect();
+    assert_eq!(
+        names,
+        vec!["gawd", "gemi", "gmcp"],
+        "identity: exactly three core architectural pillars are required"
+    );
+    let gawd_capabilities = require_array(doc, "/core_architecture/gawd_capabilities");
+    for required in ["a2a", "acp", "harness"] {
+        assert!(
+            gawd_capabilities
+                .iter()
+                .any(|value| value.as_str() == Some(required)),
+            "identity: GAWD must retain {required}"
+        );
+    }
     let mandates = require_array(doc, "/pillars/dna/mandates");
     assert!(!mandates.is_empty(), "identity: dna.mandates empty");
     let components = require_array(doc, "/pillars/body/components");

@@ -1,0 +1,60 @@
+{
+  "id": "T-DOT3P-1",
+  "title": "Enforce three core pillars and synchronize Step 1 governance",
+  "goal": "CEO directive 2026-11-15: GAWD (A2A, ACP, Susi Harness parallel multi-agent workflow), GEMI, GMCP; safe ten-minute integration reviews; source, tests, documentation and mandates in sync. Implement bounded canonical taxonomy and retain capabilities, confidentiality and release qualification. Step 1 and broader performance/self-improvement obligations remain open.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-harvest",
+      "harvest::tests"
+    ]
+  },
+  "created_by": "dot-three-pillars",
+  "created_unix": 1794725400,
+  "scopes": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "VISION.md",
+    "ARCHITECTURE.md",
+    "docs/ceo-agent-mandate.md",
+    "docs/ceo-mandate-74.md",
+    "docs/ceo-mandate-75.md",
+    "docs/ceo-mandate-79.md",
+    "docs/ceo-mandate-80.md",
+    "docs/architecture.md",
+    "docs/lean-core.md",
+    "docs/harvest.md",
+    ".agents/identity.json",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/pillars.rs",
+    "crates/susi-core/src/self_build.rs",
+    "crates/susi-gawd-agents/build.rs",
+    "xtask/src/harvest.rs",
+    "xtask/src/fast_release.rs",
+    "tests/lean_core_ceilings.rs",
+    "tests/pure_apache2_cloud_harvest.rs",
+    "tests/five_pillars_workflow.rs",
+    "tests/three_pillars_governance.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing susi-core ACP compatibility exports, xtask harvest route classifier, native Susi Board, identity build validator and governance documents; paired commercial guidance.",
+    "source": "Existing first-party Susi source and tests; no upstream import or dependency additions.",
+    "reason": "Extend existing classifier and build-time validator; preserve protocol behavior and commercial boundary."
+  },
+  "limitations": [
+    "Main is unqualified development, not a production release.",
+    "Ten-minute integration cadence is an ongoing agent operation, not a newly installed runtime timer.",
+    "Full workspace/cross-platform release qualification is not claimed."
+  ]
+}

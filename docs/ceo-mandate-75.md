@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # CEO Mandate 75: Raw Source (`main`) & Distill (`release`) Architecture, Cloud Raw-Source Feature Pickup, and Pure `Apache-2.0` License Compliance
 
 Effective 2026-11-12. Binding on every agent in the Susi AI ecosystem — local,
@@ -20,7 +28,7 @@ ongoing work per Mandate 1.
 operate both `susi` and `susi-commercial-apps` strictly on the **Raw Source
 (`main`) -> Distill (`release`)** model with remote pull-and-merge reconciliation,
 freely pick up capabilities from cloud raw sources (`local-harvest raw-features`,
-`route`, `pickup`) into Susi Core's 5 `<10s` lean socket pillars or into closed,
+`route`, `pickup`) into Susi Core's 3 `<10s` lean socket pillars or into closed,
 licensed, paid `susi-commercial-apps`, enforce **Pure `Apache-2.0` ONLY** for all
 cloud raw-source harvesting (full §4(a)–(d) compliance, hard-refusing MIT-only,
 BSD-only, LLVM-exception, `AND`, copyleft and unlicensed code), and coordinate
@@ -106,17 +114,15 @@ Every candidate capability is deterministically routed between Susi's two
 repositories (`local-harvest route` and automatic routing in
 `local-harvest pickup`):
 
-1. **Route to `core` (`intellibitz/susi`) ONLY for the 5 Lean Socket Pillars:**
+1. **Route to `core` (`intellibitz/susi`) ONLY for the 3 Lean Socket Pillars:**
    - A cloud raw-source capability enters `intellibitz/susi` **only** when it is
      a lean, zero-UI, zero-vendor-product protocol or runtime substrate primitive
-     inside Susi Core's **5 primary open-core pillars**:
-     - **GAWD** (`susi-gawd*` — evidence-gated swarm & A2A coordination)
-     - **GEMI** (`susi-gemi*` — local & cloud model inference router)
-     - **GMCP** (`susi-gmcp` — MCP protocol server & governed tool plane)
-     - **ACP** (`susi-core::acp` — Agent Client Protocol / Agent Communication
-       Protocol standard open socket)
-     - **Susi Harness** (`susi-harness` — recursive driver/engine with built-in
-       parallel multi-agent workflow)
+     inside Susi Core's **3 primary open-core pillars**:
+     - **GAWD**: evidence-gated swarm and A2A, ACP standard socket
+       (including its compatibility imports), and Susi Harness recursive
+       driver/engine with built-in parallel multi-agent workflow
+     - **GEMI**: local and cloud model inference routing
+     - **GMCP**: MCP protocol server and governed tool plane
    - Core pickups keep Susi Core minimal and blazing fast: warm
      `cargo fast-release` (`build_ms + test_ms + release_ms = total_ms < 10_000`,
      `< 10.0s` budget) and `tests/lean_core_ceilings.rs` ratchets must hold.
@@ -230,7 +236,7 @@ Multiple autonomous frontier agents (`Claude`, `Codex`, `Antigravity` / `Carbon`
 - **Wave 2 CTO deliverables (`F-CTO-MANDATE-75`):** Mandate 75 constitutional
   codification (`docs/ceo-mandate-75.md`, `.agents/identity.json` Mandate 75, and
   synchronized front-door governance); `local-harvest raw-features`, `route`, and
-  one-step `pickup` with Core 5-pillar vs. Commercial routing enforcement and
+  one-step `pickup` with Core 3-pillar vs. Commercial routing enforcement and
   `tests/pure_apache2_cloud_harvest.rs`; Commercial `src/harvest_gate.rs`
   pure-`Apache-2.0` defense-in-depth plus `T-CLAUDECOMMHARVEST-2` truthful
   provenance and the first verified external `Apache-2.0` open-source harvest.

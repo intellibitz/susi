@@ -1,3 +1,11 @@
+> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
+> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
+> **GEMI**, **GMCP**. Older architectural counts are superseded
+> taxonomy, not removal of those capabilities. Review ready work for safe
+> integration every ten minutes; synchronize source, tests, mandates and docs.
+> Preserve ownership, release qualification, licensing and rollback.
+> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
+
 # CEO mandate: independent agents, Susi integration and pristine releases
 
 Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md)
@@ -12,7 +20,7 @@ superseded below. The CEO's latest direction is: **Raw Source (`main`) ->
 Distill (`release`)** (no mandatory gates for `main`, remote pull and merge
 reconciliation at every workflow step, `<10s` warm core build+test+release
 budget, **Pure `Apache-2.0` ONLY** cloud raw-source feature pickup routed cleanly
-between the 5 lean Core pillars and Commercial Apps, and full qualification on
+between the 3 lean Core pillars and Commercial Apps, and full qualification on
 distilled release lines and immutable release snapshots).
 Requirements are not evidence of completed implementation.
 
@@ -190,7 +198,7 @@ access or move content between access domains without explicit authorization.
 ## 7. Lean core and free Apache-2.0 foundation
 
 Core remains the lean standard-protocol socket built around **GAWD, GEMI, GMCP
-and the harness**, formalized under CEO Mandate 74 (2026-11-11) into **5 primary
+and the harness**, formalized under CEO Mandate 74 (2026-11-11) into **3 primary
 core pillars** — **GAWD** (swarm/A2A), **GEMI** (inference router), **GMCP**
 (MCP protocol & tool plane), **ACP** (Agent Client Protocol / Agent
 Communication Protocol standard open socket), and **Susi Harness** (with

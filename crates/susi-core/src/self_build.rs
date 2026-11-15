@@ -113,7 +113,7 @@ force-push or overwrite shared history. Git is portable storage; GitHub is stora
 with no GitHub Actions. Development branches may advance; release branches require \
 qualification and published \
 release tags are immutable snapshots with source/license/toolchain/test/artifact \
-provenance. Preserve GAWD, GEMI, GMCP and the harness as lean Apache-2.0 core, \
+provenance. Preserve exactly three lean Apache-2.0 pillars: GAWD (A2A, ACP, parallel harness), GEMI, GMCP, \
 commercial confidentiality, safety, access controls and production rollback gates. \
 Names and autonomy do not prove provider availability or grant missing approvals. \
 Fixed remote cooldowns, the single-laptop publication role and mandatory main-push \
