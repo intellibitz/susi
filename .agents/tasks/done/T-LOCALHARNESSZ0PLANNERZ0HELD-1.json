@@ -1,4 +1,12 @@
 {
+  "schema": "susi.task_record/v1",
+  "id": "T-LOCALHARNESSZ0PLANNERZ0HELD-1",
+  "title": "Never plan a queue task another worker already holds",
+  "goal": "Hold queue tasks that name a worker unless merely claimed so susi_harness::queue::plan_batch skips tasks taken further by another worker while keeping claimed-only tasks plannable.",
+  "size": "s",
+  "state": "closed",
+  "status": "completed",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,18 +19,31 @@
       "plan_batch_skips_tasks_another_worker_holds"
     ]
   },
-  "base": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
-  "id": "T-LOCALHARNESSZ0PLANNERZ0HELD-1",
-  "integration": "pending_native_receipt",
-  "native_worker": "harness-planner-held",
-  "owner": "harness-planner-held",
+  "created_by": "CLAUDEHARNESSGOVERNED",
+  "created_unix": 1794767560,
+  "authored": true,
+  "base_commit": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
+  "implementation_commit": "db2333a00d3dbd9b1a3113c190e748065af4fdca",
+  "closed": {
+    "at_unix": 1794769165,
+    "commit": "db2333a00d3dbd9b1a3113c190e748065af4fdca",
+    "by": "CLAUDEHARNESSGOVERNED"
+  },
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Extended susi_harness::queue::plan_batch worker-hold filtering in place without introducing a parallel planner queue.",
+    "reused_symbols": [
+      "susi_harness::queue::plan_batch"
+    ],
+    "searched": [
+      "crates/susi-harness/src/queue.rs",
+      "docs/harness.md"
+    ]
+  },
   "scopes": [
-    ".agents/tasks/done/t-localharnessz0plannerz0held-1.json",
-    ".agents/tasks/t-localharnessz0plannerz0held-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0PLANNERZ0HELD-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0PLANNERZ0HELD-1.json",
     "crates/susi-harness/src/queue.rs",
     "docs/harness.md"
-  ],
-  "status": "verified",
-  "title": "Never plan a queue task another worker already holds",
-  "workflow": "susi-local-v2"
+  ]
 }

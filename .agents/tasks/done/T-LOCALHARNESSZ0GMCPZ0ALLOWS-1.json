@@ -1,4 +1,12 @@
 {
+  "schema": "susi.task_record/v1",
+  "id": "T-LOCALHARNESSZ0GMCPZ0ALLOWS-1",
+  "title": "Remove the redundant unjustified test-module panic-path allows in susi-gmcp",
+  "goal": "Remove redundant unjustified panic-path allow attributes from test modules across crates/susi-gmcp/src covered by the crate-root cfg_attr(test, allow(...)) in crates/susi-gmcp/src/lib.rs.",
+  "size": "s",
+  "state": "closed",
+  "status": "completed",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -12,14 +20,30 @@
       "every_panic_path_allow_is_justified"
     ]
   },
-  "base": "9ff08730050ca448a0385256992e005383cb1041",
-  "id": "T-LOCALHARNESSZ0GMCPZ0ALLOWS-1",
-  "integration": "pending_native_receipt",
-  "native_worker": "harness-gmcp-allows",
-  "owner": "harness-gmcp-allows",
+  "created_by": "CLAUDEHARNESSGOVERNED",
+  "created_unix": 1794765954,
+  "authored": true,
+  "base_commit": "9ff08730050ca448a0385256992e005383cb1041",
+  "implementation_commit": "b6bc45434f2044246084d9d247e5ffa268fae43e",
+  "closed": {
+    "at_unix": 1794766708,
+    "commit": "735c531b0e0746371ba5717ab9679a16a98fe3d8",
+    "by": "CLAUDEHARNESSGOVERNED"
+  },
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Relied on the existing crate-root #[cfg_attr(test, allow(...))] in crates/susi-gmcp/src/lib.rs and removed duplicate per-module test allow attributes.",
+    "reused_symbols": [
+      "susi_gmcp::content::CanonicalContentBlock::to_rmcp"
+    ],
+    "searched": [
+      "crates/susi-gmcp/src/lib.rs",
+      "tests/architecture_tests.rs"
+    ]
+  },
   "scopes": [
-    ".agents/tasks/done/t-localharnessz0gmcpz0allows-1.json",
-    ".agents/tasks/t-localharnessz0gmcpz0allows-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0GMCPZ0ALLOWS-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0GMCPZ0ALLOWS-1.json",
     "crates/susi-gmcp/src/content.rs",
     "crates/susi-gmcp/src/direct_call.rs",
     "crates/susi-gmcp/src/embed_provider.rs",
@@ -35,8 +59,5 @@
     "crates/susi-gmcp/src/tools/host_view_tools.rs",
     "crates/susi-gmcp/src/tools/provider_tools.rs",
     "crates/susi-gmcp/src/tools/semantic_index.rs"
-  ],
-  "status": "verified",
-  "title": "Remove the redundant unjustified test-module panic-path allows in susi-gmcp",
-  "workflow": "susi-local-v2"
+  ]
 }

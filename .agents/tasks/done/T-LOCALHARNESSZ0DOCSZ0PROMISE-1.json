@@ -1,4 +1,12 @@
 {
+  "schema": "susi.task_record/v1",
+  "id": "T-LOCALHARNESSZ0DOCSZ0PROMISE-1",
+  "title": "Reword three core doc sentences that break the no-UI-or-plugins docs promise",
+  "goal": "Reword Core documentation sentences in docs/ceo-mandate-81.md and docs/gmcp/contract-203-020.md so Core documentation preserves the no-UI-or-plugins boundary enforced by core_docs_promise_no_ui_or_plugins.",
+  "size": "s",
+  "state": "closed",
+  "status": "completed",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -12,18 +20,32 @@
       "core_docs_promise_no_ui_or_plugins"
     ]
   },
-  "base": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
-  "id": "T-LOCALHARNESSZ0DOCSZ0PROMISE-1",
-  "integration": "pending_native_receipt",
-  "native_worker": "harness-docs-promise",
-  "owner": "harness-docs-promise",
+  "created_by": "CLAUDEHARNESSGOVERNED",
+  "created_unix": 1794767560,
+  "authored": true,
+  "base_commit": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
+  "implementation_commit": "9a044e4037b48999c322c5673f4c4e4115b145c1",
+  "closed": {
+    "at_unix": 1794768047,
+    "commit": "16ca5f8f98d400dec406302b0eba374ca4503edf",
+    "by": "CLAUDEHARNESSGOVERNED"
+  },
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Updated existing Core documentation files directly under the existing core_docs_promise_no_ui_or_plugins integration contract without introducing new docs or test harnesses.",
+    "reused_symbols": [
+      "core_docs_promise_no_ui_or_plugins"
+    ],
+    "searched": [
+      "docs/ceo-mandate-81.md",
+      "docs/gmcp/contract-203-020.md",
+      "tests/core_docs_promise_no_ui_or_plugins.rs"
+    ]
+  },
   "scopes": [
-    ".agents/tasks/done/t-localharnessz0docsz0promise-1.json",
-    ".agents/tasks/t-localharnessz0docsz0promise-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0DOCSZ0PROMISE-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0DOCSZ0PROMISE-1.json",
     "docs/ceo-mandate-81.md",
     "docs/gmcp/contract-203-020.md"
-  ],
-  "status": "verified",
-  "title": "Reword three core doc sentences that break the no-UI-or-plugins docs promise",
-  "workflow": "susi-local-v2"
+  ]
 }

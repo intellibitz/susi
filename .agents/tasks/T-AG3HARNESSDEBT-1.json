@@ -1,0 +1,47 @@
+{
+  "schema": "susi.task_record/v1",
+  "id": "T-AG3HARNESSDEBT-1",
+  "title": "Normalize and deduplicate T-LOCALHARNESSZ0* task records to restore task_records governance",
+  "goal": "Remove the four duplicate open .agents/tasks/T-LOCALHARNESSZ0*.json files introduced by 06e38eab029ebbf4ba83d784f636b72234e542be and normalize their four .agents/tasks/done/T-LOCALHARNESSZ0*.json records to strict susi.task_record/v1 provenance so cargo test --offline --locked --test task_records passes 3/3 without expanding task_record_schema_debt.json.",
+  "size": "s",
+  "state": "open",
+  "status": "completed",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "AG3HOUSEKEEP",
+  "created_unix": 1794770290,
+  "authored": true,
+  "base_commit": "06e38eab029ebbf4ba83d784f636b72234e542be",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Normalized the four closed T-LOCALHARNESSZ0* records directly to the existing susi.task_record/v1 schema validated by tests/task_records.rs (using susi_paths::hex::encode) without modifying test logic or expanding task_record_schema_debt.json.",
+    "reused_symbols": [
+      "susi_paths::hex::encode"
+    ],
+    "searched": [
+      "tests/task_records.rs",
+      "tests/task_record_schema_debt.json"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-AG3HARNESSDEBT-1.json",
+    ".agents/tasks/done/T-AG3HARNESSDEBT-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0DOCSZ0PROMISE-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0GMCPZ0ALLOWS-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0PLANNERZ0HELD-1.json",
+    ".agents/tasks/T-LOCALHARNESSZ0RUSTSRCZ0HINT-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0DOCSZ0PROMISE-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0GMCPZ0ALLOWS-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0PLANNERZ0HELD-1.json",
+    ".agents/tasks/done/T-LOCALHARNESSZ0RUSTSRCZ0HINT-1.json"
+  ]
+}
