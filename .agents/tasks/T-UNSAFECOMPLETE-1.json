@@ -2,6 +2,11 @@
   "id": "T-UNSAFECOMPLETE-1",
   "native_worker": "unsafe-complete",
   "title": "Complete native unsafe declaration measurement and reviewed inventory admission",
+  "goal": "Complete native unsafe declaration measurement and reviewed inventory admission with real native scanner/comparator tests and source-bound review guards.",
+  "size": "m",
+  "deps": [],
+  "created_by": "UNSAFECOMPLETE",
+  "created_unix": 1793642633,
   "status": "completed",
   "dependencies": [
     "T-NATIVE-1"
@@ -10,14 +15,15 @@
   "scopes": [
     ".agents/baseline/unsafe-default.json",
     ".agents/reviews/unsafe-complete",
-    ".agents/tasks/t-unsafecomplete-1.json",
+    ".agents/tasks/T-UNSAFECOMPLETE-1.json",
     ".github/workflows/unsafe-exposure-ratchet.sh",
     ".github/workflows/unsafe-exposure-scope.sh",
     "architecture.md",
     "crates/susi-gawd/src/tests/vc_201_097_mastery.rs",
     "crates/susi-unsafe-ratchet",
     "crates/susi-vendor-syn",
-    "tests/architecture_tests.rs"
+    "tests/architecture_tests.rs",
+    "tests/task_record_schema_debt.json"
   ],
   "accept": {
     "cmd": [

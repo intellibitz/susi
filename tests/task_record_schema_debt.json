@@ -45,7 +45,6 @@
     ".agents/tasks/T-STEP1NATIVECOMMAND-1.json": "962ccf3cf54a48dcb524b527750061a5d74500baa26909d01a7bf771a60f494d",
     ".agents/tasks/T-STEP1RUSTENTRY-1.json": "c387225009b8d9dbb835a72a5cb5843e72b80af6481069bf3d0a11d7f864b51b",
     ".agents/tasks/T-STEP1UNICODE-1.json": "e74489e1d822ae348a3b69e585c8baaebf957180ad75e1dedd294a425c684d38",
-    ".agents/tasks/T-UNSAFECOMPLETE-1.json": "b77cbec2aea048322704f130a2f64c57888baec74c7599f9dd34450f99ba02e7",
     ".agents/tasks/T-VERSIONPATH-1.json": "d339c0d7a5413f0e90367f9b2813e4a2f06a610346a372896a338ea75fc16ab0",
     ".agents/tasks/done/T-A2AEXEC1104-1.json": "934e711e902fd84fc07197ab83ec4608e2ab4cb008bb82d345468cd0fcd07ded",
     ".agents/tasks/done/T-ABICELL1104-1.json": "c84e70bfd65b756d1d489b5e732effd9a70e139b33218ff42d19484b228dd63b",
