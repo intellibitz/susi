@@ -10,6 +10,8 @@
       "test",
       "--locked",
       "--offline",
+      "--profile",
+      "dist",
       "-p",
       "susi",
       "--bin",
@@ -19,6 +21,17 @@
   },
   "created_by": "CODEXWINROLLBACK",
   "created_unix": 1794717815,
+  "closed": {
+    "at_unix": 1794719172,
+    "commit": "2a235333ba898ca44f6f5371be1d224082a6923e",
+    "by": "CODEXWINROLLBACK"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "Use the existing selector and transaction for both original runtimes. Publish the separately verified management image without changing either runtime.",
+    "searched": "Susi core Package verification, installed channel transaction lock, transition journal, dispatcher verification and commercial Windows install-desktop integration",
+    "source": "src/installed_channel"
+  },
   "scopes": [
     "src/installed_channel",
     "src/installed_channel.rs",
@@ -26,21 +39,15 @@
     "tests/fixtures/cli_help_snapshot.txt",
     "docs/local-channels.md"
   ],
-  "reuse": {
-    "decision": "existing",
-    "searched": "Susi core Package verification, installed channel transaction lock, transition journal, dispatcher verification and commercial Windows install-desktop integration",
-    "source": "src/installed_channel",
-    "reason": "Use the existing selector and transaction for both original runtimes. Publish the separately verified management image without changing either runtime."
-  },
   "verification": {
-    "unit": "16 installed-channel tests passed on Windows; 3 pre-existing environment-specific/manual cases ignored",
-    "snapshot": "Windows CLI help public contract test passed",
     "core_versions": [
       "0.21.51",
       "0.21.67"
     ],
     "frozen_management_sha256": "dff355277e1581d4e72206f298cb8af5c3ad88906ae33b6bed1e45cb80286f8c",
+    "frozen_management_source_base": "ba2d2c43d0ca5b7716254faf3ba035a67ef1abf3",
     "frozen_management_source_tree": "9ee0f5fe5be51e878ebba39d7fba32f33c50280d",
-    "frozen_management_source_base": "ba2d2c43d0ca5b7716254faf3ba035a67ef1abf3"
+    "snapshot": "Windows CLI help public contract test passed",
+    "unit": "16 installed-channel tests passed on Windows; 3 pre-existing environment-specific/manual cases ignored"
   }
 }
