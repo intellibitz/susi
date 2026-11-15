@@ -6,19 +6,26 @@
   "deps": [
     "T-CHROME-1"
   ],
-  "state": "open",
-  "status": "completed",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-build-os-ucrt",
+      "--all-features"
+    ]
+  },
   "created_by": "NATIVE1",
   "created_unix": 1793610437,
+  "closed": {
+    "at_unix": 1794755348,
+    "commit": "af7e8b623bcf01a6dea021a49342adc0026642c0",
+    "by": "AG3HOUSEKEEP"
+  },
   "implementation_commit": "a91796ca4be4b99c85d472a834a996529ddadf6b",
   "reuse": {
-    "searched": [
-      "crates/susi-build-os-ucrt/src/policy.rs",
-      "crates/susi-build-os-ucrt/src/lib.rs",
-      "crates/susi-gawd/src/repo_gate.rs",
-      "xtask/src/trusted_sysroot.rs",
-      "xtask/src/compiler_env.rs"
-    ],
     "decision": "reuse",
     "justification": "Reused and extended Core's native UCRT/ELF build policy, standalone platform adapter matrix, GAWD repository gate checks, and xtask trusted-sysroot compiler bindings rather than introducing external cross-compilation wrappers.",
     "reused_symbols": [
@@ -27,6 +34,13 @@
       "susi_gawd::repo_gate::run_repository_gate",
       "xtask::trusted_sysroot",
       "xtask::compiler_env"
+    ],
+    "searched": [
+      "crates/susi-build-os-ucrt/src/policy.rs",
+      "crates/susi-build-os-ucrt/src/lib.rs",
+      "crates/susi-gawd/src/repo_gate.rs",
+      "xtask/src/trusted_sysroot.rs",
+      "xtask/src/compiler_env.rs"
     ]
   },
   "scopes": [
@@ -43,15 +57,6 @@
     "vendor/unicode-ident",
     "xtask"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-build-os-ucrt",
-      "--all-features"
-    ]
-  }
+  "state": "closed",
+  "status": "completed"
 }
