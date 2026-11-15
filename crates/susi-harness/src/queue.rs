@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use susi_error::{EaiError, EaiResult};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct TaskRecord {
     id: String,
     title: String,
@@ -31,6 +31,10 @@ struct TaskRecord {
     size: Option<String>,
     #[serde(default)]
     created_unix: u64,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    native_worker: Option<String>,
 }
 
 /// The queue stores acceptance as argv; a hand-written task may still hold the
@@ -98,9 +102,18 @@ pub fn plan_batch(
     let mut ready = Vec::new();
     let (mut already_done, mut no_accept, mut inferred, mut blocked, mut filtered) =
         (0, 0, 0, 0, 0);
+    let mut held = 0;
     for mut task in records {
         if done.contains(&task.id) {
             already_done += 1;
+            continue;
+        }
+        let open = task
+            .status
+            .as_deref()
+            .is_none_or(|s| s.eq_ignore_ascii_case("open"));
+        if task.native_worker.is_some() || !open {
+            held += 1;
             continue;
         }
         if let Some(roadmap) = only_roadmap {
@@ -174,7 +187,7 @@ pub fn plan_batch(
     }
     if selected.is_empty() {
         return Err(EaiError::config(format!(
-            "no dependency-ready queue task has a free scope (open {total}, ready {}, already-done {already_done}, no-accept {no_accept}, inferred-scope {inferred}, dep-blocked {blocked}, roadmap-filtered {filtered}, done ids {})",
+            "no dependency-ready queue task has a free scope (open {total}, ready {}, already-done {already_done}, held {held}, no-accept {no_accept}, inferred-scope {inferred}, dep-blocked {blocked}, roadmap-filtered {filtered}, done ids {})",
             records.len(),
             done.len()
         )));
@@ -620,6 +633,33 @@ mod tests {
     }
 
     #[test]
+    fn plan_batch_skips_tasks_another_worker_holds() {
+        let dir = repo();
+        let tasks = dir.path().join(".agents/tasks");
+        let put = |id: &str, extra: &str| {
+            let body = format!(
+                r#"{{"id":"{id}","title":"h",{extra}"scopes":["c/{id}"],"accept":"cargo test"}}"#
+            );
+            write_task(&tasks, &format!("{id}.json"), &body);
+        };
+        put("T-H1", r#""native_worker":"w1","#);
+        put("T-H2", r#""status":"implemented_pending_integration","#);
+        put("T-O", r#""status":"open","#);
+        let m = ["a".to_string()];
+        let plan = plan_batch(dir.path(), "m", 10, &m, None, &[]).unwrap();
+        let ids: Vec<_> = plan.tasks.iter().filter_map(|t| t.task.clone()).collect();
+        assert!(ids.iter().all(|i| i != "T-H1" && i != "T-H2"));
+        assert!(["T-A", "T-D", "T-O"]
+            .iter()
+            .all(|i| ids.contains(&i.to_string())));
+        for id in ["T-A", "T-B", "T-D", "T-O"] {
+            std::fs::remove_file(tasks.join(format!("{id}.json"))).unwrap();
+        }
+        let err = plan_batch(dir.path(), "m", 10, &m, None, &[]).unwrap_err();
+        assert!(err.to_string().contains("held 2"), "{err}");
+    }
+
+    #[test]
     fn a_batch_takes_ready_disjoint_tasks_and_names_their_ids() {
         let dir = repo();
         let plan = plan_batch(
@@ -723,7 +763,7 @@ mod tests {
             accept: None,
             roadmap: Some("VC-203-005".into()),
             size: Some("l".into()),
-            created_unix: 0,
+            ..Default::default()
         };
         let scopes = infer_scopes(&dir, &task, &[]);
         assert!(scopes.contains(&".agents/gmcp/evidence/VC-203-005.jsonl".to_string()));
@@ -740,7 +780,7 @@ mod tests {
             accept: None,
             roadmap: None,
             size: Some("m".into()),
-            created_unix: 0,
+            ..Default::default()
         };
         let scopes = infer_scopes(&std::env::temp_dir(), &task, &[]);
         assert!(scopes.contains(&"crates/susi-vendor-models".to_string()));
@@ -783,7 +823,7 @@ mod tests {
             )),
             roadmap: None,
             size: None,
-            created_unix: 0,
+            ..Default::default()
         };
         let prompt = prompt_for(&task);
         assert!(
