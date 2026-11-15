@@ -4,29 +4,6 @@
   "goal": "Add an in-process loopback TcpListener HTTP/1.1 responder helper (spawn_loopback_http, read_http_request, MockReply) and hermetic end-to-end conformance unit tests exercising A2A agent-card honesty, unknown-method -32601, and streaming subscribe/resubscribe checks, MCP 9090 and alias 9093 discovery, tools/list, and 2025-06-18 Mcp-Session-Id handshake checks, and GEMI /v1/models path-leak warning plus /v1/chat/completions SSE stream checks in crates/susi-conformance/src/lib.rs (landed in 23c9c2052 #1384).",
   "size": "m",
   "deps": [],
-  "state": "open",
-  "status": "completed",
-  "created_by": "CONFMOCK1104",
-  "created_unix": 1793756400,
-  "implementation_commit": "23c9c2052a9bb3dbc6f055582dc417144b7f0c60",
-  "reuse": {
-    "decision": "existing",
-    "reason": "Extended the existing susi-conformance black-box host-contract check functions and std::net::TcpListener loopback sockets inside crates/susi-conformance/src/lib.rs (landed in squash commit 23c9c2052a9bb3dbc6f055582dc417144b7f0c60 #1384) without adding new crates or external mock-server dependencies.",
-    "searched": "crates/susi-conformance/src/lib.rs, crates/susi-wire-client/src/http.rs",
-    "source": "intellibitz/susi crates/susi-conformance (23c9c2052 #1384)",
-    "reused_symbols": [
-      "susi_conformance::Target",
-      "susi_conformance::Optional",
-      "susi_conformance::Outcome",
-      "susi_conformance::ports",
-      "susi_conformance::MCP_SESSION"
-    ]
-  },
-  "scopes": [
-    ".agents/tasks/T-CONFMOCK1104-1.json",
-    "crates/susi-conformance/src/lib.rs",
-    "tests/task_record_schema_debt.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -36,5 +13,33 @@
       "-p",
       "susi-conformance"
     ]
-  }
+  },
+  "created_by": "CONFMOCK1104",
+  "created_unix": 1793756400,
+  "closed": {
+    "at_unix": 1794752289,
+    "commit": "8ccd5200286dbf274e6e61db000c9ad3f009cdd6",
+    "by": "AG3HOUSEKEEP"
+  },
+  "implementation_commit": "23c9c2052a9bb3dbc6f055582dc417144b7f0c60",
+  "reuse": {
+    "decision": "existing",
+    "reason": "Extended the existing susi-conformance black-box host-contract check functions and std::net::TcpListener loopback sockets inside crates/susi-conformance/src/lib.rs (landed in squash commit 23c9c2052a9bb3dbc6f055582dc417144b7f0c60 #1384) without adding new crates or external mock-server dependencies.",
+    "reused_symbols": [
+      "susi_conformance::Target",
+      "susi_conformance::Optional",
+      "susi_conformance::Outcome",
+      "susi_conformance::ports",
+      "susi_conformance::MCP_SESSION"
+    ],
+    "searched": "crates/susi-conformance/src/lib.rs, crates/susi-wire-client/src/http.rs",
+    "source": "intellibitz/susi crates/susi-conformance (23c9c2052 #1384)"
+  },
+  "scopes": [
+    ".agents/tasks/T-CONFMOCK1104-1.json",
+    "crates/susi-conformance/src/lib.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "state": "closed",
+  "status": "completed"
 }
