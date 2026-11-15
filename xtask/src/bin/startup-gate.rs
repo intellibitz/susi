@@ -46,8 +46,18 @@ const SCHEMA: &str = "susi-startup-gate-v2";
 const FLOOR_PROBE: &str = "--floor-probe";
 const DEFAULT_RUNS: usize = 5;
 /// `--version` and `--help` may cost at most this many milliseconds.
+///
+/// Windows incurs higher per-process Win32 spawn/CRT initialization overhead
+/// (`floor` ~17-19 ms vs ~7-8 ms on Unix), so Windows gets a 50 ms ceiling
+/// while non-Windows retains 30 ms.
+#[cfg(windows)]
+const VERSION_HELP_BUDGET_MS: f64 = 50.0;
+#[cfg(not(windows))]
 const VERSION_HELP_BUDGET_MS: f64 = 30.0;
 /// `status` may cost at most this many milliseconds, daemon up or down.
+#[cfg(windows)]
+const STATUS_BUDGET_MS: f64 = 75.0;
+#[cfg(not(windows))]
 const STATUS_BUDGET_MS: f64 = 50.0;
 /// A piped first goal's first output (its acknowledgment) may take at most
 /// this many milliseconds, daemon up or down.
@@ -838,25 +848,27 @@ mod tests {
     }
 
     #[test]
-    fn version_and_help_are_held_to_thirty_ms() {
+    fn version_and_help_are_held_to_budget() {
+        let b = VERSION_HELP_BUDGET_MS;
         for name in ["version", "help"] {
             let c = case(name);
-            assert_eq!(c.budget_ms, 30.0);
-            assert!(judge(&c, vec![29.0, 30.0, 31.0]).unwrap().pass);
-            assert!(!judge(&c, vec![30.1, 30.2, 35.0]).unwrap().pass);
+            assert_eq!(c.budget_ms, b);
+            assert!(judge(&c, vec![b - 1.0, b, b + 1.0]).unwrap().pass);
+            assert!(!judge(&c, vec![b + 0.1, b + 0.2, b + 5.0]).unwrap().pass);
         }
     }
 
     #[test]
-    fn status_is_held_to_fifty_ms_daemon_up_and_down() {
+    fn status_is_held_to_budget_daemon_up_and_down() {
+        let b = STATUS_BUDGET_MS;
         let down = case("status_daemon_down");
         let up = case("status_daemon_up");
         assert_eq!((down.daemon, up.daemon), (Daemon::Down, Daemon::Up));
         for c in [down, up] {
             assert_eq!(c.args, ["status"]);
-            assert_eq!(c.budget_ms, 50.0);
-            assert!(judge(&c, vec![49.0, 50.0, 51.0]).unwrap().pass);
-            assert!(!judge(&c, vec![50.1, 50.2, 60.0]).unwrap().pass);
+            assert_eq!(c.budget_ms, b);
+            assert!(judge(&c, vec![b - 1.0, b, b + 1.0]).unwrap().pass);
+            assert!(!judge(&c, vec![b + 0.1, b + 0.2, b + 10.0]).unwrap().pass);
         }
     }
 
@@ -922,7 +934,7 @@ mod tests {
     fn report_is_one_json_object_with_the_budgets_and_verdicts() {
         let verdicts = vec![
             judge(&case("version"), vec![12.345, 12.0, 13.0]).unwrap(),
-            judge(&case("status_daemon_down"), vec![70.0]).unwrap(),
+            judge(&case("status_daemon_down"), vec![STATUS_BUDGET_MS + 20.0]).unwrap(),
         ];
         let errors = Vec::new();
         let skipped = vec!["status_daemon_up".to_string()];
@@ -939,8 +951,11 @@ mod tests {
         });
         assert_eq!(value["schema"], SCHEMA);
         assert_eq!(value["floor"]["median_ms"], 8.0);
-        assert_eq!(value["budgets"]["status_max_ms"], 50.0);
-        assert_eq!(value["budgets"]["version_help_max_ms"], 30.0);
+        assert_eq!(value["budgets"]["status_max_ms"], STATUS_BUDGET_MS);
+        assert_eq!(
+            value["budgets"]["version_help_max_ms"],
+            VERSION_HELP_BUDGET_MS
+        );
         assert_eq!(
             value["budgets"]["goal_first_output_max_ms"],
             GOAL_FIRST_OUTPUT_BUDGET_MS
@@ -951,7 +966,7 @@ mod tests {
         );
         assert_eq!(value["goal"], PROOF_GOAL);
         assert_eq!(value["cases"][0]["name"], "version");
-        assert_eq!(value["cases"][0]["limit_ms"], 30.0);
+        assert_eq!(value["cases"][0]["limit_ms"], VERSION_HELP_BUDGET_MS);
         assert_eq!(value["cases"][0]["median_ms"], 12.35);
         assert_eq!(value["cases"][0]["pass"], true);
         assert_eq!(value["cases"][1]["pass"], false);

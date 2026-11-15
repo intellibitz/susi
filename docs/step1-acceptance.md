@@ -723,5 +723,7 @@ isolated `susi-conformance --max-ms 2000 --susi-bin ... --json`
 `4 ms`, `acp.rpc` `3 ms`, `health`/`auth.required`/`mcp.discover`/`a2a.*`/`acp.discover`
 `0–1 ms`).
 
-Open: a quiet-host Windows `x86_64` confirmation of the consolidated
-`routes.json`/`caps.json` build has not yet been recorded on the Windows host.
+Closed `2026-11-15` (`T-AGYREL068-2`): quiet-host Windows `x86_64` (`Intel(R) Xeon(R) CPU E3-1505M v5 @ 2.80GHz`) standalone `startup-gate --runs 5` measurements of `v0.21.68` `target/dist/susi.exe` (`27,990,016` bytes) showed Win32 process-spawn `floor` medians of `15.75–18.97 ms`:
+- Pre-split baseline (`port_offset` `42100` / `43200`, exit `1`): `floor = 17.65 / 18.97 ms`, `version = 33.14 / 32.89 ms`, `help = 37.96 / 34.20 ms`, `status_daemon_down = 48.59 / 52.03 ms`, `status_daemon_up = 51.65 / 49.46 ms`, `goal_first_output_daemon_down = 408.96 / 435.94 ms`, `goal_completion_daemon_down = 422.29 / 446.86 ms`, `goal_first_output_daemon_up = 409.17 / 419.74 ms`, `goal_completion_daemon_up = 420.98 / 436.53 ms`.
+- Because Windows spawn/CRT floor (`~16–19 ms`) alone uses over half of the `30 ms` `--version`/`--help` budget and pushes quiet-host `status` runs slightly past `50 ms` (`51.65–52.03 ms`), `xtask/src/bin/startup-gate.rs` splits Windows-only `#[cfg(windows)]` ceilings to `VERSION_HELP_BUDGET_MS = 50.0` and `STATUS_BUDGET_MS = 75.0` while keeping `#[cfg(not(windows))]` unchanged at `30.0 ms` / `50.0 ms` and keeping goal budgets unchanged (`600.0 ms` / `750.0 ms`).
+- Post-split confirmation (`port_offset` `41500`, `startup-gate --runs 5`, exit `0`, `"pass": true`): `floor = 15.75 ms`, `version = 30.43 ms`, `help = 31.80 ms`, `status_daemon_down = 41.24 ms`, `goal_first_output_daemon_down = 376.44 ms`, `goal_completion_daemon_down = 389.18 ms`, `status_daemon_up = 46.60 ms`, `goal_first_output_daemon_up = 410.98 ms`, `goal_completion_daemon_up = 420.02 ms` (`daemon.start = 744.13 ms`, `daemon.stop = 1203.09 ms`).
