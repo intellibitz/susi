@@ -21,6 +21,11 @@
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794707873,
+    "commit": "ab57e7bfd4b831749e3e5e8a1c000e8c63e24269",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Adversarial stage (GMCP-203-012-04) validates fail-closed bounds, dynamic ACL/traversal denial, race/exhaustion recovery, covert-channel redaction/payload bounds, progress monotonicity/NaN/token caps, and transport fault injection across stdio, HTTP SSE, and GmcpService; cross-spec interop matrix and operations runbooks remain in T-CODEXGMCPROADMAP-97..98.",
     "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are created and sealed by T-CODEXGMCPROADMAP-99 once requirements 01-06 land; existing retained evidence is updated via Two-Phase Evidence against the implementation commit."
