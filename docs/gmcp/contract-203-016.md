@@ -143,3 +143,90 @@ passing production-path test is not delivered.
 - **Who owns status.** Official/experimental/deprecated status is owned by
   the pinned authorities and recorded in the ledger, not asserted by an
   implementation at runtime.
+
+## Operations and non-claims
+
+- **Rollout & rollback boundary**: `GmcpService::extensions()` isolates each `ExtensionRegistry` per service instance (`ExtensionRegistry::shipped()` preloads `io.modelcontextprotocol/tasks`), and extension packs under `~/.susi/extensions/<id>/` fall back to compiled defaults (`active = "default"`) whenever unloaded or absent. Reverting an upstream spec re-pin, extension pack, or capability adjustment restores previous extension semantics without altering user transcripts or requiring database migration.
+- **Registry key growth note**: `ExtensionRegistry::capability_map()` surfaces only enabled registered entries while unknown peer extensions remain bounded by the transport framing and content-tree limits (`max_rpc_body_bytes`, `MAX_NODES = 10_000`, `MAX_DEPTH = 64`) at `jsonrpc_gate` / `CanonicalContentBlock::from_wire`.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` prints the canonical JSON verification report (`rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, `verified`) matching the MCP `ledger_verify` tool verbatim and failing non-zero if any pinned corpus file drifts.
+- `susi mcp status` emits inspectable MCP adapter control-plane status (`LeadingMcpManager::status`) in JSON.
+- `susi mcp ledger --drift --refetched <dir>` executes deterministic, air-gapped standards drift detection across all pinned specification, schema, registry, and extension files against `.agents/gmcp/sources.json`.
+- Extension pack lifecycle CLI & MCP tool parity (`susi extensions list|status|create|load|unload|validate` and MCP tools `extensions_list`, `extensions_status`, `extensions_validate`, `extensions_load`, `extensions_unload`): read-only `validate` audits manifest fields, `apiVersion` (`HOST_PACK_API_MAJOR = 1`), `KNOWN_PERMISSIONS`, SHA-256 digests, and Ed25519 signatures without mutating host `state.json`.
+- Live runtime API inspection across served transports (`GmcpService::discover_result()`, `embedded_adapter`, `#[cfg(unix)]` socket adapter, `susi mcp serve` stdio, Streamable HTTP `/mcp`, `susi_wire_client::mcp::Session::open_with_capabilities` / `server_extensions()`, and `susi_core::mcp_client`):
+  - `server/discover` and `initialize` advertise deterministic `capabilities.extensions` (with `io.modelcontextprotocol/tasks` enabled by default).
+  - `ExtensionRegistry::status_report()` reports `[ { id, status, version, enabled } ]`, and `ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)` emits `[GMCP] Adopt newly published official extension <id>` for every published official extension not yet registered.
+
+### Configuration validation
+
+- CLI flag validation fails closed when `--refetched <dir>` is supplied without `--drift` on `susi mcp ledger`.
+- Host configuration validation (`susi_config::validate::validate_dir`) checks `~/.susi/config.json` before server startup and flags non-numeric `max_rpc_body_bytes` with `ConfigIssueKind::TypeMismatch`.
+- `GmcpServer::run_stdio` rejects `max_rpc_body_bytes == 0` prior to reading frames, writing `[GMCP] Invalid max_rpc_body_bytes (0): must be > 0; refusing stdio transport` to `stderr` with zero bytes emitted on `stdout`; `http_service` logs `[GMCP] Invalid max_rpc_body_bytes (0); using bundled default for HTTP transport` to `stderr` and enforces HTTP payload ceilings (`413 Payload Too Large` past `max_rpc_body_bytes + 16`).
+- Extension pack validation (`susi extensions validate` / `susi_config::extensions::validate_manifest`) fails closed on non-matching `apiVersion`, unknown permissions outside `KNOWN_PERMISSIONS` (`filesystem.read`, `filesystem.write`, `network.egress`, `process.exec`), path escapes (`../`) without `filesystem.read`, missing managed files, SHA-256 mismatches, or invalid Ed25519 signatures.
+
+### Bounded metrics, logs and traces
+
+- Content and transport bounds enforce memory, recursion, and payload isolation (`crates/susi-gmcp/src/{content.rs,stdio.rs,mcp/transport.rs,mcp/http.rs,server.rs}`):
+  - `CanonicalContentBlock::from_wire` bounds: `MAX_NODES = 10_000`, `MAX_DEPTH = 64` (`ContentError::TooLarge`).
+  - Transport frame/body bounds: stdio `DEFAULT_MAX_LINE_LENGTH = 16777216` (`16 MiB` via `BoundedLines`), HTTP `DEFAULT_MAX_REQUEST_BODY_BYTES = 4194304` (`4 MiB`), configured `max_rpc_body_bytes`, `MAX_TOOL_CALL_SECS = 1800`.
+- W3C `traceparent` headers and `_meta["io.modelcontextprotocol/logLevel"]` operational telemetry remain bounded per request on HTTP `/mcp`, strip credentials/tokens from `notifications/message`, suppress `notifications/message` entirely when `logLevel` is omitted, and never bypass `_meta` schema or extension checks.
+- Disabling an extension (`ExtensionRegistry::set_enabled(id, false)`) removes it from `capability_map()` within one request and isolates failures to that extension and connection.
+
+### Diagnostics and incident triage
+
+- `ExtensionError` typed diagnostics: `NotNamespaced` (key missing `vendor/name`), `Collision` (duplicate key registration refused closed instead of overwrite), `RequiredUnsupported` (peer requires an unregistered or disabled extension), `Downgrade` (required version mismatches served version).
+- `ContentError` boundary diagnostics: `UnknownVariant`, `MissingField`, `BadUnicode`, `BadUri`, `BadMimeType`, `BadBase64`, `BadPriority`, `BadAudience`, `BadIcon`, `TooLarge`.
+- Wire/HTTP JSON-RPC error codes: `-32600` (`Invalid Request` — malformed envelope, nesting bomb, oversized stdio `BoundedLines` frame, or modern `_meta` on a negotiated `2025-11-25` session), `-32602` (`Invalid params` — missing/invalid `_meta` protocol fields or legacy `params.protocolVersion`), `-32020` (`HEADER_MISMATCH`), `-32022` (`UNSUPPORTED_PROTOCOL_VERSION`), and HTTP `413` (oversized extension payload).
+- `hash_drift` / `unfetchable`: named findings emitted by `susi mcp ledger --drift --refetched <dir>` whenever any pinned `VC-203-016` extension, schema, or registry artifact changes or is missing relative to `.agents/gmcp/sources.json`:
+  - `ext-apps/specification/2026-01-26/apps.mdx` (`sha256: ee452a7d1b9b7fb900acfeb4d6932d3963375b0f3f37d196a4b93eb80312af0e`)
+  - `ext-auth/specification/stable/enterprise-managed-authorization.mdx` (`sha256: df4fe01daec0eac6069e17a293d4ed7e197ab20463038d806f71e63b22fd8986`)
+  - `ext-tasks/specification/2026-07-28/tasks.md` (`sha256: 5fc22b9b5ff248703927c69855f751a061c2d6170f4dc3923204452f859f91a5`)
+  - `docs/specification/2026-07-28/index.mdx` (`sha256: c8151ab8d7f26ab46785fd34b23f7197db1a98ca8318967faa01e401909667b5`)
+  - `schema/2026-07-28/schema.json` (`sha256: ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203`)
+  - `schema/2026-07-28/schema.ts` (`sha256: 742750af0bb8c716e7030c4977c992b55d1adc4407e9e66997db5846baedc2cd`)
+  - `schema/2025-11-25/schema.json` (`sha256: 268a5f82ba70fd7e4b6dc4aa1e64f116f74b4d0edcb69dc046829c79dd4e97e7`)
+  - `schema/2025-11-25/schema.ts` (`sha256: e74b56e73b2e37bdb595f74ba22e428ad7f07aa3519355ba661d681298ed38ac`)
+  - `registry/docs/reference/api/generic-registry-api.md` (`sha256: f5352a13d8b7309e28a23da998759f14c34945cb4008de10e51bba9bc47bb109`)
+  - `registry/docs/reference/api/official-registry-api.md` (`sha256: 37989fc77551006d7fc3d34954c1f9d81a4edace8afc519d92b1c82a1b031dd9`)
+
+### Examples
+
+```text
+# 1. Inspect GMCP ledger, MCP status, and extension pack state
+susi mcp ledger
+susi mcp status
+susi extensions list
+susi extensions status
+susi extensions validate /path/to/pack
+
+# 2. Run deterministic air-gapped drift check across pinned extension/schema specs
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+
+# 3. Verify VC-203-016 operations gate and re-record append-only evidence
+cargo test --offline --locked --test gmcp_requirements gmcp_req_203_016_06_operations
+cargo local-release record-gmcp
+cargo local-release record-gmcp --mastery
+```
+
+### Incident triage
+
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), missing/invalid extension key collision guard (`Collision` / `NotNamespaced`), bypassed downgrade refusal (`Downgrade`), leaked unknown `_meta` or content extension keys, `stdout` non-JSON frame leak on zero `max_rpc_body_bytes`, or pack admission bypass as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `susi extensions status`, offending manifest or JSON-RPC frame, server `stderr` diagnostics, and latest `.agents/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_016`.
+
+### Migration (extension governance and re-pinning upstream specs)
+
+1. **Adopting newly published official extensions**: `ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)` flags any official extension not yet registered in `ExtensionRegistry::shipped()`. Pin its upstream authority in `.agents/gmcp/sources.json`, vendor under `.agents/gmcp/spec/`, register explicit roadmap tasks, and advertise it via `ExtensionRegistry` rather than core protocol branches.
+2. **Upstream re-pinning**: Update changed extension documents under `.agents/gmcp/spec/` and SHA-256 digests in `.agents/gmcp/sources.json` alongside `.agents/gmcp/requirements-ledger.json`, update `docs/gmcp/contract-203-016.md`, re-run `gmcp_req_203_016_01..06` and `check-gmcp-roadmap`, and record fresh two-phase `record-gmcp` proof records.
+
+### Rollback
+
+All extension specifications, contract prose (`docs/gmcp/contract-203-016.md`), `sources.json`, tests, and `.agents/gmcp/evidence/*.jsonl` chains are immutable, versioned Git artifacts; runtime protocol extension state is per-instance in memory, and extension pack activation cleanly reverts via `susi extensions unload <id>` (restoring compiled defaults with files intact). To roll back a specification re-pin or framework change, run `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes (`verified: true`), re-run `gmcp_req_203_016_06_operations`, and append updated proof lines without deleting historical `.agents/gmcp/evidence/*.jsonl` entries.
+
+### Production guarantees and non-claims
+
+- Production guarantees cover `crates/susi-gmcp/src/{extensions.rs,content.rs,protocol.rs,jsonrpc_gate.rs,server.rs,stdio.rs,requirements_ledger.rs}`, `crates/susi-wire-client/src/mcp.rs`, and `crates/susi-config/src/extensions.rs` as proven across `gmcp_req_203_016_01..06` and retained evidence artifacts.
+- Non-claim: Implicit acceptance of unknown optional extensions (`EXT-002`, `EXT-006`) applies only to unrequired peer keys; callers requiring hard support for an extension MUST pass explicit required IDs to `ExtensionRegistry::negotiate` so unsupported or disabled extensions fail closed with `ExtensionError::RequiredUnsupported`.
+- Non-claim: Negotiated protocol extension state is per-session/per-instance only and is never persisted across reconnects; peers MUST re-exchange `capabilities.extensions` on every `initialize` or per-request `_meta` envelope.

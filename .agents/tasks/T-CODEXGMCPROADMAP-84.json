@@ -22,5 +22,22 @@
   },
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "limitations": [
+    "Linux/Unix domain socket discovery parity inside `gmcp_req_203_016_06_operations` is compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process embedded, stdio, and live HTTP `/mcp` + Wire SDK CLI/tool operations.",
+    "Upstream live GitHub fetch inside `check_drift_remote` is intentionally simulated locally via deterministic `--refetched` temp copies and mutated manifest copies inside the offline test environment.",
+    "Phase 1 keeps T-CODEXGMCPROADMAP-84 open until shipped to `origin/main`; VC-203-016 mastery sealing and `.agents/gmcp/evidence/VC-203-016.jsonl` belong to T-CODEXGMCPROADMAP-85."
+  ],
+  "reuse": {
+    "decision": "reuse",
+    "reason": "Reused shipped `ExtensionRegistry`, `CanonicalContentBlock`, `GmcpService`, `GmcpServer`, `StdioGate`, `susi_gmcp::requirements_ledger`, `susi_config::validate::validate_dir`, `susi_config::extensions`, `susi_wire_client::mcp::Session`, `susi mcp` / `susi extensions` CLI commands, and MCP `ledger_verify` / `extensions_*` tools without adding production crates or growing core line ceilings.",
+    "searched": "crates/susi-gmcp/src/{extensions,content,protocol,jsonrpc_gate,server,stdio,requirements_ledger,tools/control_plane}.rs, crates/susi-config/src/{extensions,validate}.rs, crates/susi-wire-client/src/mcp.rs, src/cli/{extensions_cli,mcp_cli}.rs, docs/gmcp/contract-203-{012,016}.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-config, crates/susi-wire-client, and src/cli"
+  },
+  "scopes": [
+    "docs/gmcp/contract-203-016.md",
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-84.json",
+    ".agents/gmcp/evidence"
+  ]
 }
