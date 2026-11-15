@@ -1,17 +1,9 @@
 {
   "id": "T-PROVENANCE-1",
   "title": "Verify native task provenance with independently pinned forward adoption",
-  "native_worker": "provenance-complete",
-  "status": "completed",
-  "dependencies": [],
-  "scopes": [
-    "xtask/src/bin/local-workflow.rs",
-    "xtask/src/native_provenance.rs",
-    "scripts/check-workflow-compliance.sh",
-    ".agents/tasks/T-PROVENANCE-1.json",
-    "xtask/src/native_test_counts.rs",
-    "xtask/src/native_json.rs"
-  ],
+  "goal": "Capture actual native reservations, namespaced task acceptance, and exact-tree integration logs; verify independently pinned immutable permits, complete ancestry, and scope coverage; reject forged, stale, failed, wrong-tree, unscoped, duplicate-key JSON, dangling symbolic ref, and incomplete evidence while preserving the eighteen historical workflow diagnostics as forward adoption rather than reconstructed ownership (landed across ef45493d3a077f48b44dafdf990d0a56b6b02ee9..76ba9b4d3bd6d3c85efce2afd4a03c911e061343).",
+  "size": "m",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -20,21 +12,40 @@
       "--locked",
       "-p",
       "xtask",
-      "--bin",
-      "local-workflow"
+      "--lib",
+      "native_provenance"
     ]
   },
-  "acceptance": "Capture actual native reservations, namespaced task acceptance and exact-tree integration logs; verify independently pinned immutable permits, complete ancestry and scope coverage; reject forged, stale, failed, wrong-tree, unscoped and incomplete evidence. Preserve the eighteen historical workflow diagnostics; forward adoption is new acceptance and never reconstructed historical ownership.",
   "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
-  "validation": {
-    "integrated_commits": [
-      "ef45493d3 Verify independently pinned native ownership and forward adoption evidence",
-      "82c6abdb3 Root native acceptance and failure evidence against Git garbage collection",
-      "76ba9b4d3 Reject dangling symbolic evidence references without replacing them"
+  "created_by": "PROVENANCE1",
+  "created_unix": 1793641989,
+  "implementation_commit": "ef45493d3a077f48b44dafdf990d0a56b6b02ee9",
+  "notes": "Integrated across ef45493d3a077f48b44dafdf990d0a56b6b02ee9 (Verify independently pinned native ownership and forward adoption evidence), 82c6abdb31edaafe64ab6c9fc87d7611c15c7030 (Root native acceptance and failure evidence against Git garbage collection), and 76ba9b4d3bd6d3c85efce2afd4a03c911e061343 (Reject dangling symbolic evidence references without replacing them), and marked completed in 9de6222fd6b275f2824b8d01bc0e51e518e186e3. xtask/src/bin/local-workflow.rs was subsequently refactored into a thin wrapper calling xtask::local_workflow::main_entry(), moving inline unit tests from --bin local-workflow into xtask --lib (native_provenance, native_test_counts, native_json, and local_workflow::tests).",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Reused xtask's shared SHA-256 digest and literal-pathspec Git helpers across native_provenance, duplicate-key-rejecting native_json, outer-harness native_test_counts, and local_workflow.",
+    "reused_symbols": [
+      "xtask::common::sha256_hex",
+      "xtask::native_json::from_slice",
+      "xtask::native_provenance::policy_digest",
+      "xtask::native_test_counts::test_counts"
     ],
-    "integration_lineage": "all three carry Task: LOCAL-provenance-complete and are ancestors of origin/main (verified 2026-11-03 against 82962c94a, the 0.21.47 merge)",
-    "acceptance_rerun": "cargo test --offline --locked -p xtask --bin local-workflow on origin/main 82962c94a: 39 passed, 0 failed, 0 ignored; 127.18 s; exit 0 (2026-11-03)",
-    "native_worker": "provenance-complete no longer appears in `local-workflow list`; its reservation was released after integration",
-    "closed_by": "BOARDCLOSE1103 (board reconciliation, 2026-11-03)"
-  }
+    "searched": [
+      "xtask/src/common.rs",
+      "xtask/src/native_json.rs",
+      "xtask/src/native_provenance.rs",
+      "xtask/src/native_test_counts.rs"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-PROVENANCE-1.json",
+    "scripts/check-workflow-compliance.sh",
+    "tests/task_record_schema_debt.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/native_json.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/native_test_counts.rs"
+  ],
+  "state": "open",
+  "status": "completed"
 }
