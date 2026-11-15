@@ -20,8 +20,14 @@
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
+  "state": "closed",
   "status": "completed",
+  "implementation_commit": "cf454ec174abbe0ca14606422626245c5d6d7013",
+  "closed": {
+    "at_unix": 1794766095,
+    "commit": "cf454ec174abbe0ca14606422626245c5d6d7013",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Integration (`GMCP-203-020-03`) wires the Susi-shaped server authoring SDK and plugin lifecycle across direct (`direct_call`, `bind_direct_server`, `CoreTools`, `GmcpHost::dispatch`), embedded (`TestHarness`, `StdioGate`), stdio (`GmcpServer::serve_stdio_service` / `susi mcp serve`), Streamable HTTP (`GmcpServer::serve_http_service` / `start_http_server` + `susi_wire_client::mcp::Session`), CLI (`susi extensions`), durable `TaskManager` persistence, and `susi_config::extensions` (`PluginBundle::from_pack_dir`, `sync_active_pack`) with shared `McpGatewayProxy` policy boundaries; subsequent vector stages (`T-CODEXGMCPROADMAP-110`..`113`) add dedicated security/adversarial, interop/version matrix, operations/scale, and final `.M` mastery suites.",
     "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
