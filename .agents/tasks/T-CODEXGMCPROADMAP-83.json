@@ -20,5 +20,22 @@
   },
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "limitations": [
+    "Server-role extension advertisement, unknown-key preservation, isolation, and dynamic disablement run on shipped GmcpService, StdioGate, HTTP /mcp, embedded_adapter, and Unix sockets (#[cfg(unix)]); on Windows x86_64, Unix socket parity is gated #[cfg(unix)] while stdio, embedded, and Streamable HTTP run directly.",
+    "Client-role capability/extension exchange is verified through susi_wire_client::mcp::Session (open_with_capabilities, server_capabilities, server_extensions) plus ExtensionRegistry::negotiate and susi_core::mcp_client against live gateway and reference HTTP servers; implicit unknown-extension acceptance follows EXT-002 unless callers pass required extension lists to ExtensionRegistry::negotiate.",
+    "Phase 1 keeps T-CODEXGMCPROADMAP-83 open prior to Phase 2 closure; VC-203-016 operations and signed evidence retention belong to T-CODEXGMCPROADMAP-84 and T-CODEXGMCPROADMAP-85."
+  ],
+  "reuse": {
+    "decision": "extend",
+    "reason": "Reused shipped ExtensionRegistry, CanonicalContentBlock, ExtensionCapabilities, RequestMetaObject, GmcpService, StdioGate, HTTP /mcp gateway, susi_core::mcp_client, and acceptance adapters in Susi Core, adding only Session::open_with_capabilities, Session::server_capabilities, and Session::server_extensions in crates/susi-wire-client/src/mcp.rs so the Wire SDK client retains peer capabilities.extensions from initialize.",
+    "searched": "crates/susi-gmcp/src/{extensions,content,protocol,jsonrpc_gate,server,stdio,mcp/{http,model,service}}.rs, crates/susi-core/src/mcp_client.rs, crates/susi-wire-client/src/mcp.rs, docs/gmcp/contract-203-016.md, .agents/gmcp/fixtures/README.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-core, and crates/susi-wire-client"
+  },
+  "scopes": [
+    "crates/susi-wire-client/src/mcp.rs",
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-83.json",
+    ".agents/gmcp/evidence"
+  ]
 }

@@ -75,6 +75,7 @@ pub struct Session {
     bearer: Option<String>,
     id: String,
     version: String,
+    server_capabilities: Value,
     timeout: Duration,
     next_id: u64,
     open: bool,
@@ -87,6 +88,23 @@ impl Session {
     /// address that resolves to anything but loopback is refused before a
     /// byte is sent: the bearer travels in plaintext.
     pub fn open(addr: &str, bearer: Option<&str>, timeout: Duration) -> Result<Self, WireError> {
+        Self::open_with_capabilities(addr, bearer, &json!({}), timeout)
+    }
+
+    /// Connect to `addr` (`host:port`) while advertising caller-supplied
+    /// `capabilities` (for example namespaced `extensions`) in `initialize`,
+    /// retaining the server's `result.capabilities` for inspection.
+    pub fn open_with_capabilities(
+        addr: &str,
+        bearer: Option<&str>,
+        capabilities: &Value,
+        timeout: Duration,
+    ) -> Result<Self, WireError> {
+        if !capabilities.is_object() {
+            return Err(WireError::Protocol(
+                "client capabilities must be a JSON object".into(),
+            ));
+        }
         let (host, port) = split_addr(addr)?;
         ensure_loopback(&host, port)?;
         let mut session = Self {
@@ -95,6 +113,7 @@ impl Session {
             bearer: bearer.map(str::to_string),
             id: String::new(),
             version: String::new(),
+            server_capabilities: json!({}),
             timeout,
             next_id: 1,
             open: false,
@@ -105,7 +124,7 @@ impl Session {
             "method": "initialize",
             "params": {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
+                "capabilities": capabilities,
                 "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
             }
         }))?;
@@ -118,6 +137,10 @@ impl Session {
         session.open = true;
         let result = read_result(init, 1, &mut |_| {})?;
         session.version = negotiated_version(&result)?;
+        session.server_capabilities = result
+            .get("capabilities")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         // Only the status matters (GMCP answers 202 with no body); the
         // reply is dropped unread, as the peer client does.
         session.post(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
@@ -128,6 +151,20 @@ impl Session {
     #[must_use]
     pub fn protocol_version(&self) -> &str {
         &self.version
+    }
+
+    /// The server capability object returned by `initialize`.
+    #[must_use]
+    pub fn server_capabilities(&self) -> &Value {
+        &self.server_capabilities
+    }
+
+    /// The `capabilities.extensions` map advertised by the server, if present.
+    #[must_use]
+    pub fn server_extensions(&self) -> Option<&serde_json::Map<String, Value>> {
+        self.server_capabilities
+            .get("extensions")
+            .and_then(Value::as_object)
     }
 
     /// Change the receive window for later requests.
@@ -779,5 +816,43 @@ mod tests {
             "{:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn open_with_capabilities_exchanges_and_retains_server_extensions() {
+        let (addr, seen, server) = scripted(vec![
+            "HTTP/1.1 200 OK\r\nMcp-Session-Id: ext-1\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{\"list\":{}},\"vendor.example/custom\":{\"version\":2}}}}}",
+            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+        ]);
+        let client_caps = json!({
+            "extensions": {
+                "io.modelcontextprotocol/tasks": {},
+                "vendor.example/client-only": {"enabled": true}
+            }
+        });
+        let session =
+            Session::open_with_capabilities(&addr, None, &client_caps, Duration::from_secs(5))
+                .unwrap();
+        let exts = session
+            .server_extensions()
+            .expect("server extensions must be retained");
+        assert!(exts.contains_key("io.modelcontextprotocol/tasks"));
+        assert_eq!(exts["vendor.example/custom"]["version"], 2);
+        assert!(session.server_capabilities().get("extensions").is_some());
+        session.close().unwrap();
+        server.join().unwrap();
+
+        let seen = seen.lock().unwrap();
+        let init: Value = serde_json::from_str(&seen[0].2).unwrap();
+        assert_eq!(init["params"]["capabilities"], client_caps);
+        assert!(Session::open_with_capabilities(
+            &addr,
+            None,
+            &json!("not-an-object"),
+            Duration::from_secs(1),
+        )
+        .is_err());
     }
 }
