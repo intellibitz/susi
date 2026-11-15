@@ -15,6 +15,7 @@
   "created_by": "harness-root-package",
   "created_unix": 1794780158,
   "id": "T-LOCALHARNESSZ0ROOTZ0PACKAGE-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-root-package",
   "owner": "harness-root-package",
   "scopes": [
@@ -24,7 +25,7 @@
     "crates/susi-harness/src/tests/adapter.rs",
     "docs/harness.md"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Lint the repository's own root package in the harness gate",
   "workflow": "susi-local-v2"
 }
