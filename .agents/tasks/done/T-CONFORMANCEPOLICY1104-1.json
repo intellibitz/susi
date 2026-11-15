@@ -1,17 +1,54 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-CONFORMANCEPOLICY1104-1",
-  "title": "Expand inline unit tests across susi-conformance bin, susi-config lib, susi-unsafe-ratchet, and susi-build-policy",
-  "touch": [
-    "crates/susi-conformance/src/bin/susi-conformance.rs",
-    "crates/susi-config/src/lib.rs",
-    "crates/susi-unsafe-ratchet/src/lib.rs",
-    "crates/susi-build-policy/src/lib.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-conformance --bins",
-      "cargo test --offline --locked -p susi-config -p susi-unsafe-ratchet -p susi-build-policy --lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-CONFORMANCEPOLICY1104-1",
+    "title":  "Expand inline unit tests across susi-conformance bin, susi-config lib, susi-unsafe-ratchet, and susi-build-policy",
+    "goal":  "Expand inline unit tests across susi-conformance binary, susi-config library, susi-unsafe-ratchet, and susi-build-policy.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "-p",
+                               "susi-unsafe-ratchet",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCCFGVAL1104",
+    "created_unix":  1793776337,
+    "authored":  true,
+    "base_commit":  "9ed0edbbb72090d8cfe7028bc68b9c1f48bac7fc",
+    "implementation_commit":  "785bdfbe30abc3199a232195ac99be584bed1d84",
+    "verified_commit":  "edc15ab56269b0f77f6d0f29d2345e049624de45",
+    "notes":  "Landed in 785bdfbe30abc3199a232195ac99be584bed1d84 and closed in edc15ab56269b0f77f6d0f29d2345e049624de45. Historical crate susi-build-policy later migrated out under Lean Core; surviving Core scopes target susi-config, susi-conformance, and susi-unsafe-ratchet.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-conformance/src/bin/susi-conformance.rs, crates/susi-config/src/lib.rs, crates/susi-unsafe-ratchet/src/lib.rs",
+                  "target":  "crates/susi-unsafe-ratchet/src/lib.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop UnsafeExposure, SbomEntry, and GeigerVerdict.",
+                  "reused_symbols":  [
+                                         "susi_unsafe_ratchet::UnsafeExposure",
+                                         "susi_unsafe_ratchet::SbomEntry",
+                                         "susi_unsafe_ratchet::GeigerVerdict"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-CONFORMANCEPOLICY1104-1.json",
+                   "crates/susi-config/src/lib.rs",
+                   "crates/susi-conformance/src/bin/susi-conformance.rs",
+                   "crates/susi-unsafe-ratchet/src/lib.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793776352,
+                   "commit":  "edc15ab56269b0f77f6d0f29d2345e049624de45",
+                   "by":  "ZCCFGVAL1104"
+               }
 }
