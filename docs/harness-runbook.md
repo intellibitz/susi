@@ -125,6 +125,21 @@ The report is `done`, `failed`, `skipped`, `unstarted`, `budget_exhausted`,
 the harness API snapshot (served with `--controls`) also carries the last
 operator commands.
 
+## 6. Publish the landing
+
+A task reported `done` is integrated locally: `refs/susi/integration/current` holds the
+gated merge and its receipt. Putting it on the storage remote is a separate step:
+
+```sh
+susi-commercial workflow submit-main refs/susi/integration/current
+```
+
+The publisher fast-forwards `main`, or reconciles onto it when other agents pushed in the
+meantime, and then closes the task record the landing carried: the open copy under
+`.agents/tasks/` is removed and the copy under `.agents/tasks/done/` is marked closed with
+the published commit. Nothing is left to archive by hand. The next mission starts from the
+published `main`, and `integrate` builds on it even when it has moved since.
+
 ## When something blocks
 
 | Symptom | What to do |
