@@ -343,6 +343,27 @@ fn validate_manifest_rejects_escaping_files_without_permission() {
 }
 
 #[test]
+fn validate_manifest_rejects_backslash_escapes_on_every_host() {
+    // `\` separates components on Windows, so a manifest validated on any
+    // host must refuse an escape that Windows would follow.
+    for escape in ["..\\outside.json", "sub\\..\\..\\outside.json"] {
+        let mut m = synthetic_manifest();
+        m.permissions = Vec::new();
+        m.files.clear();
+        m.files.insert("evil.json".into(), escape.into());
+        let err = validate_manifest(&m).expect_err("escape without filesystem.read must fail");
+        assert!(err.contains("filesystem.read"), "{escape}: {err}");
+    }
+    // A path that stays inside the pack root is still accepted.
+    let mut m = synthetic_manifest();
+    m.permissions = Vec::new();
+    m.files.clear();
+    m.files
+        .insert("ok.json".into(), "sub\\..\\inside.json".into());
+    assert!(validate_manifest(&m).is_ok());
+}
+
+#[test]
 fn validate_manifest_allows_escaping_files_with_filesystem_read() {
     // A pack that maps catalogs via `../../` and declares filesystem.read
     // must keep validating.

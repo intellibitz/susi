@@ -141,25 +141,19 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
 /// True when `rel` resolves outside the pack root: absolute paths always
 /// escape; a `..` that climbs above the root escapes (e.g.
 /// `../shared/coding-models.json`, which is permitted only when the pack
-/// declares `filesystem.read`).
+/// declares `filesystem.read`). Both `/` and `\` separate components on
+/// every host, so a manifest means the same wherever it is validated.
 fn path_escapes_pack_root(rel: &str) -> bool {
-    let path = Path::new(rel);
-    if path.is_absolute() {
+    if Path::new(rel).is_absolute() {
         return true;
     }
     let mut depth: u32 = 0;
-    for comp in path.components() {
-        match comp {
-            std::path::Component::ParentDir => {
-                if depth == 0 {
-                    return true;
-                }
-                depth -= 1;
-            }
-            std::path::Component::Normal(_) => depth += 1,
-            std::path::Component::Prefix(_)
-            | std::path::Component::RootDir
-            | std::path::Component::CurDir => {}
+    for part in rel.split(['/', '\\']) {
+        match part {
+            ".." if depth == 0 => return true,
+            ".." => depth -= 1,
+            "" | "." => {}
+            _ => depth += 1,
         }
     }
     false
