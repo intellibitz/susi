@@ -13,6 +13,7 @@
   },
   "base": "ca320cc2b6acfec81baa90602c8df8a690022c7c",
   "id": "T-LOCALHARNESSZ0RESUME-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-resume",
   "owner": "harness-resume",
   "scopes": [
@@ -23,7 +24,7 @@
     "docs/harness-runbook.md",
     "docs/harness.md"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Let a harness rerun land the candidate a failed landing retained",
   "workflow": "susi-local-v2"
 }
