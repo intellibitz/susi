@@ -14,6 +14,7 @@
   },
   "base": "9ff08730050ca448a0385256992e005383cb1041",
   "id": "T-LOCALHARNESSZ0GMCPZ0ALLOWS-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-gmcp-allows",
   "owner": "harness-gmcp-allows",
   "scopes": [
@@ -35,7 +36,7 @@
     "crates/susi-gmcp/src/tools/provider_tools.rs",
     "crates/susi-gmcp/src/tools/semantic_index.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Remove the redundant unjustified test-module panic-path allows in susi-gmcp",
   "workflow": "susi-local-v2"
 }
