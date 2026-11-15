@@ -29,5 +29,13 @@
     "decision": "existing",
     "searched": "crates/susi-harness adapter.rs (close, claim, base_is_ancestor, the git runner), xtask local_workflow sync_commit.rs (reconcile_claimed_worktree_locked advances the claim base) and native_provenance.rs (task_for_claim does not bind the record to a base).",
     "reason": "One ancestry check through the adapter's existing git runner; nothing new is built."
+  },
+  "status": "implemented",
+  "results": {
+    "change": "SusiTarget::close accepts a task record whose base is an ancestor of the claim's current base (the coordinator advances the claim base when it reconciles a worktree with a newer main); every other ownership check is unchanged and the record is not rewritten. docs/harness-runbook.md lists what a fresh host needs and how a failed landing is finished.",
+    "acceptance": "cargo test --offline --locked -p susi-harness --lib the_precheck_closes_a_task_that_passes_on_the_untouched_base passed; with the ancestry check taken out the same test fails with 'task is not owned by this native reservation'.",
+    "live": "Reproduced on mission claude-selfbuild-green (main moved 9ff087300 -> 69be24b64 mid-mission and close refused); after the fix the same retained candidate closed, and mission claude-selfbuild-3 closed a task across another move of main.",
+    "known_gap": "A rerun of a mission cannot resume a candidate a failed landing retained (workflow start refuses the held claim); the runbook documents the operator path. Not built here: the harness crate and the repository test-line budget had no room for a tested resume path.",
+    "coordination": "No claim could be published from this cloud session (HTTP 403 on refs/claims/* and refs/board/*); coordinated through this record and the commit trailers."
   }
 }

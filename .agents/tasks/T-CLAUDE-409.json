@@ -32,5 +32,12 @@
     "decision": "existing",
     "searched": "Inside Susi: crates/susi-harness adaptive.rs/monthly.rs/workload.rs (the Argon-only presence opt-in and the workload Codex sandbox route are the existing policy patterns), executor.rs and the adapter's native six-tool worker contract. Outside: the installed Claude Code CLI's own switches (claude --help: --restricted, --safe-mode, --strict-mcp-config, --tools, --permission-mode, --permission-prompts, --allowedTools).",
     "reason": "Reuse the CLI's own restricted mode and the crate's existing presence-opt-in pattern; no sandbox is built and no dependency is added."
+  },
+  "status": "implemented",
+  "results": {
+    "change": "SUSI_HARNESS_CLI_GOVERNED (presence opt-in) makes CliSubRunner run Claude Code in its own restricted mode on the cli:, sub: and monthly: routes; any other tool and any command override are refused before launch; without the variable every invocation is unchanged. executor::run and AdaptiveRunner::from_env read it through CliSubRunner::from_env.",
+    "acceptance": "cargo test --offline --locked -p susi-harness --lib adaptive passed (the governed checks are adaptive::monthly::tests::governed_policy_swaps_claudes_bypass_and_refuses_the_rest).",
+    "live": "Four harness missions ran a cli:claude:sonnet worker under this profile on Linux x86_64; in a probe the profile allowed an edit inside the workspace and cargo, and denied curl, git init, a read of /etc/hostname and a write outside the workspace.",
+    "coordination": "This cloud session could read the Susi Board but every push of refs/board/* and refs/claims/* was refused with HTTP 403, so no claim was published and the task could not be closed through the queue (close needs a live claim). Mandate 76 section 7.3: coordinated through this record and the commit trailers."
   }
 }
