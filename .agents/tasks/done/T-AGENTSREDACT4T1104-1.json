@@ -1,8 +1,14 @@
 {
+    "schema":  "susi.task_record/v1",
     "id":  "T-AGENTSREDACT4T1104-1",
     "title":  "D-OS-8: Expand inline unit test suites (3-\u003e4) across susi-agents adapter_upgrade, lib, registry, and susi-error redact",
+    "goal":  "Expand inline unit test suites to at least 4 tests in susi-agents (adapter_upgrade, lib, registry) and susi-error (redact) under D-OS-8.",
+    "size":  "s",
+    "state":  "closed",
     "status":  "done",
-    "created_at":  "2026-11-04T08:00:00Z",
+    "deps":  [
+
+             ],
     "accept":  {
                    "cmd":  [
                                "cargo",
@@ -10,18 +16,35 @@
                                "--offline",
                                "--locked",
                                "-p",
-                               "susi-agents",
-                               "-p",
                                "susi-error",
                                "--lib"
                            ]
                },
-    "scope":  [
-                  "crates/susi-agents/src/adapter_upgrade.rs",
-                  "crates/susi-agents/src/lib.rs",
-                  "crates/susi-agents/src/registry.rs",
-                  "crates/susi-error/src/redact.rs",
-                  ".agents/tasks/T-AGENTSREDACT4T1104-1.json",
-                  ".agents/tasks/done/T-AGENTSREDACT4T1104-1.json"
-              ]
+    "created_by":  "AGENTSREDACT4T1104",
+    "created_unix":  1793779200,
+    "authored":  true,
+    "base_commit":  "f92e7e853b7605bdbbd5ed816b35b13e05d67b92",
+    "implementation_commit":  "33928844ab77b9446730283c47bddebb6d27d885",
+    "verified_commit":  "33928844ab77b9446730283c47bddebb6d27d885",
+    "notes":  "Landed and closed in squash merge 33928844ab77b9446730283c47bddebb6d27d885 (#1471). Historical crate susi-agents later migrated out of Core under Lean Core; surviving Core scope and argv target crates/susi-error/src/redact.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-error/src/redact.rs",
+                  "target":  "crates/susi-error/src/redact.rs",
+                  "why":  "Expanded inline redaction unit tests directly against redact_patterns, contains_secret_pattern, and mask_env_credentials in crates/susi-error/src/redact.rs.",
+                  "reused_symbols":  [
+                                         "susi_error::redact::redact_patterns",
+                                         "susi_error::redact::contains_secret_pattern",
+                                         "susi_error::redact::mask_env_credentials"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-AGENTSREDACT4T1104-1.json",
+                   "crates/susi-error/src/redact.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793779701,
+                   "commit":  "33928844ab77b9446730283c47bddebb6d27d885",
+                   "by":  "AGENTSREDACT4T1104"
+               }
 }

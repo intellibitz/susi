@@ -1,26 +1,54 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ABICELL1104-1",
-  "title": "feat(abi): add cell_bind_addr_with and harden syscall, router, and cell_server tests (D-OS-8)",
-  "status": "done", "completed_at": "2026-11-04T02:38:30Z",
-  "created_at": "2026-11-04T02:35:50Z",
-  "owner": "gemini",
-  "touch": [
-    "crates/susi-abi/src/cell.rs",
-    "crates/susi-abi/src/syscall.rs",
-    "crates/susi-abi/src/router.rs",
-    "crates/susi-abi/src/cell_server.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-abi",
-      "--all-features",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ABICELL1104-1",
+    "title":  "feat(abi): add cell_bind_addr_with and harden syscall, router, and cell_server tests (D-OS-8)",
+    "goal":  "Add cell_bind_addr_with and expand inline unit tests across cell, syscall, router, and cell_server in crates/susi-abi (D-OS-8).",
+    "size":  "m",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-abi",
+                               "--all-features",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GEMINI",
+    "created_unix":  1793759750,
+    "authored":  true,
+    "base_commit":  "f811ba15382cc2d2f53343dfd470395ce64283f9",
+    "implementation_commit":  "56008fded190187f9a2392cb86432ed80f622ecc",
+    "verified_commit":  "56008fded190187f9a2392cb86432ed80f622ecc",
+    "notes":  "Landed and closed in squash merge 56008fded190187f9a2392cb86432ed80f622ecc (#1399) across crates/susi-abi/src/{cell,cell_server,router,syscall}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-abi/src/cell.rs, crates/susi-abi/src/cell_server.rs, crates/susi-abi/src/router.rs, crates/susi-abi/src/syscall.rs",
+                  "target":  "crates/susi-abi/src/cell_server.rs",
+                  "why":  "Extended existing SwarmCell, CellState, and cell_server::serve contracts inside crates/susi-abi without adding external dependencies.",
+                  "reused_symbols":  [
+                                         "susi_abi::cell::SwarmCell",
+                                         "susi_abi::cell::CellState",
+                                         "susi_abi::cell_server::serve"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ABICELL1104-1.json",
+                   "crates/susi-abi/src/cell.rs",
+                   "crates/susi-abi/src/cell_server.rs",
+                   "crates/susi-abi/src/router.rs",
+                   "crates/susi-abi/src/syscall.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793760109,
+                   "commit":  "56008fded190187f9a2392cb86432ed80f622ecc",
+                   "by":  "GEMINI"
+               }
 }

@@ -1,0 +1,50 @@
+{
+    "schema":  "susi.task_record/v1",
+    "id":  "T-AG3DONEDEBT-1",
+    "title":  "Normalize first 10 legacy closed 1104 task records and retire schema debt",
+    "goal":  "Reconcile git-verified historical provenance (base_commit, implementation_commit, verified_commit, closed) and surviving Core scopes across the first 10 legacy .agents/tasks/done/T-*1104-1.json records (T-A2AEXEC1104-1 through T-CONFIGBACKUPENV1104-1) and remove their 10 entries from tests/task_record_schema_debt.json (81 -\u003e 71).",
+    "size":  "m",
+    "state":  "open",
+    "status":  "implemented",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "task_records"
+                           ]
+               },
+    "created_by":  "AG3HOUSEKEEP",
+    "created_unix":  1794781091,
+    "authored":  true,
+    "base_commit":  "3724e24100876e0a0685ba310f8f6c86c24fde45",
+    "notes":  "Phase 1 normalizes T-A2AEXEC1104-1, T-ABICELL1104-1, T-ABIEVIMEMLLM4T1104-1, T-ABINATIVE1104-1, T-ABINATIVETANTIVY1104-1, T-AGENTSREDACT4T1104-1, T-CANDLECLOUD4T1104-1, T-CFGJSONTYPES1104-1, T-CLUSTERKEY1104-1, and T-CONFIGBACKUPENV1104-1 in .agents/tasks/done/ and shrinks tests/task_record_schema_debt.json from 81 to 71 entries without touching T-STEP1* or active claims.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "tests/task_records.rs, tests/task_record_schema_debt.json, and .agents/tasks/done/T-*1104-1.json in Susi Core and susi-dev-workflow in Susi Commercial Apps",
+                  "target":  "tests/task_records.rs",
+                  "why":  "Normalized the 10 legacy closed task records directly to the existing susi.task_record/v1 schema enforced by tests/task_records.rs (using susi_paths::hex::encode) without altering test harness code.",
+                  "reused_symbols":  [
+                                         "susi_paths::hex::encode"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/T-AG3DONEDEBT-1.json",
+                   ".agents/tasks/done/T-A2AEXEC1104-1.json",
+                   ".agents/tasks/done/T-ABICELL1104-1.json",
+                   ".agents/tasks/done/T-ABIEVIMEMLLM4T1104-1.json",
+                   ".agents/tasks/done/T-ABINATIVE1104-1.json",
+                   ".agents/tasks/done/T-ABINATIVETANTIVY1104-1.json",
+                   ".agents/tasks/done/T-AGENTSREDACT4T1104-1.json",
+                   ".agents/tasks/done/T-CANDLECLOUD4T1104-1.json",
+                   ".agents/tasks/done/T-CFGJSONTYPES1104-1.json",
+                   ".agents/tasks/done/T-CLUSTERKEY1104-1.json",
+                   ".agents/tasks/done/T-CONFIGBACKUPENV1104-1.json",
+                   "tests/task_record_schema_debt.json"
+               ]
+}

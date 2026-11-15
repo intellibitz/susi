@@ -1,26 +1,53 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ABINATIVE1104-1",
-  "title": "test(abi,native-client): add evidence, episodic memory, and loopback WasmHost contract tests (D-OS-8)",
-  "status": "done", "completed_at": "2026-11-04T03:03:15Z",
-  "created_at": "2026-11-04T02:59:30Z",
-  "owner": "gemini",
-  "touch": [
-    "crates/susi-abi/src/evidence.rs",
-    "crates/susi-abi/src/memory.rs",
-    "crates/susi-native-client/src/lib.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-abi",
-      "-p",
-      "susi-native-client",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ABINATIVE1104-1",
+    "title":  "test(abi,native-client): add evidence, episodic memory, and loopback WasmHost contract tests (D-OS-8)",
+    "goal":  "Add contract unit tests covering evidence receipts, episodic memory, and loopback WasmHost execution in susi-abi and susi-native-client (D-OS-8).",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-abi",
+                               "-p",
+                               "susi-native-client",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GEMINI",
+    "created_unix":  1793761170,
+    "authored":  true,
+    "base_commit":  "6a0746eb69e217752ec8c9a59c9d1d701b53b0c1",
+    "implementation_commit":  "1a866e078e3818fd80cb45e681bd6f8ce6124314",
+    "verified_commit":  "1a866e078e3818fd80cb45e681bd6f8ce6124314",
+    "notes":  "Landed and closed in squash merge 1a866e078e3818fd80cb45e681bd6f8ce6124314 (#1406) across crates/susi-abi/src/{evidence,memory}.rs and crates/susi-native-client/src/lib.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-abi/src/evidence.rs, crates/susi-abi/src/memory.rs, crates/susi-native-client/src/lib.rs",
+                  "target":  "crates/susi-abi/src/evidence.rs",
+                  "why":  "Reused existing ToolReceipt, GroundedClaim, and susi-native-client loopback surfaces in inline unit suites.",
+                  "reused_symbols":  [
+                                         "susi_abi::evidence::ToolReceipt",
+                                         "susi_abi::evidence::GroundedClaim"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ABINATIVE1104-1.json",
+                   "crates/susi-abi/src/evidence.rs",
+                   "crates/susi-abi/src/memory.rs",
+                   "crates/susi-native-client/src/lib.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793761656,
+                   "commit":  "1a866e078e3818fd80cb45e681bd6f8ce6124314",
+                   "by":  "GEMINI"
+               }
 }

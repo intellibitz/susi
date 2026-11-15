@@ -1,35 +1,46 @@
 {
-  "id": "T-CANDLECLOUD4T1104-1",
-  "title": "Expand inline unit tests to 4 in susi-vendor-cloud autoscale, failover_policy, and orphan_gc (CEO Job #139, D-OS-8)",
-  "status": "done",
-  "state": "closed",
-  "agent": "ZCKEYROT1104",
-  "owner": "ZCKEYROT1104",
-  "branch": "candle-cloud-4t-1104",
-  "scope": [
-    "crates/susi-vendor-cloud/src/autoscale.rs",
-    "crates/susi-vendor-cloud/src/failover_policy.rs",
-    "crates/susi-vendor-cloud/src/orphan_gc.rs"
-  ],
-  "scopes": [
-    "crates/susi-vendor-cloud/src/autoscale.rs",
-    "crates/susi-vendor-cloud/src/failover_policy.rs",
-    "crates/susi-vendor-cloud/src/orphan_gc.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-vendor-cloud",
-      "--lib"
-    ]
-  },
-  "created_at": "2026-11-04T08:30:00Z",
-  "claimed_at": 1793780400,
-  "closed_at": 1793781900,
-  "lease_until": 1793866800,
-  "lease_until_unix": 1793866800
+    "schema":  "susi.task_record/v1",
+    "id":  "T-CANDLECLOUD4T1104-1",
+    "title":  "Expand inline unit tests to 4 in susi-vendor-cloud autoscale, failover_policy, and orphan_gc (CEO Job #139, D-OS-8)",
+    "goal":  "Expand inline unit test suites to at least 4 tests across susi-vendor-cloud autoscale, failover_policy, and orphan_gc modules (CEO Job #139, D-OS-8).",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "lean_core_ceilings"
+                           ]
+               },
+    "created_by":  "ZCKEYROT1104",
+    "created_unix":  1793780400,
+    "authored":  true,
+    "base_commit":  "715443b2b2e5dfbafea1812b22ffca987d259d35",
+    "implementation_commit":  "a457d8222c38822d750411220d8fe691daa9c680",
+    "verified_commit":  "a457d8222c38822d750411220d8fe691daa9c680",
+    "notes":  "Landed and closed in squash merge a457d8222c38822d750411220d8fe691daa9c680 (#1481) across crates/susi-vendor-cloud/src/{autoscale,failover_policy,orphan_gc}.rs; susi-vendor-cloud subsequently migrated out of Core under Lean Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "tests/lean_core_ceilings.rs and historical crates/susi-vendor-cloud",
+                  "target":  "tests/lean_core_ceilings.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites in susi-vendor-cloud prior to its Lean Core migration enforced by tests/lean_core_ceilings.rs.",
+                  "reused_symbols":  [
+                                         "pillar_source_does_not_grow"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-CANDLECLOUD4T1104-1.json"
+               ],
+    "closed":  {
+                   "at_unix":  1793782166,
+                   "commit":  "a457d8222c38822d750411220d8fe691daa9c680",
+                   "by":  "ZCKEYROT1104"
+               }
 }

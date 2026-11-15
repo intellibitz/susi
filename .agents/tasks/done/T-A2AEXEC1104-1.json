@@ -1,23 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-A2AEXEC1104-1",
-  "title": "test(gawd-a2a): add A2A protocol executor inline contract test suite",
-  "status": "done",
-  "completed_at": "2026-11-04T03:45:00Z",
-  "created_at": "2026-11-04T03:43:00Z",
-  "owner": "A2AEXEC1104",
-  "touch": [
-    "crates/susi-gawd-a2a/src/executor.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gawd-a2a",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-A2AEXEC1104-1",
+    "title":  "test(gawd-a2a): add A2A protocol executor inline contract test suite",
+    "goal":  "Add inline unit contract tests covering A2A protocol executor request handling, SLO publication, and error behavior in crates/susi-gawd-a2a/src/executor.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-a2a",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "A2AEXEC1104",
+    "created_unix":  1793763780,
+    "authored":  true,
+    "base_commit":  "52ca111a065c962e9327d5c12d0c40d9f5e8c860",
+    "implementation_commit":  "453421d63d881f4703d7d03128520863663820d1",
+    "verified_commit":  "453421d63d881f4703d7d03128520863663820d1",
+    "notes":  "Landed and closed in squash merge 453421d63d881f4703d7d03128520863663820d1 (#1420) across crates/susi-gawd-a2a/src/executor.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gawd-a2a/src/executor.rs (reused GawdAcpExecutor and SloSample)",
+                  "target":  "crates/susi-gawd-a2a/src/executor.rs",
+                  "why":  "Extended inline unit coverage directly inside crates/susi-gawd-a2a/src/executor.rs atop GawdAcpExecutor and SloSample.",
+                  "reused_symbols":  [
+                                         "susi_gawd_a2a::executor::GawdAcpExecutor",
+                                         "susi_gawd_a2a::executor::SloSample"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-A2AEXEC1104-1.json",
+                   "crates/susi-gawd-a2a/src/executor.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793764653,
+                   "commit":  "453421d63d881f4703d7d03128520863663820d1",
+                   "by":  "A2AEXEC1104"
+               }
 }
