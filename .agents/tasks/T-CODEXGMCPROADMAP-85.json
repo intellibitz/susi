@@ -23,5 +23,23 @@
   },
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "limitations": [
+    "Linux/Unix domain socket transport checks in `gmcp_req_203_016_03_integration` and `gmcp_vc_203_016_mastery` are compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process `GmcpService`, embedded adapter, `susi mcp serve` stdio, and Streamable HTTP `/mcp` + Wire SDK `Session` parity.",
+    "Upstream official extension watch runtime (`ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)`) inspects the compiled/pinned `OFFICIAL_EXTENSIONS` slice offline while upstream drift detection compares vendored `.agents/gmcp/spec/` via `--refetched`.",
+    "Phase 1 keeps T-CODEXGMCPROADMAP-85 open until shipped to `origin/main` with two-phase `record-gmcp` + `record-gmcp --mastery` evidence bound in `.agents/gmcp/evidence/VC-203-016.jsonl`; Phase 2 executes formal task closure."
+  ],
+  "reuse": {
+    "decision": "reuse",
+    "reason": "Reused shipped `ExtensionRegistry`, `CanonicalContentBlock`, `GmcpService`, `GmcpServer`, `StdioGate`, `BoundedLines`, `susi_gmcp::requirements_ledger`, `susi_config::extensions`, `susi_wire_client::mcp::Session`, `susi extensions` CLI, and `CoreTools::extensions_*` without adding production crates or growing `crates/susi-gmcp/src` line ceilings.",
+    "searched": "crates/susi-gmcp/src/{extensions,content,protocol,jsonrpc_gate,server,stdio,tools/control_plane}.rs, crates/susi-config/src/extensions.rs, crates/susi-wire-client/src/mcp.rs, src/cli/extensions_cli.rs, docs/gmcp/contract-203-016.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-config, crates/susi-wire-client, and src/cli"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-85.json",
+    ".agents/roadmap.json",
+    ".agents/roadmap-verdicts/VC-203-016.json",
+    ".agents/gmcp/evidence"
+  ]
 }

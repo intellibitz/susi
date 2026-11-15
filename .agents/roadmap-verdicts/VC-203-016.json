@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-016",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_016_01_contract through _06_operations plus gmcp_vc_203_016_mastery (7 tests): docs/gmcp/contract-203-016.md binds EXT-001..011, 10 pinned specification/schema/registry files in .agents/gmcp/sources.json, threat model, SLOs, non-claims, and incident runbook; production code in crates/susi-gmcp/src/{extensions,content,protocol,jsonrpc_gate,server,stdio,tools/control_plane}.rs, crates/susi-config/src/extensions.rs, crates/susi-wire-client/src/mcp.rs, and src/cli/extensions_cli.rs enforces namespaced capability discovery, version negotiation, collision and downgrade refusal, disable isolation, unknown extension round-trip, official extension watch, content/frame bounds, and CLI<->CoreTools pack lifecycle parity; backfilled integration and adversarial gates plus mastery verification consume and strictly verify retained commit-bound non-waived non-mock evidence for GMCP-203-016-01..06 while rejecting missing, stale, unsigned, locally modified, waived, mock-only, unlinked, wrong-digest, and zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-79",
+    "T-CODEXGMCPROADMAP-80",
+    "T-CODEXGMCPROADMAP-81",
+    "T-CODEXGMCPROADMAP-82",
+    "T-CODEXGMCPROADMAP-83",
+    "T-CODEXGMCPROADMAP-84",
+    "T-CODEXGMCPROADMAP-85"
+  ],
+  "recorded_by": "AG2FEATURES",
+  "recorded_unix": 1794721276
+}

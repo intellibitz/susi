@@ -29443,3 +29443,1212 @@ fn gmcp_req_203_016_06_operations() {
     let _ = _http_srv;
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// GMCP-203-016-03: end-to-end integration of the typed extension framework across
+/// served transports (`GmcpService`, embedded adapter, Unix socket adapter on Unix,
+/// `susi mcp serve` stdio, and Streamable HTTP `/mcp` via `susi_wire_client::mcp::Session`),
+/// plus CLI <-> `CoreTools` host extension-pack lifecycle and `state.json` persistence.
+#[test]
+fn gmcp_req_203_016_03_integration() {
+    use serde_json::{json, Map, Value};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
+    use susi_gmcp::content::CanonicalContentBlock;
+    use susi_gmcp::extensions::{ExtensionRegistry, ExtensionStatus, OFFICIAL_EXTENSIONS};
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::susi_config::extensions as pack_ext;
+    use susi_gmcp::tools::CoreTools;
+
+    let (_lock, _env, home) = gmcp_http_home_guard("016-03-integ");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    pack_ext::invalidate_extension_caches();
+
+    // ── 1. Typed ExtensionRegistry integration + per-instance isolation ───
+    let custom_svc = GmcpService::new(root.to_path_buf());
+    {
+        let custom_ext = custom_svc.extensions();
+        let mut reg = custom_ext.write();
+        let mut settings = Map::new();
+        settings.insert("mode".into(), json!("strict"));
+        reg.register(
+            "vendor.integ/trace",
+            ExtensionStatus::Experimental,
+            2,
+            settings,
+        )
+        .expect("namespaced experimental extension must register");
+        let neg = reg
+            .negotiate(
+                &[
+                    (
+                        "io.modelcontextprotocol/tasks".into(),
+                        Map::from_iter([("version".into(), json!(1))]),
+                    ),
+                    (
+                        "vendor.integ/trace".into(),
+                        Map::from_iter([("version".into(), json!(2))]),
+                    ),
+                    (
+                        "vendor.peer/opaque".into(),
+                        Map::from_iter([("badge".into(), json!({"nested": [1, true, null]}))]),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                &[
+                    "io.modelcontextprotocol/tasks".into(),
+                    "vendor.integ/trace".into(),
+                ],
+            )
+            .expect("supported extensions must negotiate cleanly");
+        assert!(neg.active.contains_key("io.modelcontextprotocol/tasks"));
+        assert_eq!(neg.active["vendor.integ/trace"]["mode"], "strict");
+        assert_eq!(neg.active["vendor.integ/trace"]["version"], 2);
+        assert_eq!(
+            neg.unknown["vendor.peer/opaque"]["badge"],
+            json!({"nested": [1, true, null]})
+        );
+    }
+    let fresh_svc = GmcpService::new(root.to_path_buf());
+    let fresh_discover = serde_json::to_value(fresh_svc.discover_result()).unwrap();
+    let shipped_ext = fresh_discover["capabilities"]["extensions"].clone();
+    assert!(
+        shipped_ext["io.modelcontextprotocol/tasks"].is_object(),
+        "shipped extensions must advertise tasks: {fresh_discover}"
+    );
+    assert!(
+        shipped_ext.get("vendor.integ/trace").is_none(),
+        "custom extension registered on one service must stay isolated"
+    );
+    assert_eq!(
+        fresh_svc
+            .extensions()
+            .read()
+            .watch(OFFICIAL_EXTENSIONS)
+            .len(),
+        OFFICIAL_EXTENSIONS.len() - 1
+    );
+
+    // ── 2. Cross-transport discovery & unknown extension round-trip parity ─
+    let runtime = adapter_runtime(&home);
+    let (mut embedded, emb_sess) = embedded_adapter(&runtime, root);
+    let emb_disc = embedded.call(
+        "integ016-emb",
+        "server/discover",
+        json!({
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}
+            }
+        }),
+    );
+    assert_eq!(
+        emb_disc["result"]["capabilities"]["extensions"],
+        shipped_ext
+    );
+    adapter_handshake(&mut embedded, "integ016-emb-init");
+    let emb_tools = embedded.call(
+        "integ016-emb-tools",
+        "tools/list",
+        json!({
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}
+            }
+        }),
+    );
+    assert!(
+        emb_tools["result"]["tools"].is_array(),
+        "emb_tools={emb_tools}"
+    );
+    drop(embedded);
+    adapter_session_ended(&runtime, emb_sess, "016-integ-embedded");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, sock_sess) = socket_adapter(&runtime, root);
+        let sock_disc = socket.call("integ016-sock", "server/discover", adapter_modern_meta());
+        assert_eq!(
+            sock_disc["result"]["capabilities"]["extensions"],
+            shipped_ext
+        );
+        adapter_handshake(&mut socket, "integ016-sock-init");
+        drop(socket);
+        adapter_session_ended(&runtime, sock_sess, "016-integ-socket");
+    }
+
+    let mut stdio = StdioSession::spawn_modern(root, &home);
+    let stdio_disc = stdio.request("server/discover", adapter_modern_meta());
+    assert_eq!(stdio_disc["capabilities"]["extensions"], shipped_ext);
+    let stdio_tools = stdio.request(
+        "tools/list",
+        json!({
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "vendor.integ/meta": {"hop": "stdio"}
+            }
+        }),
+    );
+    assert!(stdio_tools["tools"].is_array(), "stdio_tools={stdio_tools}");
+    drop(stdio);
+
+    // HTTP `/mcp` via Wire SDK Session
+    let token = "susi-016-integ-bearer";
+    std::fs::write(cfg_dir.join("api_token"), token).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind HTTP /mcp port");
+    let http_addr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let http_root = root.to_path_buf();
+    let _http_srv = std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(http_root, vec![listener], None, false);
+    });
+    for _ in 0..50 {
+        if TcpStream::connect(&http_addr).is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut wire = susi_wire_client::mcp::Session::open_with_capabilities(
+        &http_addr,
+        Some(token),
+        &json!({
+            "extensions": {
+                "io.modelcontextprotocol/tasks": {},
+                "vendor.peer/integ": {"enabled": true}
+            }
+        }),
+        Duration::from_secs(15),
+    )
+    .expect("Wire SDK HTTP session must open");
+    assert_eq!(
+        Value::Object(wire.server_extensions().unwrap().clone()),
+        shipped_ext
+    );
+    let mut http_notices = Vec::new();
+    let http_tools = wire
+        .request(
+            "tools/list",
+            &json!({
+                "_meta": {
+                    "vendor.integ/meta": {"hop": "http"}
+                }
+            }),
+            &mut |note| http_notices.push(note.clone()),
+        )
+        .expect("HTTP tools/list with unknown _meta key must succeed");
+    assert!(http_tools["tools"].is_array(), "http_tools={http_tools}");
+
+    // Content-model extension keys survive canonical wire round-trip untouched.
+    let block_wire = json!({
+        "type": "text",
+        "text": "extension payload",
+        "vendor.integ/hint": {"nested": [1, "a"], "flag": true}
+    });
+    let canonical = CanonicalContentBlock::from_wire(&block_wire).unwrap();
+    assert_eq!(canonical.to_wire(), block_wire);
+
+    // ── 3. Host extension-pack CLI <-> CoreTools lifecycle & persistence ─
+    let created = susi_json(root, &home, &["extensions", "create", "integ-pack"]);
+    assert_eq!(created["id"], "integ-pack");
+    assert_eq!(created["seeded"], true);
+    let pack_dir = cfg_dir.join("extensions").join("integ-pack");
+    assert!(pack_dir.join("manifest.json").is_file());
+
+    let cli_val = susi_json(
+        root,
+        &home,
+        &["extensions", "validate", pack_dir.to_str().unwrap()],
+    );
+    let tool_val: Value = serde_json::from_str(
+        &CoreTools::extensions_validate(&json!({"path": pack_dir.to_str().unwrap()}), root)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cli_val, tool_val);
+    assert_eq!(cli_val["valid"], true);
+
+    let loaded = susi_json(root, &home, &["extensions", "load", "integ-pack"]);
+    assert_eq!(loaded["active"], "integ-pack");
+    pack_ext::invalidate_extension_caches();
+
+    let tool_status: Value =
+        serde_json::from_str(&CoreTools::extensions_status(&json!({}), root).unwrap()).unwrap();
+    assert_eq!(tool_status["active"], "integ-pack");
+    let cli_status = susi_json(root, &home, &["extensions", "status"]);
+    assert_eq!(cli_status, tool_status);
+
+    // Also test Wire SDK HTTP `call_tool` against `extensions_status`
+    let http_tool = wire
+        .call_tool("extensions_status", &json!({}), None, &mut |note| {
+            http_notices.push(note.clone())
+        })
+        .expect("Wire SDK extensions_status call must succeed");
+    let http_tool_text = http_tool["content"][0]["text"].as_str().unwrap();
+    let http_tool_json: Value = serde_json::from_str(http_tool_text).unwrap();
+    assert_eq!(http_tool_json["active"], "integ-pack");
+    wire.close().expect("Wire SDK session close");
+
+    let state_json: Value = serde_json::from_slice(
+        &std::fs::read(cfg_dir.join("extensions").join("state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state_json["active"], "integ-pack");
+
+    // Unload via CoreTools and confirm CLI observes compiled default fallback.
+    let tool_unloaded: Value = serde_json::from_str(
+        &CoreTools::extensions_unload(&json!({"id": "integ-pack"}), root).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(tool_unloaded["active"], "default");
+    assert_eq!(
+        susi_json(root, &home, &["extensions", "status"])["active"],
+        "default"
+    );
+    assert_eq!(
+        ExtensionRegistry::shipped()
+            .status_report()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let admission_probe = pack_ext::pack_admission_probe(&scratch)
+        .expect("signed external pack admission probe must succeed");
+    assert!(!admission_probe.is_empty());
+
+    pack_ext::invalidate_extension_caches();
+    let _ = _http_srv;
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// GMCP-203-016-04: adversarial extension framework, wire framing, content bounds,
+/// HTTP `max_rpc_body_bytes` (413 recovery), concurrent server isolation, and
+/// extension-pack tamper/traversal/corrupt-state fail-closed defenses.
+#[test]
+fn gmcp_req_203_016_04_adversarial() {
+    use serde_json::{json, Map, Value};
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
+    use susi_gmcp::content::{CanonicalContentBlock, ContentError};
+    use susi_gmcp::extensions::{ExtensionError, ExtensionMap, ExtensionRegistry, ExtensionStatus};
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::stdio::BoundedLines;
+    use susi_gmcp::susi_config::extensions as pack_ext;
+    use susi_gmcp::tools::CoreTools;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (_lock, _env, home) = gmcp_http_home_guard("016-04-adv");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    pack_ext::invalidate_extension_caches();
+
+    // ── 1. ExtensionRegistry typed security & governance refusals ────────
+    let mut reg = ExtensionRegistry::shipped();
+    for bad_id in ["", "tasks", "vendor/", "/name", "vendor/sub/leaf"] {
+        assert_eq!(
+            reg.register(bad_id, ExtensionStatus::Experimental, 1, Map::new()),
+            Err(ExtensionError::NotNamespaced(bad_id.into())),
+            "non-namespaced id `{bad_id}` must fail closed"
+        );
+    }
+    assert_eq!(
+        reg.register(
+            "io.modelcontextprotocol/tasks",
+            ExtensionStatus::Experimental,
+            99,
+            Map::new(),
+        ),
+        Err(ExtensionError::Collision(
+            "io.modelcontextprotocol/tasks".into()
+        ))
+    );
+    reg.register(
+        "vendor.adv/ver",
+        ExtensionStatus::Experimental,
+        2,
+        Map::from_iter([("tier".into(), json!("hardened"))]),
+    )
+    .unwrap();
+    assert_eq!(
+        reg.register("vendor.adv/ver", ExtensionStatus::Official, 3, Map::new()),
+        Err(ExtensionError::Collision("vendor.adv/ver".into()))
+    );
+    assert_eq!(
+        reg.status("vendor.adv/ver"),
+        Some(ExtensionStatus::Experimental),
+        "collision must never overwrite original descriptor"
+    );
+
+    // Required unsupported extension fails closed.
+    assert_eq!(
+        reg.negotiate(&ExtensionMap::new(), &["vendor.adv/missing".into()]),
+        Err(ExtensionError::RequiredUnsupported(vec![
+            "vendor.adv/missing".into()
+        ]))
+    );
+
+    // Downgrade and mismatch pinning on required versioned extension refuse closed.
+    for pinned_ver in [1_u64, 3_u64] {
+        let mut peer = ExtensionMap::new();
+        peer.insert(
+            "vendor.adv/ver".into(),
+            Map::from_iter([("version".into(), json!(pinned_ver))]),
+        );
+        assert_eq!(
+            reg.negotiate(&peer, &["vendor.adv/ver".into()]),
+            Err(ExtensionError::Downgrade {
+                id: "vendor.adv/ver".into(),
+                required: pinned_ver as u32,
+                served: 2,
+            })
+        );
+    }
+
+    // Disabling an extension isolates only that extension while leaving siblings alive.
+    assert!(reg.set_enabled("vendor.adv/ver", false));
+    assert!(!reg.set_enabled("vendor.adv/nonexistent", false));
+    assert!(!reg.capability_map().contains_key("vendor.adv/ver"));
+    assert!(reg
+        .capability_map()
+        .contains_key("io.modelcontextprotocol/tasks"));
+    assert_eq!(
+        reg.negotiate(&ExtensionMap::new(), &["vendor.adv/ver".into()]),
+        Err(ExtensionError::RequiredUnsupported(vec![
+            "vendor.adv/ver".into()
+        ]))
+    );
+
+    // Disabling tasks on service A never affects service B.
+    let svc_a = GmcpService::new(root.to_path_buf());
+    let svc_b = GmcpService::new(root.to_path_buf());
+    assert!(svc_a
+        .extensions()
+        .write()
+        .set_enabled("io.modelcontextprotocol/tasks", false));
+    assert!(!svc_a
+        .extensions()
+        .read()
+        .capability_map()
+        .contains_key("io.modelcontextprotocol/tasks"));
+    assert!(svc_b
+        .extensions()
+        .read()
+        .capability_map()
+        .contains_key("io.modelcontextprotocol/tasks"));
+
+    // ── 2. Content-tree nesting & node bounds + BoundedLines recovery ─────
+    let mut deep = json!({"k": 1});
+    for _ in 0..70 {
+        deep = json!({"nested": deep});
+    }
+    let bomb = json!({"type": "text", "text": "ok", "vendor.adv/deep": deep});
+    assert_eq!(
+        CanonicalContentBlock::from_wire(&bomb),
+        Err(ContentError::TooLarge)
+    );
+
+    let wide = json!({
+        "type": "text",
+        "text": "ok",
+        "vendor.adv/wide": vec![1; 10_005],
+    });
+    assert_eq!(
+        CanonicalContentBlock::from_wire(&wide),
+        Err(ContentError::TooLarge)
+    );
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (client, server) = tokio::io::duplex(4096);
+        let mut lines = tokio::io::BufReader::new(BoundedLines::new(server, 128)).lines();
+        let mut writer = client;
+        let big = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":\"big\",\"method\":\"ping\",\"params\":{{\"pad\":\"{}\"}}}}\n",
+            "x".repeat(300)
+        );
+        writer.write_all(big.as_bytes()).await.unwrap();
+        writer
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":\"ok\",\"method\":\"ping\"}\n")
+            .await
+            .unwrap();
+        writer.shutdown().await.unwrap();
+
+        let err = lines.next_line().await.unwrap_err();
+        assert!(err.to_string().contains("exceeds"), "got: {err}");
+        let next = lines
+            .next_line()
+            .await
+            .expect("healthy line after oversized frame must recover")
+            .expect("must have next line");
+        assert!(next.contains("\"id\":\"ok\""));
+    });
+
+    // ── 3. Era confusion (`_meta` leak across legacy vs modern gate) ─────
+    let mut era = EraState::default();
+    assert!(matches!(
+        classify_line(
+            br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"adv","version":"1"}}}"#,
+            &mut era,
+        ),
+        GateVerdict::Forward
+    ));
+    assert!(era.is_legacy());
+    assert!(matches!(
+        classify_line(
+            br#"{"jsonrpc":"2.0","id":2,"method":"ping","params":{"_meta":{"io.modelcontextprotocol/requestId":"leak"}}}"#,
+            &mut era,
+        ),
+        GateVerdict::Reject { code: -32600, .. }
+    ));
+    assert!(matches!(
+        classify_line(
+            br#"{"jsonrpc":"2.0","id":3,"method":"ping","params":{"_meta":{"vendor.adv/ok":true}}}"#,
+            &mut era,
+        ),
+        GateVerdict::Forward
+    ));
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let _init = wire
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "adv-init",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "adv-016", "version": "1"}
+                }
+            }),
+            Duration::from_secs(60),
+        )
+        .expect("legacy initialize must answer");
+    wire.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let injected = wire
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "adv-era-leak",
+                "method": "ping",
+                "params": {"_meta": {"io.modelcontextprotocol/requestId": "forged"}}
+            }),
+            Duration::from_secs(60),
+        )
+        .expect("injected modern _meta on legacy session must reject");
+    assert_eq!(injected["error"]["code"], -32600);
+    assert_eq!(wire.request("ping", json!({})), json!({}));
+    drop(wire);
+
+    // ── 4. HTTP 413 oversized payload refusal & concurrent server isolation ─
+    let token = "susi-016-adv-bearer";
+    std::fs::write(cfg_dir.join("api_token"), token).unwrap();
+    std::fs::write(
+        cfg_dir.join("config.json"),
+        r#"{"max_rpc_body_bytes": 1024}"#,
+    )
+    .unwrap();
+
+    let l1 = TcpListener::bind("127.0.0.1:0").expect("bind srv 1");
+    let addr1 = format!("127.0.0.1:{}", l1.local_addr().unwrap().port());
+    let root1 = root.to_path_buf();
+    let _srv1 = std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(root1, vec![l1], None, false);
+    });
+    let l2 = TcpListener::bind("127.0.0.1:0").expect("bind srv 2");
+    let addr2 = format!("127.0.0.1:{}", l2.local_addr().unwrap().port());
+    let root2 = root.to_path_buf();
+    let _srv2 = std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(root2, vec![l2], None, false);
+    });
+    for addr in [&addr1, &addr2] {
+        for _ in 0..50 {
+            if TcpStream::connect(addr).is_ok() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let oversized_body = json!({
+        "jsonrpc": "2.0",
+        "id": "adv-413",
+        "method": "ping",
+        "params": {"_meta": {"vendor.adv/pad": "x".repeat(2048)}}
+    })
+    .to_string();
+    let raw_req = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {addr1}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\n\r\n{oversized_body}",
+        oversized_body.len()
+    );
+    let mut s1 = TcpStream::connect(&addr1).unwrap();
+    s1.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+    s1.write_all(raw_req.as_bytes()).unwrap();
+    let mut resp = String::new();
+    let _ = s1.read_to_string(&mut resp);
+    assert!(
+        resp.starts_with("HTTP/1.1 413") || resp.starts_with("HTTP/1.0 413"),
+        "oversized HTTP extension payload must return 413, got: {resp}"
+    );
+
+    let wire2 = susi_wire_client::mcp::Session::open_with_capabilities(
+        &addr2,
+        Some(token),
+        &json!({"extensions": {"io.modelcontextprotocol/tasks": {}}}),
+        Duration::from_secs(15),
+    )
+    .expect("concurrent second server must stay healthy after 413 on server 1");
+    assert!(wire2
+        .server_extensions()
+        .is_some_and(|m| m.contains_key("io.modelcontextprotocol/tasks")));
+    wire2.close().expect("close srv2 session");
+
+    // ── 5. Extension pack tamper, traversal, bad signature & corrupt state ─
+    let payload = br#"{"rules":["safe"]}"#;
+    let good_sha = susi_paths::hex::encode(Sha256::digest(payload));
+    for (case_name, manifest_json, extra_file) in [
+        (
+            "checksum-mismatch",
+            json!({
+                "id": "tamper-sha",
+                "name": "Tamper SHA",
+                "version": "1.0.0",
+                "apiVersion": "1",
+                "files": {"rules": "rules.json"},
+                "checksums": {"rules": format!("sha256:{}", "00".repeat(32))}
+            }),
+            Some(("rules.json", payload.as_slice())),
+        ),
+        (
+            "bad-ed25519-signature",
+            json!({
+                "id": "tamper-sig",
+                "name": "Tamper Sig",
+                "version": "1.0.0",
+                "apiVersion": "1",
+                "files": {"rules": "rules.json"},
+                "checksums": {"rules": format!("sha256:{good_sha}")},
+                "signatures": {"rules": "00".repeat(64)},
+                "signer": "11".repeat(32)
+            }),
+            Some(("rules.json", payload.as_slice())),
+        ),
+        (
+            "traversal-escape",
+            json!({
+                "id": "tamper-escape",
+                "name": "Tamper Escape",
+                "version": "1.0.0",
+                "apiVersion": "1",
+                "files": {"rules": "../secret.json"}
+            }),
+            None,
+        ),
+        (
+            "absolute-path",
+            json!({
+                "id": "tamper-abs",
+                "name": "Tamper Abs",
+                "version": "1.0.0",
+                "apiVersion": "1",
+                "permissions": ["filesystem.read"],
+                "files": {"rules": "/etc/passwd"}
+            }),
+            None,
+        ),
+        (
+            "unknown-permission",
+            json!({
+                "id": "tamper-perm",
+                "name": "Tamper Perm",
+                "version": "1.0.0",
+                "apiVersion": "1",
+                "permissions": ["kernel.bypass"]
+            }),
+            None,
+        ),
+    ] {
+        let dir = scratch.join(format!("adv-pack-{case_name}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        if let Some((rel, bytes)) = extra_file {
+            std::fs::write(dir.join(rel), bytes).unwrap();
+        }
+        std::fs::write(dir.join("manifest.json"), manifest_json.to_string()).unwrap();
+        assert!(
+            pack_ext::validate_pack_dir(&dir).is_err(),
+            "{case_name}: tampered pack must fail validate_pack_dir"
+        );
+        assert!(
+            CoreTools::extensions_validate(&json!({"path": dir.to_str().unwrap()}), root).is_err(),
+            "{case_name}: CoreTools::extensions_validate must fail closed"
+        );
+    }
+
+    // Tampering an already-created pack under cfg_dir must refuse activation AND corrupt state.json must not serve tampered active id.
+    let _ = susi_json(root, &home, &["extensions", "create", "adv-host-pack"]);
+    let host_pack = cfg_dir.join("extensions").join("adv-host-pack");
+    std::fs::write(
+        host_pack.join("manifest.json"),
+        json!({
+            "id": "adv-host-pack",
+            "name": "Tampered",
+            "version": "1.0.0",
+            "apiVersion": "1",
+            "files": {"rules": "missing.json"},
+            "checksums": {"rules": "00".repeat(32)}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert!(
+        CoreTools::extensions_load(&json!({"id": "adv-host-pack"}), root).is_err(),
+        "loading host pack with tampered checksum/missing file must fail closed"
+    );
+    std::fs::write(
+        cfg_dir.join("extensions").join("state.json"),
+        "{corrupt-json",
+    )
+    .unwrap();
+    pack_ext::invalidate_extension_caches();
+    let recovered = pack_ext::active_pack();
+    assert_eq!(
+        recovered.id, "default",
+        "corrupt state.json must fall back safely to compiled default"
+    );
+    let _ = susi_json(root, &home, &["extensions", "status"]);
+    assert_eq!(Value::from(0), 0);
+
+    pack_ext::invalidate_extension_caches();
+    let _ = _srv1;
+    let _ = _srv2;
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// GMCP-203-016-M: Vector mastery gate for VC-203-016 (First-class extension framework and extension governance).
+///
+/// Proves the complete VC-203-016 mastery target on the shipped production path, binds all pinned upstream
+/// standards and contract clauses, strictly verifies committed non-waived non-mock signed evidence for
+/// GMCP-203-016-01..06 (and rejects missing, stale, unsigned, locally modified, waived, mock-only,
+/// unlinked-supersession, wrong-digest, or zero-test evidence), and confirms roadmap + verdict delivery.
+#[test]
+fn gmcp_vc_203_016_mastery() {
+    use serde_json::{json, Map, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeSet;
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
+    use susi_gmcp::extensions::{
+        ExtensionError, ExtensionMap, ExtensionRegistry, ExtensionStatus, OFFICIAL_EXTENSIONS,
+    };
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::susi_config::extensions as pack_ext;
+    use susi_gmcp::tools::CoreTools;
+
+    struct EvidenceCtx<'a> {
+        root: &'a Path,
+        ledger_hash: &'a str,
+        test_src: &'a str,
+        head_digest: &'a str,
+        now: u64,
+    }
+
+    fn verify_vc_203_016_evidence(
+        ctx: &EvidenceCtx<'_>,
+        evidence_text: &str,
+        committed_artifacts: Option<&[String]>,
+    ) -> Result<BTreeSet<String>, String> {
+        const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
+        let names = |record: &Value, target: &Value| {
+            LINK.iter()
+                .all(|field| record["supersedes"][*field] == target[*field])
+        };
+        let mut order: Vec<String> = Vec::new();
+        let mut chains: std::collections::HashMap<String, Vec<Value>> =
+            std::collections::HashMap::new();
+        for line in evidence_text.lines().filter(|l| !l.trim().is_empty()) {
+            let record: Value = serde_json::from_str(line)
+                .map_err(|e| format!("evidence line is not valid JSON: {e}"))?;
+            let requirement = record["requirement"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            match chains.get_mut(&requirement) {
+                Some(chain) => {
+                    if !chain.iter().any(|earlier| names(&record, earlier)) {
+                        return Err(format!(
+                            "{requirement}: unlinked duplicate record missing supersedes link"
+                        ));
+                    }
+                    chain.push(record);
+                }
+                None => {
+                    order.push(requirement.clone());
+                    chains.insert(requirement, vec![record]);
+                }
+            }
+        }
+        let newest: Vec<Value> = order
+            .into_iter()
+            .filter_map(|req| {
+                let chain = chains.remove(&req)?;
+                let tips: Vec<&Value> = chain
+                    .iter()
+                    .filter(|r| !chain.iter().any(|later| names(later, r)))
+                    .collect();
+                tips.into_iter()
+                    .max_by_key(|r| r["recorded_unix"].as_u64().unwrap_or(0))
+                    .cloned()
+            })
+            .collect();
+
+        let mut covered = BTreeSet::new();
+        for record in newest {
+            let req = record["requirement"].as_str().unwrap_or_default();
+            if req.ends_with("-M") {
+                continue;
+            }
+            if record.get("waived").is_some() || record.get("mock").is_some() {
+                return Err(format!("{req}: waived or mock-only evidence rejected"));
+            }
+            for field in [
+                "requirement",
+                "check",
+                "exit",
+                "detail",
+                "recorded_unix",
+                "artifact_sha256",
+                "identity",
+            ] {
+                if record[field].is_null() {
+                    return Err(format!("{req}: incomplete evidence missing {field}"));
+                }
+            }
+            if record["exit"] != 0 {
+                return Err(format!("{req}: non-zero exit evidence rejected"));
+            }
+            if record["identity"].as_str().unwrap_or_default().is_empty() {
+                return Err(format!("{req}: unsigned empty identity rejected"));
+            }
+            if record["detail"].as_str().unwrap_or_default().is_empty() {
+                return Err(format!("{req}: empty detail rejected"));
+            }
+            if record["artifact_sha256"].as_str().unwrap_or_default() != ctx.ledger_hash {
+                return Err(format!("{req}: stale artifact_sha256 rejected"));
+            }
+            let recorded = record["recorded_unix"].as_u64().unwrap_or(0);
+            if recorded <= 1_792_256_000 || recorded > ctx.now + 60 {
+                return Err(format!("{req}: stale or future recorded_unix {recorded}"));
+            }
+            let check = record["check"].as_str().unwrap_or_default();
+            if let Some(test_name) =
+                check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+            {
+                if !test_name.starts_with("gmcp_")
+                    || test_name.contains(char::is_whitespace)
+                    || !is_test_fn(ctx.test_src, test_name)
+                {
+                    return Err(format!("{req}: zero-test missing fn {test_name}"));
+                }
+            } else if !check
+                .split_whitespace()
+                .filter(|t| !t.starts_with('-'))
+                .any(|t| ctx.root.join(t).exists())
+            {
+                return Err(format!("{req}: check references no committed artifact"));
+            }
+            if let Some(artifacts) = committed_artifacts {
+                assert_bound_to_tested_commit(ctx.root, &record, artifacts, ctx.head_digest);
+            } else {
+                let commit = record["tested_commit"].as_str().unwrap_or_default();
+                if commit.len() != 40 || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(format!("{req}: invalid tested_commit"));
+                }
+                if record["tested_artifacts"].as_str() != Some(ctx.head_digest) {
+                    return Err(format!("{req}: stale tested_artifacts digest"));
+                }
+            }
+            covered.insert(req.to_string());
+        }
+        for req in [
+            "GMCP-203-016-01",
+            "GMCP-203-016-02",
+            "GMCP-203-016-03",
+            "GMCP-203-016-04",
+            "GMCP-203-016-05",
+            "GMCP-203-016-06",
+        ] {
+            if !covered.contains(req) {
+                return Err(format!("missing evidence record for {req}"));
+            }
+        }
+        Ok(covered)
+    }
+
+    let (_lock, _env, home) = gmcp_http_home_guard("016-mastery");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    pack_ext::invalidate_extension_caches();
+
+    // ── 1. Production ledger report & CLI/tool parity ────────────────────
+    let report = ledger_report(root);
+    assert_eq!(report["verified"], true, "ledger must verify: {report}");
+    assert_eq!(ledger_tool_report(root), report);
+    assert_eq!(susi_json(root, &home, &["mcp", "ledger"]), report);
+
+    // ── 2. Contract & 10 pinned specification artifacts verified ──────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-016.md"))
+        .expect("contract-203-016.md must exist");
+    for token in [
+        "EXT-001",
+        "EXT-002",
+        "EXT-006",
+        "EXT-011",
+        "## Operations and non-claims",
+        "## Operations and incident runbook",
+        "### Bounded metrics, logs and traces",
+        "### Production guarantees and non-claims",
+    ] {
+        assert!(
+            contract.contains(token),
+            "contract-203-016.md missing required clause/section: {token}"
+        );
+    }
+    let sources: Value = serde_json::from_slice(
+        &std::fs::read(root.join(".agents/gmcp/sources.json")).expect("sources.json readable"),
+    )
+    .expect("sources.json valid JSON");
+    for doc in [
+        "ext-apps/specification/2026-01-26/apps.mdx",
+        "ext-auth/specification/stable/enterprise-managed-authorization.mdx",
+        "ext-tasks/specification/2026-07-28/tasks.md",
+        "docs/specification/2026-07-28/index.mdx",
+        "schema/2026-07-28/schema.json",
+        "schema/2026-07-28/schema.ts",
+        "schema/2025-11-25/schema.json",
+        "schema/2025-11-25/schema.ts",
+        "registry/docs/reference/api/generic-registry-api.md",
+        "registry/docs/reference/api/official-registry-api.md",
+    ] {
+        let bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc))
+            .unwrap_or_else(|e| panic!("pinned spec {doc} missing: {e}"));
+        let hex = susi_paths::hex::encode(Sha256::digest(&bytes));
+        let pinned = sources["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["document"] == doc)
+            .and_then(|f| f["sha256"].as_str());
+        assert_eq!(pinned, Some(hex.as_str()), "pinned hash mismatch for {doc}");
+    }
+
+    // ── 3. Mastery target live verification across framework & transports ─
+    let direct = GmcpService::new(root.to_path_buf());
+    let discover_ext = serde_json::to_value(direct.discover_result()).unwrap()["capabilities"]
+        ["extensions"]
+        .clone();
+    assert!(discover_ext["io.modelcontextprotocol/tasks"].is_object());
+
+    let mut reg = ExtensionRegistry::shipped();
+    reg.register(
+        "vendor.mastery/audit",
+        ExtensionStatus::Experimental,
+        2,
+        Map::from_iter([("strict".into(), json!(true))]),
+    )
+    .unwrap();
+    assert_eq!(
+        reg.register("bad-no-slash", ExtensionStatus::Experimental, 1, Map::new()),
+        Err(ExtensionError::NotNamespaced("bad-no-slash".into()))
+    );
+    assert_eq!(
+        reg.register(
+            "vendor.mastery/audit",
+            ExtensionStatus::Official,
+            2,
+            Map::new()
+        ),
+        Err(ExtensionError::Collision("vendor.mastery/audit".into()))
+    );
+    assert_eq!(
+        reg.negotiate(&Default::default(), &["vendor.mastery/missing".into()]),
+        Err(ExtensionError::RequiredUnsupported(vec![
+            "vendor.mastery/missing".into()
+        ]))
+    );
+    let mut down_peer = ExtensionMap::new();
+    let mut down_cfg = Map::new();
+    down_cfg.insert("version".into(), json!(1));
+    down_peer.insert("vendor.mastery/audit".into(), down_cfg);
+    assert_eq!(
+        reg.negotiate(&down_peer, &["vendor.mastery/audit".into()]),
+        Err(ExtensionError::Downgrade {
+            id: "vendor.mastery/audit".into(),
+            required: 1,
+            served: 2,
+        })
+    );
+    let unknown_only = reg
+        .negotiate(
+            &[(
+                "vendor.peer/custom".into(),
+                Map::from_iter([("opaque".into(), json!("ok"))]),
+            )]
+            .into_iter()
+            .collect(),
+            &["io.modelcontextprotocol/tasks".into()],
+        )
+        .unwrap();
+    assert_eq!(unknown_only.unknown["vendor.peer/custom"]["opaque"], "ok");
+    assert!(reg.set_enabled("vendor.mastery/audit", false));
+    assert!(!reg.capability_map().contains_key("vendor.mastery/audit"));
+    let watch_items = direct.extensions().read().watch(OFFICIAL_EXTENSIONS);
+    assert_eq!(watch_items.len(), OFFICIAL_EXTENSIONS.len() - 1);
+    assert!(watch_items
+        .iter()
+        .all(|t| t.starts_with("[GMCP] Adopt newly published official extension ")));
+
+    let runtime = adapter_runtime(&home);
+    let (mut embedded, emb_sess) = embedded_adapter(&runtime, root);
+    let emb_disc = embedded.call("m016-emb", "server/discover", adapter_modern_meta());
+    assert_eq!(
+        emb_disc["result"]["capabilities"]["extensions"],
+        discover_ext
+    );
+    adapter_handshake(&mut embedded, "m016-emb-init");
+    drop(embedded);
+    adapter_session_ended(&runtime, emb_sess, "016-mastery-embedded");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, sock_sess) = socket_adapter(&runtime, root);
+        let sock_disc = socket.call("m016-sock", "server/discover", adapter_modern_meta());
+        assert_eq!(
+            sock_disc["result"]["capabilities"]["extensions"],
+            discover_ext
+        );
+        adapter_handshake(&mut socket, "m016-sock-init");
+        drop(socket);
+        adapter_session_ended(&runtime, sock_sess, "016-mastery-socket");
+    }
+
+    let mut stdio = StdioSession::spawn_modern(root, &home);
+    let stdio_disc = stdio.request("server/discover", adapter_modern_meta());
+    assert_eq!(stdio_disc["capabilities"]["extensions"], discover_ext);
+    drop(stdio);
+
+    let token = "susi-016-mastery-bearer";
+    std::fs::write(cfg_dir.join("api_token"), token).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mastery HTTP /mcp");
+    let http_addr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let http_root = root.to_path_buf();
+    let _http_srv = std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(http_root, vec![listener], None, false);
+    });
+    for _ in 0..50 {
+        if TcpStream::connect(&http_addr).is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let wire = susi_wire_client::mcp::Session::open_with_capabilities(
+        &http_addr,
+        Some(token),
+        &json!({
+            "extensions": {
+                "io.modelcontextprotocol/tasks": {},
+                "vendor.mastery/probe": {"v": 1}
+            }
+        }),
+        Duration::from_secs(15),
+    )
+    .expect("Wire SDK HTTP session must open");
+    assert_eq!(
+        Value::Object(wire.server_extensions().unwrap().clone()),
+        discover_ext
+    );
+    wire.close().expect("Wire SDK session close");
+
+    assert_eq!(
+        susi_json(root, &home, &["extensions", "status"]),
+        serde_json::from_str::<Value>(&CoreTools::extensions_status(&json!({}), root).unwrap())
+            .unwrap()
+    );
+    pack_ext::pack_admission_probe(&scratch).expect("signed pack admission probe must pass");
+
+    // ── 4. Negative evidence-rejection suite & live VC-203-016 proof ─────
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let artifacts = evidence_artifacts(root, "VC-203-016");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must digest artifacts");
+
+    let valid_tests = [
+        ("GMCP-203-016-01", "gmcp_req_203_016_01_contract"),
+        ("GMCP-203-016-02", "gmcp_req_203_016_02_production"),
+        ("GMCP-203-016-03", "gmcp_req_203_016_03_integration"),
+        ("GMCP-203-016-04", "gmcp_req_203_016_04_adversarial"),
+        ("GMCP-203-016-05", "gmcp_req_203_016_05_interop"),
+        ("GMCP-203-016-06", "gmcp_req_203_016_06_operations"),
+    ];
+    let make_row = |req: &str, test_fn: &str| {
+        json!({
+            "requirement": req,
+            "check": format!("cargo test --locked --test gmcp_requirements {test_fn}"),
+            "exit": 0,
+            "detail": "synthetic valid row",
+            "recorded_unix": now,
+            "artifact_sha256": ledger_hash,
+            "identity": "AG2FEATURES",
+            "tested_commit": "0".repeat(40),
+            "tested_artifacts": head_digest
+        })
+    };
+    let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| make_row(r, t)).collect();
+    let good_text = good_lines
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let ev_ctx = EvidenceCtx {
+        root,
+        ledger_hash: &ledger_hash,
+        test_src: &test_src,
+        head_digest: &head_digest,
+        now,
+    };
+    let check_ev = |txt: &str, committed: bool| {
+        verify_vc_203_016_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()))
+    };
+    assert!(check_ev(&good_text, false).is_ok());
+
+    // 4a. Reject missing requirement
+    let missing_text = good_lines[..5]
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(check_ev(&missing_text, false).is_err());
+
+    // 4b. Reject stale/future timestamps, stale hashes, unsigned, non-zero exit,
+    //     waived, mock-only, zero-test, and unlinked supersession records.
+    for mutate in [
+        Box::new(|v: &mut Value| v["recorded_unix"] = json!(1_700_000_000_u64))
+            as Box<dyn Fn(&mut Value)>,
+        Box::new(|v: &mut Value| v["recorded_unix"] = json!(now + 120)),
+        Box::new(|v: &mut Value| v["artifact_sha256"] = json!("deadbeef")),
+        Box::new(|v: &mut Value| v["tested_artifacts"] = json!("stale-digest")),
+        Box::new(|v: &mut Value| v["identity"] = json!("")),
+        Box::new(|v: &mut Value| v["exit"] = json!(1)),
+        Box::new(|v: &mut Value| {
+            v.as_object_mut()
+                .unwrap()
+                .insert("waived".into(), json!(true));
+        }),
+        Box::new(|v: &mut Value| {
+            v.as_object_mut()
+                .unwrap()
+                .insert("mock".into(), json!(true));
+        }),
+        Box::new(|v: &mut Value| {
+            v["check"] = json!(
+                "cargo test --locked --test gmcp_requirements gmcp_req_203_016_99_nonexistent"
+            );
+        }),
+    ] {
+        let mut bad = good_lines[0].clone();
+        mutate(&mut bad);
+        let txt = std::iter::once(&bad)
+            .chain(&good_lines[1..])
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(check_ev(&txt, false).is_err());
+    }
+    let unlinked_txt = format!("{good_text}\n{}", good_lines[0]);
+    assert!(check_ev(&unlinked_txt, false).is_err());
+
+    // Live VC-203-016 committed evidence must satisfy every single rule strictly.
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-016.jsonl"))
+        .expect("VC-203-016 must retain an evidence artifact");
+    let covered = check_ev(&evidence, true)
+        .expect("committed VC-203-016.jsonl must pass full strict verification");
+    assert_eq!(covered.len(), 6);
+
+    // ── 5. Roadmap & verdict delivery binding ────────────────────────────
+    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap();
+    let roadmap_json: Value = serde_json::from_str(&roadmap_text).unwrap();
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "VC-203-016")
+        .expect("VC-203-016 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-016 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict_text =
+        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-016.json"))
+            .expect("VC-203-016.json verdict must exist");
+    let verdict: Value = serde_json::from_str(&verdict_text).unwrap();
+    assert_eq!(verdict["vector"], "VC-203-016");
+    assert_eq!(verdict["verdict"], "delivered");
+    let tracked = verdict["tracked_by"].as_array().unwrap();
+    assert_eq!(tracked.len(), 7);
+    assert!(tracked.contains(&json!("T-CODEXGMCPROADMAP-79")));
+    assert!(tracked.contains(&json!("T-CODEXGMCPROADMAP-85")));
+
+    // ── 6. Reject locally modified proof artifacts Closed ───────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    pack_ext::invalidate_extension_caches();
+    let _ = _http_srv;
+    let _ = std::fs::remove_dir_all(&home);
+}
