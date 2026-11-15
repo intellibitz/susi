@@ -2,9 +2,8 @@
 #![forbid(unsafe_code)]
 #[cfg(windows)]
 extern crate susi_windows_runtime;
-#[path = "../push_policy.rs"]
-mod push_policy;
 use std::io::Read;
+use xtask::push_policy;
 fn main() -> std::process::ExitCode {
     let result = (|| {
         let mut input = String::new();

@@ -6,8 +6,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
-#[path = "../distill.rs"]
-mod distill;
+use xtask::distill;
 
 use std::process::ExitCode;
 

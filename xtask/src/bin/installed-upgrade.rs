@@ -1,5 +1,4 @@
 //! Install an exact promoted release through the release-sync process guard.
-use sha2::{Digest, Sha256};
 use std::{
     env,
     error::Error,
@@ -11,10 +10,7 @@ use std::{
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    xtask::common::sha256_hex(bytes)
 }
 
 fn qualified_path(report: &str, id: &str) -> Result<PathBuf> {

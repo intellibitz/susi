@@ -4,12 +4,12 @@
 
 #[test]
 fn qualification_and_test_launchers_disable_registry_fallback() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (file, count) in [
-        ("local-workflow.rs", 3),
-        ("local-release.rs", 2),
-        ("local-channel.rs", 2),
-        ("startup-gate.rs", 1),
+        ("local_workflow/gates.rs", 3),
+        ("bin/local-release.rs", 2),
+        ("bin/local-channel.rs", 2),
+        ("bin/startup-gate.rs", 1),
     ] {
         let source = std::fs::read_to_string(root.join(file)).expect("launcher source");
         let production = source

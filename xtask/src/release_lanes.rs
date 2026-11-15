@@ -28,7 +28,6 @@
 //! `push-policy` requires; this tool never forces, never deletes a release line
 //! and never calls a hosting API.
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
@@ -280,10 +279,7 @@ fn now_unix() -> u64 {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::common::sha256_hex(bytes)
 }
 
 // ---------------------------------------------------------------- options
@@ -1557,7 +1553,7 @@ mod tests {
     }
 
     // The release-lanes binary mounts the fixtures once, through distill_compose.
-    use crate::distill_compose::test_fixture_fs::{copy_dir_all, set_git_origin_url};
+    use crate::test_fixture_fs::{copy_dir_all, set_git_origin_url};
 
     struct Fx {
         dir: PathBuf,

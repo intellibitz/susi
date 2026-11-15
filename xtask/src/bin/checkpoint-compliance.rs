@@ -3,7 +3,6 @@
 //! data, never code to check out or execute. Legacy task checks are separate.
 #![forbid(unsafe_code)]
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     env, fs,
     io::Write,
@@ -130,10 +129,7 @@ const ISSUED: &[(&str, &str, &str, &str)] = &[
 ];
 
 fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    xtask::common::sha256_hex(bytes)
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String> {

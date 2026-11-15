@@ -6,3 +6,8 @@
 # Append-only JSONL evidence logs: keep every agent's records (AGENTS.md: union
 # conflicting evidence entries; never delete or renumber another agent's history).
 .agents/gmcp/evidence/*.jsonl merge=union
+# Classify vendored dependencies, generated/append-only agent records, and docs
+# separately from first-party runtime Rust while preserving offline builds and auditability.
+vendor/** linguist-vendored
+.agents/** linguist-generated
+docs/** linguist-documentation

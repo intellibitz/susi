@@ -923,6 +923,20 @@ fn execute_test_binary(
         .env("RUST_TEST_THREADS", "12")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for key in [
+        "SUSI_VAULT_KEY",
+        "SUSI_VAULT_KEY_FILE",
+        "SUSI_VAULT_PASSPHRASE",
+        "SUSI_VAULT_PASSPHRASE_FILE",
+        "SUSI_CREDENTIALS_DIRECTORY",
+        "CREDENTIALS_DIRECTORY",
+        "SUSI_VAULT_KDBX_PASSPHRASE",
+        "SUSI_VAULT_KDBX_PASSPHRASE_FILE",
+        "SUSI_KDBX_PASSPHRASE",
+        "SUSI_KDBX_PASSPHRASE_FILE",
+    ] {
+        cmd.env_remove(key);
+    }
     if let Some(cargo_home) = cargo_home {
         cmd.env("CARGO_HOME", cargo_home);
     }

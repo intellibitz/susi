@@ -68,6 +68,7 @@ fn artifact_paths(root: &Path, ledger: &Value, vector: &str) -> Result<Vec<Strin
         .collect();
     for shared in [
         "tests/gmcp_requirements.rs",
+        "tests/gmcp_requirements",
         ".agents/gmcp/requirements-ledger.json",
         ".agents/gmcp/sources.json",
         ".agents/gmcp/spec",
@@ -188,7 +189,24 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let source = fs::read_to_string(root.join("tests/gmcp_requirements.rs"))?;
+    let mut source = fs::read_to_string(root.join("tests/gmcp_requirements.rs"))?;
+    let split_dir = root.join("tests/gmcp_requirements");
+    if split_dir.is_dir() {
+        let mut extra = Vec::new();
+        for entry in fs::read_dir(&split_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                extra.push(path);
+            }
+        }
+        extra.sort();
+        for path in extra {
+            if !source.is_empty() && !source.ends_with('\n') {
+                source.push('\n');
+            }
+            source.push_str(&fs::read_to_string(path)?);
+        }
+    }
     let identity = std::env::var("SUSI_AGENT")
         .ok()
         .filter(|v| !v.trim().is_empty())

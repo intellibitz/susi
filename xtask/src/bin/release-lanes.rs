@@ -4,10 +4,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
-#[path = "../distill_compose.rs"]
-mod distill_compose;
-#[path = "../release_lanes.rs"]
-mod release_lanes;
+use xtask::release_lanes;
 
 use std::process::ExitCode;
 

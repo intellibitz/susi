@@ -10,9 +10,7 @@
 //! re-proves that block from the tagged tree before it admits the tag. The
 //! built `release-qualify` and `push-policy` binaries are the ones exercised.
 
-#[allow(dead_code)] // The test uses the verifier, not the record helpers.
-#[path = "../src/release_qualification.rs"]
-mod release_qualification;
+use xtask::release_qualification;
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};

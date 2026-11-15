@@ -139,7 +139,7 @@ fn build_command(root: &Path, target: &Path, host: &str, profile: Profile) -> Co
     command
 }
 
-pub(crate) fn run(args: &[String]) -> io::Result<()> {
+pub fn run(args: &[String]) -> io::Result<()> {
     if args.first().map(String::as_str) == Some("fast-release") {
         return crate::fast_release::run_io(&args[1..]);
     }

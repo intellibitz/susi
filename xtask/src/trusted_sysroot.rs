@@ -140,17 +140,17 @@ fn source_check(root: &Path, destination: &Path, installed: &Path) -> Result<()>
 
 /// Held across all compiler subprocesses for one acceptance operation. Windows
 /// read handles deny concurrent write/delete; post-build hashes remain required.
-pub(crate) struct VerifiedSysroot {
+pub struct VerifiedSysroot {
     path: PathBuf,
     expected: Value,
     _handles: Vec<fs::File>,
-    pub(crate) evidence: Value,
+    pub evidence: Value,
 }
 impl VerifiedSysroot {
-    pub(crate) fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
-    pub(crate) fn apply(&self, command: &mut Command) -> Result<()> {
+    pub fn apply(&self, command: &mut Command) -> Result<()> {
         super::compiler_env::apply(command);
         let path = self.path.to_str().ok_or("nonUTF8 selected sysroot")?;
         if path.contains('\x1f') {
@@ -169,7 +169,7 @@ impl VerifiedSysroot {
         command.env("CARGO_ENCODED_RUSTDOCFLAGS", format!("--sysroot\x1f{path}"));
         Ok(())
     }
-    pub(crate) fn recheck(&self) -> Result<()> {
+    pub fn recheck(&self) -> Result<()> {
         if self.evidence["artifacts"] != self.expected
             || artifacts(
                 self.path().parent().ok_or("sysroot parent missing")?,
@@ -301,7 +301,7 @@ fn staging_name(key: &str, nonce: u128) -> String {
     format!("{}-s{nonce}", key.get(..12).unwrap_or(key))
 }
 
-pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
+pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
     let host = target(&compiler)?;

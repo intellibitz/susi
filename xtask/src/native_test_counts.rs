@@ -245,21 +245,7 @@ pub fn doctest_counts(text: &str) -> Result<(u64, u64, u64)> {
 /// Remove ANSI CSI sequences: hosted CI sets `CARGO_TERM_COLOR=always`, and a
 /// coloured `Running` or `test result:` line must parse like a plain one.
 fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' && chars.peek() == Some(&'[') {
-            chars.next();
-            for next in chars.by_ref() {
-                if ('@'..='~').contains(&next) {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    crate::common::strip_ansi(text)
 }
 
 fn add_counts(total: &mut (u64, u64, u64), next: (u64, u64, u64)) -> Result<()> {

@@ -44,7 +44,7 @@ use std::path::Path;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(crate) const SUCCESS: &str =
+pub const SUCCESS: &str =
     "GMCP roadmap OK: 48 vectors, 336 requirement tasks, complete mastery fan-in";
 const DOC_TOKENS: [&str; 6] = [
     "MCP 2026-07-28",
@@ -242,7 +242,7 @@ fn validate_values(roadmap: &Value, tasks: &[Value]) -> Result<Vec<String>> {
 }
 
 /// Run all checks without launching a shell, jq, or any other process.
-pub(crate) fn validate(root: &Path) -> Result<Vec<String>> {
+pub fn validate(root: &Path) -> Result<Vec<String>> {
     let roadmap = root.join(".agents/roadmap.json");
     if !roadmap.is_file() {
         return Ok(vec![".agents/roadmap.json missing".into()]);

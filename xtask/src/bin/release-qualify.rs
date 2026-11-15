@@ -31,15 +31,7 @@
 )]
 #[cfg(windows)]
 extern crate susi_windows_runtime;
-#[path = "../harvest.rs"]
-mod harvest;
-#[path = "../release_qualification.rs"]
-mod release_qualification;
-#[path = "../release_version_guard.rs"]
-mod release_version_guard;
-#[allow(dead_code)]
-#[path = "../test_runner.rs"]
-mod test_runner;
+use xtask::{harvest, release_qualification, release_version_guard, test_runner};
 
 use release_qualification::{
     package_version, record_path, release_version, sha256_hex, toolchain_channel,

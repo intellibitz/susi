@@ -335,6 +335,18 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-harness", 37_536),
 ];
 
+/// Tracked physical-line budgets by repository category (`git ls-files -z`).
+/// Separating runtime Rust, vendor facades, tests, tooling, vendored sources,
+/// and generated audit baselines keeps audit trails and offline vendor trees
+/// intact without inflating first-party runtime size.
+const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 303_000;
+const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
+const TEST_RUST_CEILING: usize = 126_000;
+const TOOLING_RUST_CEILING: usize = 72_200;
+const XTASK_MAX_FILE_LINES_CEILING: usize = 4_000;
+const VENDORED_DEPENDENCY_LINES_CEILING: usize = 216_164;
+const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -532,4 +544,120 @@ fn pillar_source_does_not_grow() {
             "{krate} grew to {lines} shipped Rust lines under src (ceiling {ceiling}; suite dirs excluded); lean-core cuts only"
         );
     }
+}
+
+fn physical_lines(path: &Path) -> usize {
+    let bytes = std::fs::read(path).expect("tracked file should be readable");
+    bytes.iter().filter(|&&b| b == b'\n').count()
+        + usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"))
+}
+
+fn is_test_or_bench_rust(rel: &str) -> bool {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let Some((&file, dirs)) = parts.split_last() else {
+        return false;
+    };
+    dirs.iter().any(|seg| {
+        matches!(*seg, "tests" | "benches" | "mastery_tests" | "fuzz") || seg.ends_with("_tests")
+    }) || file.starts_with("test_")
+        || file.ends_with("_test.rs")
+        || file.ends_with("_tests.rs")
+}
+
+#[test]
+fn repository_category_budgets_do_not_grow() {
+    let root = workspace_root();
+    let output = Command::new("git")
+        .current_dir(&root)
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git ls-files runs");
+    assert!(
+        output.status.success(),
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let mut first_party_runtime_rust = 0usize;
+    let mut vendor_facade_rust = 0usize;
+    let mut test_rust = 0usize;
+    let mut tooling_rust = 0usize;
+    let mut vendor_lines = 0usize;
+    let mut agents_lines = 0usize;
+    let mut unsafe_baseline_files = 0usize;
+    let mut evidence_jsonl_lines = 0usize;
+    let mut largest_xtask_file = (0usize, String::new());
+
+    for raw in output.stdout.split(|&b| b == 0) {
+        if raw.is_empty() {
+            continue;
+        }
+        let rel = String::from_utf8_lossy(raw);
+        let path = root.join(rel.as_ref());
+        if !path.is_file() {
+            continue;
+        }
+        let lines = physical_lines(&path);
+        if rel.starts_with("vendor/") {
+            vendor_lines += lines;
+        } else if rel.starts_with(".agents/") {
+            agents_lines += lines;
+            if rel.starts_with(".agents/baseline/unsafe-default") && rel.ends_with(".json") {
+                unsafe_baseline_files += 1;
+            }
+            if rel.starts_with(".agents/gmcp/evidence/") && rel.ends_with(".jsonl") {
+                evidence_jsonl_lines += lines;
+            }
+        } else if rel.ends_with(".rs") {
+            if rel.starts_with("xtask/") || rel.starts_with("toolchain/") {
+                tooling_rust += lines;
+                if rel.starts_with("xtask/") && lines > largest_xtask_file.0 {
+                    largest_xtask_file = (lines, rel.into_owned());
+                }
+            } else if is_test_or_bench_rust(&rel) {
+                test_rust += lines;
+            } else if rel.starts_with("crates/susi-vendor-") {
+                vendor_facade_rust += lines;
+            } else {
+                first_party_runtime_rust += lines;
+            }
+        }
+    }
+
+    eprintln!(
+        "lean-core categories: runtime_rust={first_party_runtime_rust} (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING}), vendor_facade_rust={vendor_facade_rust} (ceiling {VENDOR_FACADE_RUST_CEILING}), test_rust={test_rust} (ceiling {TEST_RUST_CEILING}), tooling_rust={tooling_rust} (ceiling {TOOLING_RUST_CEILING}, max xtask file {} = {} lines / ceiling {XTASK_MAX_FILE_LINES_CEILING}), vendor={vendor_lines} (ceiling {VENDORED_DEPENDENCY_LINES_CEILING}), .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})",
+        largest_xtask_file.1,
+        largest_xtask_file.0,
+    );
+
+    assert!(
+        first_party_runtime_rust <= FIRST_PARTY_RUNTIME_RUST_CEILING,
+        "first-party runtime Rust reached {first_party_runtime_rust} lines (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING})"
+    );
+    assert!(
+        vendor_facade_rust <= VENDOR_FACADE_RUST_CEILING,
+        "vendor-facade Rust reached {vendor_facade_rust} lines (ceiling {VENDOR_FACADE_RUST_CEILING})"
+    );
+    assert!(
+        test_rust <= TEST_RUST_CEILING,
+        "test/bench Rust reached {test_rust} lines (ceiling {TEST_RUST_CEILING})"
+    );
+    assert!(
+        tooling_rust <= TOOLING_RUST_CEILING,
+        "tooling Rust reached {tooling_rust} lines (ceiling {TOOLING_RUST_CEILING})"
+    );
+    assert!(
+        largest_xtask_file.0 <= XTASK_MAX_FILE_LINES_CEILING,
+        "largest xtask Rust file {} reached {} lines (ceiling {XTASK_MAX_FILE_LINES_CEILING})",
+        largest_xtask_file.1,
+        largest_xtask_file.0
+    );
+    assert!(
+        vendor_lines <= VENDORED_DEPENDENCY_LINES_CEILING,
+        "vendored dependency tree reached {vendor_lines} lines (ceiling {VENDORED_DEPENDENCY_LINES_CEILING})"
+    );
+    assert!(
+        unsafe_baseline_files <= UNSAFE_BASELINE_FILES_CEILING,
+        "unsafe baseline file count reached {unsafe_baseline_files} (ceiling {UNSAFE_BASELINE_FILES_CEILING})"
+    );
 }

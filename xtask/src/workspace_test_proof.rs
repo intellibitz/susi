@@ -2,7 +2,7 @@ use super::{git, sysroot_sources::hash, Result};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, path::Path, process::Command};
 
-pub(crate) const PREFIX: &str = "workspace-test-pass-v1=";
+pub const PREFIX: &str = "workspace-test-pass-v1=";
 
 fn compiler_files(root: &Path) -> Result<BTreeMap<String, String>> {
     use sha2::{Digest, Sha256};
@@ -62,12 +62,12 @@ fn compiler_files(root: &Path) -> Result<BTreeMap<String, String>> {
 
 // Paths created solely for this attempt have different names in qualification.
 // Normalize only the exact target argument and freshly provisioned home paths.
-pub(crate) struct Toolchain<'a> {
-    pub(crate) compiler: &'a str,
-    pub(crate) host: &'a str,
-    pub(crate) sysroot: &'a Value,
+pub struct Toolchain<'a> {
+    pub compiler: &'a str,
+    pub host: &'a str,
+    pub sysroot: &'a Value,
 }
-pub(crate) fn fingerprint(
+pub fn fingerprint(
     root: &Path,
     args: &[String],
     toolchain: Toolchain<'_>,
@@ -176,17 +176,17 @@ pub(crate) fn fingerprint(
     if !cargo.status.success() {
         return Err("cannot identify cargo".into());
     }
-    let inputs = json!({"policy":"exact-workspace-tests-v1","verifier-sources":[hash(include_bytes!("workspace_test_proof.rs")),hash(include_bytes!("test_runner.rs")),hash(include_bytes!("bin/local-workflow.rs")),hash(include_bytes!("bin/local-release.rs")),hash(include_bytes!("compiler_env.rs")),hash(include_bytes!("trusted_sysroot.rs")),hash(include_bytes!("../../crates/susi-build-os-ucrt/src/policy.rs"))],"commit":git(root,&["rev-parse","HEAD"])?,"tree":git(root,&["rev-parse","HEAD^{tree}"])?,"argv":argv,"lock":hash(&fs::read(root.join("Cargo.lock"))?),"host":host,"compiler":compiler,"toolchain-files":compiler_files(root)?,"cargo":hash(&cargo.stdout),"sysroot":verified,"environment":environment,"cargo-config":config});
+    let inputs = json!({"policy":"exact-workspace-tests-v1","verifier-sources":[hash(include_bytes!("workspace_test_proof.rs")),hash(include_bytes!("test_runner.rs")),hash(include_bytes!("common.rs")),hash(include_bytes!("bin/local-workflow.rs")),hash(include_bytes!("local_workflow/mod.rs")),hash(include_bytes!("local_workflow/claims.rs")),hash(include_bytes!("local_workflow/gates.rs")),hash(include_bytes!("local_workflow/sync_commit.rs")),hash(include_bytes!("local_workflow/ship.rs")),hash(include_bytes!("bin/local-release.rs")),hash(include_bytes!("compiler_env.rs")),hash(include_bytes!("trusted_sysroot.rs")),hash(include_bytes!("../../crates/susi-build-os-ucrt/src/policy.rs"))],"commit":git(root,&["rev-parse","HEAD"])?,"tree":git(root,&["rev-parse","HEAD^{tree}"])?,"argv":argv,"lock":hash(&fs::read(root.join("Cargo.lock"))?),"host":host,"compiler":compiler,"toolchain-files":compiler_files(root)?,"cargo":hash(&cargo.stdout),"sysroot":verified,"environment":environment,"cargo-config":config});
     Ok(hash(&serde_json::to_vec(&inputs)?))
 }
 
-pub(crate) fn record(key: &str) -> String {
+pub fn record(key: &str) -> String {
     format!("{PREFIX}{key}")
 }
 
 // Use the Git-configured OpenPGP program and key. Batch pinentry makes an
 // unavailable signing key a cache miss, even on an unattended workstation.
-pub(crate) fn gpg(root: &Path, args: &[&str], input: &[u8]) -> Result<std::process::Output> {
+pub fn gpg(root: &Path, args: &[&str], input: &[u8]) -> Result<std::process::Output> {
     use std::{io::Write, process::Stdio};
     if git(root, &["config", "--get", "gpg.format"]).is_ok_and(|v| v != "openpgp") {
         return Err("workspace pass needs an OpenPGP signer".into());
@@ -218,7 +218,7 @@ pub(crate) fn gpg(root: &Path, args: &[&str], input: &[u8]) -> Result<std::proce
     }
     Ok(output)
 }
-pub(crate) fn signed_input(root: &Path, key: &str) -> Result<String> {
+pub fn signed_input(root: &Path, key: &str) -> Result<String> {
     Ok(format!(
         "{}\ncommit={}\ntree={}\n",
         record(key),

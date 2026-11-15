@@ -4,11 +4,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
-#[path = "../git_publish.rs"]
-mod git_publish;
-// One source: the harness owns the guard and this tool compiles the same file.
-#[path = "../../../crates/susi-harness/src/storage_guard.rs"]
-mod storage_guard;
+use xtask::{git_publish, storage_guard};
 
 use std::process::ExitCode;
 

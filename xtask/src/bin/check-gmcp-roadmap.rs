@@ -4,8 +4,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
-#[path = "../gmcp_roadmap.rs"]
-mod gmcp_roadmap;
+use xtask::gmcp_roadmap;
 
 use std::path::Path;
 use std::process::ExitCode;

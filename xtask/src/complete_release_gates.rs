@@ -1,16 +1,13 @@
 //! Complete release admission. External coordinator pins authorize gate tools and
 //! immutable provenance permits; package-provided success claims are not inputs.
 use serde_json::{json, Value};
-#[path = "native_json.rs"]
-mod native_json;
-#[path = "native_test_counts.rs"]
-mod native_test_counts;
 use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Stdio,
     time::Instant,
 };
+use xtask::{native_json, native_test_counts};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const SCHEMA: &str = "susi/complete-release-gates/v1";
 const REQUIRED: &[&str] = &[

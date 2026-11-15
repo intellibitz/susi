@@ -2,15 +2,13 @@
 //! supplied permit hash and coordinator hash establish authority. Candidate
 //! files and refs never select their own trust roots.
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-#[path = "native_json.rs"]
-mod native_json;
+use crate::native_json;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const POLICY: &str = "susi-native-provenance-policy-v1\nindependent-immutable-permit-and-coordinator\nforward-adoption-preserves-incomplete-historical-ownership\ncomplete-reservation-task-source-tree-ancestry-and-scope\nexact-gate-plan-success-and-nonempty-tests\ncontent-addressed-logs-and-claims\ngit-gc-rooted-immutable-evidence-objects\n";
@@ -18,10 +16,7 @@ pub const RECEIPT_SCHEMA: &str = "susi-native-provenance-receipt-v1";
 pub const PERMIT_SCHEMA: &str = "susi-native-provenance-permit-v1";
 
 pub fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::common::sha256_hex(bytes)
 }
 
 pub fn file_digest(path: &Path) -> Result<String> {
@@ -551,8 +546,7 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
     found.ok_or_else(|| format!("worker {worker} has no actual namespaced native task with acceptance and exact reservation scopes").into())
 }
 
-#[path = "native_test_counts.rs"]
-mod native_test_counts;
+use crate::native_test_counts;
 use native_test_counts::test_counts;
 
 /// Retain the exact plan and Cargo bytes before any test binary is launched.

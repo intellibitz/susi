@@ -29,7 +29,6 @@
 //! written before `source` existed (v0.21.54, v0.21.55) carry neither field and
 //! stay valid as snapshot releases.
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 
@@ -142,10 +141,7 @@ pub fn toolchain_channel(pin: &str) -> Option<String> {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::common::sha256_hex(bytes)
 }
 
 fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {

@@ -13,9 +13,7 @@
 
 #![forbid(unsafe_code)]
 
-#[allow(dead_code)]
-#[path = "../affected.rs"]
-mod affected;
+use xtask::affected;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};

@@ -1,9 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test assertions.
-#[path = "../src/push_policy.rs"]
-mod push_policy;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use xtask::push_policy;
 const ZERO: &str = "0000000000000000000000000000000000000000";
 
 #[path = "../src/test_fixture_fs.rs"]

@@ -6,8 +6,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
-#[path = "../harvest.rs"]
-mod harvest;
+use xtask::harvest;
 
 use std::process::ExitCode;
 

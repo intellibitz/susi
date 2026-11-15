@@ -17,7 +17,6 @@
 //! review; see `docs/harvest.md` for what is and is not covered.
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
@@ -751,10 +750,7 @@ fn copyright_lines(text: &str) -> Vec<String> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::common::sha256_hex(bytes)
 }
 
 fn lossy(bytes: &[u8]) -> String {
@@ -3277,7 +3273,7 @@ mod tests {
     const APACHE: &str = "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   (c) You must retain all copyright, patent, trademark notices.\n\n   Copyright [yyyy] [name of copyright owner]\n";
     const WIDGET: &str = "// Copyright 2024 The Widget Authors\n//\n// Licensed under the Apache License, Version 2.0.\n\npub fn widget() -> u32 {\n    7\n}\n";
 
-    use super::test_fixture_fs::copy_dir_all;
+    use crate::test_fixture_fs::copy_dir_all;
 
     struct Fixture {
         dir: PathBuf,
@@ -3998,7 +3994,3 @@ mod tests {
         assert_eq!(ui["allowed_in_core"], false);
     }
 }
-
-#[cfg(test)]
-#[path = "test_fixture_fs.rs"]
-mod test_fixture_fs;

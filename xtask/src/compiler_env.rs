@@ -59,7 +59,7 @@ fn discover() -> io::Result<PathBuf> {
     Ok(bin)
 }
 
-pub(crate) fn apply_checked(command: &mut Command) -> io::Result<()> {
+pub fn apply_checked(command: &mut Command) -> io::Result<()> {
     let explicit: Vec<_> = command.get_envs().map(|(key, _)| key.to_owned()).collect();
     apply_names(
         command,
@@ -111,7 +111,7 @@ pub(crate) fn apply_checked(command: &mut Command) -> io::Result<()> {
 // Older sysroot callers configure a Command infallibly before spawning it.
 // Poison the program itself on discovery failure. No OS accepts a NUL in an
 // executable name, so a later env/current_dir update cannot undo the refusal.
-pub(crate) fn apply(command: &mut Command) {
+pub fn apply(command: &mut Command) {
     if let Err(error) = apply_checked(command) {
         eprintln!("local compiler binding refused: {error}");
         *command = Command::new("invalid Rust toolchain\0");
@@ -158,7 +158,7 @@ fn apply_names(command: &mut Command, names: impl Iterator<Item = OsString>) {
     }
 }
 #[allow(dead_code)]
-pub(crate) fn configure_system_openssl(
+pub fn configure_system_openssl(
     command: &mut std::process::Command,
     target: &str,
 ) -> Result<(), String> {

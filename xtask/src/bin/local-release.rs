@@ -13,13 +13,10 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
 
-#[path = "../compiler_env.rs"]
-mod compiler_env;
-#[path = "../workspace_test_count.rs"]
-mod workspace_test_count;
-#[allow(dead_code)]
-#[path = "../workspace_test_proof.rs"]
-mod workspace_test_proof;
+use xtask::{
+    compiler_env, harvest, product_features, sysroot_sources, trusted_sysroot,
+    workspace_test_count, workspace_test_proof, worktree_admin,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const QUALIFICATION_POLICY: &str =
@@ -36,28 +33,18 @@ mod complete_release_gates;
 mod elf_imports;
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
-#[path = "../harvest.rs"]
-mod harvest;
 #[path = "../installed_delivery.rs"]
 mod installed_delivery;
 #[path = "../native_openssl.rs"]
 mod native_openssl;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
-#[path = "../product_features.rs"]
-mod product_features;
 #[path = "../release_coordinator.rs"]
 mod release_coordinator;
 #[path = "../sysroot_license.rs"]
 mod sysroot_license;
-#[path = "../sysroot_sources.rs"]
-mod sysroot_sources;
-#[path = "../trusted_sysroot.rs"]
-mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
-#[path = "../worktree_admin.rs"]
-mod worktree_admin;
 use susi_build_os_ucrt::policy as vendor_regressions;
 use susi_build_os_ucrt::{native_link, pe_imports};
 

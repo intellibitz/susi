@@ -33,7 +33,7 @@ fn passed_in_summary(line: &str) -> Option<u64> {
     Some(passed)
 }
 
-pub(crate) fn verified_pass_count(path: &Path) -> io::Result<u64> {
+pub fn verified_pass_count(path: &Path) -> io::Result<u64> {
     let reader = BufReader::new(File::open(path)?);
     let mut total = 0u64;
     for line in reader.split(b'\n') {

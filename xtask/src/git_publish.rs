@@ -385,34 +385,11 @@ fn normalize_endpoint(root: &Path, value: &str) -> Result<String> {
 }
 
 fn valid_oid(oid: &str) -> Result<()> {
-    if matches!(oid.len(), 40 | 64)
-        && oid
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        Ok(())
-    } else {
-        Err("expected a full lowercase Git object ID".to_owned())
-    }
+    crate::common::require_valid_oid(oid)
 }
 
 fn valid_name(name: &str) -> Result<()> {
-    let device = matches!(name, "con" | "prn" | "aux" | "nul")
-        || (name.len() == 4
-            && (name.starts_with("com") || name.starts_with("lpt"))
-            && matches!(name.as_bytes()[3], b'1'..=b'9'));
-    if name.is_empty()
-        || name.len() > 48
-        || device
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        || name.starts_with('-')
-        || name.ends_with('-')
-    {
-        return Err("snapshot name needs 1-48 lowercase letters/digits/interior hyphens, not a Windows device name".to_owned());
-    }
-    Ok(())
+    crate::common::validate_kebab_name(name, false, "snapshot")
 }
 
 fn parse_remote_ref(output: &str, reference: &str) -> Result<Option<String>> {
@@ -876,10 +853,6 @@ fn publish_main(
 }
 
 #[cfg(test)]
-#[path = "test_fixture_fs.rs"]
-mod test_fixture_fs;
-
-#[cfg(test)]
 mod tests {
     // Test assertions intentionally panic on a failed invariant.
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -1009,7 +982,7 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    use super::test_fixture_fs::{copy_dir_all, set_git_origin_url};
+    use crate::test_fixture_fs::{copy_dir_all, set_git_origin_url};
 
     struct Repo {
         root: PathBuf,

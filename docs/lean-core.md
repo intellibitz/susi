@@ -288,6 +288,34 @@ middle branches are tied, shortening one alone saves nothing (why the swarm
 and A2A moves measured no wall gain); the serial pieces are the front,
 config, core and the tail.
 
+## Repository Line Accounting & Category Budgets
+
+Raw tracked text-line counts (~1.49M lines across `git ls-files`) overstate
+Susi's runtime footprint because the repository intentionally versions four
+distinct artifacts side by side:
+
+1. **`.agents/**` (`645,708` tracked lines, marked `linguist-generated` in `.gitattributes`)**:
+   task ledgers, two large `unsafe-default*.json` baselines (`302,206` lines),
+   and append-only `.agents/gmcp/evidence/*.jsonl` proof records (`7,129`
+   lines, `merge=union`). Audit trails and append-only evidence are preserved
+   without downward caps; only unsafe baseline file count is bounded (`2`).
+2. **`vendor/**` (`216,164` tracked lines, marked `linguist-vendored`)**:
+   patched offline dependency sources (`vendor/README.md`). Kept intact for
+   deterministic offline builds under a hard ceiling (`216,164`).
+3. **Tooling and tests (`72,094` tooling `.rs` lines in `xtask/**` +
+   `toolchain/**`, `118,857` test/bench/fuzz `.rs` lines)**: guarded by separate
+   `TOOLING_RUST_CEILING` (`72,200`), `XTASK_MAX_FILE_LINES_CEILING` (`4,000`),
+   and `TEST_RUST_CEILING` (`126,000`) ceilings in `tests/lean_core_ceilings.rs`.
+4. **First-party runtime & facade Rust**: `first_party_runtime_rust`
+   (`301,411` lines under `crates/*` excluding `susi-vendor-*` and explicit
+   test/bench paths, plus root `src/**` and `build.rs`; ceiling `303,000`) and
+   `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`; ceiling
+   `6,454`), alongside the stricter 8-pillar shipped `src` ceilings (`LINE_CEILINGS`).
+
+`docs/**` is marked `linguist-documentation` in `.gitattributes` so platform
+diff stats and language breakdowns reflect first-party Rust rather than
+vendored crates or append-only audit logs.
+
 ## Wave log
 
 - 2026-11-07 wave 1 (T-LEAN-1): ceilings test; `susi_core::parallel` (std
@@ -1232,3 +1260,17 @@ config, core and the tail.
   measured `0.10 s` no-op (`326 ms` wall) and `3.88 s` `src/main.rs`
   recompile+link (`3,917 ms` wall, `< 10.0 s` budget; `18.63 s` 8-crate
   non-incremental rebuild).
+- 2026-11-15 (T-AG4CORESIZE-1, Windows x86_64): establish Linguist rules
+  (`vendor/**`, `.agents/**`, `docs/**`) in `.gitattributes`, add enforced
+  per-category repository line ceilings and `XTASK_MAX_FILE_LINES_CEILING = 4,000`
+  in `tests/lean_core_ceilings.rs` (`repository_category_budgets_do_not_grow`:
+  `runtime_rust=301,411`, `vendor_facade_rust=6,454`, `test_rust=118,857`,
+  `tooling_rust=72,094`, `vendor=216,164`, `unsafe_baselines=2`; `.agents`
+  `645,708` and append-only evidence `7,129` preserved uncapped), extract the
+  shared `xtask` library crate (`xtask/src/lib.rs` + `xtask/src/common.rs`), and
+  split `xtask/src/bin/local-workflow.rs` (`9,501` -> 10-line wrapper +
+  `xtask/src/local_workflow/*`) and `xtask/src/distill_compose.rs` (`6,158` ->
+  `xtask/src/distill_compose/*`; max `xtask` `.rs` file now `xtask/src/harvest.rs`
+  at `3,996` lines). Eliminated redundant multi-binary test fanout across
+  `xtask` (`754` test runs in `704.25 s` -> `551` unique runs in `459.63 s`)
+  while preserving all assertions and CLI coverage.

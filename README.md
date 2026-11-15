@@ -216,6 +216,7 @@ for a reservation. The full path, with the native Windows notes, is in
 - [docs/gate-receipts.md](docs/gate-receipts.md): every gated landing's receipt under [`.agents/receipts/`](.agents/receipts/), and how to re-run one on a clean clone with `cargo xtask verify-receipt <commit>`.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
 - [docs/gmcp-roadmap.md](docs/gmcp-roadmap.md): the standards-traceable GMCP completion program; the genome ledgers under [`.agents/`](.agents/) are described in [docs/architecture.md](docs/architecture.md#genome).
+- [docs/lean-core.md](docs/lean-core.md#repository-line-accounting--category-budgets): tracked repository line accounting by category (separating first-party runtime Rust from tests, tooling, vendored sources, and audit/evidence trails) enforced in [`tests/lean_core_ceilings.rs`](tests/lean_core_ceilings.rs).
 - [docs/extension-pack.md](docs/extension-pack.md), [docs/harness.md](docs/harness.md), [VISION.md](VISION.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

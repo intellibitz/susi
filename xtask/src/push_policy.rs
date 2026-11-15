@@ -7,8 +7,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
-#[path = "release_qualification.rs"]
-mod release_qualification;
+use crate::release_qualification;
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")

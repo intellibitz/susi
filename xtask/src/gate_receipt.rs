@@ -16,7 +16,6 @@
 //! commands against `H` in a scratch worktree and reports which results match
 //! ([`verify`]).
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -53,17 +52,11 @@ pub fn ref_for(commit: &str) -> String {
 
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::common::sha256_hex(bytes)
 }
 
 fn valid_oid(value: &str) -> bool {
-    matches!(value.len(), 40 | 64)
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    crate::common::is_valid_oid(value)
 }
 
 fn git_output(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<Vec<u8>> {
@@ -322,21 +315,7 @@ impl OuterBinaries<'_> {
 }
 
 fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' && chars.peek() == Some(&'[') {
-            chars.next();
-            for next in chars.by_ref() {
-                if ('@'..='~').contains(&next) {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    crate::common::strip_ansi(text)
 }
 
 /// `name-<16 hex>[.exe]` -> `name`.
@@ -2248,7 +2227,7 @@ mod tests {
         guard.unwrap().recheck().unwrap();
     }
 
-    use super::test_fixture_fs::copy_dir_all;
+    use crate::test_fixture_fs::copy_dir_all;
 
     struct Scratch(PathBuf);
     impl Scratch {
@@ -3513,10 +3492,3 @@ mod tests {
             .contains("one commit"));
     }
 }
-
-// local-workflow mounts this file beside distill_compose, which mounts the same
-// fixtures; `xtask` mounts this file alone, so it cannot borrow that mount.
-#[cfg(test)]
-#[allow(clippy::duplicate_mod)]
-#[path = "test_fixture_fs.rs"]
-mod test_fixture_fs;

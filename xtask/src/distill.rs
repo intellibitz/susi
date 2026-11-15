@@ -19,6 +19,8 @@ pub mod functional;
 pub mod hostmerge;
 #[path = "distill/lint.rs"]
 mod lint;
+#[path = "distill/mandate74.rs"]
+pub mod mandate74;
 
 type Result<T> = std::result::Result<T, String>;
 

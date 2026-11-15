@@ -8,7 +8,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-pub(crate) fn hash(bytes: &[u8]) -> String {
+pub fn hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -178,7 +178,7 @@ pub(crate) fn runtime_char_methods(original: &str) -> io::Result<String> {
     Ok(text)
 }
 
-pub(crate) fn replacement(
+pub fn replacement(
     root: &Path,
     authenticated_original: &Path,
     tracked_backend: &Path,

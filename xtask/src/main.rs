@@ -10,29 +10,7 @@
     )
 )]
 
-mod build_time;
-mod compiler_env;
-mod extension_watch;
-mod fast_release;
-// Shared with the local-workflow binary, which writes the receipts this
-// binary verifies; the writer half is unused here.
-#[allow(dead_code)]
-mod gate_receipt;
-mod local_build;
-// Receipt verification replays test binaries through these local-workflow
-// modules; their writer and gate-launch halves are unused by this binary.
-#[allow(dead_code)]
-mod native_provenance;
-// Shared with the local-release binary, which also uses `select_product_features`;
-// this binary only needs `product_feature_args` (local-build).
-#[allow(dead_code)]
-mod product_features;
-mod sysroot_sources;
-#[allow(dead_code)]
-mod test_binary_evidence;
-#[allow(dead_code)]
-mod test_runner;
-mod trusted_sysroot;
+use xtask::{build_time, extension_watch, fast_release, gate_receipt, local_build, test_runner};
 
 #[cfg(windows)]
 extern crate susi_windows_runtime;
