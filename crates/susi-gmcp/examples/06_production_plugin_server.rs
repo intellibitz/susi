@@ -31,6 +31,7 @@ pub fn run(scratch: &Path) -> Result<Value, String> {
     let loaded = svc
         .attach_plugin(bundle, &policy)
         .map_err(|e| e.to_string())?;
+    let active_snap = svc.ops_snapshot();
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -72,16 +73,19 @@ pub fn run(scratch: &Path) -> Result<Value, String> {
             .is_ok_and(|s| s.task.status == TaskStatus::Cancelled);
         h.shutdown().await;
         let ok = loaded.id == "sdk-sample-plugin"
+            && active_snap["plugins"][0]["id"] == json!("sdk-sample-plugin")
             && lookup["result"]["content"][0]["text"] == json!("plugin:prod")
             && unloaded.cancelled_tasks == 1
             && svc.loaded_plugins().is_empty()
+            && svc.ops_snapshot()["plugins"] == json!([])
             && svc.tasks.running_task_count() == 0
             && cancelled;
         Ok(json!({
             "example": "06_production_plugin_server",
             "ok": ok,
             "pluginId": loaded.id,
-            "cancelledTasks": unloaded.cancelled_tasks
+            "cancelledTasks": unloaded.cancelled_tasks,
+            "activeSnapshot": active_snap
         }))
     })
 }

@@ -1,6 +1,6 @@
 # Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin host lifecycle
 
-Status: **implemented** (requirements GMCP-203-020-01..05, vector VC-203-020)
+Status: **implemented** (requirements GMCP-203-020-01..06, vector VC-203-020)
 Baseline date: **2026-11-15**
 
 ## Normative clause
@@ -405,3 +405,86 @@ examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
   *before* middleware; registered middlewares execute outer-to-inner around the
   handler; compiled `outputSchema` validation and `CanonicalContentBlock`
   sanitization execute *after* handler/middleware completion before wire egress.
+
+## Operations and non-claims
+
+- **Rollout & rollback boundary**: `ServerBuilder` and `GmcpService` isolate catalogs, middleware stacks, durable task directories, and attached `PluginBundle` sets per server instance, while host extension packs under `~/.susi/extensions/<id>/` fall back deterministically to compiled defaults (`DEFAULT_PACK_ID = "default"`) whenever unloaded or absent. Reverting a catalog snapshot (`reload_catalog`), unloading a plugin (`unload_plugin` / `susi extensions unload`), or reverting an upstream spec re-pin restores prior operational behavior without mutating caller transcripts or requiring database migrations.
+- **Core zero-pack posture**: Core ships the authoring SDK, `TestHarness`, and fail-closed plugin lifecycle substrate with zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`). Runnable examples (`01_minimal_tool`..`06_production_plugin_server`) execute strictly inside isolated scratch roots and never auto-seed `~/.susi/extensions/`.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `GmcpService::ops_snapshot()` emits a deterministic JSON inspection document (`serverInfo`, `includeHostTools`, `middlewareCount`, `changeSubscribers`, `catalog.{tools,resources,templates,prompts,completions,hasResourceGuard}`, `plugins[*].{id,version,apiVersion,hostSynced,permissions,tools,resources,templates,prompts,completions,extensions,trackedTasks}`, and `extensions`) reflecting live hot-reload and plugin attach/unload state without taking write locks.
+- `GmcpService::discover_result()` and `GmcpService::loaded_plugins()` expose canonical `server/discover` metadata (`DISCOVER_TTL_MS = 0`, `CacheScope::Private`) and active `ExtensionManifest` records across in-process `TestHarness`, `susi mcp serve` stdio, `#[cfg(unix)]` Unix sockets, and Streamable HTTP `/mcp`.
+- `susi mcp tools <addr> [--token <tok>]` and `susi mcp call <addr> <tool> [<args_json>] [--token <tok>]` inspect and invoke live SDK-authored HTTP `/mcp` and direct-bound (`bind_direct_server`) endpoints over the shipped session-aware wire client.
+- `susi mcp ledger` prints the canonical JSON verification report matching the MCP `ledger_verify` tool verbatim; `susi mcp status` and `susi mcp list` emit inspectable MCP control-plane status in JSON.
+- `susi extensions list|status|create|validate|load|unload` matches `CoreTools::extensions_list|status|create|validate|load|unload`: read-only `validate` audits manifest fields, `apiVersion` (`HOST_PACK_API_MAJOR = 1`), `KNOWN_PERMISSIONS`, SHA-256 `checksums`, and Ed25519 `signatures` without mutating `~/.susi/extensions/state.json`.
+- `ExtensionRegistry::status_report()` reports `[ { id, status, version, enabled } ]`, and `ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)` flags newly published official extensions (`[GMCP] Adopt newly published official extension <id>`).
+
+### Configuration validation
+
+- CLI flag validation fails closed when `--refetched <dir>` is passed without `--drift` on `susi mcp ledger`.
+- Host configuration validation (`susi_config::validate::validate_dir`) audits `~/.susi/config.json` prior to startup and reports non-numeric `max_rpc_body_bytes` with `ConfigIssueKind::TypeMismatch`.
+- `GmcpServer::serve_stdio_service` / `run_stdio` refuses `max_rpc_body_bytes == 0` before reading stdio frames, emitting `[GMCP] Invalid max_rpc_body_bytes (0): must be > 0; refusing stdio transport` to `stderr` and zero bytes on `stdout`.
+- SDK & plugin admission validation (`ServerBuilder::build`, `GmcpService::register_tool`, `GmcpService::reload_catalog`, `GmcpService::attach_plugin`, `GmcpService::open_durable`, `susi extensions validate`) fails closed on remote/cyclic `$ref` schemas, unknown permissions outside `KNOWN_PERMISSIONS` (`filesystem.read`, `filesystem.write`, `network.egress`, `process.exec`), `apiVersion` major mismatch (`HOST_PACK_API_MAJOR = 1`), unpermitted `../` escapes, missing files, SHA-256 or Ed25519 verification failures, ungranted `PluginPolicy` permissions, missing required host capabilities (`HOST_CAPABILITIES`), and corrupt durable task store records.
+
+### Bounded metrics, logs and traces
+
+- Schema, content, resource, task, and transport bounds enforce deterministic isolation:
+  - `Validator::compile` & `CanonicalContentBlock::from_wire`: `MAX_DEPTH = 64`, `MAX_NODES = 10_000` (`ContentError::TooLarge`).
+  - Resource read ceiling: `MAX_RESOURCE_BYTES = 8_388_608` (`8 MiB`; refused fail-closed, never truncated).
+  - Task & session ceilings: `MAX_ACTIVE_TASKS_PER_PRINCIPAL = 64`, `DEFAULT_TASK_TTL_MS = 300_000`, `MAX_TOOL_CALL_SECS = 1_800`, `MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION`, `MAX_LOG_NOTIFICATIONS_PER_REQUEST`, `MAX_NOTIFICATION_PAYLOAD_BYTES`.
+  - Wire framing ceilings: stdio `DEFAULT_MAX_LINE_LENGTH = 16777216` (`16 MiB` via `BoundedLines`), HTTP `DEFAULT_MAX_REQUEST_BODY_BYTES = 4194304` (`4 MiB`).
+- On Streamable HTTP `/mcp` (`GmcpServer::serve_http_service`), W3C `traceparent` headers and `_meta["io.modelcontextprotocol/logLevel"]` emit bounded `notifications/message` SSE frames when `logLevel` is enabled, strip Bearer credentials so tokens never leak into SSE/log frames, and suppress `notifications/message` completely when `logLevel` is omitted.
+
+### Diagnostics and incident triage
+
+- `PluginError` typed lifecycle diagnostics: `InvalidManifest`, `IntegrityFailed`, `PermissionDenied`, `IncompatibleCapability`, `SchemaRejected`, `ExtensionRejected`, `Collision`, `AlreadyLoaded`, `NotLoaded`, `InitFailed`.
+- `ExtensionError` typed diagnostics: `NotNamespaced`, `Collision`, `RequiredUnsupported`, `Downgrade`.
+- Wire/HTTP JSON-RPC error codes: `-32600` (`Invalid Request` — malformed frame, oversized `BoundedLines` line, or cross-era envelope mismatch), `-32601` (`Method not found`), `-32602` (`Invalid params` — schema/guard/capability refusal or colliding reload), `-32020` (`HEADER_MISMATCH`), `-32022` (`UNSUPPORTED_PROTOCOL_VERSION`), HTTP `401`/`403` (missing/invalid Bearer or Origin), and HTTP `413` (oversized request body).
+- `hash_drift` / `unfetchable`: deterministic findings emitted by `susi mcp ledger --drift --refetched <dir>` whenever any of the 14 pinned `VC-203-020` specification, schema, security, or extension authorities (`schema/2026-07-28/schema.json`, `schema/2026-07-28/schema.ts`, `schema/2025-11-25/schema.json`, `server/{tools,resources,prompts,discover}.mdx`, `server/utilities/completion.mdx`, `basic/patterns/{subscriptions,mrtr}.mdx`, `tutorials/security/local-server-security.mdx`, `ext-tasks/.../tasks.md`, `ext-apps/.../apps.mdx`, `ext-auth/.../enterprise-managed-authorization.mdx`) changes or goes missing relative to `.agents/gmcp/sources.json`.
+
+### Examples
+
+```text
+# 1. Inspect GMCP ledger, live SDK server tools/calls, and extension pack state
+susi mcp ledger
+susi mcp status
+susi mcp tools 127.0.0.1:9093 --token "$SUSI_API_TOKEN"
+susi mcp call 127.0.0.1:9093 summarize_items '{"items":["a","b"],"scope":{"namespace":"ops"}}' --token "$SUSI_API_TOKEN"
+susi extensions status
+susi extensions validate /path/to/plugin-pack
+
+# 2. Run runnable minimal-through-production SDK & plugin examples
+cargo run --offline --locked -p susi-gmcp --example 01_minimal_tool
+cargo run --offline --locked -p susi-gmcp --example 06_production_plugin_server
+
+# 3. Run deterministic air-gapped standards drift check and VC-203-020 operations gate
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+cargo test --locked --test gmcp_requirements gmcp_req_203_020_06_operations
+cargo local-release record-gmcp
+cargo local-release record-gmcp --mastery
+```
+
+### Incident triage
+
+Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), `PluginError::IntegrityFailed` / TOFU quarantine event in `~/.susi/extensions/state.json`, residual plugin entries in `GmcpService::ops_snapshot()` after `unload_plugin`, unredacted credential in SSE `notifications/message`, `stdout` non-JSON byte leak on `max_rpc_body_bytes == 0`, or uncontained handler panic as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi extensions status` (including `quarantined` and `trusted_digests`), `GmcpService::ops_snapshot()`, offending `manifest.json` or JSON-RPC payload, server `stderr`, and the latest `.agents/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_020`.
+
+### Migration (SDK authoring, plugin API major upgrades, and re-pinning upstream specs)
+
+1. **Migrating legacy handlers onto `ServerBuilder`**: Register typed inputs/outputs via `sdk_schema!` + `tool_typed` / `tool_structured` / `task_tool_typed`, wrap cross-cutting policy/audit in `ServerBuilder::middleware`, and validate parity via `TestHarness` before exposing over stdio or `GmcpServer::serve_http_service`.
+2. **Plugin `apiVersion` & capability evolution**: Plugins targeting `HOST_PACK_API_MAJOR = 1` declare required host capabilities in `requires` (`HOST_CAPABILITIES`) and non-critical features in `optional` (surfaced in `PluginLoadedReport::missing_optional`). Introducing a breaking host plugin ABI requires bumping `HOST_PACK_API_MAJOR` with dual-validation migration fixtures.
+3. **Upstream specification re-pinning**: Vendor updated spec files under `.agents/gmcp/spec/`, update SHA-256 digests in `.agents/gmcp/sources.json` and clauses in `.agents/gmcp/requirements-ledger.json`, update `docs/gmcp/contract-203-020.md`, re-run `gmcp_req_203_020_01..06` + `check-gmcp-roadmap`, and record fresh two-phase `record-gmcp` + `record-gmcp --mastery` proof chains.
+
+### Rollback
+
+1. **Live catalog rollback**: Keep the prior validated `CatalogUpdate` snapshot and invoke `GmcpService::reload_catalog(previous_snapshot)`; non-plugin tools/resources/prompts revert atomically in `< 5 ms` while preserving active plugin registrations and in-flight requests.
+2. **Plugin pack rollback**: Run `susi extensions unload <id>` (and `GmcpService::unload_plugin` / `sync_active_pack`) to cancel plugin-owned tasks, remove contributed primitives, and restore `DEFAULT_PACK_ID = "default"` without deleting quarantined forensic files on disk.
+3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir`, confirm `susi mcp ledger --drift --refetched .agents/gmcp/spec` reports `verified: true`, re-run `gmcp_req_203_020_06_operations`, and append fresh `record-gmcp` + `record-gmcp --mastery` lines without truncating historical `.agents/gmcp/evidence/*.jsonl` chains.
+
+### Production guarantees and non-claims
+
+- Production guarantees cover `crates/susi-gmcp/src/{sdk.rs,sdk/examples.rs,protocol.rs,extensions.rs,content.rs,schema_check.rs,server.rs,stdio.rs,mcp/service.rs,mcp/task_manager.rs,requirements_ledger.rs}`, `crates/susi-gmcp/examples/01_minimal_tool.rs`..`06_production_plugin_server.rs`, `crates/susi-config/src/extensions.rs`, and `crates/susi-abi/src/lib.rs` (`SDK-001`..`SDK-018`).
+- Non-claim: Core plugins execute as verified manifest/bundle units over Susi-owned Rust traits and JSON-RPC boundaries (`#![forbid(unsafe_code)]`); arbitrary native `dlopen`/`cdylib` shared-library loading is intentionally excluded from Core.
+- Non-claim: Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`); curated commercial packs are delivered exclusively in `intellibitz/susi-commercial-apps`.

@@ -45,46 +45,34 @@ sdk_schema! {
     }
     /// Structured output verified against compiled `outputSchema` before egress.
     pub struct SummarizeOutput {
-        /// Count of processed items.
         pub count: u32,
-        /// Joined summary text.
         pub summary: String,
-        /// Echoed namespace from `scope`.
         pub namespace: String,
     }
     /// Input for the inline MRTR confirmation tool.
-    pub struct ConfirmActionInput {
-        /// Operation requiring operator confirmation.
-        pub operation: String,
-    }
+    pub struct ConfirmActionInput { pub operation: String }
     /// Input for the durable MRTR approval task workflow.
-    pub struct ApprovalTaskInput {
-        /// Change ticket identifier.
-        pub ticket: String,
-    }
+    pub struct ApprovalTaskInput { pub ticket: String }
     /// Input for the sample plugin's lookup tool.
-    pub struct PluginLookupInput {
-        /// Lookup key inside the plugin catalog.
-        pub key: String,
-    }
+    pub struct PluginLookupInput { pub key: String }
 }
 
 pub(crate) fn text_read_response(uri: String, mime: &str, text: String) -> ReadResourceResponse {
+    let contents = vec![ResourceContents::TextResourceContents {
+        uri,
+        mime_type: Some(mime.into()),
+        text,
+        meta: None,
+    }];
     ReadResourceResult {
         result_type: Some(ResultType::COMPLETE),
         ttl_ms: Some(0),
         cache_scope: Some(CacheScope::Private),
-        contents: vec![ResourceContents::TextResourceContents {
-            uri,
-            mime_type: Some(mime.into()),
-            text,
-            meta: None,
-        }],
+        contents,
         meta: None,
     }
     .into()
 }
-
 fn make_audit_middleware(tag: &'static str, log: AuditLog) -> ToolMiddleware {
     Arc::new(move |req, ctx, next| {
         let log = Arc::clone(&log);
@@ -96,33 +84,33 @@ fn make_audit_middleware(tag: &'static str, log: AuditLog) -> ToolMiddleware {
         })
     })
 }
-
 fn make_prompt(name: &str, title: &str, desc: &str, arg: Option<(&str, &str)>) -> Prompt {
+    let arguments = arg.map(|(n, d)| {
+        vec![PromptArgument {
+            name: n.into(),
+            title: Some(n.into()),
+            description: Some(d.into()),
+            required: Some(true),
+        }]
+    });
     Prompt {
         name: name.into(),
         title: Some(title.into()),
         description: Some(desc.into()),
-        arguments: arg.map(|(n, d)| {
-            vec![PromptArgument {
-                name: n.into(),
-                title: Some(n.into()),
-                description: Some(d.into()),
-                required: Some(true),
-            }]
-        }),
+        arguments,
         icons: None,
         meta: None,
     }
 }
-
-fn prompt_msg(role: Role, desc: String, text: String) -> GetPromptResponse {
+fn prompt_msg(role: Role, description: String, text: String) -> GetPromptResponse {
+    let messages = vec![PromptMessage {
+        role,
+        content: ContentBlock::text(text),
+    }];
     GetPromptResult {
         result_type: Some(ResultType::COMPLETE),
-        description: Some(desc),
-        messages: vec![PromptMessage {
-            role,
-            content: ContentBlock::text(text),
-        }],
+        description: Some(description),
+        messages,
         meta: None,
     }
     .into()
@@ -133,7 +121,7 @@ pub fn minimal_echo_server(workspace: PathBuf) -> Result<GmcpService, ErrorData>
         .description("Minimal single-tool local MCP server built with Susi ServerBuilder")
         .tool_typed(
             "echo",
-            "Echo a caller message with optional uppercase transformation",
+            "Echo a caller message",
             |input: EchoInput, _raw, _ctx| async move {
                 let text = if input.uppercase {
                     input.message.to_uppercase()
@@ -357,7 +345,6 @@ pub fn sample_plugin_bundle(
         "Guidance contributed by sdk-sample-plugin",
         None,
     );
-
     let mut bundle = PluginBundle::new(manifest)
         .with_tool(
             lookup_tool,
@@ -389,11 +376,8 @@ pub fn sample_plugin_bundle(
             Resource::new("plugin://status", "plugin-status").with_mime_type("application/json"),
             Arc::new(|req, _ctx| {
                 Box::pin(async move {
-                    Ok(text_read_response(
-                        req.uri,
-                        "application/json",
-                        json!({"plugin": "sdk-sample-plugin", "healthy": true}).to_string(),
-                    ))
+                    let body = json!({"plugin": "sdk-sample-plugin", "healthy": true}).to_string();
+                    Ok(text_read_response(req.uri, "application/json", body))
                 })
             }),
         )
@@ -415,7 +399,6 @@ pub fn sample_plugin_bundle(
             1,
             Map::new(),
         );
-
     if let Some(root) = pack_root {
         bundle = bundle.with_pack_root(root);
     }

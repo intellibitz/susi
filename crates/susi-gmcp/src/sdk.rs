@@ -141,44 +141,42 @@ pub fn mrtr_input_required(
     })
 }
 
-fn ensure_cap(present: bool, required: ClientCapabilities) -> Result<(), ErrorData> {
-    present
+fn ensure_cap(
+    ctx: &RequestContext<RoleServer>,
+    check: fn(ClientCapabilities) -> bool,
+    set: fn(&mut ClientCapabilities),
+) -> Result<(), ErrorData> {
+    ctx.client_capabilities()
+        .is_some_and(check)
         .then_some(())
-        .ok_or_else(|| ErrorData::missing_required_client_capability(required))
+        .ok_or_else(|| {
+            let mut req = ClientCapabilities::default();
+            set(&mut req);
+            ErrorData::missing_required_client_capability(req)
+        })
 }
 
 pub fn require_client_elicitation(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
-    let req = ClientCapabilities {
-        elicitation: Some(Default::default()),
-        ..Default::default()
-    };
     ensure_cap(
-        ctx.client_capabilities()
-            .is_some_and(|c| c.elicitation.is_some()),
-        req,
+        ctx,
+        |c| c.elicitation.is_some(),
+        |r| r.elicitation = Some(Default::default()),
     )
 }
 
 pub fn require_client_sampling(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
-    let req = ClientCapabilities {
-        sampling: Some(Default::default()),
-        ..Default::default()
-    };
     ensure_cap(
-        ctx.client_capabilities()
-            .is_some_and(|c| c.sampling.is_some()),
-        req,
+        ctx,
+        |c| c.sampling.is_some(),
+        |r| r.sampling = Some(Default::default()),
     )
 }
 
 pub fn require_client_roots(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
-    let req = ClientCapabilities {
-        roots: Some(Default::default()),
-        ..Default::default()
-    };
     ensure_cap(
-        ctx.client_capabilities().is_some_and(|c| c.roots.is_some()),
-        req,
+        ctx,
+        |c| c.roots.is_some(),
+        |r| r.roots = Some(Default::default()),
     )
 }
 
@@ -813,6 +811,35 @@ impl GmcpService {
             .values()
             .map(|p| p.manifest.clone())
             .collect()
+    }
+
+    pub fn ops_snapshot(&self) -> Value {
+        let cat = self.catalog.read();
+        let plugins: Vec<Value> = self
+            .plugins
+            .read()
+            .values()
+            .map(|p| {
+                json!({
+                    "id": p.manifest.id, "version": p.manifest.version,
+                    "apiVersion": p.manifest.api_version, "hostSynced": p.host_synced,
+                    "permissions": p.manifest.permissions, "tools": p.tools,
+                    "resources": p.resources, "templates": p.templates, "prompts": p.prompts,
+                    "completions": p.completions, "extensions": p.extensions,
+                    "trackedTasks": p.spawned_tasks.lock().unwrap_or_else(|e| e.into_inner()).len(),
+                })
+            })
+            .collect();
+        json!({
+            "serverInfo": self.server_info, "includeHostTools": self.include_host_tools,
+            "middlewareCount": self.middlewares.read().len(), "changeSubscribers": self.changes.receiver_count(),
+            "catalog": {
+                "tools": cat.tools.keys().collect::<Vec<_>>(), "resources": cat.resources.keys().collect::<Vec<_>>(),
+                "templates": cat.templates.keys().collect::<Vec<_>>(), "prompts": cat.prompts.keys().collect::<Vec<_>>(),
+                "completions": cat.completions.keys().collect::<Vec<_>>(), "hasResourceGuard": cat.resource_guard.is_some(),
+            },
+            "plugins": plugins, "extensions": self.extensions.read().status_report(),
+        })
     }
 
     pub fn reload_catalog(&self, update: CatalogUpdate) -> Result<ReloadReport, ErrorData> {
