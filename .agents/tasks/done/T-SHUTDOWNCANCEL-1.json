@@ -16,9 +16,14 @@
       "supervisor"
     ]
   },
-  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
   "created_by": "SHUTDOWNCANCEL",
   "created_unix": 1793641423,
+  "closed": {
+    "at_unix": 1794767514,
+    "commit": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
+    "by": "AG3HOUSEKEEP"
+  },
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
   "implementation_commit": "48232ac201a0bf1968e1f75e93e0718c1b91377d",
   "notes": "Landed in 48232ac201a0bf1968e1f75e93e0718c1b91377d across crates/susi-daemon/src/supervisor.rs and crates/susi-daemon/src/server.rs. Intra-Core crate split 2b0f2e1b05fedd878a5615a495a83afdb510653f moved crates/susi-daemon/src/supervisor.rs to crates/susi-daemon-runtime/src/supervisor.rs (re-exported by susi-daemon), while crates/susi-daemon/src/server.rs remained in susi-daemon. Acceptance criteria: stalled owned leaf readiness wait is interrupted by shutdown before the 10s deadline with child terminated and no surviving service record; foreign listeners are never signalled or adopted; earlier owned children remain recorded for common teardown; daemon wakes from idle supervision wait without altering supervision cadence or stop escalation deadlines.",
   "reuse": {
@@ -39,6 +44,6 @@
     "crates/susi-daemon/src/server.rs",
     "tests/task_record_schema_debt.json"
   ],
-  "state": "open",
+  "state": "closed",
   "status": "completed"
 }
