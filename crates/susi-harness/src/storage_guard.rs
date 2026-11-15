@@ -19,6 +19,11 @@
 //! no force. The record of a violated ref is kept, so the loss stays reported
 //! until it is repaired. It works with any Git remote: a hosted service, a
 //! self-hosted server or a bare repository on a disk.
+//!
+//! A deletion the CEO directed is not a loss. It is written down in
+//! [`DIRECTED`] on the remote's own `main`, one `<object> <ref> <date> <task>`
+//! line per ref. A recorded ref that is gone at a listed object is accepted
+//! and its retained copy dropped; a listed ref that exists again is reported.
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -26,6 +31,9 @@ use std::process::{Command, Output, Stdio};
 type Result<T> = std::result::Result<T, String>;
 
 const LEDGER: &str = "refs/susi-guard";
+const MAIN: &str = "refs/heads/main";
+/// Committed record of the ref deletions the CEO directed.
+pub const DIRECTED: &str = ".agents/storage/directed-deletions.txt";
 const INCOMING: &str = "refs/susi-guard-incoming";
 /// Refspecs per fetch: bounded so a command line never grows without limit.
 const FETCH_BATCH: usize = 200;
@@ -64,15 +72,21 @@ pub struct Report {
     pub recorded: usize,
     /// Append-only refs that moved forward; their record advanced.
     pub advanced: usize,
-    /// One line per rewound, moved or deleted ref, with its recovery.
+    /// Directed deletions accepted in this run; their retained copy is dropped.
+    pub accepted: usize,
+    /// One line per rewound, moved, deleted or re-created ref, with what to do.
     pub findings: Vec<String>,
 }
 
 impl Report {
     /// One line of counts for `remote`.
     pub fn summary(&self, remote: &str) -> String {
+        let accepted = match self.accepted {
+            0 => String::new(),
+            count => format!(", {count} directed deletion(s) accepted"),
+        };
         format!(
-            "storage guard ({remote}): {} unchanged, {} moved forward, {} newly recorded, {} finding(s)",
+            "storage guard ({remote}): {} unchanged, {} moved forward, {} newly recorded, {} finding(s){accepted}",
             self.unchanged,
             self.advanced,
             self.recorded,
@@ -212,6 +226,34 @@ fn clear_incoming(root: &Path, remote: &str) -> Result<()> {
     Ok(())
 }
 
+/// Ref name to its `(object, "<date>, <task>")` entries in [`DIRECTED`] at the
+/// `main` commit this run observed. No record is an empty one; a line that
+/// cannot be read accepts nothing and is a finding.
+type Directed = BTreeMap<String, Vec<(String, String)>>;
+
+fn directed(root: &Path, main: &str, findings: &mut Vec<String>) -> Directed {
+    let mut listed = Directed::new();
+    let Ok(record) = text(root, &["cat-file", "blob", &format!("{main}:{DIRECTED}")]) else {
+        return listed;
+    };
+    for (index, line) in record.lines().enumerate() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        match fields.as_slice() {
+            [] => {}
+            [first, ..] if first.starts_with('#') => {}
+            [oid, name, date, task] if valid_oid(oid) && name.starts_with("refs/") => listed
+                .entry((*name).to_owned())
+                .or_default()
+                .push(((*oid).to_owned(), format!("{date}, {task}"))),
+            _ => findings.push(format!(
+                "UNREADABLE {DIRECTED} line {}: expected `<object> <ref> <date> <task>`. The line accepts nothing; correct it on main.",
+                index + 1
+            )),
+        }
+    }
+    listed
+}
+
 /// Compare `remote` with this clone's record and advance the record where the
 /// remote only moved forward.
 pub fn audit(root: &Path, remote: &str) -> Result<Report> {
@@ -260,8 +302,16 @@ pub fn audit(root: &Path, remote: &str) -> Result<Report> {
     let mut report = Report::default();
     let outcome = compare(root, remote, &observed, &recorded, &mut report);
     let cleared = clear_incoming(root, remote);
-    outcome?;
+    let listed = outcome?;
     cleared?;
+    // Any listed ref the remote advertises, guarded namespace or not.
+    for (new, name) in advertised.lines().filter_map(|l| l.split_once('\t')) {
+        if let Some((_, direction)) = listed.get(name).and_then(|entries| entries.last()) {
+            report.findings.push(format!(
+                "RECREATED {name}: it was deleted by CEO direction ({direction}) and is on {remote} again (now {new}). Do not push it again and do not delete it yourself: report it on the Susi Board. Removing it again, or withdrawing the direction by taking its line out of {DIRECTED} on main, is the CEO's decision."
+            ));
+        }
+    }
     Ok(report)
 }
 
@@ -271,8 +321,24 @@ fn compare(
     observed: &BTreeMap<String, String>,
     recorded: &BTreeMap<String, String>,
     report: &mut Report,
-) -> Result<()> {
+) -> Result<Directed> {
+    // The record counts only on a main that itself kept the append-only rule:
+    // a rewound or absent main accepts nothing in this run.
+    let mut listed = Directed::new();
+    if let Some(main) = observed.get(MAIN) {
+        let kept_rule = match recorded.get(MAIN) {
+            Some(old) => old == main || is_ancestor(root, old, main)?,
+            None => true,
+        };
+        if kept_rule {
+            listed = directed(root, main, &mut report.findings);
+        }
+    }
     for (name, new) in observed {
+        if listed.contains_key(name) {
+            // The caller reports it as RECREATED; it is never recorded.
+            continue;
+        }
         let kept = ledger_ref(remote, name);
         let old = recorded.get(name);
         if old == Some(new) {
@@ -312,14 +378,24 @@ fn compare(
         }
     }
     for (name, old) in recorded {
-        if !observed.contains_key(name) {
-            let kept = ledger_ref(remote, name);
-            report.findings.push(format!(
-                "DELETED {name}: it is gone from {remote} (was {old}). It is retained in this clone at {kept}. Restore without force: git push {remote} {kept}:{name}"
-            ));
+        if observed.contains_key(name) {
+            continue;
         }
+        let kept = ledger_ref(remote, name);
+        let entries = listed.get(name).map(Vec::as_slice).unwrap_or_default();
+        if entries.iter().any(|(oid, _)| oid == old) {
+            text(root, &["update-ref", "-d", &kept, old])?;
+            report.accepted += 1;
+            continue;
+        }
+        let other = entries.first().map_or_else(String::new, |(oid, _)| {
+            format!(" {DIRECTED} lists a directed deletion of it at {oid}, not at the object this clone saw, so it is not accepted.")
+        });
+        report.findings.push(format!(
+            "DELETED {name}: it is gone from {remote} (was {old}). It is retained in this clone at {kept}. Restore without force: git push {remote} {kept}:{name}{other}"
+        ));
     }
-    Ok(())
+    Ok(listed)
 }
 
 /// Run after a publishing command: every dump to main makes the publishing

@@ -1,0 +1,39 @@
+{
+  "id": "T-CLAUDEGUARDDIRECTEDDELETIONS-1",
+  "title": "Storage guard accepts CEO-directed ref deletions from a committed record",
+  "goal": "The storage guard reports every deliberately deleted ref as DELETED with a restore command on every workflow command, so the only thing stopping an agent from undoing the CEO-directed clean-up of 2026-11-15 (T-CLAUDECLOUDREL-7 in core, T-CLAUDECLOUDREL-8 in Commercial) is a board note. Give the guard a committed, reviewable record of directed deletions (.agents/storage/directed-deletions.txt: object, ref, direction date, task) read from the storage remote's main: a recorded ref that is gone at the listed object is accepted and its retained copy dropped; an unlisted deletion, a deletion at a different object and a re-created listed ref stay findings. Seed it with the core deletions of 2026-11-15, cover the four cases with tests and update docs/git-storage-publisher.md. No remote ref is deleted or restored by this task.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "storage_guard::tests::"
+    ]
+  },
+  "created_by": "CLAUDEGUARDDIRECTEDDELETIONS",
+  "created_unix": 1794727727,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Susi core: crates/susi-harness/src/storage_guard.rs already reads the remote, keeps the retained copies and reports findings, and xtask compiles the same file, so the change extends that one module (std and Git only, no new dependency, no second guard). Susi Commercial Apps: crates/susi-dev-workflow/src/storage_guard.rs only finds and runs core's local-snapshot, so it needs no change. Git itself has no notion of an accepted deletion to reuse; a hosting provider's ref rules are excluded by the 2026-11-11 decision that storage safety has no provider dependency.",
+    "source": "crates/susi-harness/src/storage_guard.rs"
+  },
+  "seed": {
+    "record": ".agents/storage/directed-deletions.txt",
+    "direction": "CEO direction 2026-11-15, T-CLAUDECLOUDREL-7 (.agents/tasks/done/T-CLAUDECLOUDREL-7.json)",
+    "lines": 111,
+    "branches": "9 wip/* branches with the tips listed in T-CLAUDECLOUDREL-7. The guard never recorded them (it guards main, refs/candidates/* and tags only); they are listed so a re-created one is reported.",
+    "tags": "102 tags (dev, target-seed, 100 susi-distill/* and susi-snapshot/*). T-CLAUDECLOUDREL-7 names them without objects, so each object is the value storage-guard witnesses retained under refs/susi-guard/origin/tags/ before this change: 101 from the claude clone, identical in the three other agent clones on this host that had a guard record, and susi-snapshot/v0-21-68-rc1 (54ad49482922a8cc13a40635c8f5f7617bf556aa) from the antigravity clone, the only clone that had seen it. No disagreeing value was found. All 111 refs were absent from origin (git ls-remote) on 2026-11-15 when the record was written."
+  },
+  "limitations": [
+    "A clone stops printing the old DELETED lines only once the local-snapshot tool it runs is rebuilt from a main that has this change.",
+    "The first run of the new guard in a clone drops that clone's retained copies of the accepted refs; that is the intended, irreversible effect of accepting a directed deletion.",
+    "A clone whose retained copy of a listed ref differs from the listed object keeps reporting it as DELETED, by design.",
+    "Susi Commercial Apps' 83 tags (T-CLAUDECLOUDREL-8) are recorded in that repository under its own task, not here."
+  ]
+}

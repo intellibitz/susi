@@ -12,7 +12,7 @@ mod storage_guard;
 
 use std::process::ExitCode;
 
-const GUARD_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]\nChecks that the remote's main and release lines only moved forward and that no tag moved or vanished since this clone last looked. Reads the remote and writes only local refs under refs/susi-guard/.";
+const GUARD_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]\nChecks that the remote's main and release lines only moved forward and that no tag moved or vanished since this clone last looked. A deletion the CEO directed, listed in .agents/storage/directed-deletions.txt on the remote's main, is accepted; a listed ref that exists again is reported. Reads the remote and writes only local refs under refs/susi-guard/.";
 
 /// `guard [<remote>]`: a finding is an error exit.
 fn guard(root: &std::path::Path, args: &[String]) -> Result<String, String> {

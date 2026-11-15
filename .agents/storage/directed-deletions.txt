@@ -1,0 +1,129 @@
+# Ref deletions on the storage remote that the CEO directed.
+#
+# The storage guard (docs/git-storage-publisher.md) reads this file from the
+# remote's own main. A ref it recorded that is gone at an object listed here is
+# an accepted deletion, not a DELETED finding, and the guard drops its retained
+# copy. A listed ref that exists on the remote again is reported as RECREATED.
+#
+# One line per ref: <object> <ref> <direction date> <task>
+# <object> is the value the remote advertised for the ref when it was deleted
+# (for an annotated tag, the tag object, not the commit it points at).
+# Add lines only for a deletion the CEO directed and that was carried out,
+# in a commit that names the direction's task. Never list a ref to silence a
+# finding. To allow a name again, take its line out the same way.
+#
+# 2026-11-15, T-CLAUDECLOUDREL-7 (.agents/tasks/done/T-CLAUDECLOUDREL-7.json):
+# 9 wip/* branches (tips from that record) and 102 tags. That record names the
+# tags only; each tag's object is the value storage-guard witnesses retained
+# under refs/susi-guard/origin/tags/ (T-CLAUDEGUARDDIRECTEDDELETIONS-1).
+bd5f2917d6269ee7912f9d9355a6cdc7db9a298a refs/heads/wip/codex-step1-20261101 2026-11-15 T-CLAUDECLOUDREL-7
+cb91a5d6de123f7120c3ec91e3b0821edfa08f2e refs/heads/wip/codex-step1-delivery-20261101 2026-11-15 T-CLAUDECLOUDREL-7
+bd5f2917d6269ee7912f9d9355a6cdc7db9a298a refs/heads/wip/codex-step1-integrated-test-20261101 2026-11-15 T-CLAUDECLOUDREL-7
+a39ea92b72c0ce5fa6fd8b07ce2c71431d75e290 refs/heads/wip/codex-step1-local-channel-pre-acceptance-repair 2026-11-15 T-CLAUDECLOUDREL-7
+7904370f62e5228c0c0e79e56573fe8696c42aa8 refs/heads/wip/codex-step1-local-integration-backup-20261101 2026-11-15 T-CLAUDECLOUDREL-7
+cc1065a44e0fbdc60dae3ec81dd031dcb3386506 refs/heads/wip/codex-step1-release-20261101 2026-11-15 T-CLAUDECLOUDREL-7
+2ddc3bd920654f68739364c9c39461d2ac53487f refs/heads/wip/harness-par-parallel-faq 2026-11-15 T-CLAUDECLOUDREL-7
+b8e1003b1fc2da9468050b2186d84e27d29b89fa refs/heads/wip/harness-par2-parallel-faq 2026-11-15 T-CLAUDECLOUDREL-7
+0fab1c8a24b69b288a3aaecdeb1ecd78367b101a refs/heads/wip/harness-par2-parallel-runbook 2026-11-15 T-CLAUDECLOUDREL-7
+c1450de157d68a00f4b458a24351626c1288e5d1 refs/tags/dev 2026-11-15 T-CLAUDECLOUDREL-7
+43d90a6fcb0e5fcaef733b15020e95c3813d4052 refs/tags/susi-distill/2026-11-11-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+235ad06595fa01a7bda239f92e2c4b9d73c3c6f7 refs/tags/susi-distill/legacy-distill-2026-11-11-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+0dd10a52d8a3c77054ede7e3721649719b77cd35 refs/tags/susi-distill/legacy-distill-v0-21-55-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+9a3810194b5b35780ea700aee7f7e530a8c916d0 refs/tags/susi-distill/legacy-local-agent-antigravity 2026-11-15 T-CLAUDECLOUDREL-7
+ed9710c17440b4011df1ed6a31814e8342d8b590 refs/tags/susi-distill/legacy-local-agent-buildtime 2026-11-15 T-CLAUDECLOUDREL-7
+293ca2a4585176353de2917368cf855e679a94fd refs/tags/susi-distill/legacy-local-agent-carbon-cachyos-distill 2026-11-15 T-CLAUDECLOUDREL-7
+29e390ded5fac0f567a0fa26b90715ad4b6923e9 refs/tags/susi-distill/legacy-local-agent-corewave11 2026-11-15 T-CLAUDECLOUDREL-7
+3bd07833b4dd33a157fec953c2638e4e1d30b6cb refs/tags/susi-distill/legacy-local-agent-corewave13 2026-11-15 T-CLAUDECLOUDREL-7
+1ab337caa12f3b89507563813f3892a189808676 refs/tags/susi-distill/legacy-local-agent-corewave14 2026-11-15 T-CLAUDECLOUDREL-7
+df23aede1af08cd67116debcbf3275a9ab937901 refs/tags/susi-distill/legacy-local-agent-dot-git-publisher 2026-11-15 T-CLAUDECLOUDREL-7
+798747545e9684dbcab6ec4a55ca5e3db8c1125c refs/tags/susi-distill/legacy-local-agent-dot-host-metrics 2026-11-15 T-CLAUDECLOUDREL-7
+a605348b4225ad6cc9d1fdcbf712687c17d9cdde refs/tags/susi-distill/legacy-local-agent-dot-openssl 2026-11-15 T-CLAUDECLOUDREL-7
+6b44f02bcc9033d76da32ddf7304b550e938e566 refs/tags/susi-distill/legacy-local-agent-fury 2026-11-15 T-CLAUDECLOUDREL-7
+d7d7b563469e682cdd5febb0b76bea384b9a82f0 refs/tags/susi-distill/legacy-local-agent-linuxbyok 2026-11-15 T-CLAUDECLOUDREL-7
+a358d6f6dba88c142dec70d972db6177f699afdd refs/tags/susi-distill/legacy-local-agent-nojanpop 2026-11-15 T-CLAUDECLOUDREL-7
+19fdd8fbe25bfac5152ac06bd5faccfc29991c65 refs/tags/susi-distill/legacy-local-agent-retirebr 2026-11-15 T-CLAUDECLOUDREL-7
+eba6c9fbae98773ee9f96f376344ecee413fa4f3 refs/tags/susi-distill/legacy-local-agent-unblock 2026-11-15 T-CLAUDECLOUDREL-7
+ccada69afca4a56bca3d70ca466c50726c9914f3 refs/tags/susi-distill/legacy-release-2026-11-11-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+4d948b6b134cfa8592e5be0c3142056d6718c27d refs/tags/susi-distill/legacy-release-2026-11-11-rc4 2026-11-15 T-CLAUDECLOUDREL-7
+0d87a793f7bcebcf6393a42ac9bfaddb0f625353 refs/tags/susi-distill/legacy-release-2026-11-11-rc4-net 2026-11-15 T-CLAUDECLOUDREL-7
+e9767382bc87dce615a98add5f83034507c3e5c6 refs/tags/susi-distill/legacy-release-2026-11-11-rc5-core 2026-11-15 T-CLAUDECLOUDREL-7
+0a08b965acfa6744a86e9051598a95e1cefa0bb2 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+f909963117f0ee74e8b6ec8c5ff24d86ec1fc861 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc11 2026-11-15 T-CLAUDECLOUDREL-7
+e64a80e4501381e24d474799e927386d04f71d28 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc12 2026-11-15 T-CLAUDECLOUDREL-7
+f938a620413e05c879c4be23e8100a846cf953a0 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc13 2026-11-15 T-CLAUDECLOUDREL-7
+32736e55611e7292b1dc411431d4e0ef33b3c9fe refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc14 2026-11-15 T-CLAUDECLOUDREL-7
+ee5d2f11c4057ebbf6c23008df7d697f57d4ee1f refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+f21dde57a22245a688ce95d61db45ed109de4053 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+951bfb2c79997cd1d4d2b36fd19b1492a5804dbb refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc4 2026-11-15 T-CLAUDECLOUDREL-7
+2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc5 2026-11-15 T-CLAUDECLOUDREL-7
+a31324479604c68448be50afbadcaa1c7da2959c refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc6 2026-11-15 T-CLAUDECLOUDREL-7
+b194dbcdc8725ab51ea8336e6d0e953431d460fa refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc7 2026-11-15 T-CLAUDECLOUDREL-7
+de2175b9b71d3df8f90c4daebde9faf6b0bc8395 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc8 2026-11-15 T-CLAUDECLOUDREL-7
+9f2ebe783e233274e6f33eeb607ab344fb416b55 refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc9 2026-11-15 T-CLAUDECLOUDREL-7
+ec21ebaa026bb45e3b285c9121b947e77c87eb16 refs/tags/susi-distill/legacy-wip-dot-affected-reuse 2026-11-15 T-CLAUDECLOUDREL-7
+bec7018b769639b1f64cd8d681d53a6fb35dbe88 refs/tags/susi-distill/legacy-wip-dot-git-publisher-uncommitted-snapshot 2026-11-15 T-CLAUDECLOUDREL-7
+e65489b2c83e6a7610a03c0af0f93c146e4badf2 refs/tags/susi-distill/legacy-wip-dot-native-push 2026-11-15 T-CLAUDECLOUDREL-7
+c7496ae97a1c64345c9d5dd9c8326d9b2c9e9f41 refs/tags/susi-distill/legacy-wip-dot-openssl-uncommitted-snapshot 2026-11-15 T-CLAUDECLOUDREL-7
+c3fde12fc00b7801b8598af4ab713d557ccd2733 refs/tags/susi-distill/legacy-wip-dot-publisher-combined-20261110 2026-11-15 T-CLAUDECLOUDREL-7
+d5421bfb010c87b1291cb4fbcc777bd1e09ca83b refs/tags/susi-distill/legacy-wip-dotregistrypub20261110 2026-11-15 T-CLAUDECLOUDREL-7
+cda9b299f5355705f062e0b9112678ebba633a77 refs/tags/susi-distill/v0-21-57-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+b8f1d0e9ae18887f0027737d198fc1a8b0c5ef33 refs/tags/susi-distill/v0-21-57-distilled-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+22f9b586f655cb48de7328c1adc2980441ee978d refs/tags/susi-distill/v0-21-59-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+8094838da05f426b293905ba1106bcb61a5234f7 refs/tags/susi-distill/v0-21-60-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+07632503d910cbf72890597a4aa8879ac01ab7c1 refs/tags/susi-distill/v0-21-61-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+a8366f2959dae42ef0f900e9786490a551ee17da refs/tags/susi-distill/v0-21-62-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+c38d71a59a32596ae83823788cf3ffea4a98d55a refs/tags/susi-distill/v0-21-63-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+2d659cb4f10aeedee057fb459b246ffb1d2bf764 refs/tags/susi-distill/v0-21-64-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+fd3edf356a960e41ce2759e3476247b162cc0011 refs/tags/susi-distill/v0-21-64-distilled-rc10 2026-11-15 T-CLAUDECLOUDREL-7
+26bf9a3821bcd7f880086d953520e7e650775bd0 refs/tags/susi-distill/v0-21-64-distilled-rc11 2026-11-15 T-CLAUDECLOUDREL-7
+60682631159f5d6b0019de1191bde819370daa48 refs/tags/susi-distill/v0-21-64-distilled-rc12 2026-11-15 T-CLAUDECLOUDREL-7
+1996bfdac3408dd07ebeb80e468258ef115aa2c3 refs/tags/susi-distill/v0-21-64-distilled-rc13 2026-11-15 T-CLAUDECLOUDREL-7
+629b5ec3696b62c8e80c51b37945ceb009743df8 refs/tags/susi-distill/v0-21-64-distilled-rc14 2026-11-15 T-CLAUDECLOUDREL-7
+c8959e4d19b1dae33adad5a9fb0f241ea79789af refs/tags/susi-distill/v0-21-64-distilled-rc15 2026-11-15 T-CLAUDECLOUDREL-7
+b3b7bce62d26a38a31690ca81214a7115ffa9587 refs/tags/susi-distill/v0-21-64-distilled-rc16 2026-11-15 T-CLAUDECLOUDREL-7
+78b78974e01aeafecd4fcacf472ba3a9a9d92810 refs/tags/susi-distill/v0-21-64-distilled-rc17 2026-11-15 T-CLAUDECLOUDREL-7
+0a575a517c5c77c5e35cc7b6c132fc2f366bd99d refs/tags/susi-distill/v0-21-64-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+b88a235385282dcc7cb3ff05bf3922adf66b542b refs/tags/susi-distill/v0-21-64-distilled-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+fe910ddda263f319adfc648881060651ada3dacd refs/tags/susi-distill/v0-21-64-distilled-rc4 2026-11-15 T-CLAUDECLOUDREL-7
+2844355be7636959a8798aae33c2b451c0459978 refs/tags/susi-distill/v0-21-64-distilled-rc5 2026-11-15 T-CLAUDECLOUDREL-7
+f84bffb25c1fea130752e7d7d0bc852759a29a6f refs/tags/susi-distill/v0-21-64-distilled-rc6 2026-11-15 T-CLAUDECLOUDREL-7
+d4c827e074c5e33909ce47251f6184b557ae536b refs/tags/susi-distill/v0-21-64-distilled-rc7 2026-11-15 T-CLAUDECLOUDREL-7
+de7bd0c49eb8e77f883bfe0fb356fa35c09c5664 refs/tags/susi-distill/v0-21-64-distilled-rc8 2026-11-15 T-CLAUDECLOUDREL-7
+60df5d8eeb3e7d8cb7f3d83a0131e08f080f89af refs/tags/susi-distill/v0-21-64-distilled-rc9 2026-11-15 T-CLAUDECLOUDREL-7
+7b4a74cd54f25de198d72d2717b12034bb57d8c8 refs/tags/susi-distill/v0-21-65-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+49ab44db0b7879cafd75f91debb281f02b36fd72 refs/tags/susi-distill/v0-21-65-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+fd0ae5d8ae11cf80418e5e4a1cdf7a08166b9d0d refs/tags/susi-distill/v0-21-67-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+5a1d51f1d7661acd1160fe73b0711d834f352171 refs/tags/susi-distill/v0-21-67-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+519fb6bc3d782b0250989312aad0e9c6e33afc9f refs/tags/susi-distill/v0-21-67-distilled-rc3 2026-11-15 T-CLAUDECLOUDREL-7
+8aa14c9eb8cf6de036b3d3e98d9a5f5742804aa4 refs/tags/susi-distill/v0-21-67-distilled-rc4 2026-11-15 T-CLAUDECLOUDREL-7
+649dd6d76bac651d2dc6ab3cac23430f36f7ea11 refs/tags/susi-distill/v0.21.56-candidate 2026-11-15 T-CLAUDECLOUDREL-7
+a5a94d3a18c84db768db72e794deb0574d26db90 refs/tags/susi-distill/v0.21.56-distilled-rc13 2026-11-15 T-CLAUDECLOUDREL-7
+7490657601f73fd18c301bb991e249eff56b762b refs/tags/susi-distill/v0.21.56-distilled-rc15 2026-11-15 T-CLAUDECLOUDREL-7
+ddc8446b281c117d93901a25ae83e614d075906e refs/tags/susi-distill/v0.21.56-distilled-rc16 2026-11-15 T-CLAUDECLOUDREL-7
+95aa00b2a76aef67953f4e605703c319b5448c7f refs/tags/susi-distill/v0.21.56-distilled-rc17 2026-11-15 T-CLAUDECLOUDREL-7
+04338fc2bd112023f2147ca133317d38ecb087f9 refs/tags/susi-distill/v0.21.56-distilled-rc18 2026-11-15 T-CLAUDECLOUDREL-7
+38db845c4c03523511850cf360eb1bd205e1a2e8 refs/tags/susi-distill/v0.21.56-distilled-rc19 2026-11-15 T-CLAUDECLOUDREL-7
+34659093a26f73994fa45c633bd5e1a5d58ad6ad refs/tags/susi-distill/v0.21.56-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+295d8b4245bb79ea7ca7ce1115f1a80a24530944 refs/tags/susi-distill/v0.21.56-distilled-rc20 2026-11-15 T-CLAUDECLOUDREL-7
+edaa4d58688be86a951f193f5d5df9163ba976d5 refs/tags/susi-distill/v0.21.56-distilled-rc25 2026-11-15 T-CLAUDECLOUDREL-7
+e6c29a3f5ddc2847c19f616cb542239faaf142c2 refs/tags/susi-distill/v0.21.56-distilled-rc6 2026-11-15 T-CLAUDECLOUDREL-7
+811938a9dd9c4181b828928f68f0f3b0133f3c28 refs/tags/susi-distill/v0.21.56-distilled-rc9 2026-11-15 T-CLAUDECLOUDREL-7
+2f618889718b269935a6bf73c4fc31f092bda252 refs/tags/susi-distill/v0.21.57-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+1f8df02b10b9a4a227ecf47febecf7671448254a refs/tags/susi-distill/v0.21.58-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+bbf3dfe207618d6835f9a4c63d491de4347e7e62 refs/tags/susi-distill/v0.21.58-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+99705e3b7620e9093a522329193be5cfa19f26b3 refs/tags/susi-distill/v0.21.59-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+06a57cda9467828109abbc20006e3f458b873ee7 refs/tags/susi-distill/v0.21.59-distilled-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+a8ee6d1a6b4f0ff7d66e5d8ac1934eb91a3e0e3b refs/tags/susi-distill/v0.21.60-distilled-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+57dfb2e787f6557c3dc5067b005753f05261fb08 refs/tags/susi-snapshot/v0-21-54-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+5a0e36229f54e87551fb38ab1587cb627c3ce972 refs/tags/susi-snapshot/v0-21-54-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+2cf33877293eda03b136c23ac92bccb9e0f37e73 refs/tags/susi-snapshot/v0-21-57-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+84fac48c07410c815b7ff2bd391d8fb46f084104 refs/tags/susi-snapshot/v0-21-58-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+eb63cb5a1c3f4495cb2ddf70380bacd9bef16f36 refs/tags/susi-snapshot/v0-21-58-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+e3c3e0feabf2e30d517e46a6ba39eef95a543137 refs/tags/susi-snapshot/v0-21-63-toolcap-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+207acd55f7d7442c7815c31434b85df9a8733088 refs/tags/susi-snapshot/v0-21-65-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+5bfc37196163b42c3c2ccb7178ff0c102857e9aa refs/tags/susi-snapshot/v0-21-65-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+732ffe425910162b7589e3950724544b824d3331 refs/tags/susi-snapshot/v0-21-66-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+9f08a6e46dbe5059466cbc95f182480590fa4912 refs/tags/susi-snapshot/v0-21-67-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+60ee8257798474e32847deb71ea69b491eb07eb9 refs/tags/susi-snapshot/v0-21-67-rc2 2026-11-15 T-CLAUDECLOUDREL-7
+54ad49482922a8cc13a40635c8f5f7617bf556aa refs/tags/susi-snapshot/v0-21-68-rc1 2026-11-15 T-CLAUDECLOUDREL-7
+54505612dbea18020ab45b8da505a1e4947210bb refs/tags/target-seed 2026-11-15 T-CLAUDECLOUDREL-7

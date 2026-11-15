@@ -191,3 +191,143 @@ fn unprotected_refs_and_bad_remote_names_are_not_guarded() {
         .unwrap()
         .contains("could not check"));
 }
+
+/// One remote, every directed-deletion case: the record is read from the
+/// remote's own main, and only the listed ref at the listed object is accepted.
+#[test]
+fn a_directed_deletion_is_accepted_only_for_the_listed_ref_and_object() {
+    let repo = Repo::new();
+    let one = repo.git(&["rev-parse", "HEAD"]);
+    let tags = ["gone", "unlisted", "other", "back", "restored"];
+    for tag in tags {
+        repo.git(&["tag", tag]);
+    }
+    let mut push = vec!["push", "origin", "HEAD:refs/heads/wip/x"];
+    push.extend(tags);
+    repo.git(&push);
+    assert_eq!(repo.audit().recorded, 6);
+    let kept = |tag: &str| {
+        let name = format!("refs/susi-guard/origin/tags/{tag}");
+        repo.git(&["for-each-ref", "--format=%(objectname)", &name])
+    };
+
+    // The clean-up: five refs go, then the direction is written down on main.
+    // `restored` stands for a tag an agent already pushed back from its copy.
+    let mut delete = vec!["push", "origin", ":refs/heads/wip/x"];
+    let gone: Vec<String> = tags[..4]
+        .iter()
+        .map(|t| format!(":refs/tags/{t}"))
+        .collect();
+    delete.extend(gone.iter().map(String::as_str));
+    repo.git(&delete);
+    let record = |body: &str| {
+        let dir = repo.work.join(".agents").join("storage");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("directed-deletions.txt"), body).unwrap();
+        repo.git(&["add", DIRECTED]);
+        repo.git(&["commit", "-m", "record"]);
+    };
+    let wrong = "1".repeat(one.len());
+    record(&format!(
+        "# object ref date task\n\n{one} refs/tags/gone 2026-11-15 T-X-1\n{wrong} refs/tags/other 2026-11-15 T-X-1\n{one} refs/tags/back 2026-11-15 T-X-1\n{one} refs/tags/restored 2026-11-15 T-X-1\n{one} refs/heads/wip/x 2026-11-15 T-X-1\nnot a record line\n"
+    ));
+    repo.git(&["push", "origin", "main"]);
+
+    let report = repo.audit();
+    assert_eq!(report.accepted, 2, "{:?}", report.findings);
+    assert!(report
+        .summary("origin")
+        .ends_with("2 directed deletion(s) accepted"));
+    let starts = |report: &Report, prefix: &str| {
+        report
+            .findings
+            .iter()
+            .filter(|f| f.starts_with(prefix))
+            .count()
+    };
+    assert_eq!(report.findings.len(), 4, "{:?}", report.findings);
+    assert_eq!(starts(&report, "DELETED refs/tags/unlisted: "), 1);
+    assert_eq!(starts(&report, "DELETED refs/tags/other: "), 1);
+    assert_eq!(
+        starts(
+            &report,
+            "UNREADABLE .agents/storage/directed-deletions.txt line 8"
+        ),
+        1
+    );
+    assert_eq!(starts(&report, "RECREATED refs/tags/restored: "), 1);
+    let other = report
+        .findings
+        .iter()
+        .find(|f| f.contains("tags/other"))
+        .unwrap();
+    assert!(
+        other.contains("not at the object this clone saw"),
+        "{other}"
+    );
+    // The accepted copies are dropped; a reported loss keeps its copy.
+    assert_eq!((kept("gone"), kept("back")), (String::new(), String::new()));
+    assert_eq!(
+        (kept("unlisted"), kept("other")),
+        (one.clone(), one.clone())
+    );
+    // An accepted deletion is silent from then on.
+    let again = repo.audit();
+    assert_eq!((again.accepted, again.findings.len()), (0, 4));
+
+    // A listed ref that comes back is reported, never recorded, and its
+    // message carries no command; that holds for an unguarded branch too.
+    repo.git(&[
+        "push",
+        "origin",
+        "HEAD:refs/tags/back",
+        "HEAD:refs/heads/wip/x",
+    ]);
+    let back = repo.audit();
+    assert_eq!(back.findings.len(), 6, "{:?}", back.findings);
+    assert_eq!(starts(&back, "RECREATED refs/tags/back: "), 1);
+    assert_eq!(starts(&back, "RECREATED refs/heads/wip/x: "), 1);
+    assert!(back
+        .findings
+        .iter()
+        .filter(|f| f.starts_with("RECREATED"))
+        .all(|f| !f.contains("git push") && f.contains("2026-11-15, T-X-1")));
+    assert_eq!(kept("back"), String::new());
+
+    // A main that was rewound accepts nothing, whatever its record says.
+    repo.git(&["checkout", "-q", "-b", "rewritten", &one]);
+    record(&format!("{one} refs/tags/unlisted 2026-11-15 T-X-1\n"));
+    repo.git(&["push", "--force", "origin", "rewritten:refs/heads/main"]);
+    let rewound = repo.audit();
+    assert_eq!(rewound.accepted, 0);
+    assert_eq!(starts(&rewound, "REWOUND refs/heads/main: "), 1);
+    assert_eq!(starts(&rewound, "DELETED refs/tags/unlisted: "), 1);
+    assert_eq!(kept("unlisted"), one);
+}
+
+/// The committed record is one the guard reads completely, and it never
+/// accepts the loss of main, a release line or a release tag.
+#[test]
+fn the_committed_record_is_readable_and_spares_main_and_releases() {
+    let repo = Repo::new();
+    let dir = repo.work.join(".agents").join("storage");
+    fs::create_dir_all(&dir).unwrap();
+    let committed = include_str!("../../../../.agents/storage/directed-deletions.txt");
+    fs::write(dir.join("directed-deletions.txt"), committed).unwrap();
+    repo.git(&["add", DIRECTED]);
+    repo.git(&["commit", "-m", "record"]);
+    let mut findings = Vec::new();
+    let listed = directed(&repo.work, "HEAD", &mut findings);
+    assert_eq!(findings, Vec::<String>::new());
+    // The first record: 9 branches and 102 tags (2026-11-15).
+    assert!(listed.len() >= 111, "{}", listed.len());
+    for name in listed.keys() {
+        let release = name
+            .strip_prefix("refs/tags/v")
+            .is_some_and(|version| version.bytes().all(|b| b.is_ascii_digit() || b == b'.'));
+        assert!(
+            name != MAIN && !name.starts_with("refs/candidates/") && !release,
+            "{name}"
+        );
+    }
+}

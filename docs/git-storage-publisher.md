@@ -75,7 +75,8 @@ this clone. On each run:
   must descend from the recorded one, or the run reports `REWOUND` with the
   number of published commits that left the history;
 - `refs/tags/*` are immutable: a different value is `MOVED`;
-- a recorded ref that is gone is `DELETED`.
+- a recorded ref that is gone is `DELETED`, unless the CEO directed its
+  deletion (below).
 
 A finding is a failed exit. It names the local ref that still holds the lost
 objects and a recovery that needs no force: push the retained ref back (a
@@ -85,7 +86,60 @@ stays reported until it is repaired. A ref seen for the first time is recorded;
 refs outside those namespaces (agent refs, claims) are not guarded, because
 they are deleted legitimately.
 
-The guard writes nothing to the remote and nothing local except its own refs.
+### Deletions the CEO directed
+
+A deletion the CEO directed is not a loss, and nobody should be told to push it
+back. Such deletions are written down in a committed, reviewable record,
+`.agents/storage/directed-deletions.txt`, one line per ref:
+
+```text
+<object> <ref> <direction date> <task>
+```
+
+`<object>` is the value the remote advertised for the ref when it was deleted
+(for an annotated tag, the tag object). Blank lines and `#` lines are ignored.
+The guard reads the record from the remote's own `main`, at the commit that
+run observed, not from the checkout it runs in, so every clone and every
+worktree of a repository sees the same record whatever it has checked out.
+Susi Commercial Apps keeps its own record at the same path in its own
+repository; nothing about its refs is written in this one.
+
+- A recorded ref that is gone, listed at the object this clone last saw, is an
+  accepted deletion: it is not a finding, the guard drops its retained copy
+  under `refs/susi-guard/<remote>/`, and the summary line counts it once
+  (`N directed deletion(s) accepted`). Later runs say nothing about it.
+- A deleted ref that is not listed is `DELETED` as before, with its restore.
+- A deleted ref listed at a different object than this clone saw is still
+  `DELETED`, and the finding says the record names another object: something
+  other than the directed deletion happened to it. A ref may have several
+  lines, one per object a witness may hold.
+- A listed ref that is on the remote again is `RECREATED`, in a guarded
+  namespace or not (a listed `wip/*` branch included). It is not recorded, and
+  the finding carries no command: do not push it again and do not delete it;
+  report it on the Susi Board. Deleting it again, or withdrawing the direction
+  by taking its line out of the record, is the CEO's decision.
+- A line that cannot be read accepts nothing and is reported as `UNREADABLE`
+  with its line number. A repository without the file has no accepted
+  deletions.
+- The record counts only on a `main` that itself moved forward. If `main` is
+  missing or `REWOUND` in a run, nothing is accepted in that run.
+
+Add a line only for a deletion the CEO directed and that has been carried out,
+in a commit whose `Task:` names the direction; never list a ref to silence a
+finding. The first record (2026-11-15, `T-CLAUDECLOUDREL-7`) lists the 9
+`wip/*` branches and 102 tags removed from this repository that day. The task
+record names the tags without their objects, so each object is the value the
+guard had retained in witnessing clones: 101 from one clone, all agreeing with
+three other clones on the same machine, and `susi-snapshot/v0-21-68-rc1` from
+the one clone that had seen it.
+
+The guard that honours the record is the built `local-snapshot`. A clone keeps
+printing the old `DELETED` lines until the tool it runs (on `PATH`, or
+`SUSI_SNAPSHOT_BIN`) is rebuilt from a `main` that has this change:
+`cargo build --offline --locked -p xtask --bin local-snapshot`.
+
+The guard writes nothing to the remote and nothing local except its own refs
+(it creates, advances and, for an accepted directed deletion, drops them).
 It works with any Git remote: a hosted service, a self-hosted server or a bare
 repository on a disk. It runs from another repository's checkout too (for
 example `susi-commercial-apps`) by starting the built binary there.
