@@ -289,4 +289,47 @@ mod tests {
         );
         assert!(preferences("claude,typo").is_err());
     }
+
+    #[test]
+    fn governed_policy_swaps_claudes_bypass_and_refuses_the_rest() {
+        let claude = build_invocation(CliToolKind::Claude, Some("sonnet")).1;
+        let args = governed_args(CliToolKind::Claude, claude).unwrap();
+        assert_eq!(args[..2], ["-p", super::super::STDIN_PROMPT]);
+        assert_eq!(args[2..4], ["--model", "sonnet"]);
+        assert_eq!(args[4..], super::super::CLAUDE_GOVERNED);
+        let governed = |runner| CliSubRunner {
+            governed: true,
+            ..runner
+        };
+        let sort = CliCommand {
+            program: "sort".into(),
+            args: Vec::new(),
+            pipe_prompt_on_stdin: true,
+        };
+        let refused = |spec| governed(CliSubRunner::default()).resolve(spec).unwrap_err();
+        assert!(refused("cli:codex").contains("no governed permission profile"));
+        let overridden = governed(CliSubRunner::with_command(sort)).resolve("cli:claude");
+        assert!(overridden
+            .unwrap_err()
+            .contains("unverified command override"));
+        let config = with_model(
+            &ExecutorConfig {
+                gateway_url: String::new(),
+                model: String::new(),
+                workspace: std::env::temp_dir(),
+                state_dir: std::env::temp_dir(),
+                mission: String::new(),
+                task: String::new(),
+                attempt: 1,
+                timeout: Duration::from_secs(5),
+                prompt: String::new(),
+            },
+            "monthly:codex",
+        );
+        let outcome = governed(CliSubRunner::default()).run_monthly(&config);
+        assert!(format!("{outcome:?}").contains("codex: no governed permission profile"));
+        let env = std::env::var_os(super::super::CLI_GOVERNED_ENV).is_some();
+        assert_eq!(CliSubRunner::from_env().governed, env);
+        assert!(!CliSubRunner::default().governed);
+    }
 }
