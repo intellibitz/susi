@@ -573,7 +573,18 @@ pub fn resolve_board_target(workspace: Option<&Path>) -> Result<BoardTarget, Str
                         "refusing `{REMOTE_URL_CONFIG}={trimmed}`: refs/board/* is forbidden on public intellibitz/susi"
                     ));
                 }
-                let cache_dir = ensure_blob_cache_dir(trimmed)?;
+                let cache_dir = match git(dir, &["rev-parse", "--git-common-dir"]) {
+                    Ok(raw_common) => {
+                        let common_path = Path::new(&raw_common);
+                        let resolved = if common_path.is_absolute() {
+                            common_path.to_path_buf()
+                        } else {
+                            dir.join(common_path)
+                        };
+                        ensure_blob_cache_dir_in(&resolved, trimmed)?
+                    }
+                    Err(_) => ensure_blob_cache_dir(trimmed)?,
+                };
                 return Ok(BoardTarget::Git {
                     work_dir: cache_dir,
                     remote: trimmed.to_owned(),
@@ -642,28 +653,55 @@ fn verify_non_public_remote(work_dir: &Path, remote: &str) -> Result<(), String>
     Ok(())
 }
 
-fn ensure_blob_cache_dir(remote_url: &str) -> Result<PathBuf, String> {
+fn cache_init_lock() -> &'static std::sync::Mutex<()> {
     static CACHE_INIT_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    let _guard = CACHE_INIT_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    CACHE_INIT_LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+fn ensure_cache_root_ready_locked(dir: &Path) -> Result<(), String> {
+    if !dir.join("HEAD").is_file() {
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("failed to create board cache {}: {e}", dir.display()))?;
+        let _ = git(dir, &["init", "--quiet", "--bare"])?;
+        let _ = git(dir, &["config", "core.hooksPath", "no-hooks"]);
+    }
+    Ok(())
+}
+
+fn ensure_cache_root_ready(dir: &Path) -> Result<(), String> {
+    if dir.join("HEAD").is_file() {
+        return Ok(());
+    }
+    if dir.extension().and_then(|e| e.to_str()) == Some("git")
+        && dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            == Some("board-cache")
+    {
+        let _guard = cache_init_lock().lock().unwrap_or_else(|e| e.into_inner());
+        ensure_cache_root_ready_locked(dir)?;
+    }
+    Ok(())
+}
+
+fn ensure_blob_cache_dir(remote_url: &str) -> Result<PathBuf, String> {
     let base = std::env::var_os("SUSI_HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("susi-board-cache"));
+    ensure_blob_cache_dir_in(&base, remote_url)
+}
+
+fn ensure_blob_cache_dir_in(base: &Path, remote_url: &str) -> Result<PathBuf, String> {
+    let _guard = cache_init_lock().lock().unwrap_or_else(|e| e.into_inner());
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in remote_url.as_bytes() {
         hash ^= u64::from(*b);
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     let dir = base.join("board-cache").join(format!("{hash:016x}.git"));
-    if !dir.join("HEAD").is_file() {
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("failed to create board cache {}: {e}", dir.display()))?;
-        let _ = git(&dir, &["init", "--quiet", "--bare"])?;
-        let _ = git(&dir, &["config", "core.hooksPath", "no-hooks"]);
-    }
+    ensure_cache_root_ready_locked(&dir)?;
     Ok(dir)
 }
 
@@ -795,6 +833,7 @@ fn sync_git(root: &Path, remote: &str) -> Result<Vec<String>, String> {
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    ensure_cache_root_ready(root)?;
     let theirs = remote_items(root, remote)?;
     let ours = local_items(root)?;
     let mut findings = Vec::new();
@@ -1005,6 +1044,7 @@ pub fn post_git(
     now: u64,
     start: Option<u64>,
 ) -> Result<StoredBoardItem, String> {
+    ensure_cache_root_ready(root)?;
     verify_non_public_remote(root, remote)?;
     validate_draft(draft)?;
     let mut last_error = String::new();
@@ -1783,5 +1823,44 @@ mod tests {
         assert_eq!(items.len(), 4);
         assert_eq!(items.iter().filter(|i| i.item.kind == "claim").count(), 2);
         assert_eq!(items.iter().filter(|i| i.item.kind == "landed").count(), 2);
+    }
+
+    #[test]
+    fn workspace_remote_url_cache_survives_transient_susi_home_removal() {
+        let fx = GitBoardFixture::new("remote-url-cache");
+        let repo = init_seeded_repo_with_board(&fx, "repo");
+        let transient_home = fx.root.join("transient-susi-home");
+        fs::create_dir_all(&transient_home).unwrap();
+        std::env::set_var("SUSI_HOME", &transient_home);
+
+        let target = resolve_board_target(Some(&repo)).expect("resolve remote-url board target");
+        let BoardTarget::Git { ref work_dir, .. } = target else {
+            panic!("expected git board target");
+        };
+        assert!(
+            !work_dir.starts_with(&transient_home),
+            "workspace remote-url cache {} must live under repo git-common-dir, not transient SUSI_HOME {}",
+            work_dir.display(),
+            transient_home.display()
+        );
+
+        fs::remove_dir_all(&transient_home).unwrap();
+        check_board(&target, "worker-a", true).expect("check_board after SUSI_HOME removal");
+        let posted = post_item(
+            &target,
+            &BoardDraft {
+                kind: "note".into(),
+                agent: "worker-a".into(),
+                host: "test-host".into(),
+                title: "cache survived SUSI_HOME cleanup".into(),
+                body: String::new(),
+                to: None,
+                re: None,
+                task: None,
+            },
+            None,
+        )
+        .expect("post_item after SUSI_HOME removal");
+        assert_eq!(posted.n, 1);
     }
 }

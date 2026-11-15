@@ -38,7 +38,12 @@
     ".agents/tasks/T-ANTIGRAVITYREL-3.json",
     "releases/v0.21.69.json"
   ],
-  "state": "open",
-  "status": "in_progress",
-  "updated_unix": 1794733877
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794734374,
+  "closed": {
+    "at_unix": 1794734374,
+    "commit": "ba2e3300078164b4eb7ef4c42417a33e350dbda8",
+    "by": "ANTIGRAVITYREL02169"
+  }
 }
