@@ -21,9 +21,16 @@
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "completed",
+  "state": "closed",
+  "status": "done",
   "base_commit": "61add7b3c2c211f3e2e608f4dd6a157b129514a2",
+  "implementation_commit": "78a0c17c8d91d38e1c8196704949d71e9a9648d8",
+  "verified_commit": "bcf884a7200c25d3683ad9f656554b6412517730",
+  "closed": {
+    "at_unix": 1794775177,
+    "commit": "bcf884a7200c25d3683ad9f656554b6412517730",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Adversarial and failure behavior (`GMCP-203-020-04`) hardens panic/crash isolation across SDK request dispatch, durable `TaskManager` tasks, and plugin `initializer`/`on_unload` hooks (`CatchUnwind`), enforces in-flight SDK tool cancellation on `notifications/cancelled`, binds `verify_pack_dir_for_sdk` and `sync_active_pack` to host `state.json` quarantine/TOFU signer-digest checks with immediate compromised-plugin eviction, and verifies deterministic negative, attack, race, corruption, and fault-injection fixtures; subsequent vector stages (`T-CODEXGMCPROADMAP-111`..`113`) add interop/version matrix, operations/scale, and final `.M` mastery suites.",
     "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
