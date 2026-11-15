@@ -25,7 +25,12 @@
     "README.md",
     "docs/releases.md"
   ],
-  "state": "in-progress",
-  "status": "in-progress",
-  "updated_unix": 1794726900
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794726990,
+  "closed": {
+    "at_unix": 1794726990,
+    "commit": "ce07f11873e4c5bf39a341a6f747a6e15b343544",
+    "by": "AGYREL069"
+  }
 }
