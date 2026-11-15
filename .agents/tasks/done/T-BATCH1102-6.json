@@ -7,6 +7,8 @@
   "scopes": ["crates/susi-vendor-models/src/cloud.rs", "crates/susi-gemi/src/engines/http_provider.rs", ".agents/tasks/T-BATCH1102-6.json"],
   "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-vendor-models", "--lib", "cloud::tests"]},
   "created_by": "BATCH1102",
+  "status": "retired",
+  "retired_reason": "Already landed in 0a5853ec1; target crate susi-vendor-models was migrated to susi-gemi-models in eb501173e and deleted from core in a4bfc221e (migrated cloud::tests verified 12/12 passing in susi-gemi-models).",
   "receipt": {
     "scope": "Isolated Windows invocation of the actual provider registration function. Each child had a private home, no real provider credentials, and an empty provider result.",
     "fresh_phase_ms_before": [1616, 1502, 2067, 1605, 1708],
