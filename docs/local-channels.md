@@ -28,6 +28,23 @@ from their original slot. Repeating an interrupted installation recovers its
 recorded transition. The agent can inspect the deployment with
 `susi install-release --status`.
 
+A Windows distributor migrating the flat Commercial v3.1.3 installation runs
+the updated migration controller before removing the old programs:
+
+```text
+susi-rollback-manager.exe install-release --import-legacy --id <trusted-current-core-id> --controller-sha256 <trusted-controller-sha256>
+```
+
+Place the qualified current core in the adjacent `slots/<trusted-current-core-id>`
+directory. The controller authenticates the original published Windows v0.21.51
+engine by its pinned executable SHA-256 and size, captures it in its own slot,
+and keeps the verified management executable separate from both runtime engines.
+The commercial installer installs the corresponding desktop for each selection.
+Stop the running Susi programs before switching. The installed `susi install-release
+--rollback --expect <old-id>` restores the original engine; `susi install-release
+--promote <current-id>` reselects the newer engine. Repeating either targeted
+operation keeps that version selected. All selections use the same user profile.
+
 The legacy Windows helper `scripts/susi-local.ps1` supports the development
 channel only. Its default `Build` action installs the incremental development
 executable under `%LOCALAPPDATA%/SusiLocal/dev`. Whole-program LTO is disabled. Cargo

@@ -18,6 +18,28 @@ fn fixture_root() -> PathBuf {
 }
 
 #[test]
+fn historical_import_rejects_relabelled_flat_bytes() {
+    let root = fixture_root();
+    fs::write(root.join(BIN_NAME), b"an arbitrary local binary").unwrap();
+    let pkg = Package::open(&root, FLAT_051).unwrap();
+    assert!(pkg.pinned_executable().is_err());
+    assert!(pkg.stage(&root.join("installed")).is_err());
+    assert!(!root.join("installed").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn separately_staged_controller_rejects_modified_manager() {
+    let root = fixture_root();
+    let sha = digest_bytes(b"expected controller");
+    let dir = root.join("management").join(&sha);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(BIN_NAME), b"modified controller").unwrap();
+    assert!(controller_image(&root, &sha).is_err());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn installation_probe_distinguishes_public_storage_from_a_private_package_cache() {
     let root = fixture_root();
     let private = root.join("Packages/Example/LocalCache/Local");
@@ -65,7 +87,12 @@ fn main() {{
         fs::write(dir.join(name), side).unwrap();
     }
     let oid = "a".repeat(40);
-    let manifest=format!("susi-local-release-v1\nsource={oid}\ntree={oid}\nartifact-sha256={}\nartifact-bytes={}\nhost={}-pc-windows-msvc\nintegration-receipt={oid}\nlock-sha256={hash}\ncompiler-sha256={hash}\ngates-sha256={gate_hash}\nsbom-sha256={hash}\nnotices-sha256={hash}\nnative-audit-sha256={hash}\n",digest_bytes(&data),data.len(),env::consts::ARCH);
+    let manifest = format!(
+        "susi-local-release-v1\nsource={oid}\ntree={oid}\nartifact-sha256={}\nartifact-bytes={}\nhost={}-pc-windows-msvc\nintegration-receipt={oid}\nlock-sha256={hash}\ncompiler-sha256={hash}\ngates-sha256={gate_hash}\nsbom-sha256={hash}\nnotices-sha256={hash}\nnative-audit-sha256={hash}\n",
+        digest_bytes(&data),
+        data.len(),
+        env::consts::ARCH
+    );
     fs::write(dir.join("manifest.txt"), &manifest).unwrap();
     Package::open(&dir, &digest_bytes(manifest.as_bytes())).unwrap()
 }
