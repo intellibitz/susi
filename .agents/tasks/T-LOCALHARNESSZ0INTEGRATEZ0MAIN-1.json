@@ -15,6 +15,7 @@
   "created_by": "harness-integrate-main",
   "created_unix": 1794783414,
   "id": "T-LOCALHARNESSZ0INTEGRATEZ0MAIN-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-integrate-main",
   "owner": "harness-integrate-main",
   "scopes": [
@@ -24,7 +25,7 @@
     "xtask/src/local_workflow/sync_commit.rs",
     "xtask/src/local_workflow/tests.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Integrate onto a fetched main that passed the local head",
   "workflow": "susi-local-v2"
 }
