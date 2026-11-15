@@ -1,0 +1,375 @@
+{
+  "assets": [
+    {
+      "bytes": 28030976,
+      "file": "susi.exe",
+      "sha256": "14dfc5c395f821526279fc67b5c36be94f992de607d655d6de8940fd9729e0e5",
+      "version_output": "susi 0.21.70"
+    },
+    {
+      "bytes": 2247168,
+      "file": "susi-harness.exe",
+      "sha256": "d795494bc9fc0abd649368fb7a357548264ab43c95b3be4aef9e44f3332ec500",
+      "version_output": "susi-harness 0.21.70"
+    }
+  ],
+  "cargo_lock_sha256": "30f7bf3716713c969026c747b098508663e71e4295f708fa13ca9a44b9b44938",
+  "finished_unix": 1794742594,
+  "gates": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "duration_s": 14,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "format"
+    },
+    {
+      "argv": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--keep-going",
+        "--offline",
+        "--locked",
+        "-j",
+        "2"
+      ],
+      "duration_s": 119,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "573eaedaf28f13e032ad3a4f0f73bb482079ddf56833516b1369d80573af2699",
+      "name": "check"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "-j",
+        "2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "duration_s": 152,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "f38e118d1fe2d2cf4bec4e310c435905f631a1a75bfd2f230b69c276b6503307",
+      "name": "clippy"
+    },
+    {
+      "argv": [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      "duration_s": 2,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "86d8890b547eaf6dc9645c4ba61746fb79da7eec029ce355d3d28fd7c296fb70",
+      "name": "licenses"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--no-fail-fast",
+        "-j",
+        "2"
+      ],
+      "duration_s": 2260,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "12821cfad1ec8049d30c47bc8d683c03485409478f1159a38b933cd84f4df2b3",
+      "name": "tests",
+      "tests": {
+        "binaries": 259,
+        "failed": 0,
+        "ignored": 21,
+        "passed": 6021
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--profile",
+        "dist",
+        "-p",
+        "susi-harness",
+        "-p",
+        "susi",
+        "--features",
+        "susi/local-engine",
+        "-j",
+        "2"
+      ],
+      "duration_s": 0,
+      "env": [
+        "CARGO_PROFILE_DIST_LTO=false",
+        "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"
+      ],
+      "exit_code": 0,
+      "log_sha256": "281d67ab2bcabbcbb747ae3216e6d52e8ca16b967bae6c6f02c079eaa78d0601",
+      "name": "build"
+    },
+    {
+      "argv": [
+        "target/dist/susi.exe --version",
+        "target/dist/susi-harness.exe --version"
+      ],
+      "duration_s": 1,
+      "env": [
+        "HOME=<private>",
+        "SUSI_HOME=<private>",
+        "SUSI_NO_REGISTRY_ENV=1"
+      ],
+      "exit_code": 0,
+      "name": "smoke"
+    },
+    {
+      "argv": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "startup-gate",
+        "-j",
+        "2",
+        "--",
+        "--susi",
+        "target/dist/susi.exe",
+        "--runs",
+        "5"
+      ],
+      "duration_s": 34,
+      "env": [
+        "HOME=<private>",
+        "SUSI_HOME=<private>",
+        "SUSI_NO_REGISTRY_ENV=1"
+      ],
+      "exit_code": 0,
+      "log_sha256": "6516f6c15e6d09f229c0b65a15c8d2e14a8cabad791be5eb5268b5cf98bcc102",
+      "name": "startup",
+      "startup_gate": {
+        "cases": [
+          {
+            "args": [
+              "--version"
+            ],
+            "limit_ms": 50.0,
+            "median_ms": 29.9,
+            "name": "version",
+            "pass": true,
+            "samples_ms": [
+              29.9,
+              29.65,
+              35.9,
+              32.43,
+              26.62
+            ]
+          },
+          {
+            "args": [
+              "--help"
+            ],
+            "limit_ms": 50.0,
+            "median_ms": 31.29,
+            "name": "help",
+            "pass": true,
+            "samples_ms": [
+              30.26,
+              32.48,
+              33.47,
+              31.29,
+              29.16
+            ]
+          },
+          {
+            "args": [
+              "status"
+            ],
+            "limit_ms": 75.0,
+            "median_ms": 40.4,
+            "name": "status_daemon_down",
+            "pass": true,
+            "samples_ms": [
+              43.49,
+              39.11,
+              43.6,
+              40.4,
+              40.05
+            ]
+          },
+          {
+            "args": [],
+            "limit_ms": 600.0,
+            "median_ms": 349.46,
+            "name": "goal_first_output_daemon_down",
+            "pass": true,
+            "samples_ms": [
+              348.39,
+              355.5,
+              344.37,
+              369.67,
+              349.46
+            ]
+          },
+          {
+            "args": [],
+            "limit_ms": 750.0,
+            "median_ms": 365.34,
+            "name": "goal_completion_daemon_down",
+            "pass": true,
+            "samples_ms": [
+              358.45,
+              365.34,
+              353.44,
+              379.62,
+              388.05
+            ]
+          },
+          {
+            "args": [
+              "status"
+            ],
+            "limit_ms": 75.0,
+            "median_ms": 41.0,
+            "name": "status_daemon_up",
+            "pass": true,
+            "samples_ms": [
+              38.21,
+              38.81,
+              41.94,
+              41.0,
+              41.24
+            ]
+          },
+          {
+            "args": [],
+            "limit_ms": 600.0,
+            "median_ms": 418.09,
+            "name": "goal_first_output_daemon_up",
+            "pass": true,
+            "samples_ms": [
+              418.09,
+              387.47,
+              448.25,
+              444.21,
+              379.67
+            ]
+          },
+          {
+            "args": [],
+            "limit_ms": 750.0,
+            "median_ms": 428.18,
+            "name": "goal_completion_daemon_up",
+            "pass": true,
+            "samples_ms": [
+              428.18,
+              399.49,
+              485.88,
+              453.45,
+              390.38
+            ]
+          }
+        ],
+        "floor_ms": 14.42,
+        "pass": true,
+        "schema": "susi-startup-gate-v2"
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-conformance",
+        "-j",
+        "2",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port-offset",
+        "20160",
+        "--token-file",
+        "<private>/api_token",
+        "--max-ms",
+        "2000",
+        "--susi-bin",
+        "target/dist/susi.exe",
+        "--json"
+      ],
+      "conformance": {
+        "budget_ms": 2000,
+        "checks": 29,
+        "conformant": true,
+        "max_check_ms": 587
+      },
+      "duration_s": 6,
+      "env": [
+        "HOME=<private>",
+        "SUSI_HOME=<private>",
+        "SUSI_NO_REGISTRY_ENV=1",
+        "SUSI_PORT_OFFSET=20160"
+      ],
+      "exit_code": 0,
+      "log_sha256": "7575605008e8fbe6117fc95411a0b62f2db56231280211a6078fa112fe878fdd",
+      "name": "conformance"
+    }
+  ],
+  "harvest_audit": {
+    "files": 0,
+    "harvest_trailer_commits": 0,
+    "manifests": 0,
+    "ok": true,
+    "violations": []
+  },
+  "host": "x86_64-pc-windows-msvc",
+  "owed_platforms": [
+    "x86_64-unknown-linux-gnu"
+  ],
+  "performance_gates": {
+    "conformance_budget_ms": 2000,
+    "conformance_checks": 29,
+    "conformance_max_check_ms": 587,
+    "ok": true,
+    "startup_gate_schema": "susi-startup-gate-v2"
+  },
+  "product": "susi",
+  "provenance": "written by xtask release-qualify from the logs under target/release-qualification; each gate's log digest is recorded",
+  "qualified_commit": "7e8c10157ba884bc9a63ec4b5406d0a0a132b741",
+  "qualified_tree": "121747fc0a037fd130e6a7908e0b03df83127447",
+  "schema": "susi-release-qualification/v1",
+  "source": "snapshot",
+  "started_unix": 1794740001,
+  "tag": "v0.21.70",
+  "toolchain": {
+    "channel": "1.99.0",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)"
+  },
+  "version": "0.21.70"
+}
