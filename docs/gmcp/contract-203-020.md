@@ -1,4 +1,4 @@
-# Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin lifecycle
+# Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin host lifecycle
 
 Status: **implemented** (requirements GMCP-203-020-01..03, vector VC-203-020)
 Baseline date: **2026-11-15**
@@ -203,7 +203,7 @@ its RFC requirement level, normative clause, and owning repository path.
    unknown JSON keys verbatim across parse -> write-back while still enforcing
    strict validation on all security-critical fields (`id`, `api_version`,
    `permissions`, `files`, `checksums`, `signatures`, `signer`).
-4. **Zero bundled plugins in Core.** Core ships `DEFAULT_PACK_ID = "default"`
+4. **Zero plugin packs bundled in Core.** Core ships `DEFAULT_PACK_ID = "default"`
    with empty vendor catalogs and seeds zero packs into `~/.susi/extensions/`.
    Curated department and ecosystem plugin packs ship exclusively in Susi
    Commercial Apps (`intellibitz/susi-commercial-apps`) consuming this contract.

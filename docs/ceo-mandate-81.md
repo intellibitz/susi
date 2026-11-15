@@ -71,7 +71,7 @@ published `vX.Y.Z` + `releases/vX.Y.Z.json` to `origin`:
   / `susi-release-sync.service`) and **Windows** (Task Scheduler task
   `susi-release-sync`, matching `ServiceManagerKind::WindowsTask`).
 - Every Susi Windows Scheduled Task (`susi-daemon`, `susi-release-sync`, and any
-  auto-start task such as `SusiClusterAutoStart`) MUST use `LogonType=Interactive`
+  other task Susi registers to run at logon) MUST use `LogonType=Interactive`
   with `RunLevel=Limited` (never `Highest`). Running a user daemon or sync task
   elevated breaks `Win32_Process.ExecutablePath` inspection, process-stop
   handles, and unattended promotion from standard shells (`Access Denied`).
