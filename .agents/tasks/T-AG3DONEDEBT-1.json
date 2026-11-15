@@ -46,5 +46,6 @@
                    ".agents/tasks/done/T-CLUSTERKEY1104-1.json",
                    ".agents/tasks/done/T-CONFIGBACKUPENV1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "8cd18332c6658e172b2582399f110000ea9760de"
 }
