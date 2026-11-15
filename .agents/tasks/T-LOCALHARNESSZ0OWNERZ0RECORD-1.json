@@ -15,6 +15,7 @@
   "created_by": "harness-owner-record",
   "created_unix": 1794784352,
   "id": "T-LOCALHARNESSZ0OWNERZ0RECORD-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-owner-record",
   "owner": "harness-owner-record",
   "scopes": [
@@ -22,7 +23,7 @@
     ".agents/tasks/t-localharnessz0ownerz0record-1.json",
     "crates/susi-core/src/worktree_isolation.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Accept worktree owner records written by other Susi tools",
   "workflow": "susi-local-v2"
 }
