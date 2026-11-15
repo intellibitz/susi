@@ -1,10 +1,46 @@
 {
   "id": "T-ECOSTORE-1",
-  "owner": "ecostore-1103",
-  "status": "implemented",
   "title": "Resolve ecosystem entities and profiles from the selected installed store",
-  "dependencies": [],
-  "scopes": [".agents/tasks/T-ECOSTORE-1.json", "crates/susi-vendor-models/build.rs", "crates/susi-vendor-models/src/eco_store.rs", "crates/susi-vendor-models/src/eco_profile.rs", "crates/susi-vendor-models/src/eco_gpu_clouds.rs", "crates/susi-vendor-models/src/eco_engine_capability_map.rs", "crates/susi-gemi/src/eco_compat_gate.rs", "src/cli/ecosystem_cli.rs", "tests/eco_explain.rs", "tests/eco_cli.rs"],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "eco_explain", "--test", "eco_cli"]},
-  "requirement": "An ordinary isolated Windows install explains a packaged entity and profile with no source checkout or configuration. An explicit store controls both the entities and profiles of that explanation. Layered user and bundled overrides remain usable, errors surface, and release source paths are absent."
+  "goal": "Resolve packaged default, explicit store, and layered user ecosystem entities and profiles without requiring a source checkout or configuration (landed in f87f1f9f3dfbc08c89b6a3b394d5786dfb74044e..d920c576fe8de45cd6fd64e8b4f9b816a90a0be3; tests/eco_cli.rs migrated to Commercial susi-ecosystem-hub in 0cd03651dc6e409d4ec560c5c810a7c5da4fd4e6, tests/eco_explain.rs migrated in 33fbae22bc57eba9762cffea2dd6d0bdaffd6590, and crates/susi-vendor-models/src/eco_* plus crates/susi-gemi/src/eco_compat_gate.rs moved out of Lean Core).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "plane_handler::tests::ecosystem_start_and_explain_validate_required_id_and_absolute_dir"
+    ]
+  },
+  "created_by": "ECOSTORE1103",
+  "created_unix": 1793647155,
+  "implementation_commit": "d920c576fe8de45cd6fd64e8b4f9b816a90a0be3",
+  "notes": "Landed across f87f1f9f3dfbc08c89b6a3b394d5786dfb74044e..d920c576fe8de45cd6fd64e8b4f9b816a90a0be3. During Lean Core migration, tests/eco_cli.rs moved to Commercial susi-ecosystem-hub in 0cd03651dc6e409d4ec560c5c810a7c5da4fd4e6, tests/eco_explain.rs moved in 33fbae22bc57eba9762cffea2dd6d0bdaffd6590, and crates/susi-vendor-models/src/eco_* plus crates/susi-gemi/src/eco_compat_gate.rs moved out of Lean Core. In Core, src/cli/ecosystem_cli.rs has no inline unit tests and delegates to susi_gemi_models::eco_query and local_ecosystem, exercised at the Core boundary by plane_handler::tests::ecosystem_start_and_explain_validate_required_id_and_absolute_dir.",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Reused Core's ecosystem CLI dispatcher and open-core ecosystem query boundary while full graph/profile store coverage lives in Commercial susi-ecosystem-hub after Lean Core migration.",
+    "reused_symbols": [
+      "cli::ecosystem_cli::execute",
+      "susi_gemi_models::eco_query::explain",
+      "susi_gemi_models::eco_query::kb_query"
+    ],
+    "searched": [
+      "crates/susi-gemi-models/src/eco_query.rs",
+      "crates/susi-gemi/src/plane_handler.rs",
+      "src/cli/ecosystem_cli.rs"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-ECOSTORE-1.json",
+    "crates/susi-gemi-models/src/eco_query.rs",
+    "crates/susi-gemi/src/plane_handler.rs",
+    "src/cli/ecosystem_cli.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "state": "open",
+  "status": "implemented"
 }
