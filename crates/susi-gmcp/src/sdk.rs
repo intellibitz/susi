@@ -142,42 +142,43 @@ pub fn mrtr_input_required(
 }
 
 fn ensure_cap(present: bool, required: ClientCapabilities) -> Result<(), ErrorData> {
-    if present {
-        Ok(())
-    } else {
-        Err(ErrorData::missing_required_client_capability(required))
-    }
+    present
+        .then_some(())
+        .ok_or_else(|| ErrorData::missing_required_client_capability(required))
 }
 
 pub fn require_client_elicitation(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
+    let req = ClientCapabilities {
+        elicitation: Some(Default::default()),
+        ..Default::default()
+    };
     ensure_cap(
         ctx.client_capabilities()
             .and_then(|c| c.elicitation)
             .is_some(),
-        ClientCapabilities {
-            elicitation: Some(ElicitationCapability::default()),
-            ..Default::default()
-        },
+        req,
     )
 }
 
 pub fn require_client_sampling(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
+    let req = ClientCapabilities {
+        sampling: Some(Default::default()),
+        ..Default::default()
+    };
     ensure_cap(
         ctx.client_capabilities().and_then(|c| c.sampling).is_some(),
-        ClientCapabilities {
-            sampling: Some(SamplingCapability::default()),
-            ..Default::default()
-        },
+        req,
     )
 }
 
 pub fn require_client_roots(ctx: &RequestContext<RoleServer>) -> Result<(), ErrorData> {
+    let req = ClientCapabilities {
+        roots: Some(Default::default()),
+        ..Default::default()
+    };
     ensure_cap(
         ctx.client_capabilities().and_then(|c| c.roots).is_some(),
-        ClientCapabilities {
-            roots: Some(RootsCapabilities::default()),
-            ..Default::default()
-        },
+        req,
     )
 }
 
@@ -245,32 +246,26 @@ impl ServerBuilder {
         self.server_info.title = Some(title.into());
         self
     }
-
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.server_info.description = Some(description.into());
         self
     }
-
     pub fn instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
         self
     }
-
     pub fn durable_tasks(mut self, store_dir: impl Into<PathBuf>) -> Self {
         self.durable_store = Some(store_dir.into());
         self
     }
-
     pub fn with_host_tools(mut self, enabled: bool) -> Self {
         self.include_host_tools = enabled;
         self
     }
-
     pub fn with_builtin_catalog(mut self) -> Self {
         self.install_builtin_catalog = true;
         self
     }
-
     pub fn tool(mut self, definition: Tool, handler: ToolHandler) -> Self {
         self.items.tools.push((definition, handler));
         self
@@ -391,45 +386,26 @@ impl ServerBuilder {
             resource,
             Arc::new(move |req, _ctx| {
                 let (mime, text) = (mime_str.clone(), text_body.clone());
-                Box::pin(async move {
-                    Ok(ReadResourceResult {
-                        result_type: Some(ResultType::COMPLETE),
-                        ttl_ms: Some(0),
-                        cache_scope: Some(CacheScope::Private),
-                        contents: vec![ResourceContents::TextResourceContents {
-                            uri: req.uri,
-                            mime_type: Some(mime),
-                            text,
-                            meta: None,
-                        }],
-                        meta: None,
-                    }
-                    .into())
-                })
+                Box::pin(async move { Ok(examples::text_read_response(req.uri, &mime, text)) })
             }),
         )
     }
-
     pub fn template(mut self, template: ResourceTemplate, handler: ResourceHandler) -> Self {
         self.items.templates.push((template, handler));
         self
     }
-
     pub fn resource_guard(mut self, guard: ResourceGuard) -> Self {
         self.resource_guard = Some(guard);
         self
     }
-
     pub fn prompt(mut self, prompt: Prompt, handler: PromptHandler) -> Self {
         self.items.prompts.push((prompt, handler));
         self
     }
-
     pub fn completion(mut self, key: impl Into<String>, handler: CompletionHandler) -> Self {
         self.items.completions.push((key.into(), handler));
         self
     }
-
     pub fn extension(
         mut self,
         id: impl Into<String>,
@@ -442,12 +418,10 @@ impl ServerBuilder {
             .push((id.into(), status, version, settings));
         self
     }
-
     pub fn middleware(mut self, middleware: ToolMiddleware) -> Self {
         self.middlewares.push(middleware);
         self
     }
-
     pub fn plugin(mut self, bundle: PluginBundle, policy: PluginPolicy) -> Self {
         self.plugins.push((bundle, policy));
         self
@@ -644,6 +618,7 @@ pub struct PluginBundle {
     pub extensions: Vec<(String, ExtensionStatus, u32, JsonObject)>,
     pub initializer: Option<PluginInitHook>,
     pub on_unload: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub(crate) host_synced: bool,
 }
 
 impl PluginBundle {
@@ -660,7 +635,13 @@ impl PluginBundle {
             extensions: Vec::new(),
             initializer: None,
             on_unload: None,
+            host_synced: false,
         }
+    }
+    pub fn from_pack_dir(pack_root: impl Into<PathBuf>) -> Result<Self, PluginError> {
+        let root = pack_root.into();
+        let (manifest, _) = verify_pack_dir_for_sdk(&root).map_err(PluginError::IntegrityFailed)?;
+        Ok(Self::new(manifest).with_pack_root(root))
     }
     pub fn with_pack_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.pack_root = Some(root.into());
@@ -740,6 +721,7 @@ pub(crate) struct LoadedPlugin {
     pub(crate) cancel: CancellationToken,
     pub(crate) spawned_tasks: Arc<Mutex<Vec<(String, TaskPrincipal)>>>,
     pub(crate) on_unload: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub(crate) host_synced: bool,
 }
 
 fn stage_unique<V>(
@@ -1123,41 +1105,20 @@ impl GmcpService {
             if plugins.contains_key(&plugin_id) {
                 return Err(PluginError::AlreadyLoaded(plugin_id));
             }
-            let mut catalog = self.catalog.write();
-            let mut extensions = self.extensions.write();
-
-            ensure_no_collision(
-                &plugin_id,
-                "tool",
-                staged_tools.keys().cloned(),
-                &catalog.tools,
-            )?;
-            ensure_no_collision(
-                &plugin_id,
-                "resource",
-                bundle.resources.iter().map(|(r, _)| r.uri.clone()),
-                &catalog.resources,
-            )?;
-            ensure_no_collision(
-                &plugin_id,
-                "template",
-                bundle.templates.iter().map(|(t, _)| t.uri_template.clone()),
-                &catalog.templates,
-            )?;
-            ensure_no_collision(
-                &plugin_id,
-                "prompt",
-                bundle.prompts.iter().map(|(p, _)| p.name.clone()),
-                &catalog.prompts,
-            )?;
-            ensure_no_collision(
-                &plugin_id,
-                "completion",
-                bundle.completions.iter().map(|(k, _)| k.clone()),
-                &catalog.completions,
-            )?;
+            let mut cat = self.catalog.write();
+            let mut exts = self.extensions.write();
+            let pid = &plugin_id;
+            ensure_no_collision(pid, "tool", staged_tools.keys().cloned(), &cat.tools)?;
+            let r_keys = bundle.resources.iter().map(|(r, _)| r.uri.clone());
+            ensure_no_collision(pid, "resource", r_keys, &cat.resources)?;
+            let t_keys = bundle.templates.iter().map(|(t, _)| t.uri_template.clone());
+            ensure_no_collision(pid, "template", t_keys, &cat.templates)?;
+            let p_keys = bundle.prompts.iter().map(|(p, _)| p.name.clone());
+            ensure_no_collision(pid, "prompt", p_keys, &cat.prompts)?;
+            let c_keys = bundle.completions.iter().map(|(k, _)| k.clone());
+            ensure_no_collision(pid, "completion", c_keys, &cat.completions)?;
             for (ext_id, _, _, _) in &bundle.extensions {
-                if extensions.contains(ext_id) {
+                if exts.contains(ext_id) {
                     return Err(PluginError::Collision(
                         "extension",
                         plugin_id,
@@ -1165,43 +1126,34 @@ impl GmcpService {
                     ));
                 }
             }
-
             if let Some(init) = &bundle.initializer {
                 if let Err(reason) = init(&cancel) {
                     cancel.cancel();
                     return Err(PluginError::InitFailed(plugin_id, reason));
                 }
             }
-
-            let tools = commit_owned(staged_tools, &mut catalog.tools);
-            let resources = commit_owned(
-                bundle
-                    .resources
-                    .into_iter()
-                    .map(|(r, h)| (r.uri.clone(), (r, h))),
-                &mut catalog.resources,
-            );
-            let templates = commit_owned(
-                bundle
-                    .templates
-                    .into_iter()
-                    .map(|(t, h)| (t.uri_template.clone(), (t, h))),
-                &mut catalog.templates,
-            );
-            let prompts = commit_owned(
-                bundle
-                    .prompts
-                    .into_iter()
-                    .map(|(p, h)| (p.name.clone(), (p, h))),
-                &mut catalog.prompts,
-            );
-            let completions = commit_owned(bundle.completions, &mut catalog.completions);
+            let tools = commit_owned(staged_tools, &mut cat.tools);
+            let r_items = bundle
+                .resources
+                .into_iter()
+                .map(|(r, h)| (r.uri.clone(), (r, h)));
+            let resources = commit_owned(r_items, &mut cat.resources);
+            let t_items = bundle
+                .templates
+                .into_iter()
+                .map(|(t, h)| (t.uri_template.clone(), (t, h)));
+            let templates = commit_owned(t_items, &mut cat.templates);
+            let p_items = bundle
+                .prompts
+                .into_iter()
+                .map(|(p, h)| (p.name.clone(), (p, h)));
+            let prompts = commit_owned(p_items, &mut cat.prompts);
+            let completions = commit_owned(bundle.completions, &mut cat.completions);
             let mut owned_exts = BTreeSet::new();
             for (ext_id, status, version, settings) in bundle.extensions {
-                let _ = extensions.register(&ext_id, status, version, settings);
+                let _ = exts.register(&ext_id, status, version, settings);
                 owned_exts.insert(ext_id);
             }
-
             let emit = (
                 !tools.is_empty(),
                 !resources.is_empty() || !templates.is_empty(),
@@ -1221,11 +1173,11 @@ impl GmcpService {
                     cancel,
                     spawned_tasks,
                     on_unload: bundle.on_unload,
+                    host_synced: bundle.host_synced,
                 },
             );
             emit
         };
-
         if emit_tools {
             let _ = self.changes.send(Change::Tools);
         }
@@ -1244,13 +1196,15 @@ impl GmcpService {
     }
 
     pub fn unload_plugin(&self, plugin_id: &str) -> Result<PluginUnloadReport, PluginError> {
+        fn rm_keys<V>(keys: &BTreeSet<String>, map: &mut BTreeMap<String, V>) -> usize {
+            keys.iter().filter(|k| map.remove(*k).is_some()).count()
+        }
         let loaded = self
             .plugins
             .write()
             .remove(plugin_id)
             .ok_or_else(|| PluginError::NotLoaded(plugin_id.to_string()))?;
         loaded.cancel.cancel();
-
         let spawned = std::mem::take(
             &mut *loaded
                 .spawned_tasks
@@ -1261,41 +1215,21 @@ impl GmcpService {
             .into_iter()
             .filter(|(id, owner)| self.tasks.cancel_task_for(id, owner).is_ok())
             .count();
-
         let (removed_tools, removed_resources, removed_prompts, removed_extensions) = {
-            let mut catalog = self.catalog.write();
-            let mut extensions = self.extensions.write();
-            let rt = loaded
-                .tools
-                .iter()
-                .filter(|k| catalog.tools.remove(*k).is_some())
-                .count();
-            let rr = loaded
-                .resources
-                .iter()
-                .filter(|k| catalog.resources.remove(*k).is_some())
-                .count()
-                + loaded
-                    .templates
-                    .iter()
-                    .filter(|k| catalog.templates.remove(*k).is_some())
-                    .count();
-            let rp = loaded
-                .prompts
-                .iter()
-                .filter(|k| catalog.prompts.remove(*k).is_some())
-                .count();
-            for k in &loaded.completions {
-                let _ = catalog.completions.remove(k);
-            }
+            let mut cat = self.catalog.write();
+            let mut exts = self.extensions.write();
+            let rt = rm_keys(&loaded.tools, &mut cat.tools);
+            let rr = rm_keys(&loaded.resources, &mut cat.resources)
+                + rm_keys(&loaded.templates, &mut cat.templates);
+            let rp = rm_keys(&loaded.prompts, &mut cat.prompts);
+            let _ = rm_keys(&loaded.completions, &mut cat.completions);
             let re = loaded
                 .extensions
                 .iter()
-                .filter(|k| extensions.unregister(k))
+                .filter(|k| exts.unregister(k))
                 .count();
             (rt, rr, rp, re)
         };
-
         if let Some(cb) = loaded.on_unload {
             cb();
         }
@@ -1316,6 +1250,112 @@ impl GmcpService {
             removed_extensions,
             cancelled_tasks,
         })
+    }
+
+    pub fn sync_active_pack(
+        &self,
+        policy: &PluginPolicy,
+        decorate: impl FnOnce(PluginBundle) -> PluginBundle,
+    ) -> Result<Option<PluginLoadedReport>, PluginError> {
+        use crate::susi_config::extensions::{
+            active_pack, invalidate_extension_caches, DEFAULT_PACK_ID,
+        };
+        invalidate_extension_caches();
+        let pack = active_pack();
+        let active_id = (pack.id != DEFAULT_PACK_ID).then_some(pack.id.as_str());
+        let stale: Vec<String> = self
+            .plugins
+            .read()
+            .iter()
+            .filter(|(id, p)| p.host_synced && active_id != Some(id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in stale {
+            let _ = self.unload_plugin(&id);
+        }
+        if active_id.is_none() {
+            return Ok(None);
+        }
+        if self.plugins.read().contains_key(&pack.id) {
+            verify_pack_dir_for_sdk(&pack.root).map_err(PluginError::IntegrityFailed)?;
+            return Ok(None);
+        }
+        let mut bundle = decorate(PluginBundle::from_pack_dir(&pack.root)?);
+        bundle.host_synced = true;
+        self.attach_plugin(bundle, policy).map(Some)
+    }
+
+    pub fn call_tool_sync(&self, name: &str, args: Value) -> Result<Value, String> {
+        let (svc, tool) = (self.clone(), name.to_string());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())?;
+            rt.block_on(async move {
+                let h = TestHarness::spawn(svc);
+                let p = json!({ "name": tool, "arguments": args });
+                let out = h.request_modern("tools/call", p, Default::default()).await;
+                h.shutdown().await;
+                out
+            })
+        })
+        .join()
+        .map_err(|_| "direct tool worker thread panicked".to_string())?
+    }
+
+    pub fn bind_direct_server(&self, server: &str) -> Result<(), ErrorData> {
+        if matches!(
+            server,
+            "" | "susi" | "native" | "gmcp" | "local" | "builtin" | "core"
+        ) {
+            return Err(invalid(
+                "direct server namespace must not shadow builtin tools",
+            ));
+        }
+        crate::direct_call::clear_server_registrations(server);
+        let tools: Vec<(String, Value)> = self
+            .catalog
+            .read()
+            .tools
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    Value::Object((*v.definition.input_schema).clone()),
+                )
+            })
+            .collect();
+        for (name, schema) in tools {
+            crate::direct_call::register_tool_schema(server, &name, schema);
+            let (svc, tool_name) = (self.clone(), name.clone());
+            let handler = Arc::new(move |args: &Value, _ws: &std::path::Path| {
+                let reply = svc
+                    .call_tool_sync(&tool_name, args.clone())
+                    .map_err(susi_error::EaiError::protocol)?;
+                if let Some(err) = reply.get("error").filter(|e| !e.is_null()) {
+                    return Err(susi_error::EaiError::protocol(err.to_string()));
+                }
+                let res = &reply["result"];
+                let text = res["content"][0]["text"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| res.to_string());
+                (res["isError"] != json!(true))
+                    .then_some(text)
+                    .ok_or_else(|| {
+                        susi_error::EaiError::protocol(
+                            res["content"][0]["text"].as_str().unwrap_or("tool error"),
+                        )
+                    })
+            });
+            crate::direct_call::register_tool_handler(server, &name, handler);
+        }
+        Ok(())
+    }
+
+    pub fn unbind_direct_server(server: &str) {
+        crate::direct_call::clear_server_registrations(server);
     }
 }
 

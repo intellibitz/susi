@@ -38,75 +38,30 @@ pub fn get_tool_schema(server: &str, tool: &str) -> Value {
 
     // Built-in schemas for common core tools
     match tool {
-        "read_file" => json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" }
-            },
-            "required": ["path"]
-        }),
+        "read_file" | "extensions_validate" => {
+            json!({ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] })
+        }
         "write_file" => json!({
             "type": "object",
-            "properties": {
-                "path": { "type": "string" },
-                "content": { "type": "string" }
-            },
+            "properties": { "path": { "type": "string" }, "content": { "type": "string" } },
             "required": ["path", "content"]
         }),
-        "exec_command" => json!({
-            "type": "object",
-            "properties": {
-                "command": { "type": "string" }
-            },
-            "required": ["command"]
-        }),
-        "tasks_pause" => json!({
-            "type": "object",
-            "properties": {
-                "task_id": { "type": "string" }
-            },
-            "required": ["task_id"]
-        }),
-        "tasks_resume" => json!({
-            "type": "object",
-            "properties": {
-                "task_id": { "type": "string" }
-            },
-            "required": ["task_id"]
-        }),
-        "os_ps" => json!({
-            "type": "object",
-            "properties": {
-                "limit": { "type": "integer" }
-            }
-        }),
-        "extensions_validate" => json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" }
-            },
-            "required": ["path"]
-        }),
-        "extensions_load" | "extensions_unload" => json!({
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" }
-            },
-            "required": ["id"]
-        }),
-        "brain_pareto" => json!({
-            "type": "object",
-            "properties": {
-                "class": { "type": "string" }
-            }
-        }),
+        "exec_command" => {
+            json!({ "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] })
+        }
+        "tasks_pause" | "tasks_resume" => {
+            json!({ "type": "object", "properties": { "task_id": { "type": "string" } }, "required": ["task_id"] })
+        }
+        "os_ps" => json!({ "type": "object", "properties": { "limit": { "type": "integer" } } }),
+        "extensions_load" | "extensions_unload" => {
+            json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] })
+        }
+        "brain_pareto" => {
+            json!({ "type": "object", "properties": { "class": { "type": "string" } } })
+        }
         "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify"
-        | "extensions_list" | "extensions_status" => json!({
-            "type": "object"
-        }),
-        _ => json!({
-            "type": "object"
-        }),
+        | "extensions_list" | "extensions_status" => json!({ "type": "object" }),
+        _ => json!({ "type": "object" }),
     }
 }
 
@@ -168,6 +123,17 @@ pub fn register_tool_handler(server: &str, tool: &str, handler: ToolHandlerFn) {
     custom_handlers().write().insert(key, handler);
 }
 
+/// Remove all custom schemas and handlers bound under an explicit `server` namespace.
+pub fn clear_server_registrations(server: &str) {
+    let prefix = format!("{server}:");
+    custom_schemas()
+        .write()
+        .retain(|k, _| !k.starts_with(&prefix));
+    custom_handlers()
+        .write()
+        .retain(|k, _| !k.starts_with(&prefix));
+}
+
 fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<String> {
     let handler = custom_handlers().read().get(tool).cloned(); // no lock while it runs
     if let Some(handler) = handler {
@@ -224,6 +190,16 @@ pub fn call_tool_direct(
     } else {
         format!("{server}:{tool}")
     };
+
+    // 0. Gateway Policy Boundary (identical to GmcpService::call_tool)
+    if let Err(violation) = crate::protocol::McpGatewayProxy::evaluate_tool_policy(tool) {
+        let err_msg = format!("Governance Violation: {violation}");
+        let _ =
+            susi_core::capture::EvidenceSession::capture_call(&call_id, args, workspace, || {
+                Err(EaiError::protocol(&err_msg))
+            });
+        return Ok(format_tool_response(&err_msg, true));
+    }
 
     // 1. Parameter Schema Validation
     if let Err(e) = validate_tool_args(server, tool, args) {

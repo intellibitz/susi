@@ -130,6 +130,12 @@ fn open_durable_service(workspace: &Path) -> Option<GmcpService> {
 pub struct GmcpServer;
 impl GmcpServer {
     pub fn run_stdio(workspace: &Path, version: &str) {
+        if let Some(service) = open_durable_service(workspace) {
+            Self::serve_stdio_service(service, version);
+        }
+    }
+
+    pub fn serve_stdio_service(service: GmcpService, version: &str) {
         let limit = load_config_or_warn().max_rpc_body_bytes();
         if limit == 0 {
             eprintln!(
@@ -146,9 +152,6 @@ impl GmcpServer {
                 eprintln!("[GMCP] Runtime failed: {e}");
                 return;
             }
-        };
-        let Some(service) = open_durable_service(workspace) else {
-            return;
         };
         runtime.block_on(async move {
             let transport = crate::jsonrpc_gate::StdioGate::new(
@@ -172,6 +175,27 @@ impl GmcpServer {
         tls: Option<TlsAcceptor>,
         require_tls_remote: bool,
     ) {
+        if let Some(application) = open_durable_service(&workspace) {
+            Self::run_http_service(application, listeners, tls, require_tls_remote, true);
+        }
+    }
+
+    pub fn serve_http_service(
+        application: GmcpService,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+    ) {
+        Self::run_http_service(application, listeners, tls, require_tls_remote, false);
+    }
+
+    fn run_http_service(
+        application: GmcpService,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+        register_channel_ingress: bool,
+    ) {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
@@ -188,28 +212,25 @@ impl GmcpServer {
                 cfg.max_concurrent_agents()
                     .clamp(1, tokio::sync::Semaphore::MAX_PERMITS),
             ));
-            let Some(application) = open_durable_service(&workspace) else {
-                return;
-            };
             let service = http_service(application);
             eprintln!("[GMCP] Streamable HTTP available at /mcp (alias /messages)");
 
-            // Peer-channel sessions: the first surface of this process to
-            // start (or the first after a previous one exited) serves them.
-            let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel();
-            {
-                let mut slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
-                if slot.as_ref().is_none_or(|tx| tx.is_closed()) {
-                    *slot = Some(ingress_tx);
+            if register_channel_ingress {
+                let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel();
+                {
+                    let mut slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.as_ref().is_none_or(|tx| tx.is_closed()) {
+                        *slot = Some(ingress_tx);
+                    }
                 }
+                let channel_service = service.clone();
+                tokio::spawn(async move {
+                    while let Some(conn) = ingress_rx.recv().await {
+                        let service = channel_service.clone();
+                        tokio::spawn(serve_channel(conn, service));
+                    }
+                });
             }
-            let channel_service = service.clone();
-            tokio::spawn(async move {
-                while let Some(conn) = ingress_rx.recv().await {
-                    let service = channel_service.clone();
-                    tokio::spawn(serve_channel(conn, service));
-                }
-            });
 
             // One accept loop per bound socket (loopback + external when the
             // bind address is a specific non-loopback IP).
