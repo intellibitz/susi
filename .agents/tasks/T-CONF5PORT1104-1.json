@@ -1,15 +1,10 @@
 {
   "id": "T-CONF5PORT1104-1",
   "title": "B1 & B6 full 5-port end-to-end loopback conformance test and Optional::signed_udp_pong_prefix enforcement",
-  "state": "closed",
-  "created_by": "CONF5PORT1104",
-  "created_at_unix": 1793757500,
-  "scope": {
-    "files": [
-      "crates/susi-conformance/src/lib.rs",
-      "crates/susi-conformance/src/bin/susi-conformance.rs"
-    ]
-  },
+  "state": "open",
+  "goal": "Promote signed_udp_pong_prefix into susi_conformance::Optional and enforce prefix matching directly inside udp_discovery_signed, wire --signed-udp-pong-prefix in the susi-conformance CLI, and add full_suite_run_with_passes_across_all_five_contract_ports_at_shared_offset exercising run_with end-to-end across all 5 contract ports (9090 MCP, 9091 GEMI, 9092 UDP_DISCOVERY, 9093 MCP_ALIAS, 9094 A2A) at a shared port_offset (B1, B6; landed in 3a2354ae6 #1388).",
+  "size": "m",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -20,9 +15,19 @@
       "susi-conformance"
     ]
   },
-  "closed": {
-    "commit": "6cce5fe30e246c4f5c2d583f1a95075467b8027f",
-    "by": "CONF5PORT1104",
-    "at_unix": 1793757520
-  }
+  "created_by": "CONF5PORT1104",
+  "created_unix": 1793757500,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Extended existing susi_conformance::Optional, udp_discovery_signed, CLI flag parser, and loopback test fixtures in crates/susi-conformance (landed in squash commit 3a2354ae6133186565d54135ddd5f45156e18d6d #1388) without introducing new crates or external dependencies.",
+    "searched": "crates/susi-conformance/src/lib.rs, crates/susi-conformance/src/bin/susi-conformance.rs",
+    "source": "intellibitz/susi crates/susi-conformance (3a2354ae6 #1388)"
+  },
+  "scopes": [
+    ".agents/tasks/T-CONF5PORT1104-1.json",
+    "crates/susi-conformance/src/bin/susi-conformance.rs",
+    "crates/susi-conformance/src/lib.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "status": "completed"
 }
