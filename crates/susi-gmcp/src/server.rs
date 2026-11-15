@@ -114,6 +114,15 @@ fn load_config_or_warn() -> Arc<crate::susi_sandbox::manager::SusiConfig> {
     }
 }
 
+fn open_durable_service(workspace: &Path) -> Option<GmcpService> {
+    GmcpService::open_durable(
+        workspace.to_path_buf(),
+        susi_paths::SusiDirs::data_dir().join("gmcp-tasks"),
+    )
+    .map_err(|e| eprintln!("[GMCP] Task store failed (fail-closed): {e}"))
+    .ok()
+}
+
 pub struct GmcpServer;
 impl GmcpServer {
     pub fn run_stdio(workspace: &Path, version: &str) {
@@ -134,7 +143,9 @@ impl GmcpServer {
                 return;
             }
         };
-        let service = GmcpService::new(workspace.to_path_buf());
+        let Some(service) = open_durable_service(workspace) else {
+            return;
+        };
         if let Err(e) = crate::catalog::install(&service) {
             eprintln!("[GMCP] Catalog failed: {e}");
             return;
@@ -177,7 +188,9 @@ impl GmcpServer {
                 cfg.max_concurrent_agents()
                     .clamp(1, tokio::sync::Semaphore::MAX_PERMITS),
             ));
-            let application = GmcpService::new(workspace);
+            let Some(application) = open_durable_service(&workspace) else {
+                return;
+            };
             if let Err(e) = crate::catalog::install(&application) {
                 eprintln!("[GMCP] Catalog failed: {e}");
                 return;
@@ -275,6 +288,14 @@ impl GmcpServer {
             }
         });
     }
+}
+
+fn seal_headers(headers: &mut hyper::HeaderMap, enc: &'static str) {
+    headers.insert("x-susi-enc", HeaderValue::from_static(enc));
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
 }
 
 /// Serve one peer-channel connection: HTTP/1.1 over the in-process socket,
@@ -501,7 +522,7 @@ async fn handle_request(
             .headers
             .insert(hyper::header::HOST, HeaderValue::from_static("127.0.0.1"));
     }
-    let req = Request::from_parts(
+    let mut req = Request::from_parts(
         parts,
         http_body_util::Full::new(hyper::body::Bytes::from(effective.clone())),
     );
@@ -547,6 +568,30 @@ async fn handle_request(
                 return Ok(json_response(StatusCode::BAD_REQUEST, &rejection));
             }
         }
+        let principal = if let Some(channel_peer) = channel.as_deref() {
+            crate::mcp::task_manager::TaskPrincipal::from_node(&channel_peer.identity.node_id)
+        } else if signed.present()
+            && crate::susi_core::net_guard::NetGuard::is_authorized(
+                None,
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                &signed,
+                req.method().as_str(),
+                req.uri().path(),
+                Some(&effective),
+            )
+        {
+            crate::mcp::task_manager::TaskPrincipal::from_node(signed.node.unwrap_or_default())
+        } else if let Some(tok) = req
+            .headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+        {
+            crate::mcp::task_manager::TaskPrincipal::from_bearer_token(tok)
+        } else {
+            crate::mcp::task_manager::TaskPrincipal::local()
+        };
+        req.extensions_mut().insert(principal);
         service.handle(req).await
     } else {
         response(
@@ -565,16 +610,9 @@ async fn handle_request(
         {
             let (mut rparts, rbody) = result.into_parts();
             rparts.headers.remove(hyper::header::CONTENT_LENGTH);
-            let h = &mut rparts.headers;
-            h.insert(
-                "x-susi-enc",
-                hyper::header::HeaderValue::from_static(
-                    crate::susi_core::mcp_client::SEALED_STREAM,
-                ),
-            );
-            h.insert(
-                hyper::header::CONTENT_TYPE,
-                hyper::header::HeaderValue::from_static("application/octet-stream"),
+            seal_headers(
+                &mut rparts.headers,
+                crate::susi_core::mcp_client::SEALED_STREAM,
             );
             let sealed = seal_each_chunk(rbody, move |chunk| {
                 crate::susi_core::mcp_client::seal_stream_record(&pk, chunk)
@@ -609,15 +647,10 @@ async fn handle_request(
                     rparts,
                     http_body_util::Full::new(Bytes::from(ct)).boxed(),
                 );
-                let h = sealed.headers_mut();
-                h.insert("x-susi-enc", hyper::header::HeaderValue::from_static("v1"));
-                if let Ok(v) = hyper::header::HeaderValue::from_str(&nonce) {
-                    h.insert("x-susi-enc-nonce", v);
+                seal_headers(sealed.headers_mut(), "v1");
+                if let Ok(v) = HeaderValue::from_str(&nonce) {
+                    sealed.headers_mut().insert("x-susi-enc-nonce", v);
                 }
-                h.insert(
-                    hyper::header::CONTENT_TYPE,
-                    hyper::header::HeaderValue::from_static("application/octet-stream"),
-                );
                 sealed
             }
             // Our node.key is unreadable — return the plaintext body
@@ -632,104 +665,5 @@ async fn handle_request(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A chunk reaches the client sealed while the stream is still open —
-    /// the old path collected the whole body first, which never completes
-    /// for a long-lived SSE stream.
-    #[tokio::test]
-    async fn sealed_stream_emits_chunks_before_the_body_ends() {
-        /// A body that stays open until its sender drops.
-        struct OpenBody(tokio::sync::mpsc::Receiver<Bytes>);
-        impl hyper::body::Body for OpenBody {
-            type Data = Bytes;
-            type Error = Infallible;
-            fn poll_frame(
-                mut self: std::pin::Pin<&mut Self>,
-                cx: &mut std::task::Context<'_>,
-            ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>>
-            {
-                self.0
-                    .poll_recv(cx)
-                    .map(|chunk| chunk.map(|b| Ok(hyper::body::Frame::data(b))))
-            }
-        }
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
-        let mut sealed = seal_each_chunk(OpenBody(rx).boxed(), |chunk| [b"S:", chunk].concat());
-        tx.send(Bytes::from_static(b"data: 1\n\n")).await.unwrap();
-        let first = tokio::time::timeout(std::time::Duration::from_secs(5), sealed.frame())
-            .await
-            .expect("sealed chunk withheld until end of stream")
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            first.into_data().unwrap(),
-            Bytes::from_static(b"S:data: 1\n\n")
-        );
-        drop(tx);
-        assert!(sealed.frame().await.is_none());
-    }
-
-    #[test]
-    fn sessions_outlive_the_longest_tool_call() {
-        let keep_alive = session_manager().session_config.keep_alive;
-        assert!(
-            keep_alive
-                .is_some_and(|idle| idle > std::time::Duration::from_secs(MAX_TOOL_CALL_SECS)),
-            "{keep_alive:?}"
-        );
-    }
-
-    #[test]
-    fn rejections_carry_rfc_challenge_headers() {
-        let unauthorized = response(StatusCode::UNAUTHORIZED, "Unauthorized");
-        assert_eq!(
-            unauthorized.headers()[hyper::header::WWW_AUTHENTICATE],
-            "Bearer realm=\"susi-gmcp\""
-        );
-        let limited = response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded");
-        assert_eq!(limited.headers()[hyper::header::RETRY_AFTER], "60");
-        let missing = response(StatusCode::NOT_FOUND, "nope");
-        assert!(!missing
-            .headers()
-            .contains_key(hyper::header::WWW_AUTHENTICATE));
-    }
-
-    #[test]
-    fn origin_forbidden_and_cors_headers_enforce_browser_origin_policy() {
-        let mut headers = hyper::HeaderMap::new();
-        assert!(!origin_forbidden(&headers, "*"));
-
-        headers.insert(
-            hyper::header::ORIGIN,
-            HeaderValue::from_static("https://app.example.com"),
-        );
-        assert!(origin_forbidden(&headers, "*"));
-        assert!(!origin_forbidden(&headers, "https://app.example.com"));
-        assert!(origin_forbidden(&headers, "https://other.example.com"));
-
-        let mut resp = json_response(StatusCode::OK, &serde_json::json!({"ok": true}));
-        cors(&mut resp, "https://app.example.com");
-        assert_eq!(
-            resp.headers()["access-control-allow-origin"],
-            "https://app.example.com"
-        );
-    }
-
-    #[test]
-    fn origin_forbidden_enforces_null_origin_and_explicit_port_matching() {
-        let mut headers = hyper::HeaderMap::new();
-        headers.insert(hyper::header::ORIGIN, HeaderValue::from_static("null"));
-        assert!(!origin_forbidden(&headers, "null"));
-        assert!(origin_forbidden(&headers, "https://app.example.com"));
-
-        headers.insert(
-            hyper::header::ORIGIN,
-            HeaderValue::from_static("https://app.example.com:8443"),
-        );
-        assert!(!origin_forbidden(&headers, "https://app.example.com"));
-        assert!(!origin_forbidden(&headers, "https://app.example.com:8443"));
-        assert!(origin_forbidden(&headers, "https://app.example.com:9443"));
-    }
-}
+#[path = "tests/server.rs"]
+mod tests;

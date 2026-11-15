@@ -194,6 +194,9 @@ pub fn is_standard_method(method: &str) -> bool {
             | "resources/unsubscribe"
             | "resources/templates/list"
             | "subscriptions/listen"
+            | "tasks/cancel"
+            | "tasks/get"
+            | "tasks/update"
             | "tools/call"
             | "tools/list"
             | "completion/complete"
@@ -216,6 +219,7 @@ pub fn is_standard_notification(method: &str) -> bool {
             | "notifications/resources/updated"
             | "notifications/roots/list_changed"
             | "notifications/subscriptions/acknowledged"
+            | "notifications/tasks"
             | "notifications/tools/list_changed"
     )
 }

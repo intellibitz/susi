@@ -19,6 +19,22 @@
   },
   "created_by": "dot-three-pillars",
   "created_unix": 1794725400,
+  "closed": {
+    "at_unix": 1794730740,
+    "commit": "cc99802a5d9ed4ade3ec260b6ffbe636a66fb6b5",
+    "by": "DOTTHREEPILLARS"
+  },
+  "limitations": [
+    "Main is unqualified development, not a production release.",
+    "Ten-minute integration cadence is an ongoing agent operation, not a newly installed runtime timer.",
+    "Full workspace/cross-platform release qualification is not claimed."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Extend existing classifier and build-time validator; preserve protocol behavior and commercial boundary.",
+    "searched": "Existing susi-core ACP compatibility exports, xtask harvest route classifier, native Susi Board, identity build validator and governance documents; paired commercial guidance.",
+    "source": "Existing first-party Susi source and tests; no upstream import or dependency additions."
+  },
   "scopes": [
     "AGENTS.md",
     "CLAUDE.md",
@@ -45,16 +61,5 @@
     "tests/pure_apache2_cloud_harvest.rs",
     "tests/five_pillars_workflow.rs",
     "tests/three_pillars_governance.rs"
-  ],
-  "reuse": {
-    "decision": "existing",
-    "searched": "Existing susi-core ACP compatibility exports, xtask harvest route classifier, native Susi Board, identity build validator and governance documents; paired commercial guidance.",
-    "source": "Existing first-party Susi source and tests; no upstream import or dependency additions.",
-    "reason": "Extend existing classifier and build-time validator; preserve protocol behavior and commercial boundary."
-  },
-  "limitations": [
-    "Main is unqualified development, not a production release.",
-    "Ten-minute integration cadence is an ongoing agent operation, not a newly installed runtime timer.",
-    "Full workspace/cross-platform release qualification is not claimed."
   ]
 }
