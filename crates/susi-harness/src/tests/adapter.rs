@@ -874,6 +874,22 @@ fn gate_lints_the_packages_the_scopes_touch() {
     assert!(args.contains(&"susi".to_string()));
     assert!(args.contains(&"-D".to_string()));
 }
+
+/// Another repository's root package has its own name: the gate lints that one.
+#[test]
+fn gate_lints_the_repositorys_own_root_package() {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let manifest =
+        "[workspace.package]\nversion = \"1.0.0\"\n\n[package]\nname = \"susi-commercial\"\n";
+    std::fs::write(dir.path().join("Cargo.toml"), manifest).unwrap();
+    let target = target(vec![ok("")]);
+    target
+        .gate(dir.path(), &["tests/candidate_pair.rs".to_string()])
+        .unwrap();
+    let calls = target.runner.calls.lock().unwrap();
+    let args = &calls[0].1;
+    assert_eq!(args[..3], ["clippy", "-p", "susi-commercial"], "{args:?}");
+}
 /// A link at `link` to the directory `to`: a junction on Windows (what
 /// the old linker made, and what any user can create), a symlink elsewhere.
 fn link_dir(to: &Path, link: &Path) {

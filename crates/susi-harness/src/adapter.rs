@@ -63,6 +63,14 @@ pub(crate) fn common_dir(repo: &Path) -> Option<PathBuf> {
     }
 }
 
+/// The root manifest's package: `susi` here, its own name in another repository.
+fn root_package(worktree: &Path) -> String {
+    let manifest = std::fs::read_to_string(worktree.join("Cargo.toml")).unwrap_or_default();
+    let package = manifest.split("[package]").nth(1).unwrap_or_default();
+    let name = package.split("name = \"").nth(1).unwrap_or("susi\"");
+    name.split('"').next().unwrap_or("susi").to_string()
+}
+
 /// Whether the worktree's `target/` is a link (a junction on Windows): the
 /// clone's old shared target, which an older `workflow start` linked.
 fn target_is_link(worktree: &Path) -> bool {
@@ -988,7 +996,7 @@ impl<R: CommandRunner> SusiTarget<R> {
             } else if scope.starts_with("xtask/") {
                 "xtask".to_string()
             } else {
-                "susi".to_string()
+                root_package(worktree)
             };
             if !package.is_empty() && !packages.contains(&package) {
                 packages.push(package);
@@ -1002,15 +1010,8 @@ impl<R: CommandRunner> SusiTarget<R> {
             ));
         }
         let mut args: Vec<String> = vec!["clippy".to_string()];
-        for package in &packages {
-            args.push("-p".to_string());
-            args.push(package.clone());
-        }
-        args.extend(
-            ["--all-targets", "--locked", "--", "-D", "warnings"]
-                .iter()
-                .map(|arg| (*arg).to_string()),
-        );
+        args.extend(packages.iter().flat_map(|p| ["-p".to_string(), p.clone()]));
+        args.extend(["--all-targets", "--locked", "--", "-D", "warnings"].map(String::from));
         self.runner.run(Path::new("cargo"), &args, worktree)
     }
 
