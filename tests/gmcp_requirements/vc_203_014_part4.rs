@@ -1881,7 +1881,8 @@ fn gmcp_vc_203_014_mastery() {
     assert!(check_ev(&good_text, false).is_ok());
     assert!(check_ev(&good_lines[..5].iter().map(Value::to_string).collect::<Vec<_>>().join("\n"), false).is_err());
 
-    let mutators: [Box<dyn Fn(&mut Value)>; 9] = [
+    type Mutate<'a> = Box<dyn Fn(&mut Value) + 'a>;
+    let mutators: [Mutate<'_>; 9] = [
         Box::new(|v| v["recorded_unix"] = json!(1_700_000_000_u64)),
         Box::new(|v| v["recorded_unix"] = json!(now + 120)),
         Box::new(|v| v["artifact_sha256"] = json!("deadbeef")),
