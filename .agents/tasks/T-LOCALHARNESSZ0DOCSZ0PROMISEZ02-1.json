@@ -16,6 +16,7 @@
   "created_by": "harness-docs-promise-2",
   "created_unix": 1794787001,
   "id": "T-LOCALHARNESSZ0DOCSZ0PROMISEZ02-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-docs-promise-2",
   "owner": "harness-docs-promise-2",
   "scopes": [
@@ -24,7 +25,7 @@
     ".agents/tasks/t-localharnessz0docsz0promisez02-1.json",
     "docs/gmcp/contract-203-020.md"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Reword the GMCP contract sentence that breaks the core docs promise",
   "workflow": "susi-local-v2"
 }
