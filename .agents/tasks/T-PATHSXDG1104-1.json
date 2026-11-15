@@ -1,15 +1,9 @@
 {
   "id": "T-PATHSXDG1104-1",
   "title": "D-OS-8 / OSN-26 cross-OS xdg layout resolvers and B8 ports.json-aware host_token_in in susi-paths",
-  "state": "closed",
-  "created_by": "PATHSXDG1104",
-  "created_at_unix": 1793758100,
-  "scope": {
-    "files": [
-      "crates/susi-paths/src/xdg.rs",
-      "crates/susi-paths/src/lib.rs"
-    ]
-  },
+  "goal": "Extract OS-parameterized config_dir_for, data_dir_for, and cache_dir_for helpers in crates/susi-paths/src/xdg.rs with cross-OS unit tests covering Linux, macOS, and Windows layouts (D-OS-8 / OSN-26), and add ports.json-aware host_token_in(config_dir) in crates/susi-paths/src/lib.rs with constant-time bearer authorization tests (B8).",
+  "size": "m",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -20,9 +14,19 @@
       "susi-paths"
     ]
   },
-  "closed": {
-    "commit": "0dab304174c928b85b1eb1d38a0c0d47b01eecfd",
-    "by": "PATHSXDG1104",
-    "at_unix": 1793758120
-  }
+  "created_by": "PATHSXDG1104",
+  "created_unix": 1793758100,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Extended existing crates/susi-paths/src/xdg.rs layout resolvers into OS-parameterized helpers and added ports.json-aware host_token_in in crates/susi-paths/src/lib.rs reusing zc_ports_file::PortsFile::read_from_home and existing constant-time bearer comparison helpers.",
+    "searched": "crates/susi-paths/src/xdg.rs, crates/susi-paths/src/lib.rs, crates/susi-paths/src/zc_ports_file.rs, crates/susi-paths/src/ports.rs",
+    "source": "intellibitz/susi crates/susi-paths"
+  },
+  "scopes": [
+    ".agents/tasks/T-PATHSXDG1104-1.json",
+    "crates/susi-paths/src/lib.rs",
+    "crates/susi-paths/src/xdg.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "status": "completed"
 }
