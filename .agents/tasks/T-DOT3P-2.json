@@ -1,0 +1,29 @@
+{
+  "id": "T-DOT3P-2",
+  "title": "Isolate distillation acceptance from host compiler wrappers",
+  "goal": "Fix Windows sccache config-directory panic in hermetic distillation acceptance; preserve host compiler-cache settings and validate actual composed acceptance.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "functional_distillation"
+    ]
+  },
+  "created_by": "dot-three-pillars",
+  "created_unix": 1794731473,
+  "scopes": [
+    "xtask/src/distill_compose.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing local-workflow/local-release and compiler_env per-command empty wrapper overrides.",
+    "reason": "Apply the established isolation pattern without host configuration changes or dependencies."
+  }
+}
