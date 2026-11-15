@@ -1,18 +1,15 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-COMPLETERELEASE-1",
   "title": "Require complete executed release gates and immutable admission evidence under policy v6",
-  "native_worker": "release-complete",
-  "status": "verified_pending_integration",
-  "dependencies": [
+  "goal": "Execute complete release admission gates (format, default-licenses, native-advisories, all-features-policy, workspace-clippy, workspace-tests, production-build, unsafe-measurement, unsafe-ratchet, native-provenance) against exact candidate commits and bind raw logs, exact argv, outer test counts, and external coordinator authorization bytes in a mandatory susi/complete-release-gates/v1 receipt while rejecting partial, stale, tampered, or unrooted receipts (landed in 2f4c65a9f4dc6d422e3948adde84369b797eec3e with deterministic promotion refinement in 0a21547853749649f41ef19df1c24c425045723b).",
+  "size": "m",
+  "state": "open",
+  "status": "implemented",
+  "deps": [
     "T-PROVENANCE-1",
     "T-UNSAFECOMPLETE-1",
     "T-OPTIONALLICENSE-1"
-  ],
-  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
-  "scopes": [
-    ".agents/tasks/t-completerelease-1.json",
-    "xtask/src/bin/local-release.rs",
-    "xtask/src/complete_release_gates.rs"
   ],
   "accept": {
     "cmd": [
@@ -28,34 +25,31 @@
       "local-release"
     ]
   },
-  "acceptance": "Run all unchanged dependency policy checks including all features with the pinned advisory snapshot, and independently pinned complete unsafe and authenticated provenance gates against the exact candidate. Bind raw logs, exact argv, actual outer test counts, native report contexts and external immutable authorization bytes in a mandatory manifest-v2 complete-release-gates/v1 digest. Reject historical partial v6/v5, incomplete/duplicate/failed/stale/substituted/ambiguous receipts and revoked authorization at admission without changing release refs. Preserve existing strict license, sysroot, native source/link, real inference, health, artifact and rollback checks.",
-  "validation": {
-    "commands": [
-      [
-        "cargo",
-        "fmt",
-        "--all",
-        "--check"
-      ],
-      [
-        "cargo",
-        "clippy",
-        "-p",
-        "xtask",
-        "--features",
-        "release-tooling",
-        "--bin",
-        "local-release",
-        "--tests",
-        "--offline",
-        "--locked",
-        "--",
-        "-D",
-        "warnings"
-      ]
+  "created_by": "COMPLETERELEASE",
+  "created_unix": 1793641948,
+  "authored": true,
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "implementation_commit": "2f4c65a9f4dc6d422e3948adde84369b797eec3e",
+  "notes": "Landed in 2f4c65a9f4dc6d422e3948adde84369b797eec3e across xtask/src/bin/local-release.rs and xtask/src/complete_release_gates.rs (with deterministic gate promotion follow-up in 0a21547853749649f41ef19df1c24c425045723b and shared xtask library consolidation in 089bbb44f3060eda15a39e2d84d4e44d23f73e8a). All three prerequisite tasks (T-PROVENANCE-1, T-UNSAFECOMPLETE-1, T-OPTIONALLICENSE-1) are closed in .agents/tasks/done/.",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Integrated policy-v6 complete release gate verification directly into xtask/src/bin/local-release.rs and xtask/src/complete_release_gates.rs while reusing xtask::native_json, xtask::native_test_counts, and xtask::trusted_sysroot.",
+    "reused_symbols": [
+      "xtask::native_json::from_slice",
+      "xtask::native_test_counts",
+      "xtask::trusted_sysroot::VerifiedSysroot"
     ],
-    "shared_development_dependencies": "Temporary read-only exact copies of provenance-owned native_test_counts.rs and native_json.rs are hash-recorded outside source; they are removed before this scoped commit and supplied by the provenance task at actual combined integration.",
-    "private_target": "/workspace/susi-release-complete-target",
-    "product_qualification": "Pending combined integration and two separate actual all-green policy-v6 packages; no promotion performed by this worker."
-  }
+    "searched": [
+      "xtask/src/bin/local-release.rs",
+      "xtask/src/complete_release_gates.rs",
+      "xtask/src/native_json.rs",
+      "xtask/src/native_test_counts.rs"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-COMPLETERELEASE-1.json",
+    "tests/task_record_schema_debt.json",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/complete_release_gates.rs"
+  ]
 }
