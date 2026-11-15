@@ -20,24 +20,43 @@ if ($Action -in 'install-timer','uninstall-timer') {
     if (-not (Test-Path -LiteralPath $SyncScript -PathType Leaf)) {
         throw "Missing updater script: $SyncScript"
     }
-    $BashExe = $Built
-    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf) -or ($BashExe -match '\\System32\\bash\.exe$')) {
+    function Resolve-GitBashWrapper([string]$Candidate) {
+        if ([string]::IsNullOrWhiteSpace($Candidate)) { return $null }
+        $Trimmed = $Candidate.Trim()
+        if ($Trimmed -match '\\(?:System32|SysWOW64|WindowsApps)\\bash\.exe$') { return $null }
+        if ($Trimmed -match '\\usr\\bin\\bash\.exe$') {
+            $Wrapper = $Trimmed -replace '(?i)\\usr\\bin\\bash\.exe$', '\bin\bash.exe'
+            if (Test-Path -LiteralPath $Wrapper -PathType Leaf) { return $Wrapper }
+            return $null
+        }
+        if (Test-Path -LiteralPath $Trimmed -PathType Leaf) { return $Trimmed }
+        return $null
+    }
+    $BashExe = Resolve-GitBashWrapper $Built
+    if (-not $BashExe) {
         $GitExec = (& git --exec-path 2>$null | Select-Object -First 1)
         if ($GitExec) {
-            $CandidateBash = Join-Path (Split-Path (Split-Path (Split-Path $GitExec.Trim()))) 'bin\bash.exe'
-            if (Test-Path -LiteralPath $CandidateBash -PathType Leaf) { $BashExe = $CandidateBash }
+            $BashExe = Resolve-GitBashWrapper (Join-Path (Split-Path (Split-Path (Split-Path $GitExec.Trim()))) 'bin\bash.exe')
         }
     }
-    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
-        $BashCmd = Get-Command bash.exe -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -and ($_.Source -notmatch '\\System32\\bash\.exe$') } | Select-Object -First 1
-        if ($BashCmd) { $BashExe = $BashCmd.Source }
+    if (-not $BashExe) {
+        $FixedCandidates = @()
+        if ($env:ProgramFiles) { $FixedCandidates += (Join-Path $env:ProgramFiles 'Git\bin\bash.exe') }
+        if ($env:LOCALAPPDATA) { $FixedCandidates += (Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe') }
+        $FixedCandidates += 'C:\Program Files\Git\bin\bash.exe'
+        foreach ($Candidate in $FixedCandidates) {
+            $BashExe = Resolve-GitBashWrapper $Candidate
+            if ($BashExe) { break }
+        }
     }
-    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
-        $DefaultGitBash = 'C:\Program Files\Git\bin\bash.exe'
-        if (Test-Path -LiteralPath $DefaultGitBash -PathType Leaf) { $BashExe = $DefaultGitBash }
+    if (-not $BashExe) {
+        foreach ($BashCmd in (Get-Command bash.exe -All -ErrorAction SilentlyContinue)) {
+            $BashExe = Resolve-GitBashWrapper $BashCmd.Source
+            if ($BashExe) { break }
+        }
     }
-    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
-        throw 'Git for Windows bash.exe was not found; cannot register susi-release-sync scheduled task.'
+    if (-not $BashExe) {
+        throw 'Git for Windows bash.exe wrapper was not found; cannot register susi-release-sync scheduled task.'
     }
     $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $TaskAction = New-ScheduledTaskAction -Execute $BashExe -WorkingDirectory $BinDir -Argument ('"' + $SyncScript + '"')

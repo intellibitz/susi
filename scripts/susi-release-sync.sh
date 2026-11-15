@@ -50,6 +50,10 @@
 # the timer retries, and the cached build makes the retry cheap).
 
 set -euo pipefail
+if ! command -v dirname >/dev/null 2>&1 && [ -d /usr/bin ]; then
+  PATH="${PATH:+${PATH}:}/usr/bin:/mingw64/bin:/ucrt64/bin"
+  export PATH
+fi
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 SUSI_HOME="${HOME}/.susi"
