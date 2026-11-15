@@ -107,14 +107,15 @@ fn await_result(directory: &Path) -> Result<String> {
     }
 }
 
-pub(super) fn run(
-    release: Option<&str>,
-    previous: Option<&str>,
-    rollback: bool,
-    status: bool,
-    expected: Option<&str>,
-    controller: Option<&str>,
-) -> Result<String> {
+pub(super) fn run(request: super::transaction::Request<'_>) -> Result<String> {
+    let super::transaction::Request {
+        release,
+        previous,
+        controller,
+        rollback,
+        status,
+        expected,
+    } = request;
     let mut arguments = String::from("install-release --host-worker");
     for (flag, value) in [
         ("--id", release),

@@ -633,7 +633,7 @@ fn public_host_view(local: &Path) -> Result<bool> {
     Ok(!private_cache && physical == local.canonicalize()?.join(name))
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(super) struct Request<'a> {
     pub release: Option<&'a str>,
     pub previous: Option<&'a str>,
@@ -686,7 +686,7 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         if host_worker {
             return Err("Windows host worker still sees a private filesystem view".into());
         }
-        return super::host_task::run(release, previous, rollback, status, expected, controller);
+        return super::host_task::run(request);
     }
     #[cfg(not(windows))]
     if host_worker {
