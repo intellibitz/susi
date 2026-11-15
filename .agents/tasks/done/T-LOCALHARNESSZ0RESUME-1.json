@@ -12,6 +12,8 @@
     ]
   },
   "base": "ca320cc2b6acfec81baa90602c8df8a690022c7c",
+  "created_by": "harness-resume",
+  "created_unix": 1794776600,
   "id": "T-LOCALHARNESSZ0RESUME-1",
   "integration": "pending_native_receipt",
   "native_worker": "harness-resume",
