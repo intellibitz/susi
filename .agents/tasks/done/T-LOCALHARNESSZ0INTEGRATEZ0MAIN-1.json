@@ -1,4 +1,12 @@
 {
+  "schema": "susi.task_record/v1",
+  "id": "T-LOCALHARNESSZ0INTEGRATEZ0MAIN-1",
+  "title": "Integrate onto a fetched main that passed the local head",
+  "goal": "local-workflow integrate builds on a main that moved through a push made elsewhere instead of refusing every claim based on that main, so a harness landing no longer needs an operator to move the local integration head after another agent pushes.",
+  "size": "s",
+  "state": "closed",
+  "status": "completed",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,13 +19,11 @@
       "integrate_builds_on_a_fetched_main_that_passed_the_local_head"
     ]
   },
-  "base": "a4a4d9c044509812307aa92c0de92124435d2f4a",
   "created_by": "harness-integrate-main",
   "created_unix": 1794783414,
-  "id": "T-LOCALHARNESSZ0INTEGRATEZ0MAIN-1",
-  "integration": "pending_native_receipt",
-  "native_worker": "harness-integrate-main",
   "owner": "harness-integrate-main",
+  "native_worker": "harness-integrate-main",
+  "workflow": "susi-local-v2",
   "scopes": [
     ".agents/tasks/done/t-localharnessz0integratez0main-1.json",
     ".agents/tasks/t-localharnessz0integratez0main-1.json",
@@ -25,7 +31,34 @@
     "xtask/src/local_workflow/sync_commit.rs",
     "xtask/src/local_workflow/tests.rs"
   ],
-  "status": "verified",
-  "title": "Integrate onto a fetched main that passed the local head",
-  "workflow": "susi-local-v2"
+  "reuse": {
+    "decision": "existing",
+    "searched": "xtask/src/local_workflow/gates.rs (claim_base, fetched_main, receipt_matches), xtask/src/local_workflow/ship.rs (record_acceptance and its publish-base rule) and xtask/src/local_workflow/sync_commit.rs (integrate_many_with).",
+    "reason": "integrate now calls the existing claim_base rule that new claims already start from, and records the base in its receipt the way ship records its publish base; no new mechanism, 45 lines including the test."
+  },
+  "base_commit": "a4a4d9c044509812307aa92c0de92124435d2f4a",
+  "implementation_commit": "5da6616027809393c0a5194b8f587215a9ebda27",
+  "closed": {
+    "at_unix": 1794783616,
+    "commit": "c298e15207695f16ab09d82a1f3e26b67814f215",
+    "by": "harness-integrate-main"
+  },
+  "integration": {
+    "workflow": "susi harness run (mission core-integrate-main), native local workflow integrate",
+    "integrated_commit": "4ae23e981a0c47153b743491a7771947b8de7f5f",
+    "main_commit": "4ae23e981a0c47153b743491a7771947b8de7f5f",
+    "main_mode": "fast_forward"
+  },
+  "results": {
+    "worker": "governed subscription worker, one attempt, landed on the first pass",
+    "gate_format": "exit 0",
+    "gate_licenses": "exit 0",
+    "gate_clippy_deny_warnings": "exit 0",
+    "gate_workspace_tests": "1365 passed, 0 failed",
+    "gate_task_acceptance": "1 passed, 0 failed",
+    "gate_doc_tests": "exit 0",
+    "validated_before_the_worker_ran": "the new test fails without the change with the exact refusal message and passes with it; the 96 local_workflow tests pass",
+    "tooling_rust_lines": "72166 of 72200",
+    "found_by": "three harness landings in a row were refused with: integration history does not contain the claim base; reconcile explicitly"
+  }
 }
