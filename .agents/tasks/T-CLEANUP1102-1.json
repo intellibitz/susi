@@ -2,7 +2,9 @@
   "id": "T-CLEANUP1102-1",
   "title": "Reclaim verified Windows worktrees containing long build paths",
   "deps": [],
-  "scopes": ["xtask/src/bin/local-workflow.rs", "xtask/src/bin/local-release.rs", ".agents/tasks/T-CLEANUP1102-1.json"],
+  "scopes": ["xtask/src/bin/local-workflow.rs", "xtask/src/bin/local-release.rs", ".agents/tasks/T-CLEANUP1102-1.json", "tests/task_record_schema_debt.json"],
   "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-workflow", "--bin", "local-release"]},
+  "created_by": "CLEANUP1102",
+  "created_unix": 1793648394,
   "receipt": {"workflow_tests_passed": 26, "release_tests_passed": 39, "release_tests_ignored": 1}
 }
