@@ -23,5 +23,30 @@
   },
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "limitations": [
+    "Contract freeze stage (`GMCP-203-020-01`) pins `SDK-001`..`SDK-018` in `docs/gmcp/contract-203-020.md` alongside positive and negative schema-derivation, tool-registration, plugin-manifest admission, and zero-vendor-boundary fixtures in `gmcp_req_203_020_01_contract` ahead of runtime SDK implementation in `T-CODEXGMCPROADMAP-108`..`113`.",
+    "Unified `ServerBuilder`, composable request/tool `Middleware`, in-memory authoring `TestHarness`, atomic catalog/plugin hot reload, transactional plugin attach/rollback, leak-free plugin unload, and runnable minimal-through-production server examples are specified in `docs/gmcp/contract-203-020.md` for `T-CODEXGMCPROADMAP-108`..`113` rather than implemented in production crates here.",
+    "Per `docs/gmcp-roadmap.md` and zero-UI plan A9, Core ships zero bundled vendor plugin packs (curated packs live in Susi Commercial Apps), `.agents/gmcp/evidence/VC-203-020.jsonl` stays absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery), and Phase 1 keeps `T-CODEXGMCPROADMAP-107` open until landed on `origin/main`."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "docs/gmcp/contract-203-016.md",
+      "crates/susi-gmcp/src/mcp/schema.rs",
+      "crates/susi-gmcp/src/protocol.rs",
+      "crates/susi-config/src/extensions.rs",
+      "tests/gmcp_requirements/vc_203_016_part1.rs"
+    ],
+    "target": "tests/gmcp_requirements/vc_203_020.rs",
+    "why": "Reused `.agents/gmcp/sources.json`, `susi_gmcp::requirements_ledger::verify_pinned_ledger`, `susi_gmcp::input_schema!`, `susi_gmcp::mcp::schema::root`, `susi_gmcp::protocol::GmcpService`, `susi_config::extensions::{validate_manifest, ExtensionManifest, HOST_PACK_API_MAJOR, KNOWN_PERMISSIONS}`, and the `contract-203-016.md` non-ledger contract pattern without modifying production crates."
+  },
+  "scopes": [
+    "docs/gmcp/contract-203-020.md",
+    ".agents/gmcp/fixtures",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-107.json",
+    "tests/gmcp_requirements.rs",
+    "tests/gmcp_requirements"
+  ]
 }
