@@ -13,6 +13,7 @@
   },
   "base": "9ff08730050ca448a0385256992e005383cb1041",
   "id": "T-LOCALHARNESSZ0RUSTSRCZ0HINT-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-rustsrc-hint",
   "owner": "harness-rustsrc-hint",
   "scopes": [
@@ -20,7 +21,7 @@
     ".agents/tasks/t-localharnessz0rustsrcz0hint-1.json",
     "xtask/src/trusted_sysroot.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Name the missing rust-src component when the native workflow cannot start",
   "workflow": "susi-local-v2"
 }
