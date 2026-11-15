@@ -5,7 +5,6 @@
   "records": {
     ".agents/tasks/T-ASYNCRECEIPT-1.json": "a31d6e45cdafe798cf032ca14bc292862601136aeff172fcd9ebc5cae444d392",
     ".agents/tasks/T-CANDLEBYTES-1.json": "05c19d362f0b3eb566dc6d062cf5d1a56f1c59c08d24d907d3efc15cca950582",
-    ".agents/tasks/T-CEOSPEED-1.json": "2826d97fd79190613b05c18daf6b2253bf50cacafef778d3c963e0e099508e7a",
     ".agents/tasks/T-CHANNELGUARD-1.json": "6825580870a05c298c4685c91f1ed08afcb734c064b9626910a51c9dece5f31d",
     ".agents/tasks/T-COMPLETERELEASE-1.json": "828d08999cd25337ff98f27c0d4de30d452acfdeceb3290e75e03000317a4d19",
     ".agents/tasks/T-COUNT1102-1.json": "300432a49447952294df16a25a33369eef4755972e307d10e1d0e6824f863525",

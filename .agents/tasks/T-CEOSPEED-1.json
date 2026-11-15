@@ -1,28 +1,44 @@
 {
-  "owner": "ceo-speed-standard",
-  "remaining": "Step 1 response budgets, live under-60-second delivery and plugin conformance require separate measured product evidence.",
-  "status": "ready_for_integration",
-  "title": "Propagate Mandate 62 execution criteria into delegated Susi work",
   "id": "T-CEOSPEED-1",
-  "dependencies": [],
-  "acceptance": [
-    "The complete Mandate 62 execution criteria agree across the constitution, checkout instructions and compiled delegated task.",
-    "The delegated goal is retained, other repositories are unaffected, and repeated briefing is idempotent.",
-    "Run nonempty self-build tests and verify the signed handoff before integration."
-  ],
+  "title": "Propagate Mandate 62 execution criteria into delegated Susi work",
+  "goal": "Propagate complete Mandate 62 execution criteria across the repository identity constitution (.agents/identity.json), checkout instructions (AGENTS.md), and idempotent delegated task briefing (crates/susi-core/src/self_build.rs) while preserving delegated goals and leaving external repositories unaffected (landed in 0a5853ec1f56187d84272edbce2f3c6037c35fce).",
+  "size": "m",
+  "deps": [],
+  "state": "open",
+  "status": "completed",
+  "created_by": "CEOSPEED1",
+  "created_unix": 1793648394,
+  "implementation_commit": "0a5853ec1f56187d84272edbce2f3c6037c35fce",
+  "reuse": {
+    "searched": [
+      "crates/susi-core/src/self_build.rs",
+      ".agents/identity.json",
+      "AGENTS.md"
+    ],
+    "decision": "reuse",
+    "justification": "Extended susi_core::self_build::brief_task and the existing .agents/identity.json + AGENTS.md governance surface so builder, swarm DAG, external agent command, and external peer delegation paths share one idempotent briefing function.",
+    "reused_symbols": [
+      "susi_core::self_build::is_susi_repo",
+      "susi_core::self_build::brief_task"
+    ]
+  },
   "scopes": [
     ".agents/identity.json",
+    ".agents/tasks/T-CEOSPEED-1.json",
     "AGENTS.md",
     "crates/susi-core/src/self_build.rs",
-    ".agents/tasks/T-CEOSPEED-1.json"
+    "tests/task_record_schema_debt.json"
   ],
-  "mandates": [
-    61,
-    62
-  ],
-  "evidence": [
-    "cargo fmt --all --check passed",
-    "cargo test -p susi-core --lib --locked --offline self_build::tests executed 5 tests, all passed",
-    "Builder, swarm DAG, external agent command and external peer paths call the shared briefing function"
-  ]
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "--lib",
+      "--locked",
+      "--offline",
+      "self_build::tests"
+    ]
+  }
 }
