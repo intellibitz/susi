@@ -20,5 +20,22 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "tests/gmcp_requirements.rs"
+  ],
+  "limitations": "Official Tasks extension (`io.modelcontextprotocol/tasks`, `ext-tasks@2026-07-28`) interoperability, direct-vs-gateway differential parity, cross-transport parity, property invariants, retained regression fixtures, and published SLO/resource budgets are proven in `gmcp_req_203_014_05_interop`; operations/runbooks/drift validation (`203.014.06`) and vector mastery sealing (`VC-203-014.jsonl` / `VC-203-014.json`) remain scoped to `T-CODEXGMCPROADMAP-105` and `T-CODEXGMCPROADMAP-106`.",
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "tests/gmcp_requirements.rs",
+      "crates/susi-gmcp/src/mcp/task_manager.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "docs/gmcp/contract-203-014.md"
+    ],
+    "target": "tests/gmcp_requirements.rs",
+    "why": "Extended the canonical GMCP requirements test suite (`tests/gmcp_requirements.rs`) reusing existing adapter, stdio, HTTP gateway, `TaskManager`, and `susi-wire-client` harnesses rather than introducing duplicate interoperability test binaries."
+  }
 }
