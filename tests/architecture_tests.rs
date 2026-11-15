@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=79).collect::<Vec<_>>(),
+        (1..=80).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2206,6 +2206,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (77, "exactly one root directory per machine"),
         (78, "never reinvent the wheel"),
         (79, "the branches those projects are distilled into"),
+        (80, "three Susi core pillars"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]

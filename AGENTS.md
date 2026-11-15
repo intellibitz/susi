@@ -1,3 +1,5 @@
+**START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
+
 > **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
 > **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
 > **GEMI**, **GMCP**. Older architectural counts are superseded
@@ -5,8 +7,6 @@
 > integration every ten minutes; synchronize source, tests, mandates and docs.
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
-**START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
 ## CEO Mandate 79 (2026-11-12): Vision-Driven Continuous Self-Improvement
 
