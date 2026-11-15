@@ -190,4 +190,81 @@ Ledger disposition tally for `VC-203-012` (`57` rows total): `modern=26`, `optio
 ## Operations and non-claims
 
 - **Rollout & rollback boundary**: Existing `GmcpService::session()` isolates legacy `log_level` and `legacy_subscriptions` per transport session; any regressions in modern enforcement (`T-CODEXGMCPROADMAP-94..98`) remain cleanly revertible without altering on-disk user state, while legacy clients continue operating on negotiated `2025-11-25` adapter paths during the deprecation window.
-- **Explicit non-claims at contract stage (`T-CODEXGMCPROADMAP-93`)**: Writing this contract and passing `gmcp_req_203_012_01_contract` pins every requirement and design invariant, but does NOT yet assert runtime enforcement of the `-94..98` implementation targets listed in *Canonical data model*; runtime compliance, differential/interop proof, and signed `.agents/gmcp/evidence/VC-203-012.jsonl` belong to `T-CODEXGMCPROADMAP-94` through `T-CODEXGMCPROADMAP-99`.
+- **Historical non-claims at contract stage (`T-CODEXGMCPROADMAP-93`)**: At contract freeze time (`T-CODEXGMCPROADMAP-93`), `gmcp_req_203_012_01_contract` pinned every requirement and design invariant prior to `T-CODEXGMCPROADMAP-94..98` runtime enforcement, differential/interop proof, and downstream `.agents/gmcp/evidence/VC-203-012.jsonl` sealing (`T-CODEXGMCPROADMAP-99`). Those runtime controls (`gmcp_req_203_012_02..06`) are now implemented and verified; final vector-level mastery sealing (`gmcp_vc_203_012_mastery` and `.agents/roadmap-verdicts/VC-203-012.json`) remains scoped to `T-CODEXGMCPROADMAP-99`.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the production ledger verification CLI command. It emits a bounded JSON report exposing `rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, and `verified`; `ledger_verify` tool calls return identical counts and fail non-zero if `verified` is `false`.
+- `susi mcp status` emits the inspectable MCP server control-plane state (`LeadingMcpManager::status`) over JSON without side effects.
+- `susi mcp ledger --drift --refetched <dir>` executes deterministic, air-gapped standards drift detection across all 6 pinned `VC-203-012` subscription, progress, and operational logging specifications against `.agents/gmcp/sources.json`.
+- Live runtime inspection across all served transports (`embedded_adapter`, `#[cfg(unix)]` Unix-domain socket adapter, `susi mcp serve` stdio, and Streamable HTTP `/mcp`):
+  - `server/discover` and `initialize` advertise `serverInfo.name = "susi-gmcp"`, `ttlMs`, `capabilities.logging = {}`, `capabilities.tools.listChanged = true`, `capabilities.prompts.listChanged = true`, and `capabilities.resources = { subscribe: true, listChanged: true }`.
+  - Opening `subscriptions/listen` emits `notifications/subscriptions/acknowledged` carrying `_meta["io.modelcontextprotocol/subscriptionId"]` and the exact capability- and `ResourceGuard`-intersected `SubscriptionFilter` (`toolsListChanged`, `promptsListChanged`, `resourcesListChanged`, `resourceSubscriptions`).
+
+### Configuration validation
+
+- CLI flag validation rejects inconsistent drift arguments fail-closed (`susi mcp ledger --refetched <dir>` without `--drift` exits non-zero).
+- Schema validation (`susi_config::validate::validate_dir`) inspects `~/.susi/config.json` before startup and reports blocking `ConfigIssueKind::TypeMismatch` findings when `max_rpc_body_bytes` is non-numeric or config JSON is malformed.
+- `GmcpServer::run_stdio` rejects `max_rpc_body_bytes == 0` prior to reading requests, emitting `[GMCP] Invalid max_rpc_body_bytes (0): must be > 0; refusing stdio transport` on `stderr` with zero bytes emitted on `stdout`; `http_service` logs `[GMCP] Invalid max_rpc_body_bytes (0); using bundled default for HTTP transport` to `stderr` when `0`.
+
+### Bounded metrics, logs and traces
+
+- Compiled ceiling invariants in `crates/susi-gmcp/src/{protocol.rs,mcp/service.rs,mcp/transport.rs,mcp/http.rs}` prevent unbounded queues, covert channels, and fan-out DoS:
+  - Concurrent active `subscriptions/listen` streams per session: `MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION = 16`.
+  - Resource URIs per `SubscriptionFilter.resourceSubscriptions`: `MAX_RESOURCE_SUBSCRIPTIONS_PER_FILTER = 256`.
+  - Operational `notifications/message` emissions per request: `MAX_LOG_NOTIFICATIONS_PER_REQUEST = 64`; redacted `data`/`message` payload ceiling: `MAX_NOTIFICATION_PAYLOAD_BYTES = 16384` (16 KiB).
+  - Broadcast event buffer: `256` (`Change`); per-session outbound notification queue: `1024`; response `sink_tx`: `64`; `PROGRESS_GAP = 100ms` coalescing interval; stdio frame limit `16 MiB`; HTTP body limit `4 MiB`; resource read limit `8 MiB`; HTTP keep-alive `15s` / SSE `retry: 3000ms`.
+- Modern `2026-07-28` operational logs follow total RFC 5424 severity ordering (`debug`..`emergency`), are completely suppressed unless `_meta["io.modelcontextprotocol/logLevel"]` is present, never appear on `subscriptions/listen` streams, and scrub credentials/Bearer tokens/API keys/paths through `sanitize_logging_param` and `sanitize_progress_param`.
+- Transport lifecycle diagnostics write exclusively to `stderr` (keeping `stdout` strict newline-delimited JSON-RPC); HTTP `/mcp` accepts W3C `traceparent` headers without bypassing `MCP-Protocol-Version`, `Mcp-Method`, or JSON-RPC schema validation.
+
+### Diagnostics and incident triage
+
+- `-32602` (`Invalid params`): unrecognized `_meta["io.modelcontextprotocol/logLevel"]`, exceeding `16` concurrent active `subscriptions/listen` streams or `256` URIs in `resourceSubscriptions`, duplicate active `progressToken`, empty string `progressToken`, non-finite or negative `progress`/`total`, or legacy `resources/subscribe` targeting an unknown/unadmitted resource.
+- `-32601` (`Method not found`): calling legacy `logging/setLevel`, `resources/subscribe`, or `resources/unsubscribe` on a modern `2026-07-28` session, or calling modern `subscriptions/listen` on a negotiated `2025-11-25` adapter session.
+- `-32600` (`Invalid Request`): injecting modern `_meta` into a `2025-11-25` legacy session, malformed JSON-RPC envelope, `BoundedLines` oversized line framing, or post-cancellation progress emissions.
+- `-32603` (`Internal error`): slow subscriber whose outbound/broadcast lag overflows the `256`-event buffer (`RecvError::Lagged`) triggers immediate fail-closed subscription termination with `-32603` so healthy sibling streams stay unaffected.
+- `-32020` / `-32021` / `-32022`: HTTP `400 Bad Request` rejections on `/mcp` for header/body mismatches (`HEADER_MISMATCH` on `Mcp-Method` or `Mcp-Name`), missing modern client capabilities (`MISSING_REQUIRED_CLIENT_CAPABILITY`), or unsupported protocol versions (`UNSUPPORTED_PROTOCOL_VERSION` returning `data.supported`).
+- `hash_drift` / `unfetchable`: named findings emitted by `susi mcp ledger --drift --refetched <dir>` whenever any of the 6 pinned `VC-203-012` specs mutates or disappears relative to `.agents/gmcp/sources.json`:
+  - `docs/specification/2025-11-25/basic/utilities/progress.mdx` (`sha256: 35d27ca9ad8ee9e029ab84afc751de208f7732c97c7a5d792abbcc237ab72528`)
+  - `docs/specification/2025-11-25/server/utilities/logging.mdx` (`sha256: 37cfde22e75d2444c9d796c2df636b96c1c9d486e64b109e38169f2d7f2cf82a`)
+  - `docs/specification/2026-07-28/basic/patterns/index.mdx` (`sha256: 9e08dd8b295cacc59bd4e233e9e1d6bfcc149695c265d95a18e2fddc9ad3968d`)
+  - `docs/specification/2026-07-28/basic/patterns/progress.mdx` (`sha256: 9f55aca08920c633f3a2a35e0c77533db08d3fd19ced43918ea7c57aa5f85409`)
+  - `docs/specification/2026-07-28/basic/patterns/subscriptions.mdx` (`sha256: 8333cbc3280cad293e96b4a20c3200face8e185ebf58f1c4a51c35bb96654abd`)
+  - `docs/specification/2026-07-28/server/utilities/logging.mdx` (`sha256: 4e77ec3257e07ad69bfd6ed902771f14d6498b60fe6c9c325b8ff4bfc35647a6`)
+
+### Examples
+
+```text
+# 1. Inspect GMCP ledger verification and MCP adapter status
+susi mcp ledger
+susi mcp status
+
+# 2. Run air-gapped standards drift detection against vendored MCP subscription/progress/logging specs
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+
+# 3. Verify VC-203-012 operations gate and re-record append-only evidence
+cargo test --offline --locked --test gmcp_requirements gmcp_req_203_012_06_operations
+cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp
+cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp --mastery
+```
+
+### Incident triage
+
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte `max_rpc_body_bytes` startup failure, `stdout` non-JSON frame contamination, leaked credential inside `notifications/message` or `notifications/progress`, missing `_meta["io.modelcontextprotocol/subscriptionId"]` on subscription events, or silent queue growth bypassing `-32603` slow-consumer termination as a release-blocking incident. Capture the `susi mcp ledger --drift` JSON output, `stderr` logs, `.susi/config.json`, failing request/response frames, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` records before patching, then re-verify `gmcp_req_203_012`.
+
+### Migration (SEP-2577 deprecation and re-pinning upstream specs)
+
+1. **Client logging & subscription migration (`2025-11-25` -> `2026-07-28`)**: Move clients off deprecated `logging/setLevel` and `resources/subscribe`/`resources/unsubscribe` onto per-request `_meta["io.modelcontextprotocol/logLevel"]` plus `subscriptions/listen` (`SubscriptionFilter`); per SEP-2577, new Susi surfaces emit operational telemetry to `stderr` or OpenTelemetry rather than MCP `notifications/message`.
+2. **Standards re-pinning**: Claim an isolated task (`susi-commercial tasks claim <id>`), update affected `.mdx` files under `.agents/gmcp/spec/` and SHA-256 digests in `.agents/gmcp/sources.json`, reconcile `.agents/gmcp/requirements-ledger.json` and `docs/gmcp/contract-203-012.md`, re-run `gmcp_req_203_012_01..06` and `check-gmcp-roadmap`, commit, and append fresh two-phase `local-release record-gmcp` proof records.
+
+### Rollback
+
+All specifications, contract prose, ledger bindings, tests, and JSONL evidence chains are immutable, versioned Git artifacts, and subscription state across transports is intentionally stateless (no durable subscription store needs migration on downgrade). Revert any offending change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, re-run `gmcp_req_203_012_06_operations`, and append updated proof lines without deleting or mutating historical `.agents/gmcp/evidence/*.jsonl` entries.
+
+### Production guarantees and non-claims
+
+- Production guarantees cover shipped `crates/susi-gmcp/src/{protocol.rs,jsonrpc_gate.rs,stdio.rs,server.rs,mcp/{http.rs,message.rs,model.rs,service.rs,transport.rs}}` and `crates/susi-config/src/secret_ref.rs` across `gmcp_req_203_012_01..06`.
+- Non-claim: MCP subscription streams are strictly stateless across TCP/HTTP/process disconnects (`MCP-2026-0728-basic-patterns-subscriptions-mdx-0161`); servers do not buffer missed notifications for disconnected clients, and clients MUST re-issue `subscriptions/listen` and refresh authoritative state via `*/list` or `resources/read` upon reconnect.
+- Non-claim: `notifications/message` remains retained only inside the SEP-2577 deprecation window for explicit compatibility requests carrying `_meta["io.modelcontextprotocol/logLevel"]` (modern) or negotiated `2025-11-25` adapter `logging/setLevel`; silent suppression is the default when omitted.
