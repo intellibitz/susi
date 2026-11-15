@@ -20,5 +20,20 @@
   },
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Interoperability stage (GMCP-203-012-05) proves official-suite HTTP checks and reference-SDK wire/client interoperability in both roles, direct-versus-gateway differential parity, RFC 5424 and SubscriptionFilter property invariants, F-POS/F-NEG and retained regression fixture replays, and latency/throughput/startup/memory/disk/fairness budgets across direct GmcpService, susi mcp serve stdio, and Streamable HTTP /mcp. Unix-domain socket adapter checks run on #[cfg(unix)] targets; resident-memory growth checks use adapter_resident_bytes() where the host reports /proc/self/statm.",
+    "Named VC-203-012 evidence (.agents/gmcp/evidence/VC-203-012.jsonl) and mastery verdict (.agents/roadmap-verdicts/VC-203-012.json) are generated and sealed downstream by T-CODEXGMCPROADMAP-98..99 per docs/gmcp/contract-203-012.md."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses existing shipped GMCP protocol, HTTP gateway, wire SDK, core MCP client, envelope gate, redaction, and tests/gmcp_requirements.rs adapter/stdio/HTTP harnesses without duplicating or modifying production code.",
+    "searched": "Susi Core: docs/gmcp/contract-203-012.md, crates/susi-gmcp/src/{protocol.rs,server.rs,jsonrpc_gate.rs,mcp/{http.rs,message.rs,model.rs,service.rs}}, crates/susi-wire-client/src/mcp.rs, crates/susi-core/src/mcp_client.rs, crates/susi-conformance/src/lib.rs, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi tests/gmcp_requirements.rs, crates/susi-gmcp, crates/susi-wire-client, and crates/susi-core"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-97.json",
+    ".agents/gmcp/evidence"
+  ]
 }
