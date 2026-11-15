@@ -24,6 +24,11 @@
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1794722678,
+    "commit": "251bf97abc6e2b76c795a86dc9149b597b680622",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Linux/Unix domain socket transport checks in `gmcp_req_203_016_03_integration` and `gmcp_vc_203_016_mastery` are compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process `GmcpService`, embedded adapter, `susi mcp serve` stdio, and Streamable HTTP `/mcp` + Wire SDK `Session` parity.",
     "Upstream official extension watch runtime (`ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)`) inspects the compiled/pinned `OFFICIAL_EXTENSIONS` slice offline while upstream drift detection compares vendored `.agents/gmcp/spec/` via `--refetched`.",
