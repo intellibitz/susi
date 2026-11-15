@@ -221,3 +221,83 @@ Positive and negative fixtures for `VC-203-014` are defined below and live with 
 - **Contract-freeze non-claims (`T-CODEXGMCPROADMAP-100`)**: At contract freeze stage, `gmcp_req_203_014_01_contract` pins every requirement, schema, threat, SLO, and resolved ambiguity ahead of runtime implementation. The target deltas noted under `Canonical data model` (disk durability & restart recovery, principal ownership binding, `jsonrpc_gate.rs` / `transport.rs` task allowlisting, `SubscriptionFilter.taskIds` / `notifications/tasks`, rate limiting & concurrency caps, and `susi-wire-client` polling/retry support) are specified here for `T-CODEXGMCPROADMAP-101..106` and MUST NOT be claimed as already implemented until those downstream tasks pass and seal `.agents/gmcp/evidence/VC-203-014.jsonl` and `.agents/roadmap-verdicts/VC-203-014.json`.
 - **Inspectable verification & drift detection**: `susi mcp ledger` reports ledger parity (`rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, `verified`), and `susi mcp ledger --drift --refetched .agents/gmcp/spec` fails closed (`hash_drift` / `unfetchable`) if any pinned `ext-tasks` or `2025-11-25` specification changes relative to `.agents/gmcp/sources.json`.
 - **Rollback boundary**: Contract and ledger bindings live cleanly in versioned Git files (`docs/gmcp/contract-203-014.md`, `.agents/gmcp/sources.json`, `.agents/gmcp/requirements-ledger.json`, `tests/gmcp_requirements.rs`). Existing in-memory `TaskManager` tests pass independently; durable task storage introduced in `-101` will live under `susi_paths::SusiDirs::data_dir()` with explicit schema versioning so rollbacks stay clean and inspectable.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` emits the canonical JSON verification report (`rows`, `documents`, `revisions`, `dispositions`, `categories`, `vectors`, `verified`) with `revisions["ext-tasks@2026-07-28"] = 46`, matching the MCP `ledger_verify` tool verbatim and exiting non-zero if any pinned specification or ledger entry drifts.
+- `susi mcp status` and `susi mcp list` emit inspectable MCP control-plane adapter status in deterministic JSON without mutating host state.
+- `susi mcp ledger --drift --refetched <dir>` executes deterministic, air-gapped standards drift detection across all pinned specification, schema, and `ext-tasks` documents against `.agents/gmcp/sources.json`.
+- Live task & extension state inspection across served transports (`GmcpService::discover_result()`, `embedded_adapter`, `#[cfg(unix)]` socket adapter, `susi mcp serve` stdio, Streamable HTTP `/mcp`, `susi_wire_client::mcp::Session::open_2026_07_28`, and `PersistedTaskHandleStore`):
+  - `server/discover` and `initialize` advertise `capabilities.extensions["io.modelcontextprotocol/tasks"] = {}` via `ExtensionRegistry::shipped()`.
+  - `ExtensionRegistry::status_report()` reports `id: "io.modelcontextprotocol/tasks"`, `status: "official"`, `version: 1`, `enabled: true`, and `ExtensionRegistry::watch(OFFICIAL_EXTENSIONS)` emits `[GMCP] Adopt newly published official extension <id>` for newly published official extensions.
+  - `tasks/get` surfaces principal-scoped `DetailedTask` state (`taskId`, `status`, `statusMessage`, `createdAt`, `lastUpdatedAt`, `ttlMs`, `pollIntervalMs`, plus status-specific `inputRequests`, `result`, or `error`); `TaskManager::running_task_count()` reports live non-terminal occupancy; `subscriptions/listen` (`notifications.taskIds`) pushes `notifications/tasks` transition snapshots after `notifications/subscriptions/acknowledged`.
+  - Durable server storage (`tasks.json`, `STORE_VERSION = 1`) hashes Bearer tokens (`bearer:<128-bit-sha256-hex>`) and client handle storage (`PersistedTaskHandleStore`, `version = 1`) omits auth tokens so neither disk artifact ever persists plaintext credentials.
+
+### Configuration validation
+
+- CLI flag validation fails closed when `--refetched <dir>` is passed without `--drift` on `susi mcp ledger`.
+- Host configuration validation (`susi_config::validate::validate_dir`) checks `~/.susi/config.json` prior to startup and flags invalid `max_rpc_body_bytes` values with `ConfigIssueKind::TypeMismatch`.
+- `GmcpServer::run_stdio` (`susi mcp serve`) rejects `max_rpc_body_bytes == 0` before reading JSON-RPC frames, writing `Invalid max_rpc_body_bytes (0): must be > 0` to `stderr` while emitting zero bytes on `stdout`.
+- Server durable task store validation (`TaskManager::open`) fails closed before serving traffic when `tasks.json` is malformed JSON, carries an unsupported schema version (`STORE_VERSION != 1` -> `unsupported task store version`), contains an empty or duplicate `taskId`, or mismatches `task.status` against `payload.status()` (`corrupt task store entry`).
+- Client handle store validation (`PersistedTaskHandleStore::open`) fails closed on malformed JSON, unsupported schema `version != 1`, empty `taskId`, or duplicate `taskId` entries.
+
+### Bounded metrics, logs and traces
+
+- Task lifecycle, store, and subscription bounds (`crates/susi-gmcp/src/mcp/{task_manager.rs,service.rs,transport.rs,http.rs}`):
+  - `DEFAULT_TASK_TTL_MS = 300_000`, `DEFAULT_POLL_INTERVAL_MS = 1_000`, `MAX_TASK_TTL_MS = 86_400_000` (clamped on creation).
+  - `MAX_ACTIVE_TASKS_PER_PRINCIPAL = 64`, `MAX_GLOBAL_ACTIVE_TASKS = 512`, `MAX_RETAINED_TERMINAL_TASKS = 2048`, `MAX_INPUT_REQUESTS_PER_TASK = 128`, `MAX_SUBSCRIPTION_TASK_IDS = 64`, `MAX_INPUT_RESPONSE_BYTES = 1_048_576`, `MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION = 16`.
+  - Transport framing & execution bounds: `DEFAULT_MAX_LINE_LENGTH = 16777216` (`16 MiB` via `BoundedLines`), `DEFAULT_MAX_REQUEST_BODY_BYTES = 4194304` (`4 MiB`), `MAX_TOOL_CALL_SECS = 1800`.
+- Token-bucket poll rate enforcement throttles `tasks/get` loops exceeding `pollIntervalMs` past burst allowance (`POLL_BURST_ALLOWANCE = 24.0`) with JSON-RPC `-32000`.
+- W3C `traceparent` headers and `_meta["io.modelcontextprotocol/logLevel"]` operational telemetry remain bounded per request on HTTP `/mcp`, redact Bearer credentials from `notifications/message`, suppress `notifications/message` completely when `logLevel` is omitted, and enforce strict task stream isolation (`notifications/progress` and `notifications/message` are never emitted on `subscriptions/listen` task streams; `-0507`).
+
+### Diagnostics and incident triage
+
+- Wire and task-lifecycle JSON-RPC error codes:
+  - `-32021` (`Missing required client capability`): per-request `_meta["io.modelcontextprotocol/clientCapabilities"].extensions["io.modelcontextprotocol/tasks"]` omitted on task-required `tools/call`, `tasks/get`, `tasks/update`, `tasks/cancel`, or `subscriptions/listen.taskIds`.
+  - `-32020` (`HEADER_MISMATCH` / HTTP `400`): missing or mismatched `Mcp-Name: <params.taskId>` or `Mcp-Method` on Streamable HTTP `tasks/{get,update,cancel}`.
+  - `-32601` (`Method not found`): retired `2025-11-25` RPCs (`tasks/list`, `tasks/result`) rejected on the wire.
+  - `-32602` (`Invalid params`): uniform fail-closed response for unknown, expired/purged, forged, or cross-principal `taskId` handles, duplicate/invalid `inputRequests` bounds, and terminal-state `tasks/cancel` or `tasks/update` mutation attempts.
+  - `-32000` (server busy / rate limit): `active task limit exceeded` (`64` per principal / `512` global) or `tasks/get` poll burst exhaustion.
+  - `-32603` (`Internal error`): deterministic `failed` task settlement (`task interrupted by server restart` or `task expired: TTL elapsed`) and durable store fail-closed startup refusals (`unsupported task store version`, `corrupt task store entry`).
+- `hash_drift` / `unfetchable`: named findings emitted by `susi mcp ledger --drift --refetched <dir>` whenever any pinned `VC-203-014` authority drifts or is missing relative to `.agents/gmcp/sources.json`:
+  - `ext-tasks/specification/2026-07-28/tasks.md` (`sha256: 5fc22b9b5ff248703927c69855f751a061c2d6170f4dc3923204452f859f91a5`)
+  - `docs/specification/2025-11-25/basic/utilities/tasks.mdx` (`sha256: bef1bef9f939e09eed8f1928da4d3b36924f4a43b72ffc47a5c1e673f1c1a23b`)
+
+### Examples
+
+```text
+# 1. Inspect GMCP ledger parity and MCP control-plane status
+susi mcp ledger
+susi mcp status
+susi mcp list
+
+# 2. Run deterministic air-gapped drift check across pinned ext-tasks & core specs
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+
+# 3. Verify VC-203-014 operations gate and re-record append-only evidence
+cargo test --offline --locked --test gmcp_requirements gmcp_req_203_014_06_operations
+cargo local-release record-gmcp
+cargo local-release record-gmcp --mastery
+```
+
+### Incident triage
+
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), cross-principal task leak, post-terminal state overwrite, plaintext token appearance in `tasks.json` or `PersistedTaskHandleStore`, `notifications/progress` or `notifications/message` leak onto `subscriptions/listen` task streams, silent startup over a corrupt `tasks.json`, or `stdout` non-JSON frame leak on zero `max_rpc_body_bytes` as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `tasks.json` durable snapshot, HTTP/stdio JSON-RPC frames, server `stderr` diagnostics, and latest `.agents/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_014`.
+
+### Migration (schema evolution and upstream specification re-pinning)
+
+1. **Client migration (`2025-11-25` -> `2026-07-28`)**: Legacy callers using synchronous `CallToolResult` signatures can adopt `Session::call_tool_resolving_tasks` as a zero-signature-change bridge while migrating to `Session::open_2026_07_28`, `call_tool_with_tasks`, `poll_task_until_done`, and `PersistedTaskHandleStore` (`version = 1`), retiring `params.task`, `tasks/list`, `tasks/result`, and `notifications/tasks/status`.
+2. **Durable store schema evolution (`STORE_VERSION`)**: `tasks.json` embeds `STORE_VERSION = 1` as element `0` of `StoredState(u32, Vec<Stored>)` and writes atomically via `tasks.json.tmp.<pid>.<uuid>` + `sync_all()` + `rename()`. Any future format change increments `STORE_VERSION` with an explicit one-way reader for `STORE_VERSION - 1` while refusing unknown higher versions closed.
+3. **Upstream specification re-pinning**: Update changed specification files under `.agents/gmcp/spec/` and SHA-256 digests in `.agents/gmcp/sources.json` alongside `.agents/gmcp/requirements-ledger.json` and `docs/gmcp/contract-203-014.md`, re-run `gmcp_req_203_014_01..06` and `check-gmcp-roadmap`, and append fresh `record-gmcp` proof records.
+
+### Rollback
+
+All contract prose (`docs/gmcp/contract-203-014.md`), `sources.json`, `requirements-ledger.json`, tests, and `.agents/gmcp/evidence/*.jsonl` chains are immutable, versioned Git artifacts. Server durable task snapshots (`tasks.json`, `STORE_VERSION = 1`) and client handle snapshots (`PersistedTaskHandleStore`, `version = 1`) update solely via atomic temp-file fsync + rename, so interrupted writes never corrupt the prior committed snapshot; rolling back a binary from a newer `STORE_VERSION` refuses startup cleanly (`unsupported task store version`) until the operator restores the prior `STORE_VERSION = 1` backup or clears transient expired state. After `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` reports `verified: true`, re-run `gmcp_req_203_014_06_operations`, and append updated proof lines without deleting historical `.agents/gmcp/evidence/*.jsonl` entries.
+
+### Production guarantees and non-claims
+
+- Production guarantees cover `crates/susi-gmcp/src/mcp/{task_manager.rs,model.rs,service.rs,message.rs,http.rs,transport.rs}`, `crates/susi-gmcp/src/{protocol.rs,jsonrpc_gate.rs,extensions.rs,server.rs,stdio.rs,requirements_ledger.rs,eco_mcp_features.rs}`, and `crates/susi-wire-client/src/mcp.rs` as proven across `gmcp_req_203_014_01..06`.
+- Non-claim: Arbitrary non-checkpointed Rust futures interrupted mid-flight by process termination are not re-invoked on restart; `TaskManager::open` deterministically settles interrupted `working` / `input_required` entries once to `status: "failed"` (`-32603` `task interrupted by server restart`) so non-idempotent tool side effects never execute twice while already-settled `completed`/`failed`/`cancelled` payloads replay immutably until `ttlMs`.
+- Non-claim: Per-request `io.modelcontextprotocol/tasks` declaration is never cached across requests (`-0061`); vector-level evidence sealing (`.agents/gmcp/evidence/VC-203-014.jsonl` and `.agents/roadmap-verdicts/VC-203-014.json`) is gated exclusively by `T-CODEXGMCPROADMAP-106` (`gmcp_vc_203_014_mastery`).

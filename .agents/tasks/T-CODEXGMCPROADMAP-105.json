@@ -22,5 +22,24 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": "Official Tasks extension (`io.modelcontextprotocol/tasks`, `ext-tasks@2026-07-28`) inspectable CLI/tool/API state, configuration and durable-store validation, bounded metrics/logs/traces, operational diagnostics, migration/rollback runbooks, and deterministic standards drift detection are proven in `gmcp_req_203_014_06_operations`; vector mastery sealing (`VC-203-014.jsonl` and `VC-203-014.json`) remains scoped to `T-CODEXGMCPROADMAP-106`.",
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "tests/gmcp_requirements.rs",
+      "docs/gmcp/contract-203-014.md",
+      "crates/susi-gmcp/src/mcp/task_manager.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-config/src/validate.rs"
+    ],
+    "target": "tests/gmcp_requirements.rs",
+    "why": "Extended the canonical GMCP contract (`docs/gmcp/contract-203-014.md`) and requirements suite (`tests/gmcp_requirements.rs`) reusing shipped `TaskManager`, `GmcpService`, `GmcpServer`, `PersistedTaskHandleStore`, `susi_config::validate::validate_dir`, `susi_gmcp::requirements_ledger`, and `susi mcp` CLI/tool surfaces without adding production lines."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "docs/gmcp/contract-203-014.md",
+    "tests/gmcp_requirements.rs"
+  ]
 }
