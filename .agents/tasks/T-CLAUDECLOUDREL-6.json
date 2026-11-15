@@ -1,0 +1,48 @@
+{
+  "id": "T-CLAUDECLOUDREL-6",
+  "title": "Publish the qualified Susi Core tag v0.21.68 from a host that may push tags",
+  "goal": "Susi Core v0.21.68 is qualified (releases/qualification/v0.21.68.json: all 9 gates exit 0, 5960 tests passed, 0 failed) and recorded (releases/v0.21.68.json), and its tagged commit 98124e24bba9004249636a90a24687a3093f7760 is an ancestor of main, but the qualifying cloud host's Git proxy refuses every tag push with HTTP 403, so refs/tags/v0.21.68 is not on the remote and installers still resolve v0.21.67. On a host that may push tags, recreate the identical annotated tag object and publish it; pre-push push-policy re-verifies the record. Do not qualify v0.21.68 again from another tree: one version, one cut.",
+  "size": "xs",
+  "deps": [
+    "T-CLAUDECLOUDREL-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDECLOUDREL",
+  "created_unix": 1794718202,
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.68-1",
+  "handoff": {
+    "tag": "v0.21.68",
+    "tagged_commit": "98124e24bba9004249636a90a24687a3093f7760",
+    "tag_object": "ddd13fb7650245285d83faa6e8e5b508e94afe48",
+    "tag_object_text": "object 98124e24bba9004249636a90a24687a3093f7760\ntype commit\ntag v0.21.68\ntagger Claude <noreply@anthropic.com> 1794718076 +0000\n\nSusi core 0.21.68\n\nQualified tree 79710870e741fa8f174a0df8ab44c44916bc830b; record releases/qualification/v0.21.68.json sha256 f3f4839cdd37a64165ef37c75cfac17b9de25ebffc9da729c4447342748c5a2c.\n",
+    "commands": [
+      "git fetch origin main",
+      "printf 'object 98124e24bba9004249636a90a24687a3093f7760\\ntype commit\\ntag v0.21.68\\ntagger Claude <noreply@anthropic.com> 1794718076 +0000\\n\\nSusi core 0.21.68\\n\\nQualified tree 79710870e741fa8f174a0df8ab44c44916bc830b; record releases/qualification/v0.21.68.json sha256 f3f4839cdd37a64165ef37c75cfac17b9de25ebffc9da729c4447342748c5a2c.\\n' | git mktag",
+      "git update-ref refs/tags/v0.21.68 ddd13fb7650245285d83faa6e8e5b508e94afe48",
+      "git push origin v0.21.68"
+    ],
+    "done_when": "git ls-remote origin refs/tags/v0.21.68 prints ddd13fb7650245285d83faa6e8e5b508e94afe48 and its peeled commit 98124e24bba9004249636a90a24687a3093f7760; then drop the PUBLICATION OWED sentence from releases/v0.21.68.json's qualification_note and close this task."
+  },
+  "limitations": [
+    "The Susi Board could not be told: this host's Git proxy refuses board posts as well."
+  ],
+  "owner": "",
+  "scopes": [
+    ".agents/tasks/T-CLAUDECLOUDREL-6.json",
+    "releases/v0.21.68.json"
+  ],
+  "state": "open",
+  "status": "open",
+  "updated_unix": 1794718202
+}

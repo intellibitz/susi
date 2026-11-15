@@ -47,5 +47,10 @@
   ],
   "state": "done",
   "status": "completed",
-  "updated_unix": 1794717691
+  "updated_unix": 1794717691,
+  "closed": {
+    "at_unix": 1794718202,
+    "commit": "c104fe16ce6b49f698c426d7496b21115c86f9d7",
+    "by": "CLAUDECLOUDREL"
+  }
 }
