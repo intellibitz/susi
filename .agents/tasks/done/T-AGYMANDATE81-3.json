@@ -1,0 +1,44 @@
+{
+    "id":  "T-AGYMANDATE81-3",
+    "title":  "Register Git\\bin\\bash.exe wrapper and fallback MSYS PATH for Windows susi-release-sync task",
+    "goal":  "Vision: V-3. Rewrite MSYS2 \\usr\\bin\\bash.exe to sibling \\bin\\bash.exe and reject System32/SysWOW64/WindowsApps stubs when registering susi-release-sync on Windows, and bootstrap /usr/bin PATH in susi-release-sync.sh when dirname is absent.",
+    "size":  "xs",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "architecture_tests",
+                               "--test",
+                               "installer_contract",
+                               "--test",
+                               "task_records"
+                           ]
+               },
+    "created_by":  "AGYMANDATE81",
+    "created_unix":  1794762257,
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "scripts/susi-release-sync-windows.ps1, scripts/susi-release-sync.sh",
+                  "reason":  "Extended install-timer bash resolution in susi-release-sync-windows.ps1 and startup PATH fallback in susi-release-sync.sh."
+              },
+    "scopes":  [
+                   ".agents/tasks/T-AGYMANDATE81-3.json",
+                   ".agents/tasks/done/T-AGYMANDATE81-3.json",
+                   "scripts/susi-release-sync-windows.ps1",
+                   "scripts/susi-release-sync.sh"
+               ],
+    "state":  "closed",
+    "status":  "done",
+    "implementation_commit":  "ac9c014f3d5a9cddf73f7b260626131f0a4fd996",
+    "closed":  {
+                   "at_unix":  1794762387,
+                   "commit":  "ac9c014f3d5a9cddf73f7b260626131f0a4fd996",
+                   "by":  "AGYMANDATE81"
+               }
+}
