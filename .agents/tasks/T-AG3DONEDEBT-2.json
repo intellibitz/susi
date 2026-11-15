@@ -46,5 +46,6 @@
                    ".agents/tasks/done/T-DAEMONMODSC4T1104-1.json",
                    ".agents/tasks/done/T-ERRREDACTA2A1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "40d1b62417d023355dc969e2151e0cfa64d1a303"
 }
