@@ -40,5 +40,17 @@
     "lines": 111,
     "record": ".agents/storage/directed-deletions.txt",
     "tags": "102 tags (dev, target-seed, 100 susi-distill/* and susi-snapshot/*). T-CLAUDECLOUDREL-7 names them without objects, so each object is the value storage-guard witnesses retained under refs/susi-guard/origin/tags/ before this change: 101 from the claude clone, identical in the three other agent clones on this host that had a guard record, and susi-snapshot/v0-21-68-rc1 (54ad49482922a8cc13a40635c8f5f7617bf556aa) from the antigravity clone, the only clone that had seen it. No disagreeing value was found. All 111 refs were absent from origin (git ls-remote) on 2026-11-15 when the record was written."
-  }
+  },
+  "scopes": [
+    "crates/susi-harness/src/storage_guard.rs",
+    "crates/susi-harness/src/tests/storage_guard.rs",
+    "xtask/src/bin/local-snapshot.rs",
+    "docs/git-storage-publisher.md",
+    ".agents/storage",
+    ".agents/tasks/T-CLAUDEGUARDDIRECTEDDELETIONS-1.json",
+    ".agents/tasks/done/T-CLAUDEGUARDDIRECTEDDELETIONS-1.json"
+  ],
+  "state": "done",
+  "status": "completed",
+  "feature_id": "F-CORE-STORAGE-GUARD-DIRECTED-DELETIONS-1"
 }
