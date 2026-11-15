@@ -21,6 +21,11 @@
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1794717069,
+    "commit": "fe49a087a28468f1719fd9ba01e4552aa4a0ca07",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Server-role extension advertisement, unknown-key preservation, isolation, and dynamic disablement run on shipped GmcpService, StdioGate, HTTP /mcp, embedded_adapter, and Unix sockets (#[cfg(unix)]); on Windows x86_64, Unix socket parity is gated #[cfg(unix)] while stdio, embedded, and Streamable HTTP run directly.",
     "Client-role capability/extension exchange is verified through susi_wire_client::mcp::Session (open_with_capabilities, server_capabilities, server_extensions) plus ExtensionRegistry::negotiate and susi_core::mcp_client against live gateway and reference HTTP servers; implicit unknown-extension acceptance follows EXT-002 unless callers pass required extension lists to ExtensionRegistry::negotiate.",
