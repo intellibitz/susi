@@ -8,6 +8,21 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 81 (2026-11-15): Release Cuts Must Sync the Local Host Binary and Live Daemon
+
+Read [CEO Mandate 81](docs/ceo-mandate-81.md). Cutting or publishing any
+feature or production release qualified for the current host (`releases/vX.Y.Z.json`
+does not list the host target in `missing_targets`) is incomplete until the local
+installed release binary (`~/.susi/bin/susi` / `susi.exe`) and `susi.build.json`
+are promoted to `vX.Y.Z` and any running daemon is restarted and healthy
+(`/health` reports `X.Y.Z`). On the qualifying host,
+`scripts/susi-release-sync.sh --tag vX.Y.Z --built <qualified-binary>` verifies
+SHA-256 against `releases/vX.Y.Z.json` and promotes with rollback without a
+second cold build. Unattended hourly sync (`--install-timer`) and
+`susi-commercial workflow check` work on both Linux (`systemd`) and Windows
+(`Task Scheduler`), and every Susi Windows Scheduled Task runs with
+`RunLevel=Limited` (never `Highest`).
+
 ## CEO Mandate 79 (2026-11-12): Vision-Driven Continuous Self-Improvement
 
 Read [CEO Mandate 79](docs/ceo-mandate-79.md). It continues Mandates 75 and 78:
@@ -295,6 +310,8 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 77 | **One isolated working directory per agent (2026-11-12):** every agent has exactly one root directory per machine, named for the agent and marked with `.susi-agent-root`; all of its clones, worktrees, build targets and scratch files live under it; it never creates, changes or deletes anything under another agent's root or the CEO's working directory, and asks the owner on the Susi Board instead. `susi-commercial workflow root show | init` finds and registers a root; `workflow start` and the commit guard refuse to work inside another agent's root ([`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md)). |
 | 78 | **Never reinvent the wheel (2026-11-12):** before building a capability, look for it inside Susi, then in Apache-2.0 projects, then in the locked dependency graph; reuse by harvesting only the needed part under Mandate 75's pure-`Apache-2.0` rules; delete the hand-rolled code a reuse replaces; stay inside the lean ceilings, the `<10s` budget, Rust-only and the dependency ceilings; record the decision in the task record's `reuse` object ([`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md)). |
 | 79 | **Vision-driven continuous self-improvement (2026-11-12):** Susi keeps improving like a model family, generation after generation; Apache-2.0 open-source projects are the raw source and both repositories are the branches they are distilled into; a vision set by the CEO or on the CEO's behalf is recorded as a create-only `.agents/visions/V-<n>.json` and every agent runs the improvement cycle (`susi-commercial workflow vision cycle`), taking up untaken visions and looking again at every harvested upstream that has moved; harvest only what serves a vision under Mandates 75 and 78; a generation counts only on evidence ([`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md)). |
+| 80 | **Three core pillars and synchronized Step 1 delivery (2026-11-15):** exactly three core pillars (**GAWD** including A2A, ACP and Susi Harness; **GEMI**; **GMCP**); review ready scoped work for safe integration every ten minutes and keep source, tests, mandates and docs synchronized across both repositories ([`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md)). |
+| 81 | **Release cuts must sync local host binaries and live daemons (2026-11-15):** cutting or publishing any qualified release for this host requires promoting `~/.susi/bin/susi[.exe]` + `susi.build.json` (`--built <path>` SHA-256 verified against `releases/<tag>.json`, or built from tag) and restarting/health-checking the live daemon with rollback; `susi-release-sync.sh --install-timer` supports both Linux `systemd` and Windows Task Scheduler, and all Susi Windows scheduled tasks use `RunLevel=Limited` ([`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
@@ -437,7 +454,15 @@ the remote answers and no susi client is mid-mission. The installed updater
 (`susi-release-sync`, hourly where its timer is enabled) builds the release
 from its tag and promotes it; `susi-commercial workflow check` measures the
 installed copy against the latest qualified release and starts the updater when
-it is behind. If the updater fails, fix the cause or report it on the Susi
+it is behind (on both Linux and Windows via `susi-release-sync` /
+`susi-release-sync.service` / Windows Scheduled Task `susi-release-sync`).
+Under CEO Mandate 81 ([`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md)), any
+agent cutting or publishing a qualified release for this host must also promote
+the local host binary and restart/health-check the live daemon before declaring
+the release done (`scripts/susi-release-sync.sh --tag vX.Y.Z --built <path>`
+when promoting the locally qualified reference binary after `releases/vX.Y.Z.json`
+lands on `origin`), and every Susi Windows Scheduled Task must run with
+`RunLevel=Limited` (never `Highest`). If the updater fails, fix the cause or report it on the Susi
 Board; never leave the installed copy behind silently. Production qualification requires an identified source tree and
 locked graph, strict license and Rust-only audits, format/lint checks, nonempty
 required tests, executable smoke checks, artifact digest and reproducible

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Service = $false,
     [switch]$NoLaunch = $false
 )
@@ -226,6 +226,32 @@ if (-not $Want) {
 Stop-InstalledSusi
 Copy-Item -LiteralPath $EngineSrc -Destination $EngineExePath -Force
 Write-Host "  Installed susi $Version." -ForegroundColor Green
+
+# Record the installed release marker (same schema as scripts/susi-release-sync.sh)
+# and install the cross-OS updater scripts so `susi-release-sync --check` and
+# unattended scheduled sync work immediately after install on Windows.
+$MarkerPath = Join-Path $GlobalBinDir 'susi.build.json'
+$AccelJson = 'null'
+$UnixNow = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$MarkerJson = '{"profile":"release","accelerator":' + $AccelJson + ',"channel":"release","version":"' + $Version + '","commit":"' + $Commit + '","installed_at":' + $UnixNow + '}' + "`n"
+[IO.File]::WriteAllText($MarkerPath, $MarkerJson, (New-Object System.Text.UTF8Encoding($false)))
+
+foreach ($ScriptPair in @(
+    @{ RepoPath = 'scripts/susi-release-sync.sh'; DestName = 'susi-release-sync' },
+    @{ RepoPath = 'scripts/susi-release-sync-windows.ps1'; DestName = 'susi-release-sync-windows.ps1' },
+    @{ RepoPath = 'scripts/posix-compat.sh'; DestName = 'posix-compat.sh' }
+)) {
+    $DestPath = Join-Path $GlobalBinDir $ScriptPair.DestName
+    $ShownScript = Get-Quiet git -C $Src show ('FETCH_HEAD:' + $ScriptPair.RepoPath)
+    if ($ShownScript.Code -eq 0 -and $ShownScript.Out.Count -gt 0) {
+        [IO.File]::WriteAllText($DestPath, (($ShownScript.Out -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    } else {
+        $LocalScript = Join-Path $Src ($ScriptPair.RepoPath -replace '/', '\')
+        if (Test-Path -LiteralPath $LocalScript -PathType Leaf) {
+            Copy-Item -LiteralPath $LocalScript -Destination $DestPath -Force
+        }
+    }
+}
 
 # Older installations kept a second full copy. The verified replacement is
 # already installed and the old instance stopped, so retire only that copy.

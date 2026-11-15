@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-3",
+  "statement": "The local Susi binary must be in sync with the release binary; make this a Susi mandate so feature releases sync local binaries.",
+  "set_by": "ceo",
+  "recorded_by": "antigravity",
+  "set_unix": 1794758170
+}

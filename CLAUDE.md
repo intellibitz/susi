@@ -16,6 +16,13 @@ and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 The CEO never inspects code. Agents own implementation, verification, integration
 and production qualification. Requirements are not claims of current compliance.
 
+Read `docs/ceo-mandate-81.md` (Mandate 81, 2026-11-15): cutting or publishing
+any qualified release for this host must sync `~/.susi/bin/susi` (`susi.exe`),
+write `susi.build.json`, and restart/health-check the live daemon (using
+`scripts/susi-release-sync.sh --tag vX.Y.Z --built <qualified-bin>` or tag
+build); keep `--install-timer` active and all Susi Windows scheduled tasks at
+`RunLevel=Limited`.
+
 The CEO authorizes agents to commit, push and merge without routine CEO approval.
 Follow AGENTS.md serialized integration and history-preserving publication;
 this authority does not waive production gates or authorize unrelated spending,

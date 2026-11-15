@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=80).collect::<Vec<_>>(),
+        (1..=81).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2207,6 +2207,10 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (78, "never reinvent the wheel"),
         (79, "the branches those projects are distilled into"),
         (80, "three Susi core pillars"),
+        (
+            81,
+            "Release cuts must sync the local host binary and live daemon",
+        ),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3180,4 +3184,62 @@ fn core_cli_has_no_ui_subcommands() {
             "{rel} yielded zero visible help lines; update scanner path if moved"
         );
     }
+}
+
+/// Mandate 81 (CEO 2026-11-15): release cuts must sync the local host binary and live daemon.
+#[test]
+fn ceo_mandate_81_enforces_release_binary_sync() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "docs/releases.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("ceo-mandate-81.md"),
+            "{path}: Mandate 81 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-81.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "--built",
+        "RunLevel=Limited",
+        "susi-release-sync",
+        "susi.build.json",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 81 lost requirement: {phrase}"
+        );
+    }
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-3.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(vision["schema"], "susi.vision/v1");
+    assert_eq!(vision["set_by"], "ceo");
+
+    let ps1 = std::fs::read_to_string(root.join("install.ps1")).unwrap();
+    assert!(ps1.contains("susi.build.json"));
+    assert!(ps1.contains("susi-release-sync"));
+    assert!(ps1.contains("-RunLevel Limited"));
+    assert!(!ps1.contains("-RunLevel Highest"));
+
+    let win_sync =
+        std::fs::read_to_string(root.join("scripts/susi-release-sync-windows.ps1")).unwrap();
+    assert!(win_sync.contains("'install-timer'"));
+    assert!(win_sync.contains("-RunLevel Limited"));
+    assert!(!win_sync.contains("-RunLevel Highest"));
+
+    let sync_sh = std::fs::read_to_string(root.join("scripts/susi-release-sync.sh")).unwrap();
+    assert!(sync_sh.contains("--built"));
+    assert!(sync_sh.contains("adopt_reference_build"));
+    assert!(sync_sh.contains("qualified:"));
 }

@@ -70,3 +70,19 @@ if [ -n "${SUSI_FLOCK_SHIM:-}" ] || ! command -v flock >/dev/null 2>&1; then
         done
     }
 fi
+#
+# 3. nice — strip priority flags if minimal Windows/MSYS PATH lacks nice(1).
+if ! command -v nice >/dev/null 2>&1; then
+    nice() {
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -n) shift 2 ;;
+                -n[0-9]*) shift ;;
+                -[0-9]*) shift ;;
+                --) shift; break ;;
+                *) break ;;
+            esac
+        done
+        "$@"
+    }
+fi

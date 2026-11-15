@@ -7,6 +7,7 @@ fn current_guidance_names_exactly_three_architectural_pillars() {
         ("Mandate 74", include_str!("../docs/ceo-mandate-74.md")),
         ("Mandate 75", include_str!("../docs/ceo-mandate-75.md")),
         ("Mandate 79", include_str!("../docs/ceo-mandate-79.md")),
+        ("Mandate 81", include_str!("../docs/ceo-mandate-81.md")),
     ] {
         assert!(
             text.contains("three core pillars"),

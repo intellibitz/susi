@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('busy','running','swap','rollback')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('busy','running','swap','rollback','install-timer','uninstall-timer')][string]$Action,
     [Parameter(Mandatory=$true)][string]$Bin,
     [string]$Built
 )
@@ -8,6 +8,45 @@ $ErrorActionPreference = 'Stop'
 $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
 $Bin = [IO.Path]::GetFullPath($Bin)
 $BinDir = [IO.Path]::GetDirectoryName($Bin)
+if ($Action -in 'install-timer','uninstall-timer') {
+    # Match ServiceManagerKind::WindowsTask::release_sync_unit_name().
+    # Always RunLevel=Limited with Interactive logon so standard shells retain Win32_Process visibility.
+    $TaskName = 'susi-release-sync'
+    if ($Action -eq 'uninstall-timer') {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+        exit 0
+    }
+    $SyncScript = Join-Path $BinDir 'susi-release-sync'
+    if (-not (Test-Path -LiteralPath $SyncScript -PathType Leaf)) {
+        throw "Missing updater script: $SyncScript"
+    }
+    $BashExe = $Built
+    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf) -or ($BashExe -match '\\System32\\bash\.exe$')) {
+        $GitExec = (& git --exec-path 2>$null | Select-Object -First 1)
+        if ($GitExec) {
+            $CandidateBash = Join-Path (Split-Path (Split-Path (Split-Path $GitExec.Trim()))) 'bin\bash.exe'
+            if (Test-Path -LiteralPath $CandidateBash -PathType Leaf) { $BashExe = $CandidateBash }
+        }
+    }
+    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
+        $BashCmd = Get-Command bash.exe -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -and ($_.Source -notmatch '\\System32\\bash\.exe$') } | Select-Object -First 1
+        if ($BashCmd) { $BashExe = $BashCmd.Source }
+    }
+    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
+        $DefaultGitBash = 'C:\Program Files\Git\bin\bash.exe'
+        if (Test-Path -LiteralPath $DefaultGitBash -PathType Leaf) { $BashExe = $DefaultGitBash }
+    }
+    if (-not $BashExe -or -not (Test-Path -LiteralPath $BashExe -PathType Leaf)) {
+        throw 'Git for Windows bash.exe was not found; cannot register susi-release-sync scheduled task.'
+    }
+    $TaskAction = New-ScheduledTaskAction -Execute $BashExe -WorkingDirectory $BinDir -Argument ('"' + $SyncScript + '"')
+    $TriggerHourly = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(10) -RepetitionInterval (New-TimeSpan -Hours 1)
+    $TriggerLogon = New-ScheduledTaskTrigger -AtLogOn
+    $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger @($TriggerHourly, $TriggerLogon) -Principal $Principal -Settings $Settings -Force | Out-Null
+    exit 0
+}
 $Legacy = Join-Path $BinDir 'susi-engine.exe'
 $Previous = Join-Path $BinDir 'susi.prev.exe'
 function Owned-Processes {

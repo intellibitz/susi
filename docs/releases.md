@@ -47,16 +47,25 @@ has a reference build for this host and skips newer ones that do not; `--check`
 prints both. An explicit `--tag` of a release not qualified for the host is
 refused unless `SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1` is set knowingly.
 
-**Keeping it updated is a duty, not only a report** (CEO directive 2026-11-12:
-"agents must keep the local release binary updated with the remote binary,
-whenever feasible and required"). Required: the installed copy is behind the
-latest release qualified for the host. Feasible: that release is qualified
-here, the remote answers and no susi client is mid-mission (the updater waits
-for an idle susi). The hourly timer (`susi-release-sync.sh --install-timer`)
-does it unattended; `susi-commercial workflow check` shows where the installed
-copy stands and starts the updater when it is behind. "Remote binary" means
-the remote release: no binary is downloaded, the release is built from its tag
-on the host and compared with the record's reference checksum.
+**Keeping it updated is a duty, not only a report** (CEO Mandate 48 & CEO Mandate
+81, [`docs/ceo-mandate-81.md`](ceo-mandate-81.md): cutting or publishing a
+release qualified for the current host must sync `~/.susi/bin/susi` (`susi.exe`)
+and the live daemon before the release is considered complete). Required: the
+installed copy is behind the latest release qualified for the host. Feasible:
+that release is qualified here, the remote answers and no susi client is
+mid-mission (the updater waits for an idle susi). The hourly timer
+(`susi-release-sync.sh --install-timer`, registering `systemd --user`
+`susi-release-sync.timer` on Linux or `RunLevel=Limited` Task Scheduler task
+`susi-release-sync` on Windows) does it unattended; `susi-commercial workflow
+check` shows where the installed copy stands and starts the updater on both
+Windows and Linux when it is behind. `--check` reports `installed:`,
+`qualified:`, and `latest:`. "Remote binary" means the remote release: no
+binary is downloaded, the release is built from its tag on the host and
+compared with the record's reference checksum. When promoting the exact
+reference binary produced by `release-qualify` on the qualifying host after Step
+5 lands on `origin`, `susi-release-sync.sh --tag vX.Y.Z --built <path>`
+verifies `<path>`'s SHA-256 against `releases/vX.Y.Z.json` and promotes with
+health check and rollback without a second cold build.
 
 ### What the sha256 means
 
@@ -114,6 +123,15 @@ qualified on the exact tree it ships (CEO mandate 73):
 5. Write `releases/<tag>.json` (the record below) with the reference digests
    and land it on main. A platform with no qualification yet is listed under
    `missing_targets` and in the qualification record's `owed_platforms`.
+6. **Mandatory host sync (CEO Mandate 81):** immediately after `vX.Y.Z` and
+   `releases/<tag>.json` land on `origin`, if `releases/<tag>.json` qualifies the
+   current host (`missing_targets` does not list the host target), sync the
+   local installed release binary and live daemon:
+   `scripts/susi-release-sync.sh --tag vX.Y.Z --built target/dist/susi`
+   (`target/dist/susi.exe` on Windows; omit `--built` on another host to build
+   from tag source), and verify `susi --version` and `/health` report `X.Y.Z`.
+   On Windows, keep every scheduled task at `RunLevel=Limited` so unattended
+   sync and daemon restarts never hit UAC elevation lockouts.
 
 ## Promoting a distilled candidate
 

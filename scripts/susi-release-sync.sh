@@ -28,9 +28,12 @@
 #   susi-release-sync.sh                 sync to the newest release if newer
 #   susi-release-sync.sh --check         report installed vs newest; no changes
 #   susi-release-sync.sh --tag vX.Y.Z    install a specific release (rollback/pin)
+#   susi-release-sync.sh --tag vX.Y.Z --built PATH
+#                                        promote a pre-built binary matching
+#                                        releases/<tag>.json sha256 (no rebuild)
 #   susi-release-sync.sh --rollback      restore susi.prev
-#   susi-release-sync.sh --install-timer   install + enable the systemd user timer
-#   susi-release-sync.sh --uninstall-timer remove the timer
+#   susi-release-sync.sh --install-timer   install + enable the systemd user timer or Windows task
+#   susi-release-sync.sh --uninstall-timer remove the timer or Windows task
 #
 # Environment:
 #   SUSI_RELEASE_REMOTE    git URL of the release repo (default: the origin of the
@@ -105,6 +108,52 @@ latest_tag() {
         | awk '{sub("refs/tags/", "", $2); print $2}' \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
         | sort -V | tail -n 1
+}
+
+sorted_tags_desc() {
+    git ls-remote --tags --refs "$REMOTE" 'v*' \
+        | awk '{sub("refs/tags/", "", $2); print $2}' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -Vr
+}
+
+qualified_tag() {
+    local target check_src cleanup_src="" cand rec tmp_base
+    target="$(host_target 2>/dev/null || true)"
+    [ -n "$target" ] || return 0
+    tmp_base="${TMPDIR:-${TEMP:-/tmp}}"
+    if [ -d "$SRC/.git" ]; then
+        check_src="$SRC"
+        git -C "$check_src" remote set-url origin "$REMOTE" 2>/dev/null || true
+    else
+        cleanup_src="$(mktemp -d "${tmp_base}/susi-check.XXXXXX")"
+        check_src="$cleanup_src"
+        if ! git clone --quiet --no-checkout --depth=1 "$REMOTE" "$check_src" 2>/dev/null; then
+            if ! git clone --quiet --no-checkout "$REMOTE" "$check_src" 2>/dev/null; then
+                rm -rf "$cleanup_src"
+                return 0
+            fi
+        fi
+    fi
+    if ! git -C "$check_src" fetch --quiet origin HEAD 2>/dev/null; then
+        [ -z "$cleanup_src" ] || rm -rf "$cleanup_src"
+        return 0
+    fi
+    rec="$(mktemp "${tmp_base}/susi-rec.XXXXXX")"
+    while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        if git -C "$check_src" show "FETCH_HEAD:releases/${cand}.json" >"$rec" 2>/dev/null && [ -s "$rec" ]; then
+            RECORD="$rec"
+            if ! record_missing_target "$target"; then
+                printf '%s' "$cand"
+                rm -f "$rec"
+                [ -z "$cleanup_src" ] || rm -rf "$cleanup_src"
+                return 0
+            fi
+        fi
+    done < <(sorted_tags_desc)
+    rm -f "$rec"
+    [ -z "$cleanup_src" ] || rm -rf "$cleanup_src"
 }
 
 installed_version() {
@@ -251,6 +300,18 @@ report_reference() {
     else
         log "checksum ${have} differs from the reference build ${want}, as expected for an independent build"
     fi
+}
+
+adopt_reference_build() {
+    local tag="$1" candidate="$2" asset want_sha have_sha
+    [ -f "$candidate" ] || die "missing --built binary: ${candidate}"
+    asset="$(host_asset)"
+    [ -n "$asset" ] || die "--built is unsupported on this host platform"
+    want_sha="$(record_sha "$asset")"
+    [ -n "$want_sha" ] || die "refusing --built: releases/${tag}.json records no reference sha256 for ${asset}"
+    have_sha="$(sha256sum <"$candidate" | awk '{print tolower($1)}')"
+    [ "$have_sha" = "$want_sha" ] || die "refusing --built: sha256 ${have_sha} does not match releases/${tag}.json reference sha256 ${want_sha}"
+    log "verified pre-built binary ${candidate} (sha256 ${have_sha})"
 }
 
 build_tag() {
@@ -411,15 +472,24 @@ refresh_self() {
     else
         rm -f "${BIN_DIR}/susi-release-sync-windows.ps1.new"
     fi
+    if git -C "$SRC" show "${RECORD_REF}:scripts/posix-compat.sh" >"${BIN_DIR}/posix-compat.sh.new" 2>/dev/null; then
+        mv -f "${BIN_DIR}/posix-compat.sh.new" "${BIN_DIR}/posix-compat.sh"
+    else
+        rm -f "${BIN_DIR}/posix-compat.sh.new"
+    fi
 }
 
 sync_release() {
-    local tag="$1" explicit="$2"
+    local tag="$1" explicit="$2" adopted_built="${3:-}"
     local want="${tag#v}" have channel
     have="$(installed_version)"
     channel="$(installed_channel)"
 
-    if [ "$have" = "$want" ] && [ "$channel" = release ]; then
+    if [ -n "$adopted_built" ] && [ "$explicit" = 0 ]; then
+        die "--built requires --tag vX.Y.Z"
+    fi
+
+    if [ "$have" = "$want" ] && [ "$channel" = release ] && [ -z "$adopted_built" ]; then
         log "up to date: susi ${have} (release)"
         return 0
     fi
@@ -441,8 +511,13 @@ sync_release() {
     fi
     features="$(detect_features "$(record_field features)")" || return 1
     commit="$(git -C "$SRC" rev-parse HEAD)"
-    build_tag "$tag" "$features"
-    built="$(built_path)"
+    if [ -n "$adopted_built" ]; then
+        adopt_reference_build "$tag" "$adopted_built"
+        built="$adopted_built"
+    else
+        build_tag "$tag" "$features"
+        built="$(built_path)"
+    fi
     [ -f "$built" ] || die "the build left no ${built}"
 
     local got
@@ -466,9 +541,31 @@ sync_release() {
 # ---- timer ------------------------------------------------------------------
 
 install_timer() {
-    command -v systemctl >/dev/null 2>&1 || die "systemd is required for the timer"
-    mkdir -p "$UNIT_DIR" "$BIN_DIR"
+    mkdir -p "$BIN_DIR"
     install -m 0755 "$(readlink -f "$0")" "$SELF_INSTALLED"
+    local compat_src
+    compat_src="$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+    [ ! -f "$compat_src" ] || install -m 0644 "$compat_src" "${BIN_DIR}/posix-compat.sh"
+    if [ "$WINDOWS" = 1 ]; then
+        [ -f "$WINDOWS_HELPER" ] || die "missing Windows helper: ${WINDOWS_HELPER}"
+        cp -f "$WINDOWS_HELPER" "${BIN_DIR}/susi-release-sync-windows.ps1"
+        if [ -n "$REMOTE" ]; then
+            if [ ! -d "$SRC/.git" ]; then
+                mkdir -p "$SRC"
+                git clone --quiet --no-checkout --depth=1 "$REMOTE" "$SRC" 2>/dev/null ||
+                    git clone --quiet --no-checkout "$REMOTE" "$SRC"
+            fi
+            git -C "$SRC" remote set-url origin "$REMOTE" 2>/dev/null || true
+        fi
+        local bash_exe
+        bash_exe="$(command -v bash)"
+        windows_release install-timer "$bash_exe" || die "failed to register Windows scheduled task ${UNIT}"
+        log "timer enabled: schtasks /Query /TN ${UNIT} (RunLevel=Limited)"
+        log "run now:       schtasks /Run /TN ${UNIT}"
+        return 0
+    fi
+    command -v systemctl >/dev/null 2>&1 || die "systemd is required for the timer"
+    mkdir -p "$UNIT_DIR"
     cat >"${UNIT_DIR}/${UNIT}.service" <<EOF
 [Unit]
 Description=Promote the newest tagged susi release to this host
@@ -508,8 +605,14 @@ EOF
 }
 
 uninstall_timer() {
+    if [ "$WINDOWS" = 1 ]; then
+        windows_release uninstall-timer || true
+        rm -f "$SELF_INSTALLED" "${BIN_DIR}/susi-release-sync-windows.ps1" "${BIN_DIR}/posix-compat.sh"
+        log "timer removed"
+        return 0
+    fi
     systemctl --user disable --now "${UNIT}.timer" 2>/dev/null || true
-    rm -f "${UNIT_DIR}/${UNIT}.service" "${UNIT_DIR}/${UNIT}.timer" "$SELF_INSTALLED"
+    rm -f "${UNIT_DIR}/${UNIT}.service" "${UNIT_DIR}/${UNIT}.timer" "$SELF_INSTALLED" "${BIN_DIR}/posix-compat.sh"
     systemctl --user daemon-reload 2>/dev/null || true
     log "timer removed"
 }
@@ -517,11 +620,12 @@ uninstall_timer() {
 # ---- main -------------------------------------------------------------------
 
 main() {
-    local mode=sync tag=""
+    local mode=sync tag="" adopted_built=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --check) mode=check ;;
             --tag) tag="${2:?--tag needs a value}"; shift ;;
+            --built) adopted_built="${2:?--built needs a value}"; shift ;;
             --rollback) mode=rollback ;;
             --install-timer) mode=install-timer ;;
             --uninstall-timer) mode=uninstall-timer ;;
@@ -530,6 +634,15 @@ main() {
         esac
         shift
     done
+
+    if [ -n "$adopted_built" ]; then
+        [ "$mode" = sync ] || die "--built only applies to release sync"
+        [ -n "$tag" ] || die "--built requires --tag vX.Y.Z"
+        case "$adopted_built" in
+            /* | [A-Za-z]:[\\/]*) ;;
+            *) adopted_built="$(pwd)/${adopted_built}" ;;
+        esac
+    fi
 
     case "$mode" in
         install-timer) install_timer; return ;;
@@ -544,11 +657,12 @@ main() {
     case "$mode" in
         rollback) wait_for_idle; rollback ;;
         check)
-            local latest
+            local latest qualified
             need_remote
             latest="$(latest_tag)" || die "cannot reach ${REMOTE}"
-            printf 'installed: %s (%s)\nlatest:    %s\n' \
-                "$(installed_version || true)" "$(installed_channel || true)" "${latest:-none}"
+            qualified="$(qualified_tag || true)"
+            printf 'installed: %s (%s)\nqualified: %s\nlatest:    %s\n' \
+                "$(installed_version || true)" "$(installed_channel || true)" "${qualified:-none}" "${latest:-none}"
             ;;
         sync)
             local explicit=1
@@ -559,7 +673,7 @@ main() {
                 [ -n "$tag" ] || die "no vX.Y.Z tags on ${REMOTE}"
             fi
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "not a release tag: ${tag}"
-            sync_release "$tag" "$explicit"
+            sync_release "$tag" "$explicit" "$adopted_built"
             ;;
         *) die "unreachable mode: $mode" ;;
     esac

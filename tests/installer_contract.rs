@@ -493,3 +493,122 @@ printf '%s\n' "$status" >"$scratch/status"
         );
     }
 }
+
+#[test]
+fn release_sync_adopts_verified_reference_build_and_refuses_digest_mismatch() {
+    let prelude = format!(
+        r#"set -e
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_RELEASE_REMOTE="$scratch/origin.git" SUSI_RELEASE_SRC="$scratch/src" SUSI_RELEASE_TARGET="$scratch/target" SUSI_RELEASE_IDLE_WAIT=0
+mkdir -p "$HOME"
+{tools}
+cat >"$scratch/bin/uname" <<'UNAME_EOF'
+#!/usr/bin/env bash
+if [ "${{1:-}}" = '-s' ]; then echo Linux; else echo x86_64; fi
+UNAME_EOF
+chmod +x "$scratch/bin/uname"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$scratch/bin/systemctl"
+chmod +x "$scratch/bin/systemctl"
+cat >"$scratch/posix-compat.sh" <<'COMPAT_EOF'
+{compat}
+COMPAT_EOF
+cat >"$scratch/release-sync.sh" <<'SYNC_EOF'
+{RELEASE_SYNC}
+SYNC_EOF
+chmod +x "$scratch/release-sync.sh"
+rustc() {{ if [ "$1" = '-vV' ]; then printf 'host: x86_64-unknown-linux-gnu\n'; else return 1; fi; }}
+readlink() {{ case "${{1:-}}" in /proc/[0-9]*/exe) return 1 ;; *) command readlink "$@" ;; esac; }}
+export -f rustc readlink
+
+cat >"$scratch/built-good" <<'BIN_EOF'
+#!/usr/bin/env bash
+if [ "${{1:-}}" = '--version' ]; then echo 'susi 0.21.52'; exit 0; fi
+exit 0
+BIN_EOF
+chmod +x "$scratch/built-good"
+good_sha=$(sha256sum <"$scratch/built-good" | awk '{{print tolower($1)}}')
+
+cat >"$scratch/built-bad" <<'BAD_EOF'
+#!/usr/bin/env bash
+# altered bytes so sha256 mismatches the release record
+if [ "${{1:-}}" = '--version' ]; then echo 'susi 0.21.52'; exit 0; fi
+exit 0
+BAD_EOF
+chmod +x "$scratch/built-bad"
+
+cat >"$RECORD_FIXTURE" <<JSON_EOF
+{{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.52",
+  "tag": "v0.21.52",
+  "commit": "$TAG_COMMIT",
+  "tagged": "2026-11-11",
+  "build": {{
+    "toolchain": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": []
+  }},
+  "reproducible": false,
+  "assets": [
+    {{ "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi", "bin": "susi", "sha256": "$good_sha" }}
+  ],
+  "missing_targets": []
+}}
+JSON_EOF"#,
+        tools = fake_tools(),
+        compat = include_str!("../scripts/posix-compat.sh"),
+        RELEASE_SYNC = RELEASE_SYNC,
+    );
+
+    let run_case = |label: &str, body: &str| {
+        let output = run_bash(&format!("{prelude}\n{body}"));
+        assert!(
+            output.status.success(),
+            "{label}: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+
+    run_case(
+        "refuse mismatched --built digest",
+        r#"
+set +e
+"$scratch/release-sync.sh" --tag v0.21.52 --built "$scratch/built-bad" 2>"$scratch/bad.err"
+bad_status=$?
+set -e
+test "$bad_status" -ne 0
+grep -q "refusing --built" "$scratch/bad.err"
+test ! -e "$HOME/.susi/bin/susi"
+"#,
+    );
+
+    run_case(
+        "promote verified --built without rebuild",
+        r#"
+"$scratch/release-sync.sh" --tag v0.21.52 --built "$scratch/built-good" 2>"$scratch/good.err"
+test -x "$HOME/.susi/bin/susi"
+grep -q '"version":"0.21.52"' "$HOME/.susi/bin/susi.build.json"
+grep -q '"channel":"release"' "$HOME/.susi/bin/susi.build.json"
+! grep -q '^cargo build ' "$CALLS"
+"#,
+    );
+
+    run_case(
+        "report installed, qualified, and latest in --check",
+        r#"
+mkdir -p "$HOME/.susi/bin"
+cp "$scratch/built-good" "$HOME/.susi/bin/susi"
+chmod +x "$HOME/.susi/bin/susi"
+printf '{"channel":"release","version":"0.21.52"}\n' >"$HOME/.susi/bin/susi.build.json"
+check_out=$("$scratch/release-sync.sh" --check)
+printf '%s\n' "$check_out" | grep -q '^installed: 0\.21\.52 (release)'
+printf '%s\n' "$check_out" | grep -q '^qualified: v0\.21\.52'
+printf '%s\n' "$check_out" | grep -q '^latest:    v0\.21\.52'
+"#,
+    );
+}

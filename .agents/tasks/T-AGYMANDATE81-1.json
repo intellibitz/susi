@@ -1,0 +1,52 @@
+{
+  "id": "T-AGYMANDATE81-1",
+  "title": "CEO Mandate 81: Feature and production releases must sync local host binaries and live daemons",
+  "goal": "Vision: V-3. Codify CEO Mandate 81 across constitution/docs/vision, add SHA-256-verified --built promotion and Windows RunLevel=Limited timer support to susi-release-sync.sh/install.ps1, print post-publish sync reminder in release-qualify, and add regression tests.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "three_pillars_governance",
+      "--test",
+      "installer_contract",
+      "--test",
+      "task_records",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "AGYMANDATE81",
+  "created_unix": 1794758170,
+  "reuse": {
+    "decision": "existing",
+    "searched": "scripts/susi-release-sync.sh, scripts/susi-release-sync-windows.ps1, scripts/posix-compat.sh, install.ps1, xtask/src/bin/release-qualify.rs, crates/susi-gawd/src/cross_platform_service.rs, docs/releases.md",
+    "reason": "Extended the existing release-sync script, Windows helper, Windows installer, and release-qualify output rather than adding any new script file (respecting Mandate 63's script ceiling) or duplicating promotion/rollback logic."
+  },
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/tasks/T-AGYMANDATE81-1.json",
+    ".agents/tasks/done/T-AGYMANDATE81-1.json",
+    ".agents/visions/V-3.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "docs/ceo-mandate-81.md",
+    "docs/releases.md",
+    "install.ps1",
+    "scripts/posix-compat.sh",
+    "scripts/susi-release-sync-windows.ps1",
+    "scripts/susi-release-sync.sh",
+    "tests/architecture_tests.rs",
+    "tests/installer_contract.rs",
+    "tests/three_pillars_governance.rs",
+    "xtask/src/bin/release-qualify.rs"
+  ]
+}

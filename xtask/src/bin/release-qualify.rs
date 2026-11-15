@@ -1384,8 +1384,9 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         sha256_hex(text.as_bytes())
     );
     git(&root, &["tag", "-a", &tag, "-m", &message, &record_commit])?;
+    let bin_suffix = std::env::consts::EXE_SUFFIX;
     Ok(format!(
-        "Qualified {tag} from {source}: record commit {record_commit}, tag created locally.\nPublish with: git push origin {tag}"
+        "Qualified {tag} from {source}: record commit {record_commit}, tag created locally.\nPublish with: git push origin {tag}\nAfter landing releases/{tag}.json on origin/main, sync the local host binary and live daemon (Mandate 81):\n  scripts/susi-release-sync.sh --tag {tag} --built target/dist/susi{bin_suffix}"
     ))
 }
 

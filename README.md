@@ -179,7 +179,7 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–80),
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–81),
 [`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md),
 [`docs/ceo-mandate-75.md`](docs/ceo-mandate-75.md) and
 [`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md) (agents collaborate through the
@@ -190,7 +190,9 @@ reuse Apache-2.0 work first) and
 [`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md) (vision-driven continuous
 self-improvement: Apache-2.0 projects are the raw source Susi is distilled from) and
 [`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md) (three core pillars and synchronized
-Step 1 delivery). Work happens in isolated
+Step 1 delivery) and [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md) (every
+qualified release cut syncs the local host binary and live daemon, with
+Linux/Windows timer parity and `RunLevel=Limited`). Work happens in isolated
 worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every
 workflow step over portable Git storage (GitHub is storage only: zero GitHub
