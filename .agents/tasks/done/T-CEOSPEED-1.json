@@ -4,31 +4,6 @@
   "goal": "Propagate complete Mandate 62 execution criteria across the repository identity constitution (.agents/identity.json), checkout instructions (AGENTS.md), and idempotent delegated task briefing (crates/susi-core/src/self_build.rs) while preserving delegated goals and leaving external repositories unaffected (landed in 0a5853ec1f56187d84272edbce2f3c6037c35fce).",
   "size": "m",
   "deps": [],
-  "state": "open",
-  "status": "completed",
-  "created_by": "CEOSPEED1",
-  "created_unix": 1793648394,
-  "implementation_commit": "0a5853ec1f56187d84272edbce2f3c6037c35fce",
-  "reuse": {
-    "searched": [
-      "crates/susi-core/src/self_build.rs",
-      ".agents/identity.json",
-      "AGENTS.md"
-    ],
-    "decision": "reuse",
-    "justification": "Extended susi_core::self_build::brief_task and the existing .agents/identity.json + AGENTS.md governance surface so builder, swarm DAG, external agent command, and external peer delegation paths share one idempotent briefing function.",
-    "reused_symbols": [
-      "susi_core::self_build::is_susi_repo",
-      "susi_core::self_build::brief_task"
-    ]
-  },
-  "scopes": [
-    ".agents/identity.json",
-    ".agents/tasks/T-CEOSPEED-1.json",
-    "AGENTS.md",
-    "crates/susi-core/src/self_build.rs",
-    "tests/task_record_schema_debt.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -40,5 +15,35 @@
       "--offline",
       "self_build::tests"
     ]
-  }
+  },
+  "created_by": "CEOSPEED1",
+  "created_unix": 1793648394,
+  "closed": {
+    "at_unix": 1794758443,
+    "commit": "ac1a3f105ba722c62ebd22e7191ce8cb2bdcddeb",
+    "by": "AG3HOUSEKEEP"
+  },
+  "implementation_commit": "0a5853ec1f56187d84272edbce2f3c6037c35fce",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Extended susi_core::self_build::brief_task and the existing .agents/identity.json + AGENTS.md governance surface so builder, swarm DAG, external agent command, and external peer delegation paths share one idempotent briefing function.",
+    "reused_symbols": [
+      "susi_core::self_build::is_susi_repo",
+      "susi_core::self_build::brief_task"
+    ],
+    "searched": [
+      "crates/susi-core/src/self_build.rs",
+      ".agents/identity.json",
+      "AGENTS.md"
+    ]
+  },
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/tasks/T-CEOSPEED-1.json",
+    "AGENTS.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "state": "closed",
+  "status": "completed"
 }
