@@ -1,0 +1,40 @@
+{
+  "id": "T-AG4CORESIZE-2",
+  "title": "Split susi-gmcp core tools and gmcp_requirements monoliths and ratchet lean-core ceilings",
+  "goal": "Separate crates/susi-gmcp/src/tools/core.rs (4,240 lines) by domain into 6 submodules plus src/tests/core_tools.rs, split tests/gmcp_requirements.rs (~36k lines) by VC-203 vector with shared support modules, enforce per-file and ratcheted category/pillar ceilings in tests/lean_core_ceilings.rs, and re-record append-only GMCP evidence.",
+  "vision": "V-1",
+  "size": "m",
+  "deps": [
+    "T-AG4CORESIZE-1"
+  ],
+  "scopes": [
+    ".agents/tasks",
+    ".agents/gmcp/evidence",
+    "crates/susi-gmcp",
+    "crates/susi-core/src/tests/vc_201_074_mastery.rs",
+    "tests/core_never_downloads_models_unasked.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/gmcp_requirements",
+    "scripts/gmcp-record-evidence.sh",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_mastery_records_are_retained_and_current"
+    ]
+  },
+  "created_by": "AG4CORESIZE",
+  "created_unix": 1794748006,
+  "reuse": {
+    "decision": "existing",
+    "searched": "crates/susi-gmcp/src/tools/*, crates/susi-gmcp/src/tests/*, tests/gmcp_requirements.rs, tests/lean_core_ceilings.rs, scripts/gmcp-record-evidence.sh, xtask/src/gmcp_evidence.rs",
+    "source": "Existing CoreTools module layout, tests/lean_core_ceilings.rs budget harness, and xtask/src/gmcp_evidence.rs split-test reader",
+    "reason": "Refactor existing CoreTools and gmcp_requirements.rs monoliths into modular submodules/include files while extending existing ceiling and evidence tooling."
+  }
+}

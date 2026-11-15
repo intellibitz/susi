@@ -74,7 +74,7 @@ artifacts() {
                 case "/$path/" in */../* | */./* | //*) continue ;; esac
                 [ -e "$path" ] && printf '%s\n' "$path"
             done
-        for shared in "$tests" "$ledger" .agents/gmcp/sources.json .agents/gmcp/spec \
+        for shared in "$tests" tests/gmcp_requirements "$ledger" .agents/gmcp/sources.json .agents/gmcp/spec \
             .agents/gmcp/fixtures docs/gmcp docs/gmcp-roadmap.md \
             scripts/check-gmcp-ledger.sh crates/susi-gmcp/src crates/susi-gmcp/Cargo.toml; do
             [ -e "$shared" ] && printf '%s\n' "$shared"
@@ -92,7 +92,7 @@ for vector in "${vectors[@]}"; do
             echo "gmcp-record-evidence: $vector: not a gmcp_requirements test: $check" >&2
             exit 1
         fi
-        grep -q "^fn $name()" "$tests" || { echo "gmcp-record-evidence: $vector: no test $name" >&2; exit 1; }
+        grep -q "^fn $name()" "$tests" tests/gmcp_requirements/*.rs || { echo "gmcp-record-evidence: $vector: no test $name" >&2; exit 1; }
         is_mastery=0
         case "$name" in gmcp_vc_*) is_mastery=1 ;; esac
         if [ "$is_mastery" = "$mastery" ]; then

@@ -4,7 +4,7 @@
 mod adapter_tools;
 pub mod args;
 mod control_plane;
-mod core;
+pub(crate) mod core;
 mod forward;
 mod harness_tools;
 mod helpers;

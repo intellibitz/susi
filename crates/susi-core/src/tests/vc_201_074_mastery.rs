@@ -46,7 +46,15 @@ fn vc_201_074_mastery_production_paths_apply_untrusted_policy() {
     let swarm = include_str!("../../../susi-gawd-swarm/src/amas.rs");
     let report = include_str!("../../../susi-gawd-swarm/src/ama/report.rs");
     let a2a = include_str!("../../../susi-gawd-a2a/src/executor.rs");
-    let mcp = include_str!("../../../susi-gmcp/src/tools/core.rs");
+    let mcp = concat!(
+        include_str!("../../../susi-gmcp/src/tools/core.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/agents.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/cluster.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/files_os.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/knowledge.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/models.rs"),
+        include_str!("../../../susi-gmcp/src/tools/core/substrate.rs"),
+    );
 
     for (path, source) in [
         ("master.rs", master),

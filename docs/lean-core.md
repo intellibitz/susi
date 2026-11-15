@@ -28,7 +28,7 @@ This page is the shared plan for every agent on the program. Numbers come from
 | 0 | third-party crates compiled | 331 | 96 |
 | 0 | workspace crates compiled | 59 | 33 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 9 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 146,127 (ratcheted -825 from 146,952) |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 144,299 (ratcheted -1,057 from 145,356 in T-AG4CORESIZE-2) |
 | clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
 | warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
@@ -294,23 +294,28 @@ Raw tracked text-line counts (~1.49M lines across `git ls-files`) overstate
 Susi's runtime footprint because the repository intentionally versions four
 distinct artifacts side by side:
 
-1. **`.agents/**` (`645,708` tracked lines, marked `linguist-generated` in `.gitattributes`)**:
+1. **`.agents/**` (`645,887` tracked lines, marked `linguist-generated` in `.gitattributes`)**:
    task ledgers, two large `unsafe-default*.json` baselines (`302,206` lines),
-   and append-only `.agents/gmcp/evidence/*.jsonl` proof records (`7,129`
+   and append-only `.agents/gmcp/evidence/*.jsonl` proof records (`7,227`
    lines, `merge=union`). Audit trails and append-only evidence are preserved
    without downward caps; only unsafe baseline file count is bounded (`2`).
 2. **`vendor/**` (`216,164` tracked lines, marked `linguist-vendored`)**:
    patched offline dependency sources (`vendor/README.md`). Kept intact for
    deterministic offline builds under a hard ceiling (`216,164`).
 3. **Tooling and tests (`72,094` tooling `.rs` lines in `xtask/**` +
-   `toolchain/**`, `118,857` test/bench/fuzz `.rs` lines)**: guarded by separate
-   `TOOLING_RUST_CEILING` (`72,200`), `XTASK_MAX_FILE_LINES_CEILING` (`4,000`),
-   and `TEST_RUST_CEILING` (`126,000`) ceilings in `tests/lean_core_ceilings.rs`.
+   `toolchain/**`, `121,961` test/bench/fuzz `.rs` lines)**: guarded by separate
+   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`127,000`), and
+   per-file ceilings (`XTASK_MAX_FILE_LINES_CEILING = 4,000`,
+   `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
+   `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`) in
+   `tests/lean_core_ceilings.rs`.
 4. **First-party runtime & facade Rust**: `first_party_runtime_rust`
-   (`301,411` lines under `crates/*` excluding `susi-vendor-*` and explicit
-   test/bench paths, plus root `src/**` and `build.rs`; ceiling `303,000`) and
+   (`300,332` lines under `crates/*` excluding `susi-vendor-*` and explicit
+   test/bench paths, plus root `src/**` and `build.rs`; ceiling `301,800`),
    `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`; ceiling
-   `6,454`), alongside the stricter 8-pillar shipped `src` ceilings (`LINE_CEILINGS`).
+   `6,454`), and per-file tool ceilings (`GMCP_TOOLS_MAX_FILE_LINES_CEILING = 1,800`,
+   `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING = 1,000`), alongside the stricter
+   8-pillar shipped `src` ceilings (`LINE_CEILINGS`).
 
 `docs/**` is marked `linguist-documentation` in `.gitattributes` so platform
 diff stats and language breakdowns reflect first-party Rust rather than
@@ -1274,3 +1279,20 @@ vendored crates or append-only audit logs.
   at `3,996` lines). Eliminated redundant multi-binary test fanout across
   `xtask` (`754` test runs in `704.25 s` -> `551` unique runs in `459.63 s`)
   while preserving all assertions and CLI coverage.
+- 2026-11-15 (T-AG4CORESIZE-2, Windows x86_64): split
+  `crates/susi-gmcp/src/tools/core.rs` (`4,240` lines -> `35`-line root module
+  + six responsibility submodules `core/{agents,cluster,files_os,knowledge,models,substrate}.rs`,
+  max `cluster.rs` at `877` lines, and extracted unchanged inline unit suite to
+  `crates/susi-gmcp/src/tests/core_tools.rs`), ratcheting `susi-gmcp` shipped
+  `src` ceiling `25,153 -> 24,096` (`24,056` measured, 8-pillar sum `144,299`)
+  and `FIRST_PARTY_RUNTIME_RUST_CEILING` `303,000 -> 301,800` (`300,332`
+  measured). Split `tests/gmcp_requirements.rs` (`35,863` lines -> `46`-line
+  `include!` manifest + `support.rs`, `adapter_support.rs`, and 23
+  vector/part modules under `tests/gmcp_requirements/*.rs`, max
+  `vc_203_011_part1.rs` at `2,176` lines), preserved all 114 `#[test]` functions,
+  updated source scanners and `scripts/gmcp-record-evidence.sh`, added enforced
+  per-file ceilings (`GMCP_TOOLS_MAX_FILE_LINES_CEILING = 1,800`,
+  `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING = 1,000`,
+  `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
+  `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`), and re-recorded
+  append-only GMCP requirement and mastery evidence under `.agents/gmcp/evidence/`.

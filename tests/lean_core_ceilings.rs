@@ -324,6 +324,11 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// and `TaskStore::on_evict` push-config cleanup on reaper eviction (+30),
 /// alongside moving the existing `task_store.rs` inline unit suite (-140)
 /// into `src/tests/task_store.rs`. Test organization, not removed runtime capability.
+/// 2026-11-15: susi-gmcp 25,153 -> 24,096 (T-AG4CORESIZE-2, measured 24,056 + 40
+/// headroom for queued GMCP roadmap items): split `src/tools/core.rs` (4,240 lines)
+/// by responsibility into `src/tools/core.rs` and `src/tools/core/{agents,cluster,files_os,knowledge,models,substrate}.rs`,
+/// moving its unchanged inline unit suite into `src/tests/core_tools.rs`.
+/// Test organization, not removed runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
@@ -331,7 +336,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-a2a", 3_251),
     ("susi-gemi", 20_709),
     ("susi-gemi-models", 15_563),
-    ("susi-gmcp", 25_153),
+    ("susi-gmcp", 24_096),
     ("susi-harness", 37_536),
 ];
 
@@ -339,11 +344,15 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
 /// Separating runtime Rust, vendor facades, tests, tooling, vendored sources,
 /// and generated audit baselines keeps audit trails and offline vendor trees
 /// intact without inflating first-party runtime size.
-const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 303_000;
+const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 301_800;
 const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
-const TEST_RUST_CEILING: usize = 126_000;
+const TEST_RUST_CEILING: usize = 127_000;
 const TOOLING_RUST_CEILING: usize = 72_200;
 const XTASK_MAX_FILE_LINES_CEILING: usize = 4_000;
+const GMCP_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_800;
+const GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_000;
+const INTEGRATION_TEST_MAX_FILE_LINES_CEILING: usize = 3_500;
+const GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING: usize = 2_800;
 const VENDORED_DEPENDENCY_LINES_CEILING: usize = 216_164;
 const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 
@@ -587,6 +596,10 @@ fn repository_category_budgets_do_not_grow() {
     let mut unsafe_baseline_files = 0usize;
     let mut evidence_jsonl_lines = 0usize;
     let mut largest_xtask_file = (0usize, String::new());
+    let mut largest_gmcp_tools_file = (0usize, String::new());
+    let mut largest_gmcp_core_file = (0usize, String::new());
+    let mut largest_integration_test_file = (0usize, String::new());
+    let mut largest_gmcp_requirements_file = (0usize, String::new());
 
     for raw in output.stdout.split(|&b| b == 0) {
         if raw.is_empty() {
@@ -609,6 +622,24 @@ fn repository_category_budgets_do_not_grow() {
                 evidence_jsonl_lines += lines;
             }
         } else if rel.ends_with(".rs") {
+            if rel.starts_with("crates/susi-gmcp/src/tools/") && lines > largest_gmcp_tools_file.0 {
+                largest_gmcp_tools_file = (lines, rel.as_ref().to_owned());
+            }
+            if (rel == "crates/susi-gmcp/src/tools/core.rs"
+                || rel.starts_with("crates/susi-gmcp/src/tools/core/"))
+                && lines > largest_gmcp_core_file.0
+            {
+                largest_gmcp_core_file = (lines, rel.as_ref().to_owned());
+            }
+            if rel.starts_with("tests/") && lines > largest_integration_test_file.0 {
+                largest_integration_test_file = (lines, rel.as_ref().to_owned());
+            }
+            if (rel == "tests/gmcp_requirements.rs" || rel.starts_with("tests/gmcp_requirements/"))
+                && lines > largest_gmcp_requirements_file.0
+            {
+                largest_gmcp_requirements_file = (lines, rel.as_ref().to_owned());
+            }
+
             if rel.starts_with("xtask/") || rel.starts_with("toolchain/") {
                 tooling_rust += lines;
                 if rel.starts_with("xtask/") && lines > largest_xtask_file.0 {
@@ -625,9 +656,17 @@ fn repository_category_budgets_do_not_grow() {
     }
 
     eprintln!(
-        "lean-core categories: runtime_rust={first_party_runtime_rust} (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING}), vendor_facade_rust={vendor_facade_rust} (ceiling {VENDOR_FACADE_RUST_CEILING}), test_rust={test_rust} (ceiling {TEST_RUST_CEILING}), tooling_rust={tooling_rust} (ceiling {TOOLING_RUST_CEILING}, max xtask file {} = {} lines / ceiling {XTASK_MAX_FILE_LINES_CEILING}), vendor={vendor_lines} (ceiling {VENDORED_DEPENDENCY_LINES_CEILING}), .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})",
+        "lean-core categories: runtime_rust={first_party_runtime_rust} (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING}), vendor_facade_rust={vendor_facade_rust} (ceiling {VENDOR_FACADE_RUST_CEILING}), test_rust={test_rust} (ceiling {TEST_RUST_CEILING}, max tests/ {} = {} lines / ceiling {INTEGRATION_TEST_MAX_FILE_LINES_CEILING}, max gmcp_reqs {} = {} lines / ceiling {GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING}), tooling_rust={tooling_rust} (ceiling {TOOLING_RUST_CEILING}, max xtask file {} = {} lines / ceiling {XTASK_MAX_FILE_LINES_CEILING}), max gmcp_tools {} = {} lines / ceiling {GMCP_TOOLS_MAX_FILE_LINES_CEILING}, max gmcp_core {} = {} lines / ceiling {GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING}, vendor={vendor_lines} (ceiling {VENDORED_DEPENDENCY_LINES_CEILING}), .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})",
+        largest_integration_test_file.1,
+        largest_integration_test_file.0,
+        largest_gmcp_requirements_file.1,
+        largest_gmcp_requirements_file.0,
         largest_xtask_file.1,
         largest_xtask_file.0,
+        largest_gmcp_tools_file.1,
+        largest_gmcp_tools_file.0,
+        largest_gmcp_core_file.1,
+        largest_gmcp_core_file.0,
     );
 
     assert!(
@@ -651,6 +690,30 @@ fn repository_category_budgets_do_not_grow() {
         "largest xtask Rust file {} reached {} lines (ceiling {XTASK_MAX_FILE_LINES_CEILING})",
         largest_xtask_file.1,
         largest_xtask_file.0
+    );
+    assert!(
+        largest_gmcp_tools_file.0 <= GMCP_TOOLS_MAX_FILE_LINES_CEILING,
+        "largest susi-gmcp tools file {} reached {} lines (ceiling {GMCP_TOOLS_MAX_FILE_LINES_CEILING})",
+        largest_gmcp_tools_file.1,
+        largest_gmcp_tools_file.0
+    );
+    assert!(
+        largest_gmcp_core_file.0 <= GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING,
+        "largest susi-gmcp core tools file {} reached {} lines (ceiling {GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING})",
+        largest_gmcp_core_file.1,
+        largest_gmcp_core_file.0
+    );
+    assert!(
+        largest_integration_test_file.0 <= INTEGRATION_TEST_MAX_FILE_LINES_CEILING,
+        "largest integration test file {} reached {} lines (ceiling {INTEGRATION_TEST_MAX_FILE_LINES_CEILING})",
+        largest_integration_test_file.1,
+        largest_integration_test_file.0
+    );
+    assert!(
+        largest_gmcp_requirements_file.0 <= GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING,
+        "largest gmcp_requirements file {} reached {} lines (ceiling {GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING})",
+        largest_gmcp_requirements_file.1,
+        largest_gmcp_requirements_file.0
     );
     assert!(
         vendor_lines <= VENDORED_DEPENDENCY_LINES_CEILING,

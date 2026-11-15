@@ -78,6 +78,11 @@ mod resource_surface_tests;
 mod vc_201_086_mastery_tests;
 
 #[cfg(test)]
+// Test-only assertions in extracted core tools unit suite.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[path = "tests/core_tools.rs"]
+mod core_tools_tests;
+#[cfg(test)]
 // Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/lib_inline.rs"]

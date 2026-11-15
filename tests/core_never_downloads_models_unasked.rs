@@ -588,7 +588,7 @@ fn only_explicit_user_requests_call_the_download_functions() {
                 "crates/susi-gemi/src/plane_handler.rs",
                 "crates/susi-core/src/plane_bus.rs",
                 // The MCP `scout_model` tool a client calls explicitly.
-                "crates/susi-gmcp/src/tools/core.rs",
+                "crates/susi-gmcp/src/tools/core/models.rs",
             ],
         ),
         (
@@ -764,7 +764,26 @@ fn model_emitted_and_mission_tool_dispatch_cannot_reach_a_model_download() {
     assert!(check < run, "the refusal comes before the bus: {guard}");
 
     // `scout_model` is the one tool whose body reaches `install_model`.
-    let core = functions(&read("crates/susi-gmcp/src/tools/core.rs"));
+    let core_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/susi-gmcp/src/tools/core");
+    let mut core_src = read("crates/susi-gmcp/src/tools/core.rs");
+    let mut core_files: Vec<std::path::PathBuf> = std::fs::read_dir(&core_dir)
+        .unwrap_or_else(|e| panic!("read dir {}: {e}", core_dir.display()))
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("rs"))
+        .collect();
+    core_files.sort();
+    for path in core_files {
+        core_src.push('\n');
+        core_src.push_str(
+            &std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display())),
+        );
+    }
+    let core = functions(&core_src);
+    assert!(
+        core.iter().any(|(name, _)| name == "scout_model"),
+        "expected scout_model across split core tool submodules"
+    );
     for (name, body) in &core {
         if calls(&code_only(body), "install_model") {
             assert_eq!(name, "scout_model", "core::{name} installs a model");
