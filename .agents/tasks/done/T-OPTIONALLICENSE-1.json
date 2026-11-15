@@ -4,8 +4,8 @@
   "title": "Retire unsupported CUDA/MKL product routes and clear complete dependency policy without exceptions",
   "goal": "Retire unsupported CUDA and MKL product feature routes across first-party manifests, build/install scripts, and runtime configuration while retaining CPU inference and hardware discovery without cargo-deny exceptions (landed in 2201c81e1f7cd5d823f9b16ab4db21c2921031b6..b01a15e4202d3fd9f7843ba43108907725f66211 with primary implementation commit fa658800f751a8947abf76336e61cb8d92b42f72; crates/susi-vendor-candle later migrated to Commercial susi-gpu-fabric in 71d7a90bd1583487deb7a7c46ce597bdd53557df).",
   "size": "m",
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "completed",
   "deps": [
     "T-FIXTURESTORAGE-1"
   ],
@@ -62,5 +62,10 @@
     "tests/zc_matrix.rs",
     "xtask/src/main.rs",
     "xtask/tests/ci_workflow_perf.rs"
-  ]
+  ],
+  "closed": {
+    "at_unix": 1794773148,
+    "commit": "59bac96fde356b7005b007d06a7bb0a73c4dc5bd",
+    "by": "AG3HOUSEKEEP"
+  }
 }
