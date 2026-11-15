@@ -1,0 +1,31 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--lib",
+      "integrate_builds_on_a_fetched_main_that_passed_the_local_head"
+    ]
+  },
+  "base": "a4a4d9c044509812307aa92c0de92124435d2f4a",
+  "created_by": "harness-integrate-main",
+  "created_unix": 1794783414,
+  "id": "T-LOCALHARNESSZ0INTEGRATEZ0MAIN-1",
+  "integration": "pending_native_receipt",
+  "native_worker": "harness-integrate-main",
+  "owner": "harness-integrate-main",
+  "scopes": [
+    ".agents/tasks/done/t-localharnessz0integratez0main-1.json",
+    ".agents/tasks/t-localharnessz0integratez0main-1.json",
+    "docs/harness-runbook.md",
+    "xtask/src/local_workflow/sync_commit.rs",
+    "xtask/src/local_workflow/tests.rs"
+  ],
+  "status": "verified",
+  "title": "Integrate onto a fetched main that passed the local head",
+  "workflow": "susi-local-v2"
+}
