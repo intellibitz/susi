@@ -1,0 +1,49 @@
+{
+  "id": "T-GAWDTESTS5TB1104-1",
+  "title": "test(susi-gawd): advance 16 Wave B test suites to 5 unit tests each (#330)",
+  "goal": "Advance the 16 Wave B crates/susi-gawd/src/tests/vc_201_*.rs suites to 5 inline unit tests each.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-GAWDTESTS5TB1104-1.json",
+    "crates/susi-gawd/src/tests/vc_201_014.rs",
+    "crates/susi-gawd/src/tests/vc_201_015.rs",
+    "crates/susi-gawd/src/tests/vc_201_016.rs",
+    "crates/susi-gawd/src/tests/vc_201_017.rs",
+    "crates/susi-gawd/src/tests/vc_201_018.rs",
+    "crates/susi-gawd/src/tests/vc_201_019.rs",
+    "crates/susi-gawd/src/tests/vc_201_019_mastery.rs",
+    "crates/susi-gawd/src/tests/vc_201_020.rs",
+    "crates/susi-gawd/src/tests/vc_201_079.rs",
+    "crates/susi-gawd/src/tests/vc_201_093.rs",
+    "crates/susi-gawd/src/tests/vc_201_094.rs",
+    "crates/susi-gawd/src/tests/vc_201_096_mastery.rs",
+    "crates/susi-gawd/src/tests/vc_201_097.rs",
+    "crates/susi-gawd/src/tests/vc_201_097_mastery.rs",
+    "crates/susi-gawd/src/tests/vc_201_100.rs",
+    "crates/susi-gawd/src/tests/vc_201_100_mastery.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Expanded unit test coverage directly inside the 16 existing crates/susi-gawd/src/tests/vc_201_*.rs modules in 1417d9813ac9 prior to lean-core migration of 12 suites to Susi Commercial Apps.",
+    "searched": "crates/susi-gawd/src/tests/vc_201_*.rs",
+    "source": "intellibitz/susi crates/susi-gawd"
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "vc_201_014_tests::"
+    ]
+  },
+  "created_by": "GAWDTESTS5TB1104",
+  "created_unix": 1793814606,
+  "status": "retired",
+  "retired_reason": "Already landed in 1417d9813ac9304e678514467f4346af4d227f6e; 12 of the 16 Wave B test suites (including vc_201_014.rs in 54a4c0e87, plus d3f6ed105, 81660d920, 3db135794, 3f201a666, 42fdb5a1d, c52d19c1b, 48705a0e1, f92b71203, 9eb086016) were subsequently migrated to Susi Commercial Apps during lean-core cleanup, leaving accept.cmd filter vc_201_014_tests:: vacuous (0 matched), while the 4 surviving Core suites (vc_201_018.rs, vc_201_097.rs, vc_201_097_mastery.rs, vc_201_100_mastery.rs) pass within susi-gawd --lib (284 passed; 0 failed; 3 ignored)."
+}
