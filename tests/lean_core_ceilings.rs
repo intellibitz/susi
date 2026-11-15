@@ -346,7 +346,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
 /// intact without inflating first-party runtime size.
 const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 301_800;
 const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
-const TEST_RUST_CEILING: usize = 127_000;
+const TEST_RUST_CEILING: usize = 129_000;
 const TOOLING_RUST_CEILING: usize = 72_200;
 const XTASK_MAX_FILE_LINES_CEILING: usize = 4_000;
 const GMCP_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_800;

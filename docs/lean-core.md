@@ -304,7 +304,7 @@ distinct artifacts side by side:
    deterministic offline builds under a hard ceiling (`216,164`).
 3. **Tooling and tests (`72,094` tooling `.rs` lines in `xtask/**` +
    `toolchain/**`, `121,961` test/bench/fuzz `.rs` lines)**: guarded by separate
-   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`127,000`), and
+   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`129,000`), and
    per-file ceilings (`XTASK_MAX_FILE_LINES_CEILING = 4,000`,
    `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
    `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`) in
@@ -1296,3 +1296,12 @@ vendored crates or append-only audit logs.
   `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
   `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`), and re-recorded
   append-only GMCP requirement and mastery evidence under `.agents/gmcp/evidence/`.
+
+- 2026-11-15 T-CLAUDE-411 (CEO decision 2026-11-15, "raise any test run limit
+  so harness continues to run"): `TEST_RUST_CEILING` `127,000 -> 129,000`
+  (`126,981` measured). The test budget stood 8 lines under its ceiling when
+  the decision was made: a regression test could no longer be added, the
+  Linux fixes of this task had 8 lines to work in, and a tested path for a
+  harness rerun to land a retained candidate did not fit at all. Only the
+  test-line budget moves, and nothing is taken out of the count: no pillar
+  `src` ceiling and no runtime, tooling, vendor or per-file ceiling changes.
