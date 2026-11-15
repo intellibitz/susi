@@ -597,9 +597,10 @@ impl ServerHandler for GmcpService {
                 .map(|t| context.peer.enter_progress(t).map(Arc::new))
                 .transpose()?,
         };
-        if context
-            .client_capabilities()
-            .is_some_and(|c| c.supports_tasks())
+        if self.get_info().capabilities.supports_tasks()
+            && context
+                .client_capabilities()
+                .is_some_and(|c| c.supports_tasks())
             && context
                 .protocol_version()
                 .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)

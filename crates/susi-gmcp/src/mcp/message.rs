@@ -229,6 +229,9 @@ fn parse_notification(
     method: &str,
     params: Option<Value>,
 ) -> Option<(ClientNotificationKind, NotificationMetaObject)> {
+    if !method.starts_with("notifications/") && super::transport::is_standard_method(method) {
+        return None;
+    }
     let (meta, rest) = split_params(params).ok()?;
     let meta = NotificationMetaObject(MetaObject(meta.unwrap_or_default()));
     let body = || Value::Object(rest.clone().unwrap_or_default());

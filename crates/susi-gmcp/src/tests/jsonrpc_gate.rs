@@ -88,6 +88,15 @@ fn classify_envelope_rejects_parse_errors_arrays_and_null_ids() {
         classify_envelope(br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#),
         GateVerdict::Reject { code: -32600, .. }
     ));
+    let no_id_task = br#"{"jsonrpc":"2.0","method":"tasks/get","params":{"taskId":"t-1"}}"#;
+    assert!(matches!(
+        classify_envelope(no_id_task),
+        GateVerdict::Reject { code: -32600, .. }
+    ));
+    assert_eq!(
+        http_envelope_rejection(no_id_task).and_then(|v| v["error"]["code"].as_i64()),
+        Some(-32600)
+    );
     assert!(http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#).is_none());
 }
 

@@ -1720,4 +1720,100 @@ mod task_extension_unit_tests {
             "notifications/bogus"
         ));
     }
+
+    #[tokio::test]
+    async fn disabling_tasks_extension_keeps_builtin_tools_sync_and_blocks_task_only_tools() {
+        use susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+        struct UnitList;
+        impl PlaneHandler for UnitList {
+            fn handle(&self, _t: &str, _p: Value) -> Result<Value, String> {
+                Ok(json!([{"name": "unit_builtin_echo", "description": "Echo"}]))
+            }
+        }
+        struct UnitExec;
+        impl PlaneHandler for UnitExec {
+            fn handle(&self, _t: &str, _p: Value) -> Result<Value, String> {
+                Ok(json!({"text": "sync-builtin"}))
+            }
+        }
+        let _tools_plane = super::TOOLS_PLANE_TEST_LOCK.lock().await;
+        PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(UnitList));
+        PlaneBus::global().register(topics::TOOLS_EXECUTE, Arc::new(UnitExec));
+
+        let svc = GmcpService::new(std::env::temp_dir());
+        let task_tool: Tool = serde_json::from_value(json!({
+            "name": "only_task_tool",
+            "inputSchema": {"type": "object"}
+        }))
+        .unwrap();
+        svc.register_task_tool(
+            task_tool,
+            Arc::new(|_, _| {
+                Box::pin(async {
+                    Ok(CallToolResult::success(vec![ContentBlock::text(
+                        "async-ok",
+                    )]))
+                })
+            }),
+        )
+        .unwrap();
+
+        assert!(svc
+            .extensions()
+            .write()
+            .set_enabled(TASKS_EXTENSION_ID, false));
+
+        let mut wire = super::wire(svc.clone()).await;
+        send(&mut wire, req_with_tasks(1, "server/discover", json!({}))).await;
+        let disc = recv(&mut wire).await;
+        assert!(
+            disc["result"]["capabilities"]["extensions"]
+                .get(TASKS_EXTENSION_ID)
+                .is_none(),
+            "disabled tasks extension must not be advertised: {disc}"
+        );
+
+        // Built-in tool called WITH client tasks capability runs synchronously when server disabled tasks.
+        send(
+            &mut wire,
+            req_with_tasks(
+                2,
+                "tools/call",
+                json!({"name": "unit_builtin_echo", "arguments": {}}),
+            ),
+        )
+        .await;
+        let sync_res = recv(&mut wire).await;
+        assert_eq!(sync_res["result"]["resultType"], "complete", "{sync_res}");
+
+        // Task-only tool fails closed with -32601 when server disabled tasks.
+        send(
+            &mut wire,
+            req_with_tasks(
+                3,
+                "tools/call",
+                json!({"name": "only_task_tool", "arguments": {}}),
+            ),
+        )
+        .await;
+        let blocked = recv(&mut wire).await;
+        assert_eq!(blocked["error"]["code"], -32601, "{blocked}");
+
+        // Re-enabling restores task spawning immediately on the same service instance.
+        assert!(svc
+            .extensions()
+            .write()
+            .set_enabled(TASKS_EXTENSION_ID, true));
+        send(
+            &mut wire,
+            req_with_tasks(
+                4,
+                "tools/call",
+                json!({"name": "only_task_tool", "arguments": {}}),
+            ),
+        )
+        .await;
+        let spawned = recv(&mut wire).await;
+        assert_eq!(spawned["result"]["resultType"], "task", "{spawned}");
+    }
 }

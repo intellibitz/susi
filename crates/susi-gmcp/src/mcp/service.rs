@@ -1180,10 +1180,10 @@ pub async fn handle_request<H: ServerHandler>(
         Q::Unsubscribe(_) if !legacy => Err(E::method_not_found("resources/unsubscribe")),
         Q::Unsubscribe(p) => handler.unsubscribe(p, ctx).await.map(|()| S::Empty),
         Q::CallTool(p) => {
-            let declared_tasks = requires_tasks(&ctx).is_ok();
+            let gate = tasks_gate(handler, &ctx, "io.modelcontextprotocol/tasks");
             let response = handler.call_tool(p, ctx).await?;
-            if matches!(response, CallToolResponse::Task(_)) && !declared_tasks {
-                return Err(requires_tasks_err());
+            if matches!(response, CallToolResponse::Task(_)) {
+                gate?;
             }
             Ok(S::from(response))
         }

@@ -2539,6 +2539,51 @@ fn toolchain_homes(
         .collect()
 }
 
+// Acceptance runs under a disposable home. Host compiler-cache wrappers may
+// depend on real user config (sccache panics on Windows without it). Match the
+// native local-workflow/release isolation without changing host Cargo settings.
+// Empty overrides, rather than env_remove, also suppress Cargo config wrappers.
+fn isolate_acceptance_compiler_wrappers(command: &mut Command) {
+    for key in [
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+    ] {
+        command.env(key, "");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn acceptance_disables_host_wrappers_without_mutating_parent_environment() {
+    let keys = [
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+    ];
+    let before: Vec<_> = keys.iter().map(std::env::var_os).collect();
+    let mut command = Command::new("cargo");
+    for key in keys {
+        command.env(key, "host-wrapper-that-requires-user-config");
+    }
+    isolate_acceptance_compiler_wrappers(&mut command);
+    for key in keys {
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value),
+            Some(Some(std::ffi::OsStr::new("")))
+        );
+    }
+    assert_eq!(
+        before,
+        keys.iter().map(std::env::var_os).collect::<Vec<_>>()
+    );
+}
+
 fn verify_composed_accept_commands(
     git: &Git<'_>,
     final_commit: &str,
@@ -2594,6 +2639,7 @@ fn verify_composed_accept_commands(
             .env("TMP", &runtime_dir)
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("SUSI_NO_REGISTRY_ENV", "1");
+        isolate_acceptance_compiler_wrappers(&mut command);
         for (key, value) in toolchain_homes(|key| std::env::var_os(key)) {
             command.env(key, value);
         }
