@@ -408,6 +408,25 @@ only way it had to add. The adapter's prompt for `gmcp_req_` and `gmcp_vc_`
 tasks now says to append the test; the rejection of a test-count drop stays as
 the backstop.
 
+### A governed CLI worker
+
+A `cli:<tool>` worker is an installed coding CLI rather than the native
+worker, and by default it is started with that tool's own permission bypass.
+With `SUSI_HARNESS_CLI_GOVERNED` present in the environment of the command
+that runs the mission, a Claude Code worker runs in the CLI's restricted mode
+instead: the same contract as the six native tools, enforced by the CLI
+rather than asked for in the prompt. Its file tools stay inside the worktree,
+`cargo` is the only program allowed by name (read-only commands and file
+operations inside the worktree still run), every other command that would
+need approval is denied, and it loads no settings, hooks, plugins,
+`CLAUDE.md` or MCP servers. A tool without a governed profile is refused
+before launch.
+
+```sh
+SUSI_HARNESS_CLI_GOVERNED=1 susi harness run plan.json --repo . \
+  --gateway http://127.0.0.1:9188 --model cli:claude:sonnet
+```
+
 ## Draining the roadmap queue
 
 `susi harness plan` turns the queue into a mission that **claims existing

@@ -75,6 +75,42 @@ fn argon_model(submodel: Option<&str>) -> Result<&'static str, String> {
     }
 }
 
+/// Presence opts this process's subscription CLI turns into the governed
+/// permission policy, whatever the value. Remove the variable to disable it.
+pub const CLI_GOVERNED_ENV: &str = "SUSI_HARNESS_CLI_GOVERNED";
+
+/// Claude Code's own switches for a governed turn, in place of its permission
+/// bypass: file tools confined to the workspace, `cargo` the only program
+/// allowed by name, no settings, hooks, plugins or MCP servers, and anything
+/// that would prompt denied.
+const CLAUDE_GOVERNED: [&str; 11] = [
+    "--restricted",
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--tools",
+    "Read,Glob,Grep,Edit,Write,Bash",
+    "--permission-mode",
+    "acceptEdits",
+    "--permission-prompts",
+    "none",
+    "--allowedTools",
+    "Bash(cargo *)",
+];
+
+/// `args` under the governed policy. Only a tool with a verified profile
+/// runs; the rest are refused before launch instead of running unbounded.
+fn governed_args(kind: CliToolKind, mut args: Vec<String>) -> Result<Vec<String>, String> {
+    if kind != CliToolKind::Claude {
+        return Err(format!(
+            "governed CLI policy: {} has no governed permission profile",
+            kind.as_str()
+        ));
+    }
+    args.retain(|arg| arg != "--dangerously-skip-permissions");
+    args.extend(CLAUDE_GOVERNED.map(str::to_string));
+    Ok(args)
+}
+
 /// The prompt flag argument for CLIs that take the real prompt on stdin.
 const STDIN_PROMPT: &str = "Execute the instructions provided on stdin.";
 
@@ -459,6 +495,8 @@ pub struct CliSubRunner {
     pub poll_interval: Duration,
     /// Pin Antigravity to Argon High and reject conflicting model selections.
     pub antigravity_argon_only: bool,
+    /// Run the tool under its governed permission profile, never its bypass.
+    pub governed: bool,
 }
 
 impl Default for CliSubRunner {
@@ -469,11 +507,21 @@ impl Default for CliSubRunner {
             command_override: None,
             poll_interval: DEFAULT_POLL_INTERVAL,
             antigravity_argon_only: false,
+            governed: false,
         }
     }
 }
 
 impl CliSubRunner {
+    /// The production runner: governed when [`CLI_GOVERNED_ENV`] is present.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            governed: std::env::var_os(CLI_GOVERNED_ENV).is_some(),
+            ..Self::default()
+        }
+    }
+
     /// A runner that defaults to `kind` when the model is not a CLI spec.
     #[must_use]
     pub fn with_default_kind(kind: CliToolKind) -> Self {
@@ -511,6 +559,9 @@ impl CliSubRunner {
             if self.antigravity_argon_only {
                 return Err("Argon-only policy refuses an unverified command override".into());
             }
+            if self.governed {
+                return Err("governed CLI policy refuses an unverified command override".into());
+            }
             return Ok(vec![command.clone()]);
         }
         let dirs = self.search_dirs.clone().unwrap_or_else(default_search_dirs);
@@ -539,7 +590,11 @@ impl CliSubRunner {
         } else {
             submodel
         };
-        let (candidates, args, pipe_prompt_on_stdin) = build_invocation(kind, submodel.as_deref());
+        let (candidates, mut args, pipe_prompt_on_stdin) =
+            build_invocation(kind, submodel.as_deref());
+        if self.governed {
+            args = governed_args(kind, args)?;
+        }
         let command = |program: PathBuf| CliCommand {
             program,
             args: args.clone(),
@@ -1046,7 +1101,7 @@ impl AdaptiveRunner<NativeWorker, CliSubRunner> {
             antigravity_argon_only: argon_only,
             cli_runner: CliSubRunner {
                 antigravity_argon_only: argon_only,
-                ..CliSubRunner::default()
+                ..CliSubRunner::from_env()
             },
             fallback_cli_model: read(FALLBACK_CLI_ENV),
             fallback_payg_model: read(FALLBACK_PAYG_ENV),

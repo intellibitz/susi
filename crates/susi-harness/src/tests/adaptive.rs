@@ -955,3 +955,61 @@ fn execution_modes_have_stable_names_and_the_default_runner_is_auto() {
         (ExecutionMode::PaygByok, "deepseek-flash".to_string())
     );
 }
+
+#[test]
+fn governed_policy_swaps_claudes_bypass_for_its_restricted_mode() {
+    let installed = susi_paths::tempfile::tempdir().unwrap();
+    std::fs::write(installed.path().join("claude.exe"), b"").unwrap();
+    std::fs::write(installed.path().join("codex.exe"), b"").unwrap();
+    let dirs = vec![installed.path().to_path_buf()];
+    let governed = CliSubRunner {
+        governed: true,
+        ..CliSubRunner::default().with_search_dirs(dirs.clone())
+    };
+    let resolved = governed.resolve("cli:claude:sonnet").unwrap();
+    let args = &resolved[0].args;
+    assert_eq!(args[..4], ["-p", STDIN_PROMPT, "--model", "sonnet"]);
+    assert_eq!(args[4..], CLAUDE_GOVERNED);
+    for pair in [
+        ["--permission-mode", "acceptEdits"],
+        ["--permission-prompts", "none"],
+        ["--allowedTools", "Bash(cargo *)"],
+    ] {
+        assert!(args.windows(2).any(|window| window == pair), "{pair:?}");
+    }
+    assert!(!args.iter().any(|arg| arg.contains("dangerously")));
+
+    // A tool with no governed profile never launches, on either route.
+    for spec in ["cli:codex", "monthly:codex"] {
+        let outcome = governed.run(&config(spec)).unwrap();
+        assert!(
+            matches!(outcome, RunOutcome::Failed { ref message }
+                if message.contains("no governed permission profile")),
+            "{spec}: {outcome:?}"
+        );
+    }
+    // Nor does a command nobody vouched for.
+    let overridden = CliSubRunner {
+        governed: true,
+        ..CliSubRunner::with_command(sort_command())
+    };
+    assert!(overridden
+        .resolve("cli:claude")
+        .unwrap_err()
+        .contains("unverified command override"));
+
+    // Without the policy the invocation is what it always was.
+    let ungoverned = CliSubRunner::default().with_search_dirs(dirs);
+    assert!(!ungoverned.governed);
+    assert_eq!(
+        ungoverned.resolve("cli:claude").unwrap()[0].args,
+        build_invocation(CliToolKind::Claude, None).1
+    );
+}
+
+#[test]
+fn governed_policy_from_env_wires_both_production_layers() {
+    let expected = std::env::var_os(CLI_GOVERNED_ENV).is_some();
+    assert_eq!(CliSubRunner::from_env().governed, expected);
+    assert_eq!(AdaptiveRunner::from_env().cli_runner.governed, expected);
+}

@@ -83,7 +83,7 @@ pub enum RunOutcome {
 /// the turn, not a fault in the harness.
 pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
     if crate::adaptive::subscription_spec(&config.model) {
-        return crate::adaptive::CliSubRunner::default().run(config);
+        return crate::adaptive::CliSubRunner::from_env().run(config);
     }
     crate::worker::run_agent_loop(config, MAX_TURNS)
 }

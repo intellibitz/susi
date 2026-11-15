@@ -1,0 +1,36 @@
+{
+  "id": "T-CLAUDE-409",
+  "title": "Run the harness Claude CLI worker under governed permissions",
+  "goal": "A cli:claude harness turn can run under the Claude CLI's own restricted mode (file tools confined to the worktree, cargo the only program allowed by name, no settings, hooks, CLAUDE.md or MCP servers, prompts denied) instead of --dangerously-skip-permissions, selected by the presence of SUSI_HARNESS_CLI_GOVERNED; a tool with no governed profile and a command override are refused before launch; without the variable the invocation is unchanged.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "adaptive"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1794764514,
+  "owner": "claude",
+  "scopes": [
+    "crates/susi-harness/src/adaptive.rs",
+    "crates/susi-harness/src/monthly.rs",
+    "crates/susi-harness/src/executor.rs",
+    "crates/susi-harness/src/tests/adaptive.rs",
+    "crates/susi-harness/README.md",
+    "docs/harness.md",
+    ".agents/tasks/T-CLAUDE-409.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inside Susi: crates/susi-harness adaptive.rs/monthly.rs/workload.rs (the Argon-only presence opt-in and the workload Codex sandbox route are the existing policy patterns), executor.rs and the adapter's native six-tool worker contract. Outside: the installed Claude Code CLI's own switches (claude --help: --restricted, --safe-mode, --strict-mcp-config, --tools, --permission-mode, --permission-prompts, --allowedTools).",
+    "reason": "Reuse the CLI's own restricted mode and the crate's existing presence-opt-in pattern; no sandbox is built and no dependency is added."
+  }
+}

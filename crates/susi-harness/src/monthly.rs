@@ -1,9 +1,9 @@
 //! Resolve monthly providers before giving a single CLI the prompt.
 
 use super::{
-    build_invocation, default_search_dirs, drain, find_in_dirs, monthly_auto, reap, run_piped_with,
-    with_model, CliAuth, CliCommand, CliSubRunner, CliToolKind, ExecutorConfig, PipedRun,
-    PollTiming, RunOutcome, DRAIN_GRACE,
+    build_invocation, default_search_dirs, drain, find_in_dirs, governed_args, monthly_auto, reap,
+    run_piped_with, with_model, CliAuth, CliCommand, CliSubRunner, CliToolKind, ExecutorConfig,
+    PipedRun, PollTiming, RunOutcome, DRAIN_GRACE,
 };
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -185,6 +185,8 @@ impl CliSubRunner {
                 "no managed subscription adapter"
             } else if !google_pin && !matches!(kind, CliToolKind::Codex | CliToolKind::Claude) {
                 "no verifiable headless subscription status"
+            } else if self.governed && !workload && kind != CliToolKind::Claude {
+                "no governed permission profile"
             } else if let Some(program) = find_in_dirs(kind, &dirs) {
                 if workload {
                     let name = submodel
@@ -195,6 +197,12 @@ impl CliSubRunner {
                 if google_pin || status(&program, kind, &config.workspace, deadline) {
                     let (_, mut args, pipe_prompt_on_stdin) =
                         build_invocation(kind, submodel.as_deref());
+                    if self.governed {
+                        match governed_args(kind, args) {
+                            Ok(governed) => args = governed,
+                            Err(message) => return failed(message),
+                        }
+                    }
                     match kind {
                         CliToolKind::Codex => {
                             args.splice(

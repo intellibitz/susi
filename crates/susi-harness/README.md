@@ -343,6 +343,7 @@ Run `susi-harness env` to see what is set.
 | `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>` | `YYYY-MM-DD` the provider's credit expires. Its models run first until then, and each run alerts in the last 7 days. |
 | `SUSI_HARNESS_RPM_<PROVIDER>` | Requests per minute the gateway sends to the provider. Unset means no limit. |
 | `SUSI_HARNESS_TPM_<PROVIDER>` | Tokens per minute the gateway lets the provider serve. Unset means no limit. |
+| `SUSI_HARNESS_CLI_GOVERNED` | Present with any value: every `cli:`, `sub:` and `monthly:` turn runs under the tool's governed permission profile instead of its permission bypass. Read from the process environment only. See Security. |
 | `SUSI_HARNESS_PREFER` | Provider ids, comma-separated, whose models lead their tier and whose first named orchestrates: `siliconflow,deepinfra`. Order matters; unknown or unkeyed ids are ignored. |
 | `SUSI_HARNESS_PROVIDERS` | Path to a registry file whose providers and models are added to the built-in ones. A missing or malformed file stops the harness. Read from the environment or `~/.susi/.env`, never `./.env`. A relative path in `~/.susi/.env` is relative to `~/.susi`; one in the environment is relative to the current folder. |
 | `ANTHROPIC_WORKSPACE_ID` | Workspace for an Anthropic console user key (process environment only). |
@@ -443,6 +444,18 @@ skipped, and a row the next append glued onto it still counts.
   A worker's shell commands run without any provider key variable in their
   environment, and their output is masked before a model sees it. The shell
   still runs with your user's rights; it is not a sandbox.
+- A subscription CLI (`cli:claude`, `cli:codex`, ...) is started with the
+  tool's own "grant everything" switch, so its turn is bounded only by the
+  machine it runs on. Set `SUSI_HARNESS_CLI_GOVERNED` to run it governed
+  instead. Claude Code then runs in its own restricted mode: its file tools
+  are confined to the task's worktree, `cargo` is the only program allowed by
+  name (the CLI still runs read-only commands and file operations inside the
+  worktree), anything else that would ask is denied (`git init` and `curl`
+  were, when this was checked), and no settings file, hook, plugin,
+  `CLAUDE.md` or MCP server is loaded. Only Claude Code
+  has a governed profile today; any other tool, and any command override, is
+  refused before it starts, so nothing runs ungoverned under the policy. A
+  managed workload's Codex route keeps its own sandbox either way.
 - A provider with a published key form (Anthropic: `sk-ant-`) only gets a
   value of that form. A wrong value in one scope is skipped for the next
   scope, with a warning that names the scope and never the value.
