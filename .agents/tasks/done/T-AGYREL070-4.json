@@ -36,7 +36,12 @@
     ".agents/tasks/T-AGYREL070-4.json",
     "releases/v0.21.70.json"
   ],
-  "state": "in-progress",
-  "status": "in-progress",
-  "updated_unix": 1794742837
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794742842,
+  "closed": {
+    "at_unix": 1794742842,
+    "commit": "821a1d49f41bad97d4eeeca6bb62012dcd74bbcd",
+    "by": "AGYREL070"
+  }
 }
