@@ -14,6 +14,7 @@
   },
   "base": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
   "id": "T-LOCALHARNESSZ0DOCSZ0PROMISE-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-docs-promise",
   "owner": "harness-docs-promise",
   "scopes": [
@@ -22,7 +23,7 @@
     "docs/ceo-mandate-81.md",
     "docs/gmcp/contract-203-020.md"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Reword three core doc sentences that break the no-UI-or-plugins docs promise",
   "workflow": "susi-local-v2"
 }
