@@ -1,23 +1,38 @@
 {
   "id": "T-CHROME-1",
   "title": "Bound native Chromium subprocess execution",
-  "dependencies": [],
+  "goal": "Enforce execution deadlines and 8 MiB file-backed stdout/stderr output caps on headless Chromium version probes and page captures while tracking and terminating owned child/descendant processes without blocking on inherited pipes (landed in 0e9342a1e1db3c36fe403ed14dde3fd819f2f1e1; crates/susi-vendor-chrome was subsequently removed from Core under the open-source socket boundary in 2e33e4ec2a8588ba09c6a48c528c1ee7938ec1d9 with ceiling 0 enforced by tests/socket_boundary.rs).",
+  "size": "m",
+  "deps": [],
+  "state": "open",
+  "status": "completed",
+  "created_by": "CHROME1",
+  "created_unix": 1793612694,
+  "implementation_commit": "0e9342a1e1db3c36fe403ed14dde3fd819f2f1e1",
+  "reuse": {
+    "decision": "existing",
+    "reason": "Implemented bounded_output over std::process::Command, susi_error::{EaiError, EaiResult}, and sysinfo process-tree tracking inside crates/susi-vendor-chrome in 0e9342a1e1db3c36fe403ed14dde3fd819f2f1e1; crates/susi-vendor-chrome was later deleted from Core in 2e33e4ec2a8588ba09c6a48c528c1ee7938ec1d9 with its zero-file socket ceiling enforced in tests/socket_boundary.rs.",
+    "searched": "crates/susi-error/src/lib.rs, tests/socket_boundary.rs",
+    "source": "intellibitz/susi (0e9342a1e1db and 2e33e4ec2a85)",
+    "reused_symbols": [
+      "susi_error::EaiError",
+      "susi_error::EaiResult"
+    ]
+  },
   "scopes": [
-    "crates/susi-vendor-chrome"
+    ".agents/tasks/T-CHROME-1.json",
+    "crates/susi-vendor-chrome",
+    "tests/socket_boundary.rs",
+    "tests/task_record_schema_debt.json"
   ],
-  "acceptance": [
-    "Browser version probes and captures have deadlines and output limits",
-    "Timed-out owned child and descendants are terminated without blocking on inherited output pipes",
-    "Existing capture tests and timeout/output regression tests pass"
-  ],
-  "status": "ready-for-integration",
-  "validation": {
-    "tests": "cargo test --offline --locked -p susi-vendor-chrome",
-    "passed": 6,
-    "failed": 0,
-    "ignored": 0,
-    "test_seconds": 15.37,
-    "clippy": "cargo clippy --offline --locked -p susi-vendor-chrome --all-targets -- -D warnings: exit 0",
-    "lockfile_handoff": "Parent adds susi-vendor-sysinfo under susi-vendor-chrome dependencies in Cargo.lock"
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "socket_boundary"
+    ]
   }
 }
