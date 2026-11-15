@@ -19,12 +19,17 @@
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
+  "state": "closed",
   "status": "completed",
+  "implementation_commit": "a89d6a49a630d52086fad66e935ac83af0e370f6",
+  "closed": {
+    "at_unix": 1794763110,
+    "commit": "b8e90b1e48e29641e0d894a16d993289a8609a47",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Production path (`GMCP-203-020-02`) implements `ServerBuilder`, `sdk_schema!`, MRTR builders/capability guards, outer-to-inner `ToolMiddleware`, atomic `reload_catalog`, `PluginBundle` / `PluginPolicy` / `attach_plugin` / `unload_plugin`, `verify_pack_dir_for_sdk`, in-process duplex `TestHarness`, and runnable minimal-through-production examples wired into `GmcpServer`; subsequent vector stages (`T-CODEXGMCPROADMAP-109`..`113`) add dedicated security/adversarial, transport-matrix, scale/budget, operations/CLI, and final `.M` mastery suites.",
-    "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery).",
-    "Phase 1 keeps `.agents/tasks/T-CODEXGMCPROADMAP-108.json` open until the implementation and refreshed shared GMCP evidence land on `origin/main`."
+    "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
   ],
   "reuse": {
     "decision": "existing",
