@@ -1,6 +1,6 @@
 # Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin host lifecycle
 
-Status: **implemented** (requirements GMCP-203-020-01..04, vector VC-203-020)
+Status: **implemented** (requirements GMCP-203-020-01..05, vector VC-203-020)
 Baseline date: **2026-11-15**
 
 ## Normative clause
@@ -322,7 +322,30 @@ Subsequent stages (`T-CODEXGMCPROADMAP-108`..`113`) extend `vc_203_020.rs` with
 middleware ordering, in-memory `TestHarness`, concurrent hot-reload,
 transactional plugin rollback, post-unload zero-leak verification, transport
 parity, CLI/API operations diagnostics, and runnable minimal-through-production
-examples (`01_minimal_tool` through `06_production_plugin_server`).
+examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
+`crates/susi-gmcp/examples/06_production_plugin_server.rs`).
+
+### Interoperability & retained regression fixtures (`GMCP-203-020-05`)
+
+- **Runnable minimal-through-production examples (`SDK-018`)**:
+  `01_minimal_tool`, `02_structured_middleware`, `03_resources_prompts_completions`,
+  `04_mrtr_and_durable_tasks`, `05_hot_reload_and_subscriptions`, and
+  `06_production_plugin_server` under `crates/susi-gmcp/examples/`, executed
+  against isolated scratch workspaces in `gmcp_req_203_020_05_interop`.
+- **Retained regression fixtures**:
+  - **R1 — Cooperative vs. uncooperative `notifications/cancelled` cleanup**:
+    cooperative handlers observing `ctx.ct.cancelled()` complete deterministic
+    cleanup before future drop (`crates/susi-gmcp/src/protocol.rs` biased poll +
+    25 ms grace), while stalled uncooperative handlers abort cleanly without
+    wedging subsequent requests on the connection.
+  - **R2 — Dual-era (`2026-07-28` sessionless `_meta` vs. `2025-11-25` stateful
+    `initialize`) envelope & method gating**: pinned wire conformance fixtures
+    (`.agents/gmcp/fixtures/{positive,negative}` + `divergences.json`) replay
+    cleanly on SDK-authored servers across both eras.
+  - **R3 — `reload_catalog` preservation of active plugin contributions**:
+    host catalog hot-reload swaps non-plugin registrations atomically while
+    preserving attached `PluginBundle` entries and rejecting colliding tool
+    names fail-closed.
 
 ## Evidence locations
 

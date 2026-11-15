@@ -1,24 +1,51 @@
 {
-  "id": "T-CODEXGMCPROADMAP-111",
-  "title": "[GMCP 203.020.05] Interoperability and quality: GMCP server authoring SDK and plugin lifecycle",
-  "goal": "Requirement GMCP-203-020-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
-  "size": "l",
-  "deps": [
-    "T-CODEXGMCPROADMAP-108",
-    "T-CODEXGMCPROADMAP-109",
-    "T-CODEXGMCPROADMAP-110"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--locked",
-      "--test",
-      "gmcp_requirements",
-      "gmcp_req_203_020_05_interop"
-    ]
-  },
-  "roadmap": "VC-203-020",
-  "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+    "id":  "T-CODEXGMCPROADMAP-111",
+    "title":  "[GMCP 203.020.05] Interoperability and quality: GMCP server authoring SDK and plugin lifecycle",
+    "goal":  "Requirement GMCP-203-020-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+    "size":  "l",
+    "deps":  [
+                 "T-CODEXGMCPROADMAP-108",
+                 "T-CODEXGMCPROADMAP-109",
+                 "T-CODEXGMCPROADMAP-110"
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--locked",
+                               "--test",
+                               "gmcp_requirements",
+                               "gmcp_req_203_020_05_interop"
+                           ]
+               },
+    "roadmap":  "VC-203-020",
+    "created_by":  "CODEXGMCPROADMAP",
+    "created_unix":  1792256247,
+    "state":  "open",
+    "status":  "implemented",
+    "base_commit":  "19dba42c8b098bac0013abdbcb2190c8ac592d63",
+    "limitations":  [
+                        "Interoperability and quality (`GMCP-203-020-05`) ships runnable minimal-through-production SDK/plugin examples (`crates/susi-gmcp/examples/01_minimal_tool.rs`..`06_production_plugin_server.rs`) and proves both-role `2026-07-28` and `2025-11-25` wire interop, official fixture replay, direct-vs-gateway differential behavior, deterministic property invariants, cross-transport parity, published SLO and multi-principal fairness budgets, and retained regression fixtures `R1..R3`; CLI/API operations, runbook, and drift detection diagnostics ship next in `T-CODEXGMCPROADMAP-112`, and final `.M` mastery sealing ships in `T-CODEXGMCPROADMAP-113`.",
+                        "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps), and `.agents/gmcp/evidence/VC-203-020.jsonl` plus `.agents/roadmap-verdicts/VC-203-020.json` stay absent until `T-CODEXGMCPROADMAP-113` (`.M` Mastery)."
+                    ],
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  [
+                                   "crates/susi-gmcp/src/sdk.rs",
+                                   "crates/susi-gmcp/src/sdk/examples.rs",
+                                   "crates/susi-wire-client/src/mcp.rs",
+                                   "tests/gmcp_requirements/adapter_support.rs",
+                                   "tests/gmcp_requirements/vc_203_020.rs",
+                                   "docs/gmcp/contract-203-020.md"
+                               ],
+                  "target":  "crates/susi-gmcp/src/sdk/examples.rs",
+                  "why":  "Built all six runnable examples (`01_minimal_tool`..`06_production_plugin_server`) and interoperability/parity/SLO suites directly atop existing `ServerBuilder`, `GmcpService`, `PluginBundle`, `TestHarness`, `GmcpServer`, and `susi_wire_client::mcp::Session` surfaces without introducing duplicate harness or client abstractions."
+              },
+    "scopes":  [
+                   ".agents/gmcp/evidence",
+                   ".agents/tasks/T-CODEXGMCPROADMAP-111.json",
+                   "crates/susi-gmcp/examples",
+                   "docs/gmcp/contract-203-020.md",
+                   "tests/gmcp_requirements/vc_203_020.rs"
+               ]
 }

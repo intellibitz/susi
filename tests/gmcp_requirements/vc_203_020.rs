@@ -886,3 +886,647 @@ fn gmcp_req_203_020_04_adversarial() {
     }
     assert!(!root.join(".agents/gmcp/evidence/VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
 }
+
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/01_minimal_tool.rs"]
+mod sdk_ex_01;
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/02_structured_middleware.rs"]
+mod sdk_ex_02;
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/03_resources_prompts_completions.rs"]
+mod sdk_ex_03;
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/04_mrtr_and_durable_tasks.rs"]
+mod sdk_ex_04;
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/05_hot_reload_and_subscriptions.rs"]
+mod sdk_ex_05;
+#[allow(dead_code)]
+#[path = "../../crates/susi-gmcp/examples/06_production_plugin_server.rs"]
+mod sdk_ex_06;
+
+/// GMCP-203-020-05: interoperability and quality — both-role official-suite and
+/// reference-SDK interop (`2026-07-28` & `2025-11-25`), direct-vs-gateway
+/// differential behavior, property invariants, transport/platform parity,
+/// runnable minimal-through-production examples (`01`..`06`), published SLO and
+/// fairness budgets, and retained regression fixtures (`R1`..`R3`).
+#[test]
+fn gmcp_req_203_020_05_interop() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeMap;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    use std::time::{Duration, Instant};
+    use susi_gmcp::{
+        direct_call::call_tool_direct,
+        mcp::{
+            model::{CallToolResult, ClientCapabilities, ContentBlock, Prompt, Resource, Tool},
+            schema,
+            task_manager::{TaskExit, TaskOptions, TaskPrincipal, MAX_ACTIVE_TASKS_PER_PRINCIPAL},
+            ServiceExt,
+        },
+        protocol::{GmcpService, McpGatewayProxy, ToolMiddleware},
+        sdk::{
+            examples::{
+                production_reference_server, sample_plugin_bundle, SummarizeInput,
+            },
+            mrtr_elicitation, mrtr_roots_list, mrtr_sampling, CatalogUpdate, PluginBundle,
+            PluginPolicy, ServerBuilder, TestHarness,
+        },
+        server::GmcpServer,
+        susi_config::extensions::{
+            create_pack, load_pack, unload_pack, validate_manifest, DEFAULT_PACK_ID,
+        },
+    };
+    use susi_wire_client::mcp::{
+        CallToolOutcome, Session, TaskStatus as ClientTaskStatus, PROTOCOL_VERSION_2026_07_28,
+    };
+
+    let (_lock, _env, home) = gmcp_http_home_guard("020-05-interop");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let ws = home.join("ws");
+    let store_dir = home.join("durable-tasks");
+    let ex_scratch = home.join("examples-scratch");
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&ws).expect("ws");
+    std::fs::create_dir_all(&ex_scratch).expect("ex");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg");
+    let token = "susi-020-05-bearer";
+    std::fs::write(cfg_dir.join("api_token"), token).expect("token");
+    susi_gmcp::susi_config::extensions::invalidate_extension_caches();
+    let baseline_rss = adapter_resident_bytes();
+
+    // 1. Runnable minimal-through-production examples (`01_minimal_tool` .. `06_production_plugin_server`).
+    assert_eq!(DEFAULT_PACK_ID, "default");
+    for (expected_name, res) in [
+        ("01_minimal_tool", sdk_ex_01::run(&ex_scratch.join("01"))),
+        ("02_structured_middleware", sdk_ex_02::run(&ex_scratch.join("02"))),
+        ("03_resources_prompts_completions", sdk_ex_03::run(&ex_scratch.join("03"))),
+        ("04_mrtr_and_durable_tasks", sdk_ex_04::run(&ex_scratch.join("04"))),
+        ("05_hot_reload_and_subscriptions", sdk_ex_05::run(&ex_scratch.join("05"))),
+        ("06_production_plugin_server", sdk_ex_06::run(&ex_scratch.join("06"))),
+    ] {
+        let out = res.unwrap_or_else(|e| panic!("{expected_name} failed: {e}"));
+        assert_eq!(out["example"], expected_name, "{out}");
+        assert_eq!(out["ok"], true, "{expected_name} invariant failed: {out}");
+    }
+    assert!(!cfg_dir.join("extensions").exists(), "examples must never seed ~/.susi/extensions");
+
+    // 2. Both-role official-suite & reference-SDK interop (`2026-07-28` & `2025-11-25`) +startup SLO.
+    let t_startup = Instant::now();
+    let (sdk_svc, audit_log) = production_reference_server(ws.clone(), store_dir.clone()).expect("sdk");
+    let obj_schema = serde_json::Map::from_iter([("type".into(), json!("object"))]);
+    sdk_svc
+        .register_task_tool(
+            Tool::new_with_raw("mrtr_triad", Some("3-method MRTR task".into()), obj_schema.clone()),
+            Arc::new(|_params, tc| {
+                Box::pin(async move {
+                    let s_req = mrtr_sampling("Summarize release readiness", 64).map_err(TaskExit::Error)?;
+                    let s_ans = tc.request_input("sample_step", s_req).await?;
+                    let e_schema = json!({"type":"object","properties":{"go":{"type":"boolean"}},"required":["go"]});
+                    let e_req = mrtr_elicitation("Proceed with release?", e_schema).map_err(TaskExit::Error)?;
+                    let e_ans = tc.request_input("elicit_step", e_req).await?;
+                    let r_req = mrtr_roots_list().map_err(TaskExit::Error)?;
+                    let r_ans = tc.request_input("roots_step", r_req).await?;
+                    Ok(CallToolResult::structured(json!({
+                        "sampled": s_ans["content"]["text"],
+                        "approved": e_ans["go"],
+                        "rootCount": r_ans["roots"].as_array().map_or(0, Vec::len)
+                    })))
+                })
+            }),
+        )
+        .expect("mrtr_triad");
+    let restricted_runs = Arc::new(AtomicUsize::new(0));
+    let rr = Arc::clone(&restricted_runs);
+    sdk_svc
+        .register_tool(
+            Tool::new_with_raw("system_restricted_interop_op", Some("Gateway differential probe".into()), obj_schema.clone()),
+            Arc::new(move |_p, _c| {
+                rr.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { Ok(CallToolResult::success(vec![ContentBlock::text("unreachable")]).into()) })
+            }),
+        )
+        .expect("restricted probe");
+
+    // Attach signed plugin bundle for full server+plugin surface.
+    let pack_dir = home.join("interop-signed-pack");
+    std::fs::create_dir_all(pack_dir.join("catalog")).expect("pack dir");
+    let art_bytes = br#"{"tools":["plugin_lookup","plugin_watch"]}"#;
+    std::fs::write(pack_dir.join("catalog/plugin.json"), art_bytes).expect("art");
+    let digest = susi_paths::hex::encode(Sha256::digest(art_bytes));
+    let (files, csums) = (
+        BTreeMap::from([("catalog".to_string(), "catalog/plugin.json".to_string())]),
+        BTreeMap::from([("catalog".to_string(), format!("sha256:{digest}"))]),
+    );
+    let sk = SigningKey::from_bytes(&[11u8; 32]);
+    let mk_signed_bundle = || {
+        let mut b = sample_plugin_bundle(Some(pack_dir.clone()), csums.clone(), files.clone());
+        b.manifest.signer = Some(susi_paths::hex::encode(sk.verifying_key().to_bytes()));
+        b.manifest.signatures.insert("catalog".into(), susi_paths::hex::encode(sk.sign(art_bytes).to_bytes()));
+        b
+    };
+    std::fs::write(pack_dir.join("manifest.json"), serde_json::to_vec_pretty(&mk_signed_bundle().manifest).expect("j")).expect("wm");
+    let policy = PluginPolicy::strict().grant_permission("filesystem.read");
+    sdk_svc.attach_plugin(mk_signed_bundle(), &policy).expect("attach signed plugin");
+    sdk_svc.bind_direct_server("sdk-020-05").expect("bind direct");
+
+    let rt = adapter_runtime(&home);
+    let startup_ms = rt.block_on(async {
+        let h = TestHarness::spawn(sdk_svc.clone());
+        let d = h.request_modern("server/discover", json!({}), Default::default()).await.expect("disc");
+        assert_eq!(d["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "sdk-production-ref");
+        let ms = t_startup.elapsed().as_millis();
+        h.shutdown().await;
+        ms
+    });
+    assert!(startup_ms <= 2_000, "cold SDK startup + discover took {startup_ms} ms (> 2000 ms)");
+
+    // Serve over HTTP `/mcp` and test both `2026-07-28` stateless & `2025-11-25` stateful reference clients.
+    let wait_port = |l: TcpListener, f: Box<dyn FnOnce(Vec<TcpListener>) + Send>| -> String {
+        let addr = format!("127.0.0.1:{}", l.local_addr().expect("addr").port());
+        std::thread::spawn(move || f(vec![l]));
+        for _ in 0..80 {
+            if TcpStream::connect(&addr).is_ok() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        addr
+    };
+    let http_svc = sdk_svc.clone();
+    let sdk_addr = wait_port(
+        TcpListener::bind("127.0.0.1:0").expect("bind"),
+        Box::new(move |ls| GmcpServer::serve_http_service(http_svc, ls, None, false)),
+    );
+
+    let mut modern_wire = Session::open_2026_07_28(&sdk_addr, Some(token), Duration::from_secs(15)).expect("open 2026");
+    assert_eq!(modern_wire.protocol_version(), PROTOCOL_VERSION_2026_07_28);
+    assert!(modern_wire.supports_server_tasks());
+    assert!(modern_wire.server_extensions().expect("exts").contains_key("io.susi.sdk/reference"));
+    assert!(modern_wire.server_extensions().expect("exts").contains_key("io.susi.plugin/sample"));
+
+    let mut mrtr_methods_seen = Vec::new();
+    let triad_out = modern_wire
+        .call_tool_resolving_tasks("mrtr_triad", &json!({}), Some(Duration::from_secs(10)), |reqs| {
+            assert_eq!(reqs.len(), 1);
+            mrtr_methods_seen.push(reqs[0].method.clone());
+            let ans = match reqs[0].method.as_str() {
+                "sampling/createMessage" => json!({ "role": "assistant", "content": { "type": "text", "text": "all-green" }, "model": "ref-client" }),
+                "elicitation/create" => json!({ "go": true }),
+                "roots/list" => json!({ "roots": [{ "uri": "file:///workspace/susi", "name": "susi" }] }),
+                other => panic!("unexpected MRTR method {other}"),
+            };
+            Ok(json!({ &reqs[0].key: ans }))
+        })
+        .expect("triad resolved");
+    assert_eq!(mrtr_methods_seen, vec!["sampling/createMessage", "elicitation/create", "roots/list"]);
+    assert_eq!(triad_out["structuredContent"], json!({ "sampled": "all-green", "approved": true, "rootCount": 1 }));
+
+    let CallToolOutcome::Task(watch_handle) = modern_wire
+        .call_tool_with_tasks("plugin_watch", &json!({ "key": "http-cancel" }), true, &mut |_| {})
+        .expect("spawn watch")
+    else {
+        panic!("expected async task handle for plugin_watch");
+    };
+    modern_wire.cancel_task(&watch_handle.task_id).expect("cancel_task");
+    assert_eq!(modern_wire.get_task(&watch_handle.task_id).expect("snap").handle.status, ClientTaskStatus::Cancelled);
+
+    let mut legacy_wire = Session::open_with_capabilities(&sdk_addr, Some(token), &json!({ "elicitation": {} }), Duration::from_secs(15)).expect("open 2025");
+    assert_eq!(legacy_wire.protocol_version(), "2025-11-25");
+    assert_eq!(legacy_wire.request("ping", &json!({}), &mut |_| {}).expect("ping"), json!({}));
+
+    // 3. Direct-vs-gateway differential behavior & cross-transport transcript parity.
+    let sum_args = json!({ "items": ["one", "two", "three"], "scope": { "namespace": "parity", "tag": "t1" }, "maxItems": 2 });
+    audit_log.write().clear();
+    let sync_res = sdk_svc.call_tool_sync("summarize_items", sum_args.clone()).expect("sync")["result"]["structuredContent"].clone();
+    let direct_raw = call_tool_direct("sdk-020-05", "summarize_items", &sum_args, &ws).expect("direct");
+    let direct_res: Value = serde_json::from_str(direct_raw["content"][0]["text"].as_str().expect("txt")).expect("json");
+    let http_2026_res = modern_wire.call_tool("summarize_items", &sum_args, None, &mut |_| {}).expect("2026")["structuredContent"].clone();
+    let http_2025_res = legacy_wire.call_tool("summarize_items", &sum_args, None, &mut |_| {}).expect("2025")["structuredContent"].clone();
+    assert_eq!(sync_res, json!({ "count": 2, "summary": "one, two", "namespace": "parity" }));
+    assert_eq!((&direct_res, &http_2026_res, &http_2025_res), (&sync_res, &sync_res, &sync_res));
+    assert_eq!(audit_log.read().len(), 20, "4 calls x 5 audit entries");
+
+    // Differential policy proof: gateway policy blocks `system_*` across direct/sync/HTTP with 0 handler runs; HTTP auth/origin blocks before middleware while direct in-process runs unauthenticated.
+    assert!(McpGatewayProxy::evaluate_tool_policy("system_restricted_interop_op").is_err());
+    for gated in [
+        sdk_svc.call_tool_sync("system_restricted_interop_op", json!({})).expect("sg")["result"].clone(),
+        call_tool_direct("sdk-020-05", "system_restricted_interop_op", &json!({}), &ws).expect("dg"),
+        call_tool_direct("susi", "system_restricted_interop_op", &json!({}), &ws).expect("cg"),
+        modern_wire.call_tool("system_restricted_interop_op", &json!({}), None, &mut |_| {}).expect("hg"),
+    ] {
+        assert!(gated["isError"] == true && gated["content"][0]["text"].as_str().expect("t").starts_with("Governance Violation:"));
+    }
+    assert_eq!(restricted_runs.load(Ordering::Acquire), 0);
+    audit_log.write().clear();
+    let raw_post = |hdrs: &[(&str, &str)], body: &str| -> String {
+        let mut s = TcpStream::connect(&sdk_addr).expect("tcp");
+        s.set_read_timeout(Some(Duration::from_secs(5))).expect("to");
+        let mut req = format!("POST /mcp HTTP/1.1\r\nHost: {sdk_addr}\r\nConnection: close\r\n");
+        for (k, v) in hdrs {
+            req.push_str(&format!("{k}: {v}\r\n"));
+        }
+        req.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
+        s.write_all(req.as_bytes()).expect("w");
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        out
+    };
+    let unauth_body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"summarize_items","arguments":sum_args,"_meta":{"io.modelcontextprotocol/protocolVersion":PROTOCOL_VERSION_2026_07_28,"io.modelcontextprotocol/clientCapabilities":{}}}}).to_string();
+    let base_h = [("Content-Type", "application/json"), ("Accept", "application/json, text/event-stream"), ("MCP-Protocol-Version", PROTOCOL_VERSION_2026_07_28), ("Mcp-Method", "tools/call"), ("Mcp-Name", "summarize_items")];
+    assert!(raw_post(&base_h, &unauth_body).starts_with("HTTP/1.1 401"));
+    let bearer_h = format!("Bearer {token}");
+    assert!(raw_post(&[base_h[0], base_h[1], base_h[2], base_h[3], base_h[4], ("Authorization", &bearer_h), ("Origin", "https://attacker.example")], &unauth_body).starts_with("HTTP/1.1 403"));
+    assert!(audit_log.read().is_empty(), "gateway edge rejection must never reach SDK middleware");
+
+    // Cross-transport normalized transcript parity: duplex `TestHarness` vs `2026-07-28` HTTP vs `2025-11-25` HTTP + subprocess `StdioSession`.
+    let collect_http_transcript = |sess: &mut Session| -> Value {
+        let mut t_names: Vec<String> = sess.request("tools/list", &json!({}), &mut |_| {}).expect("tl")["tools"]
+            .as_array().expect("a").iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect();
+        t_names.sort();
+        let r_text = sess.request("resources/read", &json!({"uri": "memo://items/99"}), &mut |_| {}).expect("rr")["contents"][0]["text"].clone();
+        let p_res = sess.request("resources/read", &json!({"uri": "plugin://status"}), &mut |_| {}).expect("pr")["contents"][0]["text"].clone();
+        let pr_txt = sess.request("prompts/get", &json!({"name": "draft_brief", "arguments": {"topic": "Parity"}}), &mut |_| {}).expect("pg")["messages"][0]["content"]["text"].clone();
+        let cmp_v = sess.request("completion/complete", &json!({"ref":{"type":"ref/prompt","name":"draft_brief"},"argument":{"name":"topic","value":"s"}}), &mut |_| {}).expect("cc")["completion"]["values"].clone();
+        let plug_call = sess.call_tool("plugin_lookup", &json!({"key": "x"}), None, &mut |_| {}).expect("pc")["content"][0]["text"].clone();
+        json!({ "tools": t_names, "tpl": r_text, "plugRes": p_res, "prompt": pr_txt, "comp": cmp_v, "plugCall": plug_call })
+    };
+    let t_http_2026 = collect_http_transcript(&mut modern_wire);
+    let t_http_2025 = collect_http_transcript(&mut legacy_wire);
+    let t_duplex = rt.block_on(async {
+        let h = TestHarness::spawn(sdk_svc.clone());
+        let c = ClientCapabilities::default();
+        let mut t_names: Vec<String> = h.request_modern("tools/list", json!({}), c.clone()).await.expect("tl")["result"]["tools"]
+            .as_array().expect("a").iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect();
+        t_names.sort();
+        let r_text = h.request_modern("resources/read", json!({"uri": "memo://items/99"}), c.clone()).await.expect("rr")["result"]["contents"][0]["text"].clone();
+        let p_res = h.request_modern("resources/read", json!({"uri": "plugin://status"}), c.clone()).await.expect("pr")["result"]["contents"][0]["text"].clone();
+        let pr_txt = h.request_modern("prompts/get", json!({"name": "draft_brief", "arguments": {"topic": "Parity"}}), c.clone()).await.expect("pg")["result"]["messages"][0]["content"]["text"].clone();
+        let cmp_v = h.request_modern("completion/complete", json!({"ref":{"type":"ref/prompt","name":"draft_brief"},"argument":{"name":"topic","value":"s"}}), c.clone()).await.expect("cc")["result"]["completion"]["values"].clone();
+        let plug_call = h.request_modern("tools/call", json!({"name": "plugin_lookup", "arguments": {"key": "x"}}), c).await.expect("pc")["result"]["content"][0]["text"].clone();
+        h.shutdown().await;
+        json!({ "tools": t_names, "tpl": r_text, "plugRes": p_res, "prompt": pr_txt, "comp": cmp_v, "plugCall": plug_call })
+    });
+    assert_eq!(t_duplex, t_http_2026);
+    assert_eq!(t_http_2026, t_http_2025);
+    modern_wire.close().expect("close 2026");
+    legacy_wire.close().expect("close 2025");
+
+    let mut stdio_proc = StdioSession::spawn_modern(root, &home);
+    assert!(stdio_proc.request("server/discover", adapter_modern_meta())["capabilities"]["extensions"]["io.modelcontextprotocol/tasks"].is_object());
+    drop(stdio_proc);
+
+    // Replay pinned official wire conformance corpus (`adapter_wire_fixtures` + `divergences.json`) against SDK-built server in BOTH eras (`R2`).
+    let wire_fixtures = adapter_wire_fixtures(root);
+    let spawn_sdk_adapter = |svc: GmcpService| -> (AdapterClient, AdapterSession) {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let (c_half, s_half) = tokio::io::duplex(ADAPTER_LIMIT);
+        let (sr, sw) = tokio::io::split(s_half);
+        let sess_svc = svc.session();
+        let session: AdapterSession = rt.spawn(async move {
+            let transport = susi_gmcp::jsonrpc_gate::StdioGate::new(susi_gmcp::stdio::BoundedLines::new(sr, ADAPTER_LIMIT), sw);
+            let running = sess_svc.serve(transport).await.map_err(|e| format!("{e:?}"))?;
+            running.waiting().await.map_err(|e| e.to_string())
+        });
+        let (cr, mut cw) = tokio::io::split(c_half);
+        let (ltx, lrx) = std::sync::mpsc::channel();
+        rt.spawn(async move {
+            let mut lines = tokio::io::BufReader::new(cr).lines();
+            while let Ok(Some(l)) = lines.next_line().await {
+                if let Ok(v) = serde_json::from_str(&l) {
+                    if ltx.send(v).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let (btx, mut brx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        rt.spawn(async move {
+            while let Some(b) = brx.recv().await {
+                if cw.write_all(&b).await.is_err() {
+                    break;
+                }
+            }
+            let _ = cw.shutdown().await;
+        });
+        (AdapterClient { write: Box::new(move |b| { let _ = btx.send(b.to_vec()); }), rx: lrx, pending: Vec::new() }, session)
+    };
+    let (mut mod_cli, mod_sess) = spawn_sdk_adapter(sdk_svc.clone());
+    adapter_modern_open(&mut mod_cli);
+    let mod_replay = adapter_fixture_replay(&mut mod_cli, &wire_fixtures, "modern");
+    drop(mod_cli);
+    adapter_session_ended(&rt, mod_sess, "sdk-020-modern-fixtures");
+    assert!(!mod_replay.is_empty());
+
+    let (mut leg_cli, leg_sess) = spawn_sdk_adapter(sdk_svc.clone());
+    let script_tx = transport_adapter_script(&mut leg_cli);
+    let limit_code = adapter_limit_step(&mut leg_cli);
+    let prop_answers = adapter_property_run(&mut leg_cli, 32);
+    let leg_replay = adapter_fixture_replay(&mut leg_cli, &wire_fixtures, "legacy");
+    drop(leg_cli);
+    adapter_session_ended(&rt, leg_sess, "sdk-020-legacy-fixtures");
+    assert!(!script_tx.is_empty() && limit_code.is_i64() && prop_answers.len() == 32 && !leg_replay.is_empty());
+
+    // 4. Platform path-confinement & Mandate 35 `extra` preservation invariants.
+    for bad_path in ["../escape.json", "..\\escape.json", "/abs/unix.json", "C:\\abs\\win.json", "CON.txt", "COM1.json"] {
+        let mut m = mk_signed_bundle().manifest;
+        m.permissions.clear();
+        m.files.insert("bad".into(), bad_path.into());
+        assert!(validate_manifest(&m).is_err(), "must reject unsafe path `{bad_path}`");
+    }
+    let ext_root = cfg_dir.join("extensions");
+    std::fs::create_dir_all(&ext_root).expect("ext root");
+    std::fs::write(ext_root.join("state.json"), serde_json::to_vec_pretty(&json!({
+        "active": "default",
+        "x-forward-state": { "epoch": 7, "flags": ["a", "b"] }
+    })).expect("j")).expect("write state");
+    create_pack("m35-state-probe").expect("create probe");
+    load_pack("m35-state-probe").expect("load probe");
+    unload_pack("m35-state-probe").expect("unload probe");
+    let state_after: Value = serde_json::from_slice(&std::fs::read(ext_root.join("state.json")).expect("read state")).expect("parse state");
+    assert_eq!(state_after["x-forward-state"], json!({ "epoch": 7, "flags": ["a", "b"] }));
+
+    // 5. Deterministic property invariants (schema round-trip, order-independence, plugin involution).
+    let sum_validator = susi_gmcp::schema_check::Validator::compile(&Value::Object(schema::root::<SummarizeInput>())).expect("compile SummarizeInput");
+    let mut seed: u64 = 0x2030_2005;
+    let mut next_u64 = || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_007);
+        seed
+    };
+    let sample_atoms = ["", "a", "αβγ-🚀", "line\nbreak", "rtl-العربية", "quote\"slash\\"];
+    for idx in 0..24usize {
+        let n_items = (next_u64() % 5) as usize;
+        let items: Vec<String> = (0..n_items).map(|_| sample_atoms[(next_u64() as usize) % sample_atoms.len()].to_string()).collect();
+        let ns = sample_atoms[(idx + 1) % sample_atoms.len()].to_string();
+        let tag = if idx % 2 == 0 { None } else { Some(sample_atoms[idx % sample_atoms.len()].to_string()) };
+        let max_items = (idx % 4) as u32;
+        let typed = SummarizeInput { items: items.clone(), scope: susi_gmcp::sdk::examples::ScopeFilter { namespace: ns.clone(), tag }, max_items };
+        let wire_val = serde_json::to_value(&typed).expect("to_value");
+        assert!(sum_validator.is_valid(&wire_val), "derived Validator must accept serialized SummarizeInput: {wire_val}");
+        let round: SummarizeInput = serde_json::from_value(wire_val.clone()).expect("from_value");
+        assert_eq!(round, typed);
+        let res = sdk_svc.call_tool_sync("summarize_items", wire_val).expect("prop call");
+        assert_eq!(res["result"]["isError"], false);
+        assert_eq!(res["result"]["structuredContent"]["namespace"], ns);
+    }
+    for bad in [
+        json!({ "items": "not-array", "scope": { "namespace": "x" } }),
+        json!({ "items": [], "scope": { "namespace": 123 } }),
+        json!({ "items": [], "scope": {}, "maxItems": 1 }),
+        json!({ "items": [], "scope": { "namespace": "x" }, "maxItems": -5 }),
+    ] {
+        assert!(!sum_validator.is_valid(&bad), "derived Validator must reject {bad}");
+        audit_log.write().clear();
+        assert_eq!(sdk_svc.call_tool_sync("summarize_items", bad).expect("bad")["result"]["isError"], true);
+        assert!(audit_log.read().is_empty());
+    }
+
+    // Registration-order permutation invariance (`forward` vs `reverse` vs `interleaved`).
+    let noop_tool: susi_gmcp::protocol::ToolHandler = Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+    let noop_res: susi_gmcp::protocol::ResourceHandler = Arc::new(|req, _c| Box::pin(async move {
+        Ok(susi_gmcp::mcp::model::ReadResourceResult { result_type: None, ttl_ms: None, cache_scope: None, contents: vec![susi_gmcp::mcp::model::ResourceContents::TextResourceContents { uri: req.uri, mime_type: Some("text/plain".into()), text: "ok".into(), meta: None }], meta: None }.into())
+    }));
+    let noop_pr: susi_gmcp::protocol::PromptHandler = Arc::new(|_r, _c| Box::pin(async {
+        Ok(susi_gmcp::mcp::model::GetPromptResult { result_type: None, description: None, messages: vec![], meta: None }.into())
+    }));
+    let snapshot_order = |order: &[usize]| -> Value {
+        let mut b = ServerBuilder::new("perm", "1.0.0", ws.clone());
+        for &k in order {
+            b = b
+                .tool(Tool::new_with_raw(format!("t_{k:02}"), None, obj_schema.clone()), Arc::clone(&noop_tool))
+                .resource(Resource::new(format!("memo://r/{k:02}"), format!("r_{k:02}")), Arc::clone(&noop_res))
+                .prompt(Prompt { name: format!("p_{k:02}"), title: None, description: None, arguments: None, icons: None, meta: None }, Arc::clone(&noop_pr));
+        }
+        let s = b.build().expect("perm build");
+        rt.block_on(async {
+            let h = TestHarness::spawn(s);
+            let tl = h.request_modern("tools/list", json!({}), Default::default()).await.expect("tl")["result"]["tools"].clone();
+            let rl = h.request_modern("resources/list", json!({}), Default::default()).await.expect("rl")["result"]["resources"].clone();
+            let pl = h.request_modern("prompts/list", json!({}), Default::default()).await.expect("pl")["result"]["prompts"].clone();
+            h.shutdown().await;
+            json!({ "t": tl, "r": rl, "p": pl })
+        })
+    };
+    let fwd = snapshot_order(&[0, 1, 2, 3, 4, 5, 6, 7]);
+    let rev = snapshot_order(&[7, 6, 5, 4, 3, 2, 1, 0]);
+    let mix = snapshot_order(&[3, 0, 7, 1, 5, 2, 6, 4]);
+    assert_eq!(fwd, rev);
+    assert_eq!(fwd, mix);
+
+    // 6. Published SLOs (middleware overhead, <=256 atomic hot-reload under load, plugin load/unload + zero FD leak, fairness & disk/memory bounds).
+    let bench_calls = |stages: usize| -> Vec<u128> {
+        let mut b = ServerBuilder::new("mw-bench", "1.0.0", ws.clone()).tool(
+            Tool::new_with_raw("fast_noop", None, obj_schema.clone()),
+            Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![ContentBlock::text("ok")]).into()) })),
+        );
+        for _ in 0..stages {
+            let mw: ToolMiddleware = Arc::new(|req, ctx, next| Box::pin(async move { next(req, ctx).await }));
+            b = b.middleware(mw);
+        }
+        let s = b.build().expect("bench svc");
+        rt.block_on(async {
+            let h = TestHarness::spawn(s);
+            let _ = h.request_modern("tools/call", json!({"name": "fast_noop", "arguments": {}}), Default::default()).await;
+            let mut samples = Vec::with_capacity(32);
+            for _ in 0..32 {
+                let t0 = Instant::now();
+                let r = h.request_modern("tools/call", json!({"name": "fast_noop", "arguments": {}}), Default::default()).await.expect("call");
+                samples.push(t0.elapsed().as_micros());
+                assert_eq!(r["result"]["isError"], false);
+            }
+            h.shutdown().await;
+            samples.sort_unstable();
+            samples
+        })
+    };
+    let (base_us, mw4_us) = (bench_calls(0), bench_calls(4));
+    let mw4_median_delta_us = mw4_us[16].saturating_sub(base_us[16]);
+    assert!(mw4_median_delta_us <= 25_000, "4-stage middleware median delta {mw4_median_delta_us} us exceeded CI envelope");
+
+    // Atomic catalog hot-reload swap (`160 <= 256` items) under active concurrent reader load + R3 plugin preservation.
+    let reader_errors = Arc::new(AtomicUsize::new(0));
+    let stop_readers = Arc::new(AtomicBool::new(false));
+    let swap_us = rt.block_on(async {
+        let mut readers = Vec::new();
+        for _ in 0..4 {
+            let (s, errs, stop) = (sdk_svc.clone(), Arc::clone(&reader_errors), Arc::clone(&stop_readers));
+            readers.push(tokio::spawn(async move {
+                let h = TestHarness::spawn(s);
+                while !stop.load(Ordering::Acquire) {
+                    let r = h.request_modern("tools/call", json!({"name": "plugin_lookup", "arguments": {"key": "hot"}}), Default::default()).await.expect("r");
+                    if r["result"]["content"][0]["text"] != json!("plugin:hot") {
+                        errs.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                h.shutdown().await;
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        // R3 negative check: colliding with active plugin tool `plugin_lookup` is refused fail-closed.
+        assert!(sdk_svc.reload_catalog(CatalogUpdate::new().with_tool(Tool::new_with_raw("plugin_lookup", None, obj_schema.clone()), Arc::clone(&noop_tool))).is_err());
+
+        let mut big = CatalogUpdate::new();
+        for i in 0..120 {
+            big = big.with_tool(Tool::new_with_raw(format!("hot_t_{i:03}"), None, obj_schema.clone()), Arc::clone(&noop_tool));
+        }
+        for i in 0..20 {
+            big = big.with_resource(Resource::new(format!("memo://hot/{i:02}"), format!("hr_{i:02}")), Arc::clone(&noop_res));
+            big = big.with_prompt(Prompt { name: format!("hot_p_{i:02}"), title: None, description: None, arguments: None, icons: None, meta: None }, Arc::clone(&noop_pr));
+        }
+        let t_swap = Instant::now();
+        let rep = sdk_svc.reload_catalog(big).expect("160 swap");
+        let elapsed_us = t_swap.elapsed().as_micros();
+        assert!(rep.tools_changed && rep.resources_changed && rep.prompts_changed);
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        stop_readers.store(true, Ordering::Release);
+        for r in readers {
+            r.await.expect("reader");
+        }
+        elapsed_us
+    });
+    assert_eq!(reader_errors.load(Ordering::Acquire), 0, "0 in-flight calls may fail or drop during reload_catalog");
+    assert!(swap_us <= 500_000, "160-entry reload_catalog swap took {swap_us} us (> 500 ms CI ceiling)");
+
+    // Transactional plugin validate + attach + detach p99 budget + OS-level zero-FD-leak check (`remove_dir_all` on Windows/POSIX).
+    sdk_svc.unload_plugin("sdk-sample-plugin").expect("unload initial");
+    let baseline_tools_after_unload = rt.block_on(async {
+        let h = TestHarness::spawn(sdk_svc.clone());
+        let t = h.request_modern("tools/list", json!({}), Default::default()).await.expect("tl")["result"]["tools"].clone();
+        h.shutdown().await;
+        t
+    });
+    let mut cycle_ms = Vec::with_capacity(8);
+    for _ in 0..8 {
+        let t0 = Instant::now();
+        let disk_bundle = PluginBundle::from_pack_dir(&pack_dir).expect("verify disk pack");
+        let mut full = mk_signed_bundle();
+        full.manifest = disk_bundle.manifest;
+        sdk_svc.attach_plugin(full, &policy).expect("attach cycle");
+        sdk_svc.unload_plugin("sdk-sample-plugin").expect("unload cycle");
+        cycle_ms.push(t0.elapsed().as_millis());
+    }
+    cycle_ms.sort_unstable();
+    assert!(cycle_ms[7] <= 500, "plugin validate+attach+unload p99 took {} ms (> 500 ms)", cycle_ms[7]);
+    std::fs::remove_dir_all(&pack_dir).expect("zero leaked open file handles on pack_dir after unload");
+    let post_cycles_tools = rt.block_on(async {
+        let h = TestHarness::spawn(sdk_svc.clone());
+        let t = h.request_modern("tools/list", json!({}), Default::default()).await.expect("tl")["result"]["tools"].clone();
+        h.shutdown().await;
+        t
+    });
+    assert_eq!(post_cycles_tools, baseline_tools_after_unload);
+    assert!(sdk_svc.loaded_plugins().is_empty() && !sdk_svc.extensions().read().contains("io.susi.plugin/sample"));
+
+    // Multi-principal fairness + R1 cooperative vs uncooperative cancellation regression fixture.
+    let (p_heavy, p_light) = (TaskPrincipal::from_bearer_token("heavy-tenant"), TaskPrincipal::from_bearer_token("light-tenant"));
+    rt.block_on(async {
+        let mut heavy_ids = Vec::with_capacity(MAX_ACTIVE_TASKS_PER_PRINCIPAL);
+        for _ in 0..MAX_ACTIVE_TASKS_PER_PRINCIPAL {
+            let t = sdk_svc.tasks.try_spawn_for(p_heavy.clone(), TaskOptions::default(), |tc| {
+                Box::pin(async move { tc.cancelled().await; Err(TaskExit::Cancelled) })
+            }).expect("heavy slot");
+            heavy_ids.push(t.task_id);
+        }
+        let t_fair = Instant::now();
+        let mut light_ids = Vec::with_capacity(8);
+        for i in 0..8 {
+            let t = sdk_svc.tasks.try_spawn_for(p_light.clone(), TaskOptions::default(), move |_tc| {
+                Box::pin(async move { Ok(CallToolResult::success(vec![ContentBlock::text(format!("light-{i}"))])) })
+            }).expect("light tenant isolated from heavy tenant quota");
+            light_ids.push(t.task_id);
+        }
+        for id in &light_ids {
+            for _ in 0..40 {
+                if sdk_svc.tasks.get_task_for(id, &p_light).expect("g").task.status.is_terminal() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            assert_eq!(sdk_svc.tasks.get_task_for(id, &p_light).expect("done").task.status, susi_gmcp::mcp::model::TaskStatus::Completed);
+        }
+        assert!(t_fair.elapsed() <= Duration::from_secs(2), "light principal starved by heavy principal");
+        for id in &heavy_ids {
+            sdk_svc.tasks.cancel_task_for(id, &p_heavy).expect("cancel heavy");
+        }
+        for _ in 0..40 {
+            if sdk_svc.tasks.running_task_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(sdk_svc.tasks.running_task_count(), 0);
+
+        // R1 regression fixture: cooperative `ctx.ct.cancelled()` cleanup runs before drop; uncooperative stall still aborts cleanly.
+        let coop_cleaned = Arc::new(AtomicBool::new(false));
+        let (coop_tx, coop_rx) = tokio::sync::oneshot::channel();
+        let coop_slot = std::sync::Mutex::new(Some(coop_tx));
+        let cc_flag = Arc::clone(&coop_cleaned);
+        sdk_svc.register_tool(Tool::new_with_raw("r1_coop_cancel", None, obj_schema.clone()), Arc::new(move |_p, ctx| {
+            let (tx, cleaned) = (coop_slot.lock().expect("l").take(), Arc::clone(&cc_flag));
+            Box::pin(async move {
+                if let Some(t) = tx { let _ = t.send(()); }
+                ctx.ct.cancelled().await;
+                cleaned.store(true, Ordering::Release);
+                Err(susi_gmcp::mcp::ErrorData::internal_error("cancelled cleanly", None))
+            })
+        })).expect("r1_coop");
+
+        let (uncoop_tx, uncoop_rx) = tokio::sync::oneshot::channel();
+        let uncoop_slot = std::sync::Mutex::new(Some(uncoop_tx));
+        sdk_svc.register_tool(Tool::new_with_raw("r1_uncoop_stall", None, obj_schema.clone()), Arc::new(move |_p, _ctx| {
+            let tx = uncoop_slot.lock().expect("l").take();
+            Box::pin(async move {
+                if let Some(t) = tx { let _ = t.send(()); }
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok(CallToolResult::success(vec![]).into())
+            })
+        })).expect("r1_uncoop");
+
+        let r1_h = Arc::new(TestHarness::spawn(sdk_svc.clone()));
+        let r1_h1 = Arc::clone(&r1_h);
+        let f1 = tokio::spawn(async move {
+            r1_h1.request_raw(json!({"jsonrpc":"2.0","id":701,"method":"tools/call","params":{"name":"r1_coop_cancel","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}})).await
+        });
+        coop_rx.await.expect("coop entered");
+        r1_h.notify("notifications/cancelled", json!({"requestId": 701})).await.expect("cancel 701");
+        for _ in 0..30 {
+            if coop_cleaned.load(Ordering::Acquire) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(coop_cleaned.load(Ordering::Acquire), "R1 regression: cooperative cancellation cleanup must run");
+        f1.abort();
+        let _ = f1.await;
+
+        let r1_h2 = Arc::clone(&r1_h);
+        let f2 = tokio::spawn(async move {
+            r1_h2.request_raw(json!({"jsonrpc":"2.0","id":702,"method":"tools/call","params":{"name":"r1_uncoop_stall","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}})).await
+        });
+        uncoop_rx.await.expect("uncoop entered");
+        r1_h.notify("notifications/cancelled", json!({"requestId": 702})).await.expect("cancel 702");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        f2.abort();
+        let _ = f2.await;
+        assert!(r1_h.request_modern("server/discover", json!({}), Default::default()).await.expect("alive")["result"].is_object());
+    });
+
+    // Disk & resident memory envelopes.
+    let disk_bytes = adapter_tree_bytes(&store_dir);
+    assert!(disk_bytes <= 512 * 1024, "durable task store grew to {disk_bytes} bytes (> 512 KiB)");
+    if let (Some(before), Some(after)) = (baseline_rss, adapter_resident_bytes()) {
+        let growth_mib = after.saturating_sub(before) / (1024 * 1024);
+        assert!(growth_mib <= 64, "resident memory grew by {growth_mib} MiB (> 64 MiB)");
+    }
+
+    GmcpService::unbind_direct_server("sdk-020-05");
+    assert!(!root.join(".agents/gmcp/evidence/VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
+}
