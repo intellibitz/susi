@@ -121,6 +121,5 @@ impl<R: AsyncRead + Unpin> AsyncRead for BoundedLines<R> {
     }
 }
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/stdio_inline.rs"]
 mod tests;

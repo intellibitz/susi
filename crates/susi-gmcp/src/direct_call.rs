@@ -284,6 +284,5 @@ pub fn call_tool_direct(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/direct_call.rs"]
 mod tests;

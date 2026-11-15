@@ -131,6 +131,5 @@ pub fn register_local_embed_provider() {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/embed_provider.rs"]
 mod inline_tests;

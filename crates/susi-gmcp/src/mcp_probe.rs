@@ -625,6 +625,5 @@ fn validate_tools_page(value: &Value) -> Result<(Vec<String>, Option<String>), M
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/mcp_probe.rs"]
 mod tests;

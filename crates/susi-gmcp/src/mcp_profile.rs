@@ -74,6 +74,5 @@ impl McpSpecProfile {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/mcp_profile.rs"]
 mod eco_mcp_versions_tests;

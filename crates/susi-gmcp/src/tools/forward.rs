@@ -145,6 +145,5 @@ pub(super) fn merged(mut base: Value, more: Value) -> Value {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "../tests/forward.rs"]
 mod tests;
