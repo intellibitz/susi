@@ -24,6 +24,11 @@
   "roadmap": "VC-203-012",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794713796,
+    "commit": "1e043cedaf02f3d44d664a4c000fe0029f7b5f6a",
+    "by": "ANTIGRAVITYS2"
+  },
   "limitations": [
     "Core serves the subscriptions, notifications, progress, and operational messaging surface (`crates/susi-gmcp/src/{protocol,jsonrpc_gate,catalog,server,stdio,mcp/{http,message,model,service,transport}}.rs`) across stdio (`susi mcp serve`), in-process `embedded_adapter`, Streamable HTTP (`/mcp` and `/messages`), and Unix-domain sockets (`#[cfg(unix)]`); Windows x86_64 covers stdio, embedded, and Streamable HTTP while Unix socket parity is gated `#[cfg(unix)]`.",
     "MCP subscription streams remain stateless across transport disconnects (`MCP-2026-0728-basic-patterns-subscriptions-mdx-0161`), requiring clients to re-issue `subscriptions/listen` and refresh state via `*/list` or `resources/read`, and `notifications/message` remains gated on explicit `io.modelcontextprotocol/logLevel` (modern) or negotiated `2025-11-25` adapter `logging/setLevel` within the SEP-2577 deprecation window.",
