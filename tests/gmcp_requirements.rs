@@ -26913,3 +26913,733 @@ fn gmcp_req_203_012_06_operations() {
     let _ = _http_srv;
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// VC-203-012 mastery: subscriptions, notifications, progress, and operational messages.
+/// Verifies production-path CLI/tool ledger parity for all 57 VC-203-012 rows,
+/// multi-transport runtime parity (`embedded_adapter`, `#[cfg(unix)]` socket,
+/// shipped `susi mcp serve` stdio, and Streamable HTTP `/mcp`), modern
+/// `subscriptions/listen` filter intersection and acknowledgement metadata,
+/// dynamic `notifications/tools/list_changed` routing and cooperative cancellation,
+/// correlated progress and RFC 5424 `io.modelcontextprotocol/logLevel` redaction,
+/// legacy `2025-11-25` vs modern `2026-07-28` era enforcement, bounded protocol
+/// invariants, all 6 pinned spec SHA-256 bindings, explicit contract non-claims,
+/// signed committed evidence across `GMCP-203-012-01..06`, roadmap/verdict
+/// delivery state, and clean committed artifacts.
+#[test]
+fn gmcp_vc_203_012_mastery() {
+    use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeSet;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+    use susi_gmcp::mcp::model::{CallToolResult, ContentBlock, Tool};
+    use susi_gmcp::mcp::ServiceExt;
+    use susi_gmcp::protocol::{
+        GmcpService, MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION, MAX_LOG_NOTIFICATIONS_PER_REQUEST,
+        MAX_NOTIFICATION_PAYLOAD_BYTES, MAX_RESOURCE_SUBSCRIPTIONS_PER_FILTER,
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // ── 1. Production path CLI/tool parity and 57 VC-203-012 bindings ───
+    let cli = ledger_report(root);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert!(
+        cli["rows"].as_u64().unwrap_or(0) >= 57,
+        "shipped ledger must hold VC-203-012 rows"
+    );
+    assert_eq!(
+        ledger_tool_report(root),
+        cli,
+        "ledger_verify tool and CLI must emit identical canonical reports"
+    );
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-012.md"))
+        .expect("contract-203-012.md must exist");
+    let ledger_bytes =
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).expect("ledger readable");
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger: Value = serde_json::from_slice(&ledger_bytes).expect("canonical ledger must parse");
+    let vc_rows: Vec<_> = ledger["requirements"]
+        .as_array()
+        .expect("ledger requirements must be an array")
+        .iter()
+        .filter(|row| row["trace"]["vector"] == "VC-203-012")
+        .collect();
+    assert_eq!(
+        vc_rows.len(),
+        57,
+        "VC-203-012 must bind exactly 57 normative requirements"
+    );
+    for row in vc_rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            assert!(
+                !row["trace"][field].as_str().unwrap_or_default().is_empty(),
+                "{id}: trace.{field} must be non-empty"
+            );
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert_eq!(
+            row["trace"]["positive_test"],
+            "tests/gmcp_requirements.rs::gmcp_req_203_012_03_integration"
+        );
+        assert_eq!(
+            row["trace"]["negative_test"],
+            "tests/gmcp_requirements.rs::gmcp_req_203_012_04_adversarial"
+        );
+        assert_eq!(
+            row["trace"]["evidence"],
+            ".agents/gmcp/evidence/VC-203-012.jsonl"
+        );
+        assert!(
+            matches!(
+                row["disposition"]["status"].as_str(),
+                Some("adapter" | "modern" | "optional")
+            ),
+            "{id}: unexpected disposition {:?}",
+            row["disposition"]
+        );
+        assert!(
+            contract.contains(id),
+            "contract-203-012.md missing normative binding {id}"
+        );
+    }
+
+    // ── 2. Multi-transport subscriptions, progress, logging & limits ─────
+    assert_eq!(MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION, 16);
+    assert_eq!(MAX_RESOURCE_SUBSCRIPTIONS_PER_FILTER, 256);
+    assert_eq!(MAX_LOG_NOTIFICATIONS_PER_REQUEST, 64);
+    assert_eq!(MAX_NOTIFICATION_PAYLOAD_BYTES, 16 * 1024);
+
+    let (_lock, _env, home) = gmcp_http_home_guard("vc-203-012-mastery");
+    let scratch = home.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let token = "susi-012-mastery-bearer-secret";
+    std::fs::write(cfg_dir.join("api_token"), token).unwrap();
+
+    let modern_meta = |req_id: &str| -> Value {
+        let mut meta = adapter_modern_meta()["_meta"].clone();
+        meta["io.modelcontextprotocol/requestId"] = json!(req_id);
+        meta
+    };
+
+    let runtime = adapter_runtime(&home);
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    let emb_disc = embedded.call("m-emb-disc", "server/discover", adapter_modern_meta());
+    assert_eq!(
+        emb_disc["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "susi-gmcp"
+    );
+    assert_eq!(emb_disc["result"]["capabilities"]["logging"], json!({}));
+    assert_eq!(
+        emb_disc["result"]["capabilities"]["tools"]["listChanged"],
+        json!(true)
+    );
+    assert_eq!(
+        emb_disc["result"]["capabilities"]["prompts"]["listChanged"],
+        json!(true)
+    );
+    assert_eq!(
+        emb_disc["result"]["capabilities"]["resources"],
+        json!({"subscribe": true, "listChanged": true})
+    );
+    let emb_tool = embedded.call(
+        "m-emb-verify",
+        "tools/call",
+        json!({
+            "name": "ledger_verify",
+            "arguments": {},
+            "_meta": modern_meta("m-emb-verify")
+        }),
+    );
+    assert_eq!(call_tool_report(&emb_tool["result"]), cli);
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "mastery embedded");
+
+    // Legacy 2025-11-25 adapter session parity: supports initialize + logging/setLevel +
+    // resources/subscribe while rejecting modern subscriptions/listen (-32601) and modern _meta (-32600).
+    let (mut legacy_emb, legacy_session) = embedded_adapter(&runtime, root);
+    adapter_handshake(&mut legacy_emb, "mastery-012-legacy");
+    let set_lvl = legacy_emb.call("m-leg-log", "logging/setLevel", json!({"level": "notice"}));
+    assert_eq!(set_lvl["result"], json!({}));
+    let leg_listen = legacy_emb.call(
+        "m-leg-sub",
+        "subscriptions/listen",
+        json!({"notifications": {"toolsListChanged": true}}),
+    );
+    assert_eq!(leg_listen["error"]["code"], -32601);
+    let leg_inj = legacy_emb.call(
+        "m-leg-inj",
+        "ping",
+        json!({"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}),
+    );
+    assert_eq!(leg_inj["error"]["code"], -32600);
+    drop(legacy_emb);
+    adapter_session_ended(&runtime, legacy_session, "mastery legacy");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, socket_session) = socket_adapter(&runtime, root);
+        let sock_disc = socket.call("m-sock-disc", "server/discover", adapter_modern_meta());
+        assert_eq!(sock_disc["result"], emb_disc["result"]);
+        let sock_tool = socket.call(
+            "m-sock-verify",
+            "tools/call",
+            json!({
+                "name": "ledger_verify",
+                "arguments": {},
+                "_meta": modern_meta("m-sock-verify")
+            }),
+        );
+        assert_eq!(call_tool_report(&sock_tool["result"]), cli);
+        drop(socket);
+        adapter_session_ended(&runtime, socket_session, "mastery unix socket");
+    }
+
+    // Shipped `susi mcp serve` stdio modern session: discovery parity, >256 URI rejection (-32602),
+    // legacy logging/setLevel refusal (-32601), progress ordering & logLevel gating.
+    let mut modern_stdio = StdioSession::spawn_raw(root, &home);
+    let stdio_disc = modern_stdio
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m-stdio-disc",
+                "method": "server/discover",
+                "params": adapter_modern_meta()
+            }),
+            Duration::from_secs(120),
+        )
+        .expect("stdio server/discover must reply");
+    assert_eq!(stdio_disc["result"], emb_disc["result"]);
+
+    let too_many_uris: Vec<String> = (0..257).map(|i| format!("susi://m/{i}")).collect();
+    let over_uri = modern_stdio
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m-stdio-overuri",
+                "method": "subscriptions/listen",
+                "params": {
+                    "notifications": {"resourceSubscriptions": too_many_uris},
+                    "_meta": modern_meta("m-stdio-overuri")
+                }
+            }),
+            Duration::from_secs(15),
+        )
+        .expect(">256 URI subscription must reject");
+    assert_eq!(over_uri["error"]["code"], -32602);
+
+    let mod_set_lvl = modern_stdio
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m-stdio-setlvl",
+                "method": "logging/setLevel",
+                "params": {"level": "info", "_meta": modern_meta("m-stdio-setlvl")}
+            }),
+            Duration::from_secs(15),
+        )
+        .expect("modern logging/setLevel must reject");
+    assert_eq!(mod_set_lvl["error"]["code"], -32601);
+
+    let mut prog_meta = modern_meta("m-stdio-prog");
+    prog_meta["io.modelcontextprotocol/logLevel"] = json!("info");
+    prog_meta["progressToken"] = json!("m-tok-1");
+    let stdio_call = modern_stdio
+        .request_verbatim(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "m-stdio-prog",
+                "method": "tools/call",
+                "params": {
+                    "name": "ledger_verify",
+                    "arguments": {},
+                    "_meta": prog_meta
+                }
+            }),
+            Duration::from_secs(30),
+        )
+        .expect("stdio tools/call must reply");
+    assert_eq!(call_tool_report(&stdio_call["result"]), cli);
+    let stdio_prog: Vec<f64> = modern_stdio
+        .pending
+        .iter()
+        .filter(|n| {
+            n["method"] == "notifications/progress" && n["params"]["progressToken"] == "m-tok-1"
+        })
+        .filter_map(|n| n["params"]["progress"].as_f64())
+        .collect();
+    assert!(!stdio_prog.is_empty());
+    assert!(stdio_prog.windows(2).all(|w| w[0] < w[1]));
+    assert!(modern_stdio
+        .pending
+        .iter()
+        .any(|n| n["method"] == "notifications/message"));
+    drop(modern_stdio);
+
+    // Direct vs HTTP envelope gate parity on malformed notification.
+    let bad_line = br#"{"jsonrpc":"2.0","id":null,"method":"subscriptions/listen"}"#;
+    assert!(matches!(
+        classify_line(bad_line, &mut EraState::default()),
+        GateVerdict::Reject { code: -32600, .. }
+    ));
+    assert_eq!(
+        http_envelope_rejection(bad_line).expect("http gate rejects null id")["error"]["code"]
+            .as_i64(),
+        Some(-32600)
+    );
+
+    // Streamable HTTP `/mcp`: discovery, SSE logs/progress without secret leak, header mismatch (-32020),
+    // unsupported protocol version (-32022).
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind HTTP port");
+    let port = listener.local_addr().unwrap().port();
+    let addr = format!("127.0.0.1:{port}");
+    let http_root = root.to_path_buf();
+    let _http_srv = std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(http_root, vec![listener], None, false);
+    });
+    for _ in 0..40 {
+        if TcpStream::connect(&addr).is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let auth_header = format!("Bearer {token}");
+    let http_post = |headers: &[(&str, &str)], body_val: Value| -> (String, String, Vec<Value>) {
+        let body = body_val.to_string();
+        let mut req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nAuthorization: {auth_header}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n"
+        );
+        for (k, v) in headers {
+            req.push_str(&format!("{k}: {v}\r\n"));
+        }
+        req.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
+        let mut stream = TcpStream::connect(&addr).expect("connect HTTP /mcp");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        stream.write_all(req.as_bytes()).unwrap();
+        let mut raw = String::new();
+        let _ = stream.read_to_string(&mut raw);
+        let (_, resp_body) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
+        let status_line = raw.lines().next().unwrap_or_default().to_string();
+        let mut frames = Vec::new();
+        let trimmed = resp_body.trim();
+        if trimmed.starts_with('{') {
+            if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+                frames.push(v);
+            }
+        } else {
+            for line in resp_body.lines() {
+                if let Some(data) = line.strip_prefix("data:").map(str::trim) {
+                    if let Ok(v) = serde_json::from_str::<Value>(data) {
+                        frames.push(v);
+                    }
+                }
+            }
+        }
+        (status_line, raw, frames)
+    };
+
+    let (st_call, raw_call, frames_call) = http_post(
+        &[
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", "ledger_verify"),
+        ],
+        json!({
+            "jsonrpc": "2.0",
+            "id": "m-http-call",
+            "method": "tools/call",
+            "params": {
+                "name": "ledger_verify",
+                "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                    "io.modelcontextprotocol/requestId": "m-http-call",
+                    "io.modelcontextprotocol/logLevel": "info",
+                    "progressToken": "m-http-prog"
+                }
+            }
+        }),
+    );
+    assert!(st_call.starts_with("HTTP/1.1 200"), "{st_call} {raw_call}");
+    let call_res = frames_call
+        .iter()
+        .find(|f| f["id"] == "m-http-call")
+        .expect("HTTP tools/call reply");
+    assert_eq!(call_tool_report(&call_res["result"]), cli);
+    assert!(frames_call
+        .iter()
+        .any(|f| f["method"] == "notifications/message"));
+    assert!(frames_call
+        .iter()
+        .any(|f| f["method"] == "notifications/progress"));
+    assert!(!raw_call.contains(token));
+
+    let (st_mm, raw_mm, frames_mm) = http_post(
+        &[
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "tools/list"),
+        ],
+        json!({
+            "jsonrpc": "2.0",
+            "id": "m-http-mm",
+            "method": "server/discover",
+            "params": {"_meta": modern_meta("m-http-mm")}
+        }),
+    );
+    assert!(st_mm.starts_with("HTTP/1.1 400"), "{st_mm} {raw_mm}");
+    assert_eq!(frames_mm[0]["error"]["code"], -32020);
+
+    let mut bad_ver_meta = modern_meta("m-http-badver");
+    bad_ver_meta["io.modelcontextprotocol/protocolVersion"] = json!("2024-01-01");
+    let (st_bv, raw_bv, frames_bv) = http_post(
+        &[
+            ("MCP-Protocol-Version", "2024-01-01"),
+            ("Mcp-Method", "server/discover"),
+        ],
+        json!({
+            "jsonrpc": "2.0",
+            "id": "m-http-badver",
+            "method": "server/discover",
+            "params": {"_meta": bad_ver_meta}
+        }),
+    );
+    assert!(st_bv.starts_with("HTTP/1.1 400"), "{st_bv} {raw_bv}");
+    assert_eq!(frames_bv[0]["error"]["code"], -32022);
+
+    // Dynamic subscription filter & correlated `notifications/tools/list_changed` + cancel.
+    let custom_service = GmcpService::new(scratch.clone());
+    susi_gmcp::catalog::install(&custom_service).expect("install custom catalog");
+    let (mut custom_client, custom_sess) = {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let service_for_task = custom_service.clone();
+        let (client_half, server_half) = tokio::io::duplex(ADAPTER_LIMIT);
+        let (server_read, server_write) = tokio::io::split(server_half);
+        let session = runtime.spawn(async move {
+            let transport = susi_gmcp::jsonrpc_gate::StdioGate::new(
+                susi_gmcp::stdio::BoundedLines::new(server_read, ADAPTER_LIMIT),
+                server_write,
+            );
+            let running = service_for_task
+                .serve(transport)
+                .await
+                .map_err(|e| format!("negotiation failed: {e:?}"))?;
+            running.waiting().await.map_err(|e| e.to_string())
+        });
+        let (client_read, mut client_write) = tokio::io::split(client_half);
+        let (line_tx, line_rx) = std::sync::mpsc::channel();
+        runtime.spawn(async move {
+            let mut lines = tokio::io::BufReader::new(client_read).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Ok(value) = serde_json::from_str(&line) {
+                    if line_tx.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let (byte_tx, mut byte_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        runtime.spawn(async move {
+            while let Some(bytes) = byte_rx.recv().await {
+                if client_write.write_all(&bytes).await.is_err() {
+                    break;
+                }
+            }
+            let _ = client_write.shutdown().await;
+        });
+        (
+            AdapterClient {
+                write: Box::new(move |bytes| {
+                    let _ = byte_tx.send(bytes.to_vec());
+                }),
+                rx: line_rx,
+                pending: Vec::new(),
+            },
+            session,
+        )
+    };
+    let custom_disc = custom_client.call("m-cust-disc", "server/discover", adapter_modern_meta());
+    assert!(custom_disc["result"]["capabilities"].is_object());
+    custom_client.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "m-dyn-sub",
+        "method": "subscriptions/listen",
+        "params": {
+            "notifications": {"toolsListChanged": true},
+            "_meta": modern_meta("m-dyn-sub")
+        }
+    }));
+    let ack = custom_client.take("m-dyn-sub ack", |v| {
+        v["method"] == "notifications/subscriptions/acknowledged"
+            && v["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "m-dyn-sub"
+    });
+    assert_eq!(ack["params"]["notifications"]["toolsListChanged"], true);
+
+    custom_service
+        .register_tool(
+            Tool::new_with_raw(
+                "mastery_dynamic_probe",
+                Some("mastery subscription notification probe".into()),
+                Arc::new(Default::default()),
+            ),
+            Arc::new(|_, _| {
+                Box::pin(async move {
+                    Ok(CallToolResult::success(vec![ContentBlock::text("ok")]).into())
+                })
+            }),
+        )
+        .unwrap();
+    let changed = custom_client.take("tools/list_changed", |v| {
+        v["method"] == "notifications/tools/list_changed"
+            && v["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "m-dyn-sub"
+    });
+    assert_eq!(changed["method"], "notifications/tools/list_changed");
+
+    custom_client.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": "m-dyn-sub", "reason": "mastery complete"}
+    }));
+    let post_cancel = custom_client.call("m-post-cancel", "server/discover", adapter_modern_meta());
+    assert!(post_cancel["result"]["capabilities"].is_object());
+    let custom_probe = custom_client.call(
+        "m-cust-probe",
+        "tools/call",
+        json!({
+            "name": "mastery_dynamic_probe",
+            "arguments": {},
+            "_meta": modern_meta("m-cust-probe")
+        }),
+    );
+    assert_eq!(custom_probe["result"]["content"][0]["text"], "ok");
+    drop(custom_client);
+    adapter_session_ended(&runtime, custom_sess, "mastery custom service");
+
+    // ── 3. Contract sections, explicit non-claims, and 6 pinned specs ───
+    for token in [
+        "## Operations and non-claims",
+        "Operations and incident runbook",
+        "Configuration validation",
+        "### Bounded metrics, logs and traces",
+        "### Production guarantees and non-claims",
+        "Non-claim:",
+    ] {
+        assert!(
+            contract.contains(token),
+            "contract-203-012.md missing required section/token: {token}"
+        );
+    }
+    let sources: Value = serde_json::from_slice(
+        &std::fs::read(root.join(".agents/gmcp/sources.json")).expect("sources.json readable"),
+    )
+    .expect("sources.json valid JSON");
+    for doc in [
+        "docs/specification/2025-11-25/basic/utilities/progress.mdx",
+        "docs/specification/2025-11-25/server/utilities/logging.mdx",
+        "docs/specification/2026-07-28/basic/patterns/index.mdx",
+        "docs/specification/2026-07-28/basic/patterns/progress.mdx",
+        "docs/specification/2026-07-28/basic/patterns/subscriptions.mdx",
+        "docs/specification/2026-07-28/server/utilities/logging.mdx",
+    ] {
+        let bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc))
+            .unwrap_or_else(|e| panic!("pinned spec {doc} missing: {e}"));
+        let hex = susi_paths::hex::encode(Sha256::digest(&bytes));
+        let source_hex = sources["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["document"] == doc)
+            .and_then(|f| f["sha256"].as_str());
+        assert_eq!(
+            source_hex,
+            Some(hex.as_str()),
+            "sources.json sha mismatch for {doc}"
+        );
+        assert!(
+            contract.contains(&hex),
+            "contract-203-012.md must bind live sha256 {hex} of {doc}"
+        );
+    }
+
+    // ── 4. Evidence verification: complete, bound to HEAD commit,
+    //    signed, exit 0, matching current ledger hash ────────────────────
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-012.jsonl"))
+        .expect("VC-203-012 must retain an evidence artifact");
+    let artifacts = evidence_artifacts(root, "VC-203-012");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list VC-203-012 artifacts");
+    let mut covered = BTreeSet::new();
+    for record in newest_records(&evidence) {
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "incomplete evidence record lacks {field}: {record}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock evidence rejected: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record exit 0");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty()
+                && !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must include non-empty identity and detail"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "evidence artifact_sha256 must match current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} outside valid range"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && is_test_fn(&test_src, test_name),
+                "evidence names nonexistent test {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must name a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-012-01",
+        "GMCP-203-012-02",
+        "GMCP-203-012-03",
+        "GMCP-203-012-04",
+        "GMCP-203-012-05",
+        "GMCP-203-012-06",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 5. Roadmap and verdict delivery verification ────────────────────
+    let roadmap_json: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/roadmap.json"))
+            .expect("roadmap.json must be readable"),
+    )
+    .expect("roadmap.json must parse");
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .expect("roadmap.json vectors must be an array")
+        .iter()
+        .find(|entry| entry["id"] == "VC-203-012")
+        .expect("VC-203-012 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-012 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-012.json"))
+            .expect("VC-203-012.json verdict must exist"),
+    )
+    .expect("verdict must parse");
+    assert_eq!(verdict["vector"], "VC-203-012");
+    assert_eq!(verdict["verdict"], "delivered");
+    assert!(
+        !verdict["evidence"].as_str().unwrap_or_default().is_empty()
+            && !verdict["recorded_by"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+        "verdict must include evidence summary and recorded_by"
+    );
+    let tracked: Vec<&str> = verdict["tracked_by"]
+        .as_array()
+        .expect("tracked_by array")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(tracked.len(), 7, "VC-203-012 must track all 7 tasks");
+    for num in 93..=99 {
+        let tid = format!("T-CODEXGMCPROADMAP-{num}");
+        assert!(
+            tracked.contains(&tid.as_str()),
+            "verdict missing tracked task {tid}"
+        );
+    }
+
+    // ── 6. Committed proof ──────────────────────────────────────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = _http_srv;
+    let _ = std::fs::remove_dir_all(&home);
+}

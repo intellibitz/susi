@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-012",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_012_01_contract through _06_operations plus gmcp_vc_203_012_mastery (7 tests): contract-203-012.md binds all 57 normative ledger rows to crates/susi-gmcp/src/{protocol.rs,jsonrpc_gate.rs,mcp/http.rs,mcp/model.rs,mcp/service.rs,mcp/transport.rs} with pinned SHA-256 verification for all 6 2025-11-25 and 2026-07-28 subscription, progress, and logging specifications; live in-process embedded adapter, Unix-domain socket (#[cfg(unix)]), shipped susi mcp serve stdio, and Streamable HTTP /mcp prove stateless subscriptions/listen acknowledgement & SubscriptionFilter capability/ResourceGuard intersection, bounded queues/fan-out (16 subscriptions/session, 256 URIs/filter, 64 logs/request, 16 KiB payload, 256 broadcast buffer with -32603 lag cutoff, 100ms progress coalescing), cooperative notifications/cancelled + post-cancel rejection, RFC 5424 io.modelcontextprotocol/logLevel severity gating & redaction, legacy 2025-11-25 vs modern 2026-07-28 era gates (-32601/-32602/-32600/-32020/-32021/-32022), fail-closed max_rpc_body_bytes validation, and deterministic air-gapped drift checks. Mastery consumes and verifies retained, signed, non-mock evidence for all 01-06 checks.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-93",
+    "T-CODEXGMCPROADMAP-94",
+    "T-CODEXGMCPROADMAP-95",
+    "T-CODEXGMCPROADMAP-96",
+    "T-CODEXGMCPROADMAP-97",
+    "T-CODEXGMCPROADMAP-98",
+    "T-CODEXGMCPROADMAP-99"
+  ],
+  "recorded_by": "ANTIGRAVITYS2",
+  "recorded_unix": 1794712444
+}

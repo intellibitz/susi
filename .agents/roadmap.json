@@ -1694,7 +1694,7 @@
       "id": "VC-203-012",
       "mastery_target": "Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel.",
       "priority": "P0",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-012-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_012_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-11-15): every GMCP-203-012-* requirement shipped on the production path (crates/susi-gmcp/src/protocol.rs, jsonrpc_gate.rs, mcp/http.rs, mcp/model.rs, mcp/service.rs, mcp/transport.rs) with contract, integration, adversarial, interop, and operations evidence retained, proven by gmcp_vc_203_012_mastery; see .agents/roadmap-verdicts/VC-203-012.json and .agents/gmcp/evidence/VC-203-012.jsonl. Bounds stated in the verdict: stateless subscription streams across disconnects requiring client re-listen/refresh; SEP-2577 deprecation-window operational logs gated on explicit io.modelcontextprotocol/logLevel or legacy logging/setLevel; Unix-domain socket parity gated #[cfg(unix)].",
       "type": "CORE",
       "vector": "Subscriptions, notifications, progress, and operational messages"
     },
