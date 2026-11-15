@@ -1,7 +1,6 @@
 {
   "id": "T-CONFHTTP1104-1",
   "title": "B1 strict HTTP/1.1 chunked CRLF framing validation and loopback wire tests in susi-conformance/src/http.rs",
-  "state": "open",
   "goal": "Enforce RFC 9112 trailing CRLF chunk-terminator validation in HTTP/1.1 chunked decoding (originally crates/susi-conformance/src/http.rs in 97c16e2c9 #1395, now crates/susi-wire-client/src/http.rs re-exported as susi_conformance::http via a1ee7860d) and add unit tests covering malformed chunk framing, status/header edge cases, and loopback HTTP/1.1 POST + chunked response decoding (B1).",
   "size": "m",
   "deps": [],
@@ -17,6 +16,11 @@
   },
   "created_by": "CONFHTTP1104",
   "created_unix": 1793758800,
+  "closed": {
+    "at_unix": 1794750784,
+    "commit": "3f577915c95f1d1ab240b5089060976dab5dddb8",
+    "by": "AG3HOUSEKEEP"
+  },
   "implementation_commit": "97c16e2c95f73b7c1257dfde175092f49661665b",
   "reuse": {
     "decision": "existing",
@@ -37,5 +41,6 @@
     "crates/susi-wire-client/src/http.rs",
     "tests/task_record_schema_debt.json"
   ],
+  "state": "closed",
   "status": "completed"
 }
