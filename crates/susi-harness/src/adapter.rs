@@ -375,6 +375,36 @@ impl<R: CommandRunner> SusiTarget<R> {
         self.start_scoped_worktree(name, &[], None)
     }
 
+    /// A candidate an earlier failed landing kept, when it still verifies.
+    fn retained_candidate(&self, spec: &SusiTaskSpec) -> Option<SusiRunReport> {
+        let name = &spec.worktree_name;
+        let claim =
+            common_dir(&self.repo)?.join(format!("susi-local-workflow/claims/{name}.claim"));
+        let data = std::fs::read_to_string(claim).ok()?;
+        let worktree = PathBuf::from(data.lines().nth(2)?);
+        if local_claim(&worktree).ok()?.name != *name
+            || !self.worktree_is_committed(&worktree).ok()?
+            || !self.gate(&worktree, &spec.scopes).ok()?.success()
+        {
+            return None;
+        }
+        let task = spec.task.clone().unwrap_or_else(|| local_task_id(name));
+        self.accept(&worktree, &task).ok()?;
+        Some(SusiRunReport {
+            worktree,
+            task,
+            model: "retained".into(),
+            agent: RunOutcome::Succeeded {
+                final_text: "retained candidate re-verified".into(),
+                reported_cost_usd: None,
+            },
+            committed: true,
+            accepted: true,
+            attempts: Vec::new(),
+            budget_exhausted: false,
+        })
+    }
+
     fn start_scoped_worktree(
         &self,
         name: &str,
@@ -1531,7 +1561,11 @@ pub fn run_task<R: CommandRunner>(
     policy: &SusiRunPolicy<'_>,
 ) -> EaiResult<SusiRunReport> {
     let worktree =
-        target.start_scoped_worktree(&spec.worktree_name, &spec.scopes, spec.task.as_deref())?;
+        match target.start_scoped_worktree(&spec.worktree_name, &spec.scopes, spec.task.as_deref())
+        {
+            Ok(worktree) => worktree,
+            Err(error) => return target.retained_candidate(spec).ok_or(error),
+        };
     // Verify that the reserved worktree has no prior code changes. Refused
     // or abandoned candidates remain intact for their owning agent to repair.
     target.reset_reused_worktree(&worktree)?;

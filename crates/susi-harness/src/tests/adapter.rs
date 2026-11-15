@@ -11,6 +11,7 @@ struct NativeState {
     acceptance_failure: bool,
     zero_tests: bool,
     integration_failure: bool,
+    held: bool,
     prior_changes: bool,
     dropped_tests: bool,
     rewritten: bool,
@@ -66,6 +67,13 @@ impl CommandRunner for NativeRunner {
         if args.first().map(String::as_str) == Some("local") {
             match args.get(2).map(String::as_str) {
                 Some("start") => {
+                    if state.held {
+                        return Ok(RunOutput {
+                            status: 1,
+                            stdout: String::new(),
+                            stderr: "local-workflow: agent reused already has a claim".into(),
+                        });
+                    }
                     let scopes: Vec<_> = args[4..]
                         .as_chunks::<2>()
                         .0
@@ -1279,6 +1287,47 @@ fn precheck_refuses_code_ahead_of_native_base() {
         .calls
         .iter()
         .any(|s| s.contains("integrate")));
+}
+
+#[test]
+fn a_rerun_lands_the_candidate_a_failed_landing_retained() {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let target = native_target(dir.path());
+    let exec = NativeExec {
+        state: target.runner.state.clone(),
+        outcome: RunOutcome::Succeeded {
+            final_text: "done".into(),
+            reported_cost_usd: None,
+        },
+        edits: true,
+    };
+    let spec = spec_for(dir.path(), None, false);
+    let first = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
+    assert!(first.accepted);
+    target.runner.state.lock().unwrap().integration_failure = true;
+    assert!(land(&target, &first).is_err());
+    {
+        let mut state = target.runner.state.lock().unwrap();
+        state.integration_failure = false;
+        state.held = true;
+    }
+    let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
+    assert_eq!(report.model, "retained");
+    assert!(report.attempts.is_empty());
+    land(&target, &report).unwrap();
+
+    let fresh = susi_paths::tempfile::tempdir().unwrap();
+    let blocked = native_target(fresh.path());
+    blocked.runner.state.lock().unwrap().held = true;
+    let error = run_task(
+        &blocked,
+        &spec_for(fresh.path(), None, false),
+        &exec,
+        &SusiRunPolicy::unmetered(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("already has a claim"));
 }
 
 /// The precheck still closes a task whose acceptance passes on a tree that
