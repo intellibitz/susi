@@ -289,6 +289,11 @@ fn add_task_returns_the_id_and_claim_reserves_scopes() {
         .add_task(dir.path(), "proof", "cargo test -p susi-harness")
         .unwrap();
     assert_eq!(id, "T-LOCALDEMO-1");
+    // The queue's schema: a record without these two is refused at landing.
+    let minted = std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap();
+    let minted: Value = serde_json::from_slice(&minted).unwrap();
+    assert_eq!(minted["created_by"], "demo");
+    assert!(minted["created_unix"].as_u64().is_some_and(|at| at > 0));
     target.claim(dir.path(), &id, &["docs".into()]).unwrap();
     assert!(target
         .runner

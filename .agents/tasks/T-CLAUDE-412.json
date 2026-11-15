@@ -24,5 +24,10 @@
     "tests/gmcp_requirements/vc_203_014_part4.rs",
     ".agents/gmcp/evidence",
     ".agents/tasks/T-CLAUDE-412.json"
-  ]
+  ],
+  "status": "implemented",
+  "results": {
+    "change": "A local alias `type Mutate<'a> = Box<dyn Fn(&mut Value) + 'a>` names the array's element type.",
+    "checks": "cargo clippy --offline --locked --workspace --all-targets --features xtask/release-tooling -- -D warnings is clean; both phases of scripts/gmcp-record-evidence.sh passed (90 requirement checks, 15 mastery tests) and are recorded."
+  }
 }

@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDE-413",
+  "title": "Give harness-minted task records the fields the queue requires",
+  "goal": "SusiTarget::add_task mints a task record without created_by and created_unix. tests/task_records.rs now pins the queue's schema (required id, title, accept.cmd, created_by, created_unix) and refuses any new record that lacks them, so every harness mission that mints its own task fails its landing gate on its own record. add_task writes both fields: the claiming worker and the time of minting.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "add_task_returns_the_id_and_claim_reserves_scopes"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1794777758,
+  "owner": "claude",
+  "scopes": [
+    "crates/susi-harness/src/adapter.rs",
+    "crates/susi-harness/src/tests/adapter.rs",
+    ".agents/tasks/T-CLAUDE-413.json"
+  ],
+  "status": "implemented",
+  "results": {
+    "change": "add_task writes created_by (the claiming worker) and created_unix into the record it mints.",
+    "acceptance": "cargo test --offline --locked -p susi-harness --lib add_task_returns_the_id_and_claim_reserves_scopes passes and now reads the minted record back; adapter suite 45 passed.",
+    "found": "The landing gate of harness mission core-resume failed in tests/task_records.rs on its own minted record: missing field created_by."
+  }
+}
