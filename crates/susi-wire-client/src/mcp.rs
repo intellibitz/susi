@@ -291,6 +291,66 @@ impl Session {
         )
     }
 
+    /// Call `name` with `args`, opting into `io.modelcontextprotocol/tasks`
+    /// while preserving a synchronous `CallToolResult` return shape: if the
+    /// server returns `CreateTaskResult`, polls `tasks/get` (fulfilling any
+    /// MRTR `inputRequests` via `on_input_requests`) until terminal settlement.
+    ///
+    /// Tool-level `isError: true` outcomes return `Ok(CallToolResult)` per
+    /// `ext-tasks` `-0837`/`-0892`, while protocol-level `failed` tasks surface
+    /// their structured JSON-RPC error as [`WireError::Rpc`].
+    pub fn call_tool_resolving_tasks<F>(
+        &mut self,
+        name: &str,
+        args: &Value,
+        max_wait: Option<Duration>,
+        on_input_requests: F,
+    ) -> Result<Value, WireError>
+    where
+        F: FnMut(&[InputRequestEntry]) -> Result<Value, WireError>,
+    {
+        match self.call_tool_inner(
+            name,
+            args,
+            CallToolOpts {
+                allow_tasks: true,
+                progress_token: None,
+            },
+            &mut |_| {},
+        )? {
+            CallToolOutcome::Complete(value) => Ok(value),
+            CallToolOutcome::Task(handle) => {
+                let snapshot = self.poll_task_until_done(&handle, max_wait, on_input_requests)?;
+                match snapshot.handle.status {
+                    TaskStatus::Completed => snapshot.result.ok_or_else(|| {
+                        WireError::Protocol("completed task snapshot missing result".into())
+                    }),
+                    TaskStatus::Failed => {
+                        let err = snapshot.error.as_ref();
+                        let code = err
+                            .and_then(|e| e.get("code"))
+                            .and_then(Value::as_i64)
+                            .unwrap_or(-32603);
+                        let msg = err
+                            .and_then(|e| e.get("message"))
+                            .and_then(Value::as_str)
+                            .or(snapshot.handle.status_message.as_deref())
+                            .unwrap_or("task failed")
+                            .to_string();
+                        Err(WireError::Rpc(code, msg))
+                    }
+                    TaskStatus::Cancelled => Err(WireError::Protocol(format!(
+                        "task {} was cancelled before completion",
+                        snapshot.handle.task_id
+                    ))),
+                    TaskStatus::Working | TaskStatus::InputRequired => Err(WireError::Protocol(
+                        "poll_task_until_done returned non-terminal snapshot".into(),
+                    )),
+                }
+            }
+        }
+    }
+
     fn call_tool_inner(
         &mut self,
         name: &str,
@@ -1988,5 +2048,59 @@ mod tests {
             Err(WireError::Protocol(_))
         ));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelled() {
+        let (addr, _seen, server) = scripted(vec![
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
+            // 1. Direct synchronous CallToolResult
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"content\":[{\"type\":\"text\",\"text\":\"sync-direct\"}],\"isError\":false}}",
+            // 2. CreateTaskResult -> Completed with isError: true (must return Ok(CallToolResult))
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-tool-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-tool-err\",\"status\":\"completed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"tool-fault\"}],\"isError\":true}}}",
+            // 3. CreateTaskResult -> Failed (must surface structured WireError::Rpc)
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-rpc-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-rpc-err\",\"status\":\"failed\",\"statusMessage\":\"rpc crashed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"error\":{\"code\":-32603,\"message\":\"downstream crash\"}}}",
+            // 4. CreateTaskResult -> Cancelled (must surface WireError::Protocol)
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-cancel\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-cancel\",\"status\":\"cancelled\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000}}",
+        ]);
+        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
+        let direct = session
+            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
+            .unwrap();
+        assert_eq!(direct["content"][0]["text"], "sync-direct");
+
+        let tool_err = session
+            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
+            .unwrap();
+        assert_eq!(tool_err["isError"], json!(true));
+        assert_eq!(tool_err["content"][0]["text"], "tool-fault");
+
+        let rpc_err = session
+            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
+            .unwrap_err();
+        assert!(
+            matches!(&rpc_err, WireError::Rpc(-32603, msg) if msg == "downstream crash"),
+            "{rpc_err:?}"
+        );
+
+        let cancel_err = session
+            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
+            .unwrap_err();
+        assert!(
+            matches!(&cancel_err, WireError::Protocol(msg) if msg.contains("cancelled")),
+            "{cancel_err:?}"
+        );
+        server.join().unwrap();
     }
 }

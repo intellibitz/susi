@@ -177,6 +177,9 @@ pub fn classify_envelope(line: &[u8]) -> GateVerdict {
     if id.is_none() && is_ignorable_notification(&value) {
         return GateVerdict::Drop;
     }
+    if id.is_none() && method.is_some_and(|m| !m.starts_with("notifications/")) {
+        return reject(-32600, "Invalid request: missing id", None, None);
+    }
     // Canonical content/metadata boundary (VC-203-008): spec-shaped
     // content and URI fields are validated here — typed, deterministic
     // failures instead of the typed codec's silent drops or coercions.
