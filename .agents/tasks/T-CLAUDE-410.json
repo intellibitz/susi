@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDE-410",
+  "title": "Close a harness task whose claim base the coordinator moved forward",
+  "goal": "When origin/main moves during a mission, the native coordinator reconciles the worktree at its next commit and advances the claim's base, while the task record keeps the base it was claimed at. SusiTarget::close then refused its own accepted task with 'task is not owned by this native reservation', so any mission that overlapped a landing on main could not finish. Close accepts a record whose base is an ancestor of the claim's base; every other ownership check is unchanged.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "the_precheck_closes_a_task_that_passes_on_the_untouched_base"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1794766497,
+  "owner": "claude",
+  "scopes": [
+    "crates/susi-harness/src/adapter.rs",
+    "crates/susi-harness/src/tests/adapter.rs",
+    "docs/harness-runbook.md",
+    ".agents/tasks/T-CLAUDE-410.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "crates/susi-harness adapter.rs (close, claim, base_is_ancestor, the git runner), xtask local_workflow sync_commit.rs (reconcile_claimed_worktree_locked advances the claim base) and native_provenance.rs (task_for_claim does not bind the record to a base).",
+    "reason": "One ancestry check through the adapter's existing git runner; nothing new is built."
+  }
+}

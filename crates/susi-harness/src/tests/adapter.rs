@@ -1311,8 +1311,15 @@ fn the_precheck_closes_a_task_that_passes_on_the_untouched_base() {
         .calls
         .iter()
         .any(|call| call.contains("workflow integrate")));
+    // Main moved meanwhile, and the coordinator moved the claim's base with it.
+    let claim = dir
+        .path()
+        .join(".git/susi-local-workflow/claims/reused.claim");
+    let moved = std::fs::read_to_string(&claim).unwrap();
+    std::fs::write(&claim, moved.replace(&"a".repeat(40), &"b".repeat(40))).unwrap();
     land(&target, &report).unwrap();
     let state = target.runner.state.lock().unwrap();
+    assert!(state.calls.iter().any(|call| call.contains("is-ancestor")));
     assert_eq!(
         state
             .calls

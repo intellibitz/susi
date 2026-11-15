@@ -691,7 +691,7 @@ impl<R: CommandRunner> SusiTarget<R> {
                 .map_err(|e| EaiError::config(e.to_string()))?;
         if record["id"] != id
             || record["owner"] != claim.name
-            || record["base"] != claim.base
+            || !self.claim_base_follows(worktree, &record["base"], &claim.base)?
             || record
                 .get("native_worker")
                 .is_some_and(|owner| owner.as_str() != Some(&claim.name))
@@ -734,6 +734,20 @@ impl<R: CommandRunner> SusiTarget<R> {
         susi_config::atomic_write_bytes(&done, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
         susi_config::atomic_write_bytes(&open, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
         Ok(accepted)
+    }
+
+    /// Whether a task record claimed at `recorded` still belongs to a claim
+    /// now based on `base`. The coordinator moves a claim's base forward each
+    /// time it reconciles the worktree with a newer main, while the record
+    /// keeps the base it was claimed at: an ancestor of the claim's base.
+    fn claim_base_follows(&self, worktree: &Path, recorded: &Value, base: &str) -> EaiResult<bool> {
+        let Some(recorded) = recorded.as_str() else {
+            return Ok(false);
+        };
+        Ok(recorded == base
+            || self
+                .git(worktree, &["merge-base", "--is-ancestor", recorded, base])?
+                .success())
     }
 
     /// Verify and commit work, then integrate it. The native coordinator consumes the claim.
