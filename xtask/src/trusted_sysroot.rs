@@ -301,11 +301,24 @@ fn staging_name(key: &str, nonce: u128) -> String {
     format!("{}-s{nonce}", key.get(..12).unwrap_or(key))
 }
 
+fn require_rust_src(library: &Path) -> Result<()> {
+    if library.is_dir() {
+        return Ok(());
+    }
+    Err(format!(
+        "rust-src component missing: {} is not a directory; run `rustup component add rust-src`",
+        library.display()
+    )
+    .into())
+}
+
 pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
     let host = target(&compiler)?;
-    super::sysroot_sources::original(&installed.join("lib/rustlib/src/rust/library"))?;
+    let library = installed.join("lib/rustlib/src/rust/library");
+    require_rust_src(&library)?;
+    super::sysroot_sources::original(&library)?;
     let key = identity(root, &compiler)?;
     let common = PathBuf::from(git(
         root,
@@ -404,6 +417,19 @@ pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
 mod tests {
     #[cfg(windows)]
     use super::*;
+    #[test]
+    fn missing_rust_src_names_the_component_and_the_fix() {
+        let gone = std::path::Path::new("/nonexistent-susi/lib/rustlib/src/rust/library");
+        let message = super::require_rust_src(gone).err().map(|e| e.to_string());
+        let message = message.unwrap_or_default();
+        assert!(message.contains(&gone.display().to_string()), "{message}");
+        assert!(message.contains("rust-src"), "{message}");
+        assert!(
+            message.contains("rustup component add rust-src"),
+            "{message}"
+        );
+        assert!(super::require_rust_src(&std::env::temp_dir()).is_ok());
+    }
     #[test]
     fn staging_directory_name_is_short_and_unique_per_nonce() {
         let key = "19223169d1b9a9ae6d37ce16977f96efb8f6b6f8e3cb27a8bc266af2aa3e68a5";
