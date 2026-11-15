@@ -18,5 +18,33 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Phase 1 deliverable for T-CODEXGMCPROADMAP-101 keeps this task record OPEN; remaining VC-203-014 work packages (T-CODEXGMCPROADMAP-102 through T-CODEXGMCPROADMAP-106), .agents/gmcp/evidence/VC-203-014.jsonl creation, and Phase 2 task closure occur in follow-on stages."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "reason": "Extended canonical susi-gmcp server/protocol/task_manager/http/service/transport modules and susi-wire-client/src/mcp.rs Session client instead of introducing parallel task engines or duplicate wire handlers.",
+    "searched": "crates/susi-gmcp/src, crates/susi-wire-client/src, tests/gmcp_requirements.rs, docs/gmcp/contract-203-014.md",
+    "source": "crates/susi-gmcp/src/{protocol.rs,server.rs,extensions.rs,jsonrpc_gate.rs,mcp/{http.rs,model.rs,service.rs,task_manager.rs,transport.rs}} and crates/susi-wire-client/src/mcp.rs"
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-101.json",
+    "crates/susi-gmcp/src/extensions.rs",
+    "crates/susi-gmcp/src/jsonrpc_gate.rs",
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/mcp/model.rs",
+    "crates/susi-gmcp/src/mcp/service.rs",
+    "crates/susi-gmcp/src/mcp/task_manager.rs",
+    "crates/susi-gmcp/src/mcp/transport.rs",
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/server.rs",
+    "crates/susi-gmcp/src/tests/extensions.rs",
+    "crates/susi-gmcp/src/tests/jsonrpc_gate.rs",
+    "crates/susi-gmcp/src/tests/protocol.rs",
+    "crates/susi-gmcp/src/tests/server.rs",
+    "crates/susi-wire-client/src/mcp.rs",
+    "tests/gmcp_requirements.rs"
+  ]
 }

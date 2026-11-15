@@ -6,6 +6,7 @@
 
 use super::message::*;
 use super::model::*;
+use super::task_manager::{TaskPrincipal, MAX_SUBSCRIPTION_TASK_IDS};
 use super::transport::{IntoTransport, Transport};
 use serde_json::Value;
 use std::{
@@ -421,6 +422,7 @@ pub struct Peer {
     progress_tokens: Arc<std::sync::Mutex<std::collections::HashMap<String, ProgressEntry>>>,
     next_progress_lease: Arc<std::sync::atomic::AtomicU64>,
     active_subscriptions: Arc<std::sync::atomic::AtomicUsize>,
+    principal: TaskPrincipal,
 }
 
 impl std::fmt::Debug for Peer {
@@ -432,6 +434,7 @@ impl std::fmt::Debug for Peer {
 impl Peer {
     fn new(
         info: Option<InitializeRequestParams>,
+        principal: TaskPrincipal,
     ) -> (Self, mpsc::Receiver<(ServerNotification, Responder)>) {
         let (tx, rx) = mpsc::channel(1024);
         (
@@ -442,9 +445,13 @@ impl Peer {
                 progress_tokens: Default::default(),
                 next_progress_lease: Default::default(),
                 active_subscriptions: Default::default(),
+                principal,
             },
             rx,
         )
+    }
+    pub fn principal(&self) -> &TaskPrincipal {
+        &self.principal
     }
     pub fn peer_info(&self) -> Option<Arc<InitializeRequestParams>> {
         self.info.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -558,25 +565,20 @@ impl Peer {
         &self,
         params: ResourceUpdatedNotificationParam,
     ) -> Result<(), ServiceError> {
-        self.send_notification(ServerNotification::new(
-            "notifications/resources/updated",
-            params,
-        ))
-        .await
-    }
-    async fn send_empty(&self, method: &'static str) -> Result<(), ServiceError> {
-        self.send_notification(ServerNotification::no_params(method))
-            .await
+        let note = ServerNotification::new("notifications/resources/updated", params);
+        self.send_notification(note).await
     }
     pub async fn notify_resource_list_changed(&self) -> Result<(), ServiceError> {
-        self.send_empty("notifications/resources/list_changed")
-            .await
+        let note = ServerNotification::no_params("notifications/resources/list_changed");
+        self.send_notification(note).await
     }
     pub async fn notify_tool_list_changed(&self) -> Result<(), ServiceError> {
-        self.send_empty("notifications/tools/list_changed").await
+        let note = ServerNotification::no_params("notifications/tools/list_changed");
+        self.send_notification(note).await
     }
     pub async fn notify_prompt_list_changed(&self) -> Result<(), ServiceError> {
-        self.send_empty("notifications/prompts/list_changed").await
+        let note = ServerNotification::no_params("notifications/prompts/list_changed");
+        self.send_notification(note).await
     }
 }
 
@@ -628,6 +630,9 @@ impl<R> RequestContext<R> {
 }
 
 impl RequestContext<RoleServer> {
+    pub fn principal(&self) -> &TaskPrincipal {
+        self.peer.principal()
+    }
     pub fn new(id: RequestId, peer: Peer) -> Self {
         Self::with_meta(
             CancellationToken::new(),
@@ -665,7 +670,11 @@ impl RequestContext<RoleServer> {
         meta: Option<T>,
         from_peer: impl FnOnce(&InitializeRequestParams) -> T,
     ) -> Option<T> {
-        if self.peer.request_metadata_required() {
+        if self.peer.request_metadata_required()
+            || self
+                .protocol_version()
+                .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
+        {
             meta
         } else {
             meta.or_else(|| self.peer.peer_info().map(|i| from_peer(&i)))
@@ -728,6 +737,15 @@ pub struct SubscriptionSink {
     active: CancellationToken,
 }
 
+macro_rules! sub_changed {
+    ($($fn_name:ident => $field:ident, $method:literal);* $(;)?) => {
+        $(pub async fn $fn_name(&self) -> Result<(), SubscriptionSendError> {
+            let n = ServerNotification::no_params($method);
+            self.send(n, self.accepted.$field == Some(true), $method).await
+        })*
+    };
+}
+
 impl SubscriptionSink {
     async fn send(
         &self,
@@ -753,34 +771,10 @@ impl SubscriptionSink {
             .await
             .map_err(SubscriptionSendError::Service)
     }
-    async fn changed(
-        &self,
-        m: &'static str,
-        ok: Option<bool>,
-    ) -> Result<(), SubscriptionSendError> {
-        self.send(ServerNotification::no_params(m), ok == Some(true), m)
-            .await
-    }
-    pub async fn notify_tool_list_changed(&self) -> Result<(), SubscriptionSendError> {
-        self.changed(
-            "notifications/tools/list_changed",
-            self.accepted.tools_list_changed,
-        )
-        .await
-    }
-    pub async fn notify_prompt_list_changed(&self) -> Result<(), SubscriptionSendError> {
-        self.changed(
-            "notifications/prompts/list_changed",
-            self.accepted.prompts_list_changed,
-        )
-        .await
-    }
-    pub async fn notify_resource_list_changed(&self) -> Result<(), SubscriptionSendError> {
-        self.changed(
-            "notifications/resources/list_changed",
-            self.accepted.resources_list_changed,
-        )
-        .await
+    sub_changed! {
+        notify_tool_list_changed => tools_list_changed, "notifications/tools/list_changed";
+        notify_prompt_list_changed => prompts_list_changed, "notifications/prompts/list_changed";
+        notify_resource_list_changed => resources_list_changed, "notifications/resources/list_changed";
     }
     pub async fn notify_resource_updated(
         &self,
@@ -799,6 +793,18 @@ impl SubscriptionSink {
             M,
         )
         .await
+    }
+    pub async fn notify_task_status(
+        &self,
+        task: &DetailedTask,
+    ) -> Result<(), SubscriptionSendError> {
+        const M: &str = "notifications/tasks";
+        let ok = self
+            .accepted
+            .task_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&task.task.task_id));
+        self.send(ServerNotification::new(M, task), ok, M).await
     }
 }
 
@@ -838,6 +844,9 @@ impl SubscriptionContext {
             _active: active.drop_guard(),
         })
     }
+    pub fn principal(&self) -> &crate::mcp::task_manager::TaskPrincipal {
+        self.request.principal()
+    }
     pub fn sink(&self) -> &SubscriptionSink {
         &self.sink
     }
@@ -857,6 +866,30 @@ impl SubscriptionContext {
 }
 
 // ── The handler contract ─────────────────────────────────────────────────
+
+macro_rules! handler_ok_defaults {
+    ($($fn_name:ident($req:ty) -> $ret:ty),* $(,)?) => {
+        $(fn $fn_name(
+            &self,
+            request: $req,
+            context: RequestContext,
+        ) -> impl Future<Output = Result<$ret, ErrorData>> + Send + '_ {
+            std::future::ready(Ok(Default::default()))
+        })*
+    };
+}
+
+macro_rules! handler_err_defaults {
+    ($($fn_name:ident($req:ty) -> $ret:ty => $method:literal),* $(,)?) => {
+        $(fn $fn_name(
+            &self,
+            request: $req,
+            context: RequestContext,
+        ) -> impl Future<Output = Result<$ret, ErrorData>> + Send + '_ {
+            std::future::ready(Err(ErrorData::method_not_found($method)))
+        })*
+    };
+}
 
 /// The application side of an MCP server. Every method has the default an
 /// MCP server without that capability answers with.
@@ -891,62 +924,25 @@ pub trait ServerHandler: Sized + Send + Sync + 'static {
             self.get_info(),
         )))
     }
-    fn complete(
-        &self,
-        request: CompleteRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<CompleteResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(CompleteResult::default()))
+    handler_ok_defaults! {
+        complete(CompleteRequestParams) -> CompleteResult,
+        list_prompts(Option<PaginatedRequestParams>) -> ListPromptsResult,
+        list_resources(Option<PaginatedRequestParams>) -> ListResourcesResult,
+        list_resource_templates(Option<PaginatedRequestParams>) -> ListResourceTemplatesResult,
     }
-    fn set_level(
-        &self,
-        request: SetLevelRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<(), ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("logging/setLevel")))
-    }
-    fn get_prompt(
-        &self,
-        request: GetPromptRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<GetPromptResponse, ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("prompts/get")))
-    }
-    fn list_prompts(
-        &self,
-        request: Option<PaginatedRequestParams>,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<ListPromptsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListPromptsResult::default()))
-    }
-    fn list_resources(
-        &self,
-        request: Option<PaginatedRequestParams>,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<ListResourcesResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListResourcesResult::default()))
-    }
-    fn list_resource_templates(
-        &self,
-        request: Option<PaginatedRequestParams>,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<ListResourceTemplatesResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListResourceTemplatesResult::default()))
-    }
-    fn read_resource(
-        &self,
-        request: ReadResourceRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<ReadResourceResponse, ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("resources/read")))
+    handler_err_defaults! {
+        set_level(SetLevelRequestParams) -> () => "logging/setLevel",
+        get_prompt(GetPromptRequestParams) -> GetPromptResponse => "prompts/get",
+        read_resource(ReadResourceRequestParams) -> ReadResourceResponse => "resources/read",
     }
     /// The part of a requested filter this server accepts; `None` leaves
     /// `subscriptions/listen` unimplemented.
     fn accepted_subscription_filter(
         &self,
-        requested: &SubscriptionFilter,
-    ) -> Option<SubscriptionFilter> {
-        None
+        _requested: &SubscriptionFilter,
+        _context: &RequestContext,
+    ) -> Result<Option<SubscriptionFilter>, ErrorData> {
+        Ok(None)
     }
     /// Capture handler state before `notifications/subscriptions/acknowledged`
     /// is sent so concurrent events emitted right after ack are not lost.
@@ -962,60 +958,22 @@ pub trait ServerHandler: Sized + Send + Sync + 'static {
             Ok(())
         }
     }
-    fn subscribe(
-        &self,
-        request: SubscribeRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<(), ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("resources/subscribe")))
+    handler_ok_defaults! {
+        list_tools(Option<PaginatedRequestParams>) -> ListToolsResult,
     }
-    fn unsubscribe(
-        &self,
-        request: UnsubscribeRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<(), ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("resources/unsubscribe")))
-    }
-    fn call_tool(
-        &self,
-        request: CallToolRequestParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("tools/call")))
-    }
-    fn list_tools(
-        &self,
-        request: Option<PaginatedRequestParams>,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::default()))
+    handler_err_defaults! {
+        subscribe(SubscribeRequestParams) -> () => "resources/subscribe",
+        unsubscribe(UnsubscribeRequestParams) -> () => "resources/unsubscribe",
+        call_tool(CallToolRequestParams) -> CallToolResponse => "tools/call",
+        get_task(GetTaskParams) -> GetTaskResult => "tasks/get",
+        update_task(UpdateTaskParams) -> () => "tasks/update",
+        cancel_task(CancelTaskParams) -> () => "tasks/cancel",
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         None
     }
     fn on_initialized(&self, context: NotificationContext) -> impl Future<Output = ()> + Send + '_ {
         std::future::ready(())
-    }
-    fn get_task(
-        &self,
-        request: GetTaskParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<GetTaskResult, ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("tasks/get")))
-    }
-    fn update_task(
-        &self,
-        request: UpdateTaskParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<(), ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("tasks/update")))
-    }
-    fn cancel_task(
-        &self,
-        request: CancelTaskParams,
-        context: RequestContext,
-    ) -> impl Future<Output = Result<(), ErrorData>> + Send + '_ {
-        std::future::ready(Err(ErrorData::method_not_found("tasks/cancel")))
     }
 }
 
@@ -1075,10 +1033,10 @@ fn requires_tasks(ctx: &RequestContext) -> Result<(), ErrorData> {
 fn tasks_gate<H: ServerHandler>(
     handler: &H,
     context: &RequestContext,
-    method: &'static str,
+    method: &str,
 ) -> Result<(), ErrorData> {
     if !handler.get_info().capabilities.supports_tasks() {
-        return Err(ErrorData::method_not_found(method));
+        return Err(ErrorData::method_not_found(method.to_owned()));
     }
     requires_tasks(context)
 }
@@ -1106,7 +1064,16 @@ async fn handle_listen<H: ServerHandler>(
             None,
         ));
     }
-    let Some(candidate) = handler.accepted_subscription_filter(&requested) else {
+    if let Some(task_ids) = &requested.task_ids {
+        tasks_gate(handler, &context, "subscriptions/listen")?;
+        if task_ids.len() > MAX_SUBSCRIPTION_TASK_IDS {
+            return Err(ErrorData::invalid_params(
+                "Too many taskIds requested",
+                None,
+            ));
+        }
+    }
+    let Some(candidate) = handler.accepted_subscription_filter(&requested, &context)? else {
         return Err(ErrorData::method_not_found("subscriptions/listen"));
     };
     let _lease = context.peer.enter_subscription()?;
@@ -1221,6 +1188,20 @@ pub async fn handle_request<H: ServerHandler>(
             Ok(S::from(response))
         }
         Q::ListTools(p) => handler.list_tools(p, ctx).await.map(S::ListTools),
+        Q::Custom { method, .. }
+            if matches!(
+                method.as_str(),
+                "tasks/get" | "tasks/update" | "tasks/cancel"
+            ) || (method == "subscriptions/listen" && !legacy) =>
+        {
+            if method.starts_with("tasks/") {
+                tasks_gate(handler, &ctx, &method)?;
+            }
+            Err(E::invalid_params(
+                format!("invalid params for {method}"),
+                None,
+            ))
+        }
         Q::Custom { method, .. } => Err(E::new(ErrorCode::METHOD_NOT_FOUND, method, None)),
         Q::GetTask(p) => {
             tasks_gate(handler, &ctx, "tasks/get")?;
@@ -1339,7 +1320,12 @@ pub trait ServiceExt: ServerHandler {
     where
         T: IntoTransport<A> + Send,
     {
-        serve_server(self, transport.into_transport(), CancellationToken::new())
+        serve_server(
+            self,
+            transport.into_transport(),
+            CancellationToken::new(),
+            TaskPrincipal::local(),
+        )
     }
 }
 
@@ -1352,10 +1338,11 @@ pub async fn serve_server<S: ServerHandler, T: Transport>(
     service: S,
     mut transport: T,
     ct: CancellationToken,
+    principal: TaskPrincipal,
 ) -> Result<RunningService<S>, ServerInitializeError> {
     let cancelled = ct.clone();
     tokio::select! {
-        result = establish(service, &mut transport, ct.clone()) => {
+        result = establish(service, &mut transport, ct.clone(), principal) => {
             let (service, peer, peer_rx, initial) = result?;
             Ok(serve_inner(service, transport, (peer, peer_rx), initial, ct))
         }
@@ -1405,8 +1392,9 @@ async fn establish<S: ServerHandler, T: Transport>(
     service: S,
     transport: &mut T,
     ct: CancellationToken,
+    principal: TaskPrincipal,
 ) -> Result<(S, Peer, PeerRx, VecDeque<ClientJsonRpcMessage>), ServerInitializeError> {
-    let (peer, peer_rx) = Peer::new(None);
+    let (peer, peer_rx) = Peer::new(None, principal);
     loop {
         let Some(message) = transport.receive().await else {
             return Err(ServerInitializeError::ConnectionClosed(
@@ -1424,98 +1412,79 @@ async fn establish<S: ServerHandler, T: Transport>(
             request,
             meta,
         } = request;
-        match request {
-            ClientRequest::Ping => {
-                let msg = ServerJsonRpcMessage::response(ServerResult::Empty, id);
-                send_now(transport, msg).await?;
-            }
-            ClientRequest::Initialize(params) => {
-                let requested = params.protocol_version.clone();
-                let mut negotiated = params.clone();
-                peer.set_peer_info(negotiated.clone());
-                let ctx =
-                    RequestContext::with_meta(ct.child_token(), id.clone(), meta, peer.clone());
-                let req = ClientRequest::Initialize(params);
-                let mut init = match handle_request(&service, req, ctx).await {
-                    Ok(ServerResult::Initialize(init)) => init,
-                    Ok(_) => return Err(ServerInitializeError::ExpectedInitializeRequest),
-                    Err(e) => {
-                        send_err(transport, e.clone(), id).await?;
-                        return Err(ServerInitializeError::InitializeFailed(e));
+        let request = if matches!(request, ClientRequest::Ping) {
+            let msg = ServerJsonRpcMessage::response(ServerResult::Empty, id);
+            send_now(transport, msg).await?;
+            continue;
+        } else if let ClientRequest::Initialize(params) = request {
+            macro_rules! or_init_err {
+                ($res:expr) => {
+                    match $res {
+                        Ok(v) => v,
+                        Err(e) => {
+                            send_err(transport, e.clone(), id).await?;
+                            return Err(ServerInitializeError::InitializeFailed(e));
+                        }
                     }
                 };
-                init.protocol_version = match negotiate_protocol_version(
-                    &requested,
-                    init.protocol_version,
-                    &service.supported_protocol_versions(),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        send_err(transport, e.clone(), id).await?;
-                        return Err(ServerInitializeError::InitializeFailed(e));
-                    }
-                };
-                negotiated.protocol_version = init.protocol_version.clone();
-                peer.set_peer_info(negotiated);
-                let msg = ServerJsonRpcMessage::response(ServerResult::Initialize(init), id);
-                send_now(transport, msg).await?;
-                return Ok((service, peer, peer_rx, VecDeque::new()));
             }
-            request @ (ClientRequest::Discover
-            | ClientRequest::Complete(_)
-            | ClientRequest::SetLevel(_)
-            | ClientRequest::GetPrompt(_)
-            | ClientRequest::ListPrompts(_)
-            | ClientRequest::ListResources(_)
-            | ClientRequest::ListResourceTemplates(_)
-            | ClientRequest::ReadResource(_)
-            | ClientRequest::SubscriptionsListen(_)
-            | ClientRequest::Subscribe(_)
-            | ClientRequest::Unsubscribe(_)
-            | ClientRequest::CallTool(_)
-            | ClientRequest::ListTools(_)
-            | ClientRequest::GetTask(_)
-            | ClientRequest::UpdateTask(_)
-            | ClientRequest::CancelTask(_)
-            | ClientRequest::Custom { .. }) => {
-                let missing = meta.missing_required_keys(&ProtocolVersion::V_2026_07_28);
-                let version = match meta.protocol_version() {
-                    Some(v) if missing.is_empty() => v,
-                    _ => {
-                        send_err(transport, missing_metadata_error(&missing), id).await?;
-                        continue;
-                    }
-                };
-                if matches!(request, ClientRequest::Discover) {
-                    // No lifecycle yet: the probe's peer cannot reach the client.
-                    let (bootstrap, _) = Peer::new(None);
-                    let context =
-                        RequestContext::with_meta(ct.child_token(), id.clone(), meta, bootstrap);
-                    let answer =
-                        into_rpc_message(handle_request(&service, request, context).await, id);
-                    send_now(transport, answer).await?;
-                    continue;
-                }
-                let supported = service.supported_protocol_versions();
-                if !supported.contains(&version) {
-                    send_err(
-                        transport,
-                        ErrorData::unsupported_protocol_version(version, &supported),
-                        id,
-                    )
-                    .await?;
-                    continue;
-                }
-                peer.require_request_metadata();
-                let first = ClientJsonRpcMessage::Request(JsonRpcRequest {
-                    id,
-                    method,
-                    request,
-                    meta,
-                });
-                return Ok((service, peer, peer_rx, VecDeque::from([first])));
+            let requested = params.protocol_version.clone();
+            let mut negotiated = params.clone();
+            peer.set_peer_info(negotiated.clone());
+            let ctx = RequestContext::with_meta(ct.child_token(), id.clone(), meta, peer.clone());
+            let req = ClientRequest::Initialize(params);
+            let ServerResult::Initialize(mut init) =
+                or_init_err!(handle_request(&service, req, ctx).await)
+            else {
+                return Err(ServerInitializeError::ExpectedInitializeRequest);
+            };
+            init.protocol_version = or_init_err!(negotiate_protocol_version(
+                &requested,
+                init.protocol_version,
+                &service.supported_protocol_versions(),
+            ));
+            negotiated.protocol_version = init.protocol_version.clone();
+            peer.set_peer_info(negotiated);
+            let msg = ServerJsonRpcMessage::response(ServerResult::Initialize(init), id);
+            send_now(transport, msg).await?;
+            return Ok((service, peer, peer_rx, VecDeque::new()));
+        } else {
+            request
+        };
+        let missing = meta.missing_required_keys(&ProtocolVersion::V_2026_07_28);
+        let version = match meta.protocol_version() {
+            Some(v) if missing.is_empty() => v,
+            _ => {
+                send_err(transport, missing_metadata_error(&missing), id).await?;
+                continue;
             }
+        };
+        if matches!(request, ClientRequest::Discover) {
+            // No lifecycle yet: the probe's peer cannot reach the client.
+            let (bootstrap, _) = Peer::new(None, TaskPrincipal::local());
+            let context = RequestContext::with_meta(ct.child_token(), id.clone(), meta, bootstrap);
+            let answer = into_rpc_message(handle_request(&service, request, context).await, id);
+            send_now(transport, answer).await?;
+            continue;
         }
+        let supported = service.supported_protocol_versions();
+        if !supported.contains(&version) {
+            send_err(
+                transport,
+                ErrorData::unsupported_protocol_version(version, &supported),
+                id,
+            )
+            .await?;
+            continue;
+        }
+        peer.require_request_metadata();
+        let first = ClientJsonRpcMessage::Request(JsonRpcRequest {
+            id,
+            method,
+            request,
+            meta,
+        });
+        return Ok((service, peer, peer_rx, VecDeque::from([first])));
     }
 }
 
@@ -1526,8 +1495,9 @@ pub fn serve_directly<S: ServerHandler, T: Transport>(
     transport: T,
     peer_info: Option<InitializeRequestParams>,
     ct: CancellationToken,
+    principal: TaskPrincipal,
 ) -> RunningService<S> {
-    let (peer, peer_rx) = Peer::new(peer_info);
+    let (peer, peer_rx) = Peer::new(peer_info, principal);
     serve_inner(service, transport, (peer, peer_rx), VecDeque::new(), ct)
 }
 
