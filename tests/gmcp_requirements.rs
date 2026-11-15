@@ -26382,6 +26382,10 @@ fn gmcp_req_203_012_06_operations() {
             sock_disc["result"], embedded_discover,
             "Unix socket and embedded server/discover must match"
         );
+        // A served session ends as `Closed` only once it was negotiated, as
+        // on the in-process adapter above; a client that closes before
+        // `initialize` ends it as a failed negotiation.
+        adapter_handshake(&mut socket, "ops-socket");
         drop(socket);
         adapter_session_ended(&runtime, socket_session, "unix socket");
     }
