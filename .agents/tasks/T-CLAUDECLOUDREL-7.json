@@ -184,8 +184,24 @@
   },
   "limitations": [
     "Nothing was deleted by the cloud session: its Git proxy refused the deletion (HTTP 403).",
-    "The Susi Board could not be told: the same proxy refuses board posts."
+    "The Susi Board could not be told: the same proxy refuses board posts.",
+    "Carried out later from a Windows host (see results). refs/tags/target-seed was deleted last: the local session first kept it on a stale source comment naming scripts/cloud-target-seed.sh, found that script was retired on 2026-11-09 (docs/workflow-speed.md), and deleted the tag once the CEO confirmed.",
+    "The branch deletions did not need --no-verify: push-policy admits the deletion of a non-agent wip/* branch. Only the tag deletions bypassed pre-push.",
+    "The 100 deleted candidate tags were not removed from local clones that had already fetched them; such a clone could publish one again with a tag push.",
+    "The storage guard reports each deleted tag as a DELETED finding and retains it under refs/susi-guard/origin/tags/*; that is expected after this direction."
   ],
+  "results": {
+    "carried_out_by": "CLAUDETAGCLEANUP",
+    "carried_out_on": "2026-11-15",
+    "ceo_confirmation": "Confirmed again by the CEO in a local Claude session on 2026-11-15: the 9 wip/* branches without saving them, the stray tag dev, then the listed candidate tags, then target-seed.",
+    "branches_deleted": "all 9 listed wip/* branches, in one atomic push leased to the listed tips, through pre-push",
+    "stray_tags_deleted": [
+      "dev (with its GitHub pre-release and assets, through GitHub's release removal)",
+      "target-seed (with its GitHub pre-release and assets, through GitHub's release removal)"
+    ],
+    "candidate_tags_deleted": "all 100 listed susi-distill and susi-snapshot tags, each deletion leased to the tag's inventoried object, with pre-push bypassed (--no-verify) as directed",
+    "remote_after": "git ls-remote origin: refs/heads/main is the only branch; 71 tags, all vX.Y.Z"
+  },
   "owner": "",
   "scopes": [
     ".agents/tasks/T-CLAUDECLOUDREL-7.json"
