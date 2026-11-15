@@ -13,6 +13,7 @@
   },
   "base": "d3d6305aca767b3e9b0725aa6e2e5639b8c0963d",
   "id": "T-LOCALHARNESSZ0PLANNERZ0HELD-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-planner-held",
   "owner": "harness-planner-held",
   "scopes": [
@@ -21,7 +22,7 @@
     "crates/susi-harness/src/queue.rs",
     "docs/harness.md"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Never plan a queue task another worker already holds",
   "workflow": "susi-local-v2"
 }
