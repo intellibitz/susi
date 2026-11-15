@@ -594,6 +594,5 @@ pub fn validate_payload(object: &Map<String, Value>) -> Option<(i64, ContentErro
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/content_inline.rs"]
 mod inline_tests;

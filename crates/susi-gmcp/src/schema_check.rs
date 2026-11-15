@@ -712,6 +712,5 @@ fn check_schema(root: &Value, schema: &Value, at: &str, depth: usize) -> Result<
 pub type SchemaObject = Map<String, Value>;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/schema_check.rs"]
 mod tests;

@@ -471,6 +471,5 @@ impl SemanticIndex {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "../tests/semantic_index.rs"]
 mod tests;

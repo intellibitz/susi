@@ -24,6 +24,5 @@ pub trait SusiTool: Send + Sync {
     fn execute(&self, arg: &serde_json::Value, workspace: &Path) -> EaiResult<String>;
 }
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/tool_types.rs"]
 mod inline_tests;
