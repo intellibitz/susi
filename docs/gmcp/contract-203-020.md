@@ -345,7 +345,7 @@ examples (`01_minimal_tool` through `06_production_plugin_server`).
 
 ## Ambiguities resolved
 
-- **SDK vs. bundled plugins boundary.** `VC-203-020` delivers the complete
+- **SDK vs. plugin pack boundary.** `VC-203-020` delivers the complete
   protocol-generic server authoring SDK and plugin host lifecycle in Core while
   shipping **zero** bundled vendor plugin packs in Core (`DEFAULT_PACK_ID =
   "default"`). Curated commercial plugin packs live in Susi Commercial Apps, and
