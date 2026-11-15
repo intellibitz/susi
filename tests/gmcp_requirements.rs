@@ -30964,6 +30964,17 @@ fn gmcp_req_203_014_02_production() {
     };
 
     let (_lock, _env, home) = gmcp_http_home_guard("014-prod");
+    struct RestoreProdPlane;
+    impl Drop for RestoreProdPlane {
+        fn drop(&mut self) {
+            let bus = PlaneBus::global();
+            bus.unregister(topics::TOOLS_LIST);
+            bus.unregister(topics::TOOLS_EXISTS);
+            bus.unregister(topics::TOOLS_EXECUTE);
+            susi_tools::plane_handler::register();
+        }
+    }
+    let _restore_prod_plane = RestoreProdPlane;
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let cfg_dir = susi_paths::SusiDirs::config_dir();
     std::fs::create_dir_all(&cfg_dir).unwrap();
@@ -30975,18 +30986,39 @@ fn gmcp_req_203_014_02_production() {
     let wait_cancelled = Arc::new(AtomicBool::new(false));
     struct ProdList;
     impl PlaneHandler for ProdList {
-        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
-            Ok(json!([
-                {"name": "prod_echo", "description": "Deterministic echo"},
-                {"name": "prod_wait", "description": "Cancellable wait"}
-            ]))
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let extra = [
+                json!({"name": "prod_echo", "description": "Deterministic echo"}),
+                json!({"name": "prod_wait", "description": "Cancellable wait"}),
+            ];
+            let mut merged = if let Ok(Value::Array(tools)) =
+                PlaneBus::global().request_local_prefix(topics::TOOLS_LIST, payload)
+            {
+                tools
+            } else {
+                Vec::new()
+            };
+            for tool in extra {
+                let name = tool.get("name").and_then(Value::as_str);
+                if !merged
+                    .iter()
+                    .any(|item| item.get("name").and_then(Value::as_str) == name)
+                {
+                    merged.push(tool);
+                }
+            }
+            Ok(Value::Array(merged))
         }
     }
     struct ProdExists;
     impl PlaneHandler for ProdExists {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
-            Ok(json!({ "exists": matches!(name, "prod_echo" | "prod_wait") }))
+            if matches!(name, "prod_echo" | "prod_wait") {
+                Ok(json!({ "exists": true }))
+            } else {
+                PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
+            }
         }
     }
     struct ProdExec {
@@ -30996,6 +31028,9 @@ fn gmcp_req_203_014_02_production() {
     impl PlaneHandler for ProdExec {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+            if !matches!(name, "prod_echo" | "prod_wait") {
+                return PlaneBus::global().request_local_prefix(topics::TOOLS_EXECUTE, payload);
+            }
             let args = payload.get("args").cloned().unwrap_or(Value::Null);
             let echo_runs = self.echo_runs.clone();
             let wait_cancelled = self.wait_cancelled.clone();
@@ -31021,13 +31056,6 @@ fn gmcp_req_203_014_02_production() {
         }
     }
     susi_daemon::composition::wire_mcp_serve_substrate(&home.join(".susi"));
-    struct RestoreProdPlane;
-    impl Drop for RestoreProdPlane {
-        fn drop(&mut self) {
-            susi_tools::plane_handler::register();
-        }
-    }
-    let _restore_prod_plane = RestoreProdPlane;
     PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(ProdList));
     PlaneBus::global().register(topics::TOOLS_EXISTS, Arc::new(ProdExists));
     PlaneBus::global().register(
@@ -31831,19 +31859,40 @@ fn gmcp_req_203_014_03_integration() {
     let wait_cancelled = Arc::new(AtomicBool::new(false));
     struct IntList;
     impl PlaneHandler for IntList {
-        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
-            Ok(json!([
-                {"name": "integ_echo", "description": "Integration echo"},
-                {"name": "integ_soft_err", "description": "Tool-level soft error"},
-                {"name": "integ_wait", "description": "Cancellable wait"}
-            ]))
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let extra = [
+                json!({"name": "integ_echo", "description": "Integration echo"}),
+                json!({"name": "integ_soft_err", "description": "Tool-level soft error"}),
+                json!({"name": "integ_wait", "description": "Cancellable wait"}),
+            ];
+            let mut merged = if let Ok(Value::Array(tools)) =
+                PlaneBus::global().request_local_prefix(topics::TOOLS_LIST, payload)
+            {
+                tools
+            } else {
+                Vec::new()
+            };
+            for tool in extra {
+                let name = tool.get("name").and_then(Value::as_str);
+                if !merged
+                    .iter()
+                    .any(|item| item.get("name").and_then(Value::as_str) == name)
+                {
+                    merged.push(tool);
+                }
+            }
+            Ok(Value::Array(merged))
         }
     }
     struct IntExists;
     impl PlaneHandler for IntExists {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
-            Ok(json!({ "exists": matches!(name, "integ_echo" | "integ_soft_err" | "integ_wait") }))
+            if matches!(name, "integ_echo" | "integ_soft_err" | "integ_wait") {
+                Ok(json!({ "exists": true }))
+            } else {
+                PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
+            }
         }
     }
     struct IntExec {
@@ -31853,6 +31902,9 @@ fn gmcp_req_203_014_03_integration() {
     impl PlaneHandler for IntExec {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+            if !matches!(name, "integ_echo" | "integ_soft_err" | "integ_wait") {
+                return PlaneBus::global().request_local_prefix(topics::TOOLS_EXECUTE, payload);
+            }
             let args = payload.get("args").cloned().unwrap_or(Value::Null);
             let echo_runs = self.echo_runs.clone();
             let wait_cancelled = self.wait_cancelled.clone();
@@ -31877,14 +31929,18 @@ fn gmcp_req_203_014_03_integration() {
             })
         }
     }
-    let runtime = adapter_runtime(&home);
     struct RestoreIntPlane;
     impl Drop for RestoreIntPlane {
         fn drop(&mut self) {
+            let bus = PlaneBus::global();
+            bus.unregister(topics::TOOLS_LIST);
+            bus.unregister(topics::TOOLS_EXISTS);
+            bus.unregister(topics::TOOLS_EXECUTE);
             susi_tools::plane_handler::register();
         }
     }
     let _restore_int_plane = RestoreIntPlane;
+    let runtime = adapter_runtime(&home);
     PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(IntList));
     PlaneBus::global().register(topics::TOOLS_EXISTS, Arc::new(IntExists));
     PlaneBus::global().register(

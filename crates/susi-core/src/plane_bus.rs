@@ -221,6 +221,14 @@ impl PlaneBus {
         self.inner.register_prefix(prefix, handler);
     }
 
+    pub fn unregister(&self, topic: &str) -> bool {
+        self.inner.unregister(topic)
+    }
+
+    pub fn request_local_prefix(&self, topic: &str, payload: Value) -> Result<Value, String> {
+        self.inner.request_local_prefix(topic, payload)
+    }
+
     pub fn request(&self, topic: &str, payload: Value) -> Result<Value, String> {
         self.inner.request(topic, payload)
     }

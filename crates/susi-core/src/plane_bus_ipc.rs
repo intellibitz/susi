@@ -424,6 +424,15 @@ impl IpcPlaneBus {
         Err(no_handler(topic))
     }
 
+    /// Invoke the matching local prefix handler directly, bypassing exact
+    /// topic overrides and remote route candidates.
+    pub fn request_local_prefix(&self, topic: &str, payload: Value) -> Result<Value, String> {
+        match self.local_prefix(topic) {
+            Some(h) => invoke(h, topic, payload),
+            None => Err(no_handler(topic)),
+        }
+    }
+
     pub fn publish(&self, topic: &str, payload: Value) {
         let _ = self.request(topic, payload);
     }
