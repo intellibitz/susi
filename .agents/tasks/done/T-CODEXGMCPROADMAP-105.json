@@ -23,6 +23,11 @@
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794749162,
+    "commit": "c0c9bb2047c593894f0519c946308d37d5bd18e1",
+    "by": "AG2FEATURES"
+  },
   "limitations": "Official Tasks extension (`io.modelcontextprotocol/tasks`, `ext-tasks@2026-07-28`) inspectable CLI/tool/API state, configuration and durable-store validation, bounded metrics/logs/traces, operational diagnostics, migration/rollback runbooks, and deterministic standards drift detection are proven in `gmcp_req_203_014_06_operations`; vector mastery sealing (`VC-203-014.jsonl` and `VC-203-014.json`) remains scoped to `T-CODEXGMCPROADMAP-106`.",
   "reuse": {
     "decision": "existing",
