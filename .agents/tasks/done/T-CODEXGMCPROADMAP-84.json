@@ -23,6 +23,11 @@
   "roadmap": "VC-203-016",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1794720451,
+    "commit": "44cfc62b0999445849928b39ccbd84e10e92f2ee",
+    "by": "AG2FEATURES"
+  },
   "limitations": [
     "Linux/Unix domain socket discovery parity inside `gmcp_req_203_016_06_operations` is compiled under `#[cfg(unix)]`, while Windows x86_64 executes full in-process embedded, stdio, and live HTTP `/mcp` + Wire SDK CLI/tool operations.",
     "Upstream live GitHub fetch inside `check_drift_remote` is intentionally simulated locally via deterministic `--refetched` temp copies and mutated manifest copies inside the offline test environment.",
