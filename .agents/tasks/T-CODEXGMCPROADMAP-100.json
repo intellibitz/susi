@@ -20,5 +20,22 @@
   },
   "roadmap": "VC-203-014",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "limitations": [
+    "Contract freeze stage (`GMCP-203-014-01`) pins all 46 `VC-203-014` clauses, canonical data models, 2025-11-25 deprecation decisions, threat mitigations, SLOs, fixtures, and resolved ambiguities ahead of runtime implementation in `T-CODEXGMCPROADMAP-101`..`106`.",
+    "Disk persistence across process restarts, principal ownership enforcement, `jsonrpc_gate.rs`/`transport.rs` task allowlisting, `SubscriptionFilter.taskIds` (`notifications/tasks`), poll rate limits, concurrency caps, and `susi-wire-client` task polling/retries are specified in `docs/gmcp/contract-203-014.md` for `T-CODEXGMCPROADMAP-101`..`106` rather than implemented here.",
+    "Phase 1 keeps `T-CODEXGMCPROADMAP-100` open until landed on `origin/main` with shared two-phase evidence refreshed across `.agents/gmcp/evidence/VC-203-*.jsonl`; Phase 2 performs formal task closure."
+  ],
+  "reuse": {
+    "decision": "reuse",
+    "reason": "Reused existing `.agents/gmcp/sources.json`, `.agents/gmcp/requirements-ledger.json`, shipped `susi_gmcp::mcp::task_manager::{TaskManager, DEFAULT_TASK_TTL_MS, DEFAULT_POLL_INTERVAL_MS, uuid_v4}`, `susi_gmcp::mcp::model::{TaskStatus, Task, DetailedTask, CreateTaskResult, GetTaskResult}`, `susi_gmcp::extensions::ExtensionRegistry::shipped()`, `crates/susi-gmcp/src/eco_mcp_features.rs`, and established GMCP contract structure (`docs/gmcp/contract-203-012.md`, `contract-203-016.md`) without modifying production crates.",
+    "searched": "crates/susi-gmcp/src/{mcp/task_manager.rs, mcp/model.rs, mcp/service.rs, mcp/message.rs, mcp/http.rs, mcp/transport.rs, protocol.rs, jsonrpc_gate.rs, extensions.rs, eco_mcp_features.rs}, crates/susi-wire-client/src/mcp.rs, .agents/gmcp/{sources.json,requirements-ledger.json,fixtures}, docs/gmcp/contract-203-{012,013,016}.md, and tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp, crates/susi-wire-client, .agents/gmcp, docs/gmcp, and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "docs/gmcp/contract-203-014.md",
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-100.json",
+    ".agents/gmcp/evidence"
+  ]
 }

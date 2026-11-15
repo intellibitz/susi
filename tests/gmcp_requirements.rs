@@ -30652,3 +30652,293 @@ fn gmcp_vc_203_016_mastery() {
     let _ = _http_srv;
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn gmcp_req_203_014_01_contract() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::extensions::ExtensionRegistry;
+    use susi_gmcp::mcp::model::{
+        CallToolResult, ClientCapabilities, ContentBlock, CreateTaskResult, DetailedTask,
+        ErrorCode, GetTaskResult, JsonObject, ServerCapabilities, Task, TaskPayload, TaskStatus,
+        TASKS_EXTENSION_ID,
+    };
+    use susi_gmcp::mcp::task_manager::{
+        uuid_v4, TaskManager, DEFAULT_POLL_INTERVAL_MS, DEFAULT_TASK_TTL_MS,
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-014.md"))
+        .expect("VC-203-014 contract document must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+        "Operations and non-claims",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a ## {section} section"
+        );
+    }
+
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .expect("requirements array")
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-014")
+        .collect();
+    assert_eq!(
+        rows.len(),
+        46,
+        "the contract must bind all 46 VC-203-014 rows"
+    );
+
+    let mut modern = 0usize;
+    let mut optional = 0usize;
+    let mut adapter = 0usize;
+    let mut must = 0usize;
+    let mut must_not = 0usize;
+    let mut should = 0usize;
+    let mut may = 0usize;
+    let mut docs = std::collections::BTreeSet::new();
+    for row in &rows {
+        let id = row["id"].as_str().expect("row id");
+        let level = row["level"].as_str().expect("row level");
+        let clause = row["clause"]
+            .as_str()
+            .expect("row clause")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let path = row["trace"]["production_path"]
+            .as_str()
+            .expect("production_path");
+        let doc = row["source"]["document"].as_str().expect("source document");
+        docs.insert(doc);
+        assert!(
+            contract.contains(&format!("| {id} | {level} | {clause} | {path} |")),
+            "behavior table must bind {id} verbatim with level {level}, clause, and production_path {path}"
+        );
+        assert!(
+            root.join(path).exists(),
+            "declared production path must exist: {path}"
+        );
+        assert_eq!(
+            row["trace"]["positive_test"].as_str(),
+            Some("tests/gmcp_requirements.rs::gmcp_req_203_014_03_integration"),
+            "unexpected positive_test for {id}"
+        );
+        assert_eq!(
+            row["trace"]["negative_test"].as_str(),
+            Some("tests/gmcp_requirements.rs::gmcp_req_203_014_04_adversarial"),
+            "unexpected negative_test for {id}"
+        );
+        assert_eq!(
+            row["trace"]["evidence"].as_str(),
+            Some(".agents/gmcp/evidence/VC-203-014.jsonl"),
+            "unexpected evidence location for {id}"
+        );
+        match row["disposition"]["status"]
+            .as_str()
+            .expect("disposition status")
+        {
+            "modern" => modern += 1,
+            "optional" => optional += 1,
+            "adapter" => adapter += 1,
+            other => panic!("unexpected disposition {other} for {id}"),
+        }
+        match level {
+            "must" => must += 1,
+            "must_not" => must_not += 1,
+            "should" => should += 1,
+            "may" => may += 1,
+            other => panic!("unexpected level {other} for {id}"),
+        }
+    }
+    assert_eq!((modern, optional, adapter), (41, 5, 0));
+    assert_eq!((must, must_not, should, may), (25, 8, 8, 5));
+    assert!(contract.contains("modern=41"));
+    assert!(contract.contains("optional=5"));
+    assert!(contract.contains("adapter=0"));
+    assert!(contract.contains("must=25"));
+    assert!(contract.contains("must_not=8"));
+    assert!(contract.contains("should=8"));
+    assert!(contract.contains("may=5"));
+
+    let sources: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json"))
+            .expect("sources.json must exist"),
+    )
+    .expect("sources.json must parse");
+    let ext_tasks_commit = sources["upstream"]["ext-tasks"]["commit"]
+        .as_str()
+        .expect("ext-tasks commit");
+    let mcp_commit = sources["upstream"]["modelcontextprotocol"]["commit"]
+        .as_str()
+        .expect("modelcontextprotocol commit");
+    assert!(
+        contract.contains(ext_tasks_commit),
+        "contract must pin ext-tasks commit {ext_tasks_commit}"
+    );
+    assert!(
+        contract.contains(mcp_commit),
+        "contract must pin modelcontextprotocol commit {mcp_commit}"
+    );
+
+    docs.insert("docs/specification/2025-11-25/basic/utilities/tasks.mdx");
+    let source_files = sources["files"].as_array().expect("sources.files array");
+    for doc in &docs {
+        let entry = source_files
+            .iter()
+            .find(|f| f["document"].as_str() == Some(*doc))
+            .unwrap_or_else(|| panic!("missing sources.json entry for {doc}"));
+        let expected_sha = entry["sha256"].as_str().expect("sha256 in sources.json");
+        let actual_bytes = std::fs::read(root.join(".agents/gmcp/spec").join(doc))
+            .unwrap_or_else(|e| panic!("spec doc {doc} readable: {e}"));
+        let actual_sha = susi_paths::hex::encode(Sha256::digest(&actual_bytes));
+        assert_eq!(actual_sha, expected_sha, "spec hash drift on {doc}");
+        assert!(
+            contract.contains(&format!("| {doc} | {expected_sha} |")),
+            "pinned sources table must pin {doc} with sha256 {expected_sha}"
+        );
+    }
+
+    for runtime_path in [
+        "crates/susi-gmcp/src/mcp/task_manager.rs",
+        "crates/susi-gmcp/src/mcp/model.rs",
+        "crates/susi-gmcp/src/mcp/service.rs",
+        "crates/susi-gmcp/src/mcp/message.rs",
+        "crates/susi-gmcp/src/mcp/http.rs",
+        "crates/susi-gmcp/src/mcp/transport.rs",
+        "crates/susi-gmcp/src/protocol.rs",
+        "crates/susi-gmcp/src/jsonrpc_gate.rs",
+        "crates/susi-gmcp/src/extensions.rs",
+        "crates/susi-gmcp/src/eco_mcp_features.rs",
+        "crates/susi-wire-client/src/mcp.rs",
+    ] {
+        assert!(
+            contract.contains(runtime_path),
+            "contract must cite canonical module {runtime_path}"
+        );
+        assert!(
+            root.join(runtime_path).exists(),
+            "canonical module must exist: {runtime_path}"
+        );
+    }
+
+    for marker in [
+        "io.modelcontextprotocol/tasks",
+        "CreateTaskResult",
+        "GetTaskResult",
+        "UpdateTaskResult",
+        "CancelTaskResult",
+        "tasks/get",
+        "tasks/update",
+        "tasks/cancel",
+        "tasks/list",
+        "tasks/result",
+        "notifications/tasks",
+        "taskIds",
+        "Mcp-Name",
+        "-32021",
+        "-32602",
+        "-32601",
+        "isError",
+        "used_input_keys",
+        "ttlMs",
+        "pollIntervalMs",
+        "DEFAULT_TASK_TTL_MS",
+        "DEFAULT_POLL_INTERVAL_MS",
+        "T1:",
+        "T2:",
+        "T3:",
+        "T4:",
+        "T5:",
+        "T6:",
+        "T7:",
+        "T8:",
+        "F-POS-014-01",
+        "F-POS-014-08",
+        "F-NEG-014-01",
+        "F-NEG-014-08",
+        "VC-203-014.jsonl",
+        "VC-203-014.json",
+        "gmcp_req_203_014_01_contract",
+        "gmcp_vc_203_014_mastery",
+    ] {
+        assert!(
+            contract.contains(marker),
+            "VC-203-014 contract missing required invariant or fixture marker `{marker}`"
+        );
+    }
+
+    // Canonical model and baseline surface invariants pinned by contract-203-014.md
+    assert_eq!(TASKS_EXTENSION_ID, "io.modelcontextprotocol/tasks");
+    assert_eq!(DEFAULT_TASK_TTL_MS, 300_000);
+    assert_eq!(DEFAULT_POLL_INTERVAL_MS, 1_000);
+    assert!(!TaskStatus::Working.is_terminal());
+    assert!(!TaskStatus::InputRequired.is_terminal());
+    assert!(TaskStatus::Completed.is_terminal());
+    assert!(TaskStatus::Failed.is_terminal());
+    assert!(TaskStatus::Cancelled.is_terminal());
+    assert!(ClientCapabilities::builder()
+        .enable_tasks()
+        .build()
+        .supports_tasks());
+    assert!(ServerCapabilities::builder()
+        .enable_tasks()
+        .build()
+        .supports_tasks());
+    assert!(ExtensionRegistry::shipped()
+        .capability_map()
+        .contains_key(TASKS_EXTENSION_ID));
+
+    let id = uuid_v4();
+    assert_eq!(id.len(), 36);
+    let task = Task {
+        task_id: id.clone(),
+        status: TaskStatus::Working,
+        status_message: None,
+        created_at: "2026-11-15T00:00:00Z".into(),
+        last_updated_at: "2026-11-15T00:00:00Z".into(),
+        ttl_ms: Some(DEFAULT_TASK_TTL_MS),
+        poll_interval_ms: Some(DEFAULT_POLL_INTERVAL_MS),
+    };
+    let created_json =
+        serde_json::to_value(CreateTaskResult::new(task.clone())).expect("serialize");
+    assert_eq!(created_json["resultType"], "task");
+    assert_eq!(created_json["taskId"], id);
+    assert_eq!(created_json["status"], "working");
+    assert_eq!(created_json["ttlMs"], DEFAULT_TASK_TTL_MS);
+    assert_eq!(created_json["pollIntervalMs"], DEFAULT_POLL_INTERVAL_MS);
+
+    let err_tool = CallToolResult::error(vec![ContentBlock::text("tool domain error")]);
+    let result_obj: JsonObject =
+        serde_json::from_value(serde_json::to_value(&err_tool).expect("tool res")).expect("map");
+    let get_json = serde_json::to_value(GetTaskResult::new(DetailedTask::new(
+        task,
+        TaskPayload::Completed { result: result_obj },
+    )))
+    .expect("serialize get");
+    assert_eq!(get_json["resultType"], "complete");
+    assert_eq!(get_json["status"], "completed");
+    assert_eq!(get_json["result"]["isError"], true);
+    assert!(get_json.get("error").is_none());
+
+    let err = TaskManager::new()
+        .get_task("missing-task-id")
+        .expect_err("unknown task fails");
+    assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+}
