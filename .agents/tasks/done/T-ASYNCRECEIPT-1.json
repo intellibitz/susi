@@ -6,27 +6,6 @@
   "deps": [
     "T-NATIVE-1"
   ],
-  "state": "open",
-  "status": "completed",
-  "created_by": "ASYNCRECEIPT1",
-  "created_unix": 1793633407,
-  "implementation_commit": "5810c79fe233f6ffb506db6f62938964cfabb78d",
-  "notes": "tests/parallel_workflow.rs (a_gate_cache_hit_skips_the_scoped_suite) migrated out of Lean Core to Commercial susi-dev-workflow in e9914677a3aaf4d0abb39b702be2544427ce1bb4; src/cli/workflow_cli.rs enforces the surviving Core refusal boundary.",
-  "reuse": {
-    "searched": [
-      "src/cli/workflow_cli.rs"
-    ],
-    "decision": "reuse",
-    "justification": "Reused the existing bounded await_deferred_release fixture helper in parallel_workflow.rs (now in Commercial susi-dev-workflow after e9914677a3aaf4d0abb39b702be2544427ce1bb4, with src/cli/workflow_cli.rs retaining Core's refusal boundary).",
-    "reused_symbols": [
-      "cli::workflow_cli::execute"
-    ]
-  },
-  "scopes": [
-    ".agents/tasks/T-ASYNCRECEIPT-1.json",
-    "src/cli/workflow_cli.rs",
-    "tests/task_record_schema_debt.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -37,5 +16,31 @@
       "susi",
       "workflow_cli"
     ]
-  }
+  },
+  "created_by": "ASYNCRECEIPT1",
+  "created_unix": 1793633407,
+  "closed": {
+    "at_unix": 1794760834,
+    "commit": "3f8c69a527ca840e5eb928cc1e84d75161a9d84f",
+    "by": "AG3HOUSEKEEP"
+  },
+  "implementation_commit": "5810c79fe233f6ffb506db6f62938964cfabb78d",
+  "notes": "tests/parallel_workflow.rs (a_gate_cache_hit_skips_the_scoped_suite) migrated out of Lean Core to Commercial susi-dev-workflow in e9914677a3aaf4d0abb39b702be2544427ce1bb4; src/cli/workflow_cli.rs enforces the surviving Core refusal boundary.",
+  "reuse": {
+    "decision": "reuse",
+    "justification": "Reused the existing bounded await_deferred_release fixture helper in parallel_workflow.rs (now in Commercial susi-dev-workflow after e9914677a3aaf4d0abb39b702be2544427ce1bb4, with src/cli/workflow_cli.rs retaining Core's refusal boundary).",
+    "reused_symbols": [
+      "cli::workflow_cli::execute"
+    ],
+    "searched": [
+      "src/cli/workflow_cli.rs"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-ASYNCRECEIPT-1.json",
+    "src/cli/workflow_cli.rs",
+    "tests/task_record_schema_debt.json"
+  ],
+  "state": "closed",
+  "status": "completed"
 }
