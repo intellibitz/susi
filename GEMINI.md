@@ -10,7 +10,7 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–83). Follow its native isolated workflow
+requirements (identity.json Mandates 62–84). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
@@ -22,6 +22,13 @@ CEO alone holds push authority, exercised by the CEO or by the agents the CEO
 authorizes; no pull request, patch or commit from outside is accepted; the world
 is free to fork and work in its own fork. Susi Commercial Apps
 (`intellibitz/susi-commercial-apps`) is private, closed source and licensed.
+
+Read `docs/ceo-mandate-84.md` (Mandate 84, 2026-11-16): Susi core is always
+under 100,000 lines. Until it is, core never grows: pay for every runtime line
+you add to core by removing as many in the same change, lower
+`COMPLETE_SOCKET_CEILING` in `tests/lean_core_ceilings.rs` when you shrink it,
+put add-ons in `susi-commercial-apps`, and never drop a capability or hide code
+to make the number.
 
 Read `docs/ceo-mandate-83.md` (Mandate 83, 2026-11-16), the ten agent operating
 rules: never wait on another agent; hold no claim you are not working on; keep

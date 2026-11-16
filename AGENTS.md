@@ -8,6 +8,26 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 84 (2026-11-16): Susi Core Stays Under 100,000 Lines
+
+Read [CEO Mandate 84](docs/ceo-mandate-84.md). The CEO's words: "susi core
+should always be under 100k lines." It makes Vision V-6 a standing rule and wins
+where older text differs.
+
+- **The limit:** the complete socket (every physical line of first-party
+  runtime Rust plus the `susi-vendor-*` facades, by the counting contract in
+  `docs/lean-core.md`) is always at most 99,999 lines. Tests, tooling,
+  third-party `vendor/` and `.agents/` are reported beside it, not counted.
+- **Until it is met, core never grows:** `COMPLETE_SOCKET_CEILING` in
+  `tests/lean_core_ceilings.rs` pins the measured size (307,737 on 2026-11-16).
+  Pay for every runtime line you add to core by removing as many in the same
+  change, or ship an add-on as a plug in `susi-commercial-apps`.
+- **The ceiling only goes down:** when you shrink core, lower it to the new
+  measure in the same change; below the limit it stays at 99,999.
+- **No functionality dropped, no tricks:** never hide, minify or move runtime
+  code into tests, tooling, `vendor/` or `.agents/` to make the number. Only a
+  CEO decision recorded in `docs/ceo-mandate-84.md` raises the ceiling.
+
 ## CEO Mandate 83 (2026-11-16): The Ten Agent Operating Rules
 
 Read [CEO Mandate 83](docs/ceo-mandate-83.md). It puts in one place how every
@@ -374,6 +394,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 81 | **Release cuts must sync the local host binary and live daemon (2026-11-15).** Section above; [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md). |
 | 82 | **Commit, push, merge and pull about every ten minutes: a cadence, not a hard limit (2026-11-16).** Section above; [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md). |
 | 83 | **The ten agent operating rules (2026-11-16).** Section above; [`docs/ceo-mandate-83.md`](docs/ceo-mandate-83.md). |
+| 84 | **Susi core stays under 100,000 lines; until it does, it never grows (2026-11-16).** Section above; [`docs/ceo-mandate-84.md`](docs/ceo-mandate-84.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
@@ -454,8 +475,10 @@ standards socket below 100,000 lines without dropping functionality. Run
 `cargo core-size` for the explicit, currently unmet acceptance check; scope
 and parity requirements are in `docs/lean-core.md`. Do not obtain a smaller
 number by hiding code, moving tests, dropping capabilities or weakening
-protocol/security checks. A change that makes core bigger still needs a
-measured reason (Mandates 69 and 78).
+protocol/security checks. Mandate 84 makes the goal a standing rule: until
+core is below 100,000 lines it never grows past `COMPLETE_SOCKET_CEILING`, so a
+change that adds runtime lines removes as many in the same change; a measured
+reason no longer lets core grow.
 Before migrating a module out of core, grep every cfg (`#[cfg(windows)]` code
 is invisible to a Linux build), then `cargo check --workspace --all-targets`
 and `cargo fmt --all --check` on the exact tree, and ship through the gate.

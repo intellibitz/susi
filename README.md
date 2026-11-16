@@ -180,7 +180,7 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–83).
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–84).
 The current mandate documents:
 
 - [`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md) and
@@ -203,6 +203,8 @@ The current mandate documents:
   pushes, merges and pulls about every ten minutes, as a cadence against drift.
 - [`docs/ceo-mandate-83.md`](docs/ceo-mandate-83.md): the ten rules every agent
   works by.
+- [`docs/ceo-mandate-84.md`](docs/ceo-mandate-84.md): Susi core stays under
+  100,000 lines; until it does, it never grows.
 
 Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every

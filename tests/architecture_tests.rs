@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=83).collect::<Vec<_>>(),
+        (1..=84).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2213,6 +2213,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         ),
         (82, "pulls and merges origin/main every ten minutes"),
         (83, "Never wait on another agent"),
+        (84, "Susi core stays under 100,000 lines"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3330,6 +3331,71 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
     ] {
         assert!(said.contains(words), "V-8 lost the CEO's words: {words}");
     }
+}
+
+/// Mandate 84 (CEO 2026-11-16): Susi core stays under 100,000 lines and, until it
+/// does, never grows.
+#[test]
+fn ceo_mandate_84_keeps_core_under_100k_lines() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("ceo-mandate-84.md") || text.contains("Mandate 84"),
+            "{path}: Mandate 84 must be discoverable"
+        );
+    }
+    let doc = flat("docs/ceo-mandate-84.md");
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "always strictly below 100,000 physical lines: at most 99,999",
+        "**Until core is below the limit, it never grows.**",
+        "**The ceiling only goes down.**",
+        "**No functionality is dropped**",
+        "**No tricks.**",
+        "**Only the CEO raises it.**",
+        "Implementation truth",
+        "**Not met today.**",
+        "**Not enforced:**",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 84 lost requirement: {phrase}"
+        );
+    }
+    // The rule is held by the size suite, not only written down.
+    let ceilings = flat("tests/lean_core_ceilings.rs");
+    for needle in [
+        "const COMPLETE_SOCKET_CEILING: usize =",
+        "const COMPLETE_SOCKET_LIMIT: usize = 99_999;",
+        "complete_socket_never_grows(repository_size());",
+        "assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT)",
+    ] {
+        assert!(ceilings.contains(needle), "Mandate 84 check lost: {needle}");
+    }
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-9.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        vision["statement"].as_str(),
+        Some("make a mandate, susi core should always be under 100k lines."),
+        "the CEO's words are recorded as they were given"
+    );
 }
 
 /// Mandate 81 (CEO 2026-11-15): release cuts must sync the local host binary and live daemon.

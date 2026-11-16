@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-9",
+  "statement": "make a mandate, susi core should always be under 100k lines.",
+  "set_by": "ceo",
+  "recorded_by": "AGENTCLAUDECORE100K",
+  "set_unix": 1794836758
+}
