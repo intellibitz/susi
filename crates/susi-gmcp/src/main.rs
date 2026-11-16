@@ -157,12 +157,17 @@ mod tests {
 
     #[test]
     fn handle_tool_rejects_missing_tool_name_with_error_status() {
+        let _env_lock = susi_gmcp::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = susi_paths::tempfile::tempdir().unwrap();
+        let _env = susi_paths::test_env::EnvGuard::isolated();
         let req = SyscallRequest {
             id: "tool-1".to_string(),
             caller_id: "caller".to_string(),
             op: SyscallOp::ToolCall,
             token: None,
-            workspace: Some(".".to_string()),
+            workspace: Some(dir.path().display().to_string()),
             payload: serde_json::json!({}),
             timestamp: 1,
         };
@@ -192,12 +197,17 @@ mod tests {
 
     #[test]
     fn handle_tool_accepts_tool_alias_and_preserves_request_id() {
+        let _env_lock = susi_gmcp::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = susi_paths::tempfile::tempdir().unwrap();
+        let _env = susi_paths::test_env::EnvGuard::isolated();
         let req = SyscallRequest {
             id: "tool-alias-2".to_string(),
             caller_id: "caller".to_string(),
             op: SyscallOp::ToolCall,
             token: None,
-            workspace: Some(".".to_string()),
+            workspace: Some(dir.path().display().to_string()),
             payload: serde_json::json!({
                 "tool": "unregistered_tool_xyz",
                 "args": {}
