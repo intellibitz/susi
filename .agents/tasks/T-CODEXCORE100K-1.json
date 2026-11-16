@@ -16,6 +16,7 @@
   "scopes": [
     ".agents/tasks/T-CODEXCORE100K-1.json",
     "tests/lean_core_ceilings.rs",
+    "tests/architecture_tests.rs",
     "AGENTS.md",
     "docs/lean-core.md",
     "docs/architecture.md",
