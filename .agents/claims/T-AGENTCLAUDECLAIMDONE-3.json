@@ -15,5 +15,5 @@
   "task": "T-AGENTCLAUDECLAIMDONE-3",
   "agent": "AGENTCLAUDECLAIMDONE",
   "claimed_unix": 1794839984,
-  "lease_until_unix": 1794843584
+  "lease_until_unix": 1794843708
 }
