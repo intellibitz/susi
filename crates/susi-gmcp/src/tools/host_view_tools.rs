@@ -22,7 +22,7 @@ use crate::susi_error::{EaiError, EaiResult};
 
 use super::args;
 use super::forward::forwarded_tools;
-use super::forward::{forward, policy_workspace, Kind};
+use super::forward::{forward, policy_workspace, pretty, required_str, Kind};
 use super::CoreTools;
 
 fn host(action: &str, arg: &Value, keys: &[(&str, Kind)]) -> EaiResult<String> {
@@ -39,19 +39,6 @@ fn host_in(action: &str, arg: &Value, server: &Path, keys: &[(&str, Kind)]) -> E
         keys,
         json!({ "workspace": workspace.display().to_string() }),
     )
-}
-
-fn pretty(value: &Value) -> EaiResult<String> {
-    serde_json::to_string_pretty(value)
-        .map_err(|error| EaiError::internal(format!("encode tool result: {error}")))
-}
-
-fn required_str<'a>(arg: &'a Value, key: &str) -> EaiResult<&'a str> {
-    arg.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| EaiError::config(format!("{key} is required")))
 }
 
 /// Run a membership command and return `{ok, lines, notes, error}`: the

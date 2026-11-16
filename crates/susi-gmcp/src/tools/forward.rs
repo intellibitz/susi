@@ -32,6 +32,21 @@ macro_rules! forwarded_tools {
 }
 pub(super) use forwarded_tools;
 
+/// Render the JSON text returned by host tools, including their existing error category.
+pub(super) fn pretty<T: serde::Serialize>(value: &T) -> EaiResult<String> {
+    serde_json::to_string_pretty(value)
+        .map_err(|error| EaiError::internal(format!("encode tool result: {error}")))
+}
+
+/// Read a required, non-empty string from a tool request after trimming it.
+pub(super) fn required_str<'a>(arg: &'a Value, key: &str) -> EaiResult<&'a str> {
+    arg.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| EaiError::config(format!("{key} is required")))
+}
+
 /// The JSON type a forwarded argument must have.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -100,8 +115,7 @@ pub(super) fn payload(
 /// the reply comes back as pretty JSON.
 pub(super) fn send(call: fn(Value) -> Result<Value, String>, payload: Value) -> EaiResult<String> {
     let reply = call(payload).map_err(EaiError::config)?;
-    serde_json::to_string_pretty(&reply)
-        .map_err(|error| EaiError::internal(format!("encode tool result: {error}")))
+    pretty(&reply)
 }
 
 /// [`payload`] then [`send`].
