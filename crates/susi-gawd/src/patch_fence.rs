@@ -16,7 +16,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchFence {
@@ -47,10 +46,7 @@ fn sanitize_patch_id(patch_id: &str) -> Result<&str, String> {
 /// fences for the same `patch_id` must never land on the same workspace.
 fn next_nonce() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
+    let nanos = susi_paths::unix_epoch_elapsed().as_nanos() as u64;
     nanos.wrapping_add(COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 

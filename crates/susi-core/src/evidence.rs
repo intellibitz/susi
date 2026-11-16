@@ -177,10 +177,7 @@ impl EvidenceRecord {
         if !self.verify_integrity() {
             return Rejected("invalid record integrity or metadata".into());
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         if self.timestamp == 0 || self.timestamp > now.saturating_add(60) {
             return Rejected("invalid observation timestamp".into());
         }

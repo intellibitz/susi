@@ -277,10 +277,7 @@ struct DiscoveryCache {
 static CACHED_DYNAMIC_LADDER: OnceLock<Mutex<DiscoveryCache>> = OnceLock::new();
 
 fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 fn cache_path() -> std::path::PathBuf {
     susi_paths::SusiDirs::data_dir().join("model-discovery.json")

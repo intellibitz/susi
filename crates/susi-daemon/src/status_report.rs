@@ -158,10 +158,7 @@ fn usage_ledger_path(global_dir: &Path) -> PathBuf {
 
 /// Seconds since the Unix epoch (0 when the clock reads earlier).
 pub fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// Read every persisted store once and fold it into a `UnifiedStatus`.

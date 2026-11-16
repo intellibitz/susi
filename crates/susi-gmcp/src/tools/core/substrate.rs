@@ -536,10 +536,7 @@ impl CoreTools {
         std::fs::create_dir_all(&delegations_dir)
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
 
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let ts = susi_paths::unix_epoch_elapsed().as_secs();
         let req_path = delegations_dir.join(format!("ide_request_{ts}.md"));
         let res_path = delegations_dir.join(format!("ide_response_{ts}.md"));
 

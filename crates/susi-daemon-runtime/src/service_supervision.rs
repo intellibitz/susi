@@ -477,10 +477,7 @@ impl Supervisor {
             .map(|e| serde_json::json!({ "name": e.name, "attempt": e.attempt }))
             .collect();
         serde_json::json!({
-            "generated_at": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            "generated_at": susi_paths::unix_epoch_elapsed().as_secs(),
             "workers": workers,
             "restart_log": restarts,
         })

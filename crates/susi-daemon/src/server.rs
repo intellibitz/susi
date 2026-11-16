@@ -1560,10 +1560,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         let ages_path =
             crate::susi_config::key_rotation::KeyAges::path_in(&susi_paths::SusiDirs::config_dir());
         let ages = crate::susi_config::key_rotation::KeyAges::load(&ages_path).unwrap_or_default();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         let key_statuses: Vec<crate::zc_keys_health_boot::KeyStatus> =
             crate::susi_config::key_rotation::key_statuses(
                 &env_text,
@@ -2217,10 +2214,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                             &ping.bloom_hex,
                         ),
                         admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
-                        last_seen_secs: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0),
+                        last_seen_secs: susi_paths::unix_epoch_elapsed().as_secs(),
                         pubkey: String::new(),
                         key_bound_at: 0,
                         bind_sig: String::new(),

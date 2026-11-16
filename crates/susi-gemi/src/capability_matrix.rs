@@ -94,10 +94,7 @@ pub fn build_in(store: &brain::Store, providers: &[String], unix: u64) -> Capabi
 pub fn build() -> CapabilityMatrix {
     let store = brain::load();
     let providers = store.providers();
-    let unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let unix = susi_paths::unix_epoch_elapsed().as_secs();
     build_in(&store, &providers, unix)
 }
 

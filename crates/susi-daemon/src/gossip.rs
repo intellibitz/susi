@@ -550,10 +550,7 @@ impl GossipManager {
             let msg = GossipMessage::AdvertiseCapabilities {
                 cell_id: cell_id.to_string(),
                 capabilities,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0),
+                timestamp: susi_paths::unix_epoch_elapsed().as_secs(),
             };
             let body = serde_json::to_vec(&msg)?;
             let payload = self

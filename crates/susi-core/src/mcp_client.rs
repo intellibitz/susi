@@ -371,10 +371,7 @@ pub fn signed_headers(method: &str, url: &str, body_bytes: &[u8]) -> Vec<(String
             }
         },
     );
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let ts = susi_paths::unix_epoch_elapsed().as_secs();
     let nonce = cluster_key::random_nonce_hex();
     let hash = susi_paths::hex::encode(sha2::Sha256::digest(body_bytes));
     let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");

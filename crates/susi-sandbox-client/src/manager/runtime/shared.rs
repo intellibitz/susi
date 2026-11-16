@@ -223,7 +223,7 @@ impl SusiMemory {
         let entry = serde_json::json!({
             "intent": input,
             "outcome": output,
-            "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+            "timestamp": susi_paths::unix_epoch_elapsed().as_secs(),
             "provenance": {
                 "workspace": workspace.display().to_string(),
                 "engine_version": engine_version,
@@ -252,7 +252,7 @@ impl SusiMemory {
                 "intent": input,
                 "blackboard_context": "converged",
                 "successful_outcome": output,
-                "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+                "timestamp": susi_paths::unix_epoch_elapsed().as_secs(),
                 // What was actually checked: output length and the absence
                 // of configured failure markers (this used to claim a
                 // "STRICT_SEMANTIC_PASS" no code performed).

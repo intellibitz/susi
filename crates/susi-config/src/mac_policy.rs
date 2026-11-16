@@ -157,10 +157,7 @@ fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     crate::cluster_key::hmac_sha256(key, message)
 }
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 fn grant_key(subject: &str, action: &str, resource: &str) -> String {
     if [subject, action, resource]
@@ -372,10 +369,7 @@ fn process_local_key() -> [u8; 32] {
         "susi-mac-local:{}:{:?}:{}",
         std::process::id(),
         std::thread::current().id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+        susi_paths::unix_epoch_elapsed().as_nanos()
     );
     key.copy_from_slice(&Sha256::digest(seed.as_bytes()));
     key

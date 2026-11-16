@@ -233,10 +233,7 @@ impl MissionTrace {
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            timestamp: susi_paths::unix_epoch_elapsed().as_secs(),
         }
     }
 

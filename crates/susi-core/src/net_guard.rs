@@ -160,10 +160,7 @@ impl NetGuard {
         let Some(pubkey) = Self::bound_member(node) else {
             return false;
         };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         if now.abs_diff(ts) > REQ_SKEW_SECS {
             return false;
         }
@@ -348,10 +345,7 @@ impl NonceFile {
     fn record(&mut self, key: &str) -> bool {
         use std::io::Write;
         self.refresh();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         // Entries older than twice the skew window can never validate
         // again (their covering timestamp expired), so they stop
         // counting against dedup and get compacted away.

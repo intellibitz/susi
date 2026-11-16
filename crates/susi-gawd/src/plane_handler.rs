@@ -287,10 +287,7 @@ impl PlaneHandler for GawdPlaneHandler {
                     .into_iter()
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect();
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
+                let now = susi_paths::unix_epoch_elapsed().as_secs();
                 let expires_at = now + 3600;
 
                 // Mock cryptographic signing for Phase 1.
@@ -378,10 +375,7 @@ impl PlaneHandler for GawdPlaneHandler {
                     .and_then(|v| v.as_str())
                     .ok_or("mission_id required")?;
                 let snapshot = payload.get("snapshot").and_then(|v| v.as_str());
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
+                let now = susi_paths::unix_epoch_elapsed().as_secs();
                 match susi_gawd_swarm::mission_resume::rollback_mission(
                     &ws, mission_id, snapshot, now,
                 ) {

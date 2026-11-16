@@ -594,10 +594,7 @@ fn signed_hint(addrs: &[String]) -> Option<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({"ts": ts, "addresses": addrs, "sig": sig})).ok()
 }
 fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 // ---- registry ----
 type ServeHook = Box<dyn Fn(ChannelStream, ChannelPeer) + Send + Sync>;

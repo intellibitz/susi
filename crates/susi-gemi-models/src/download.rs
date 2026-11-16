@@ -83,10 +83,7 @@ fn publish(
     if let Some(expected) = expected_sha256 {
         let provenance = super::lifecycle::ModelProvenance {
             source_url: url.to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            timestamp: susi_paths::unix_epoch_elapsed().as_secs(),
             original_checksum: Some(expected.to_string()),
         };
         crate::susi_config::atomic_write_json_pretty(

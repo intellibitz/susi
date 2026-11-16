@@ -629,10 +629,7 @@ impl CancelBus {
 
     #[must_use]
     pub fn now_unix() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+        susi_paths::unix_epoch_elapsed().as_secs()
     }
 }
 

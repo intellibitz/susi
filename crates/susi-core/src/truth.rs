@@ -263,10 +263,7 @@ impl TruthTransformer {
 
     /// Build an AgentObservation evidence record from a mission result string.
     pub fn mission_evidence_record(goal: &str, agent_id: &str, result: &str) -> EvidenceRecord {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         EvidenceRecord::new(
             agent_id.to_string(),
             1.0,

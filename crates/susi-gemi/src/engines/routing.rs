@@ -371,10 +371,7 @@ pub(crate) fn vendor_scope(name: &str) -> Option<String> {
 }
 
 fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn cooldowns_path() -> PathBuf {
@@ -966,10 +963,7 @@ impl InferenceRouter {
         // The injected headroom feeds the ranking's scarcity signal: a
         // worker's own cap (subscription window, prepaid balance) wins when
         // it declares one; the quota headroom covers everything else.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         let fraction = |name: &str| -> Option<f64> {
             crate::worker::remaining_fraction(name, now).or_else(|| {
                 headroom(name).map(|(remaining, allowance)| {
@@ -1124,10 +1118,7 @@ impl InferenceRouter {
 
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
         if let Some(until) = pref.force_local_until_unix {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let now = susi_paths::unix_epoch_elapsed().as_secs();
             if now < until {
                 return "local_only".to_string();
             }

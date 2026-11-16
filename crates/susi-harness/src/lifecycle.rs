@@ -23,7 +23,6 @@ use crate::money::MicroUsd;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
 /// Where the scorecard looks for lifecycle events by default.
@@ -113,10 +112,7 @@ impl LifecycleEvent {
 /// Seconds since the Unix epoch.
 #[must_use]
 pub fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// Append one event as a JSON line.

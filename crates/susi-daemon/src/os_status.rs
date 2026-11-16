@@ -66,10 +66,7 @@ fn status_impl(json: bool, out: &mut String) -> Option<Value> {
     // moving, not just that consensus state parses.
     let records = commit_log::load();
     let last_commit_age = records.iter().map(|r| r.committed_at).max().map(|newest| {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         now.saturating_sub(newest)
     });
     // A committed member_remove naming this node stands it down.
@@ -201,10 +198,7 @@ fn status_impl(json: bool, out: &mut String) -> Option<Value> {
     let term_age = if term.term == 0 || term.updated_at == 0 {
         String::new()
     } else {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         format!(" (leader for {}s)", now.saturating_sub(term.updated_at))
     };
     let _ = writeln!(
@@ -492,10 +486,7 @@ impl PeerView {
     /// Whether the peer's last signed pong is inside the staleness window —
     /// the swarm's definition of quorum-eligible liveness.
     fn fresh(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         self.last_seen_secs != 0 && now.saturating_sub(self.last_seen_secs) <= PEER_STALE_SECS
     }
 

@@ -13,10 +13,7 @@ use susi_config::JsonFields as _;
 pub const PEER_STALE_SECS: u64 = 30;
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// The verified-member registry (`peers.json`), strictly parsed.

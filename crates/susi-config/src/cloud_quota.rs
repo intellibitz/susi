@@ -113,10 +113,7 @@ pub const QUOTA_FRESH_SECS: u64 = 3600;
 const DEFAULT_CAP: usize = 2048;
 
 fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn key_of(o: &QuotaObservation) -> String {

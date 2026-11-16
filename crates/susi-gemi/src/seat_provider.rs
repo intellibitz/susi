@@ -13,16 +13,12 @@
 //! rather than hammering a spent seat.
 
 use std::any::Any;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::susi_core::provider::BoxFuture;
 use crate::worker::{seat_name, SeatSpec};
 
 fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// A subscription-billed agent seat exposed as a brain candidate.

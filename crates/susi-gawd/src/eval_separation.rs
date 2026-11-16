@@ -189,10 +189,7 @@ pub fn evaluate(
         candidate_id: input.candidate.id.clone(),
         contamination,
         verdict,
-        timestamp_unix: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+        timestamp_unix: susi_paths::unix_epoch_elapsed().as_secs(),
         experiment_state: None,
         canary: None,
     })

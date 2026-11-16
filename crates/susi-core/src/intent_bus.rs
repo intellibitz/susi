@@ -53,10 +53,7 @@ pub struct IntentRouted {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn tokenize(text: &str) -> HashSet<String> {
@@ -178,10 +175,7 @@ impl IntentBus {
 
     /// Nanos + counter keeps ids unique across copies sharing a pid dir.
     fn alloc_id(&self) -> String {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+        let nanos = susi_paths::unix_epoch_elapsed().as_nanos();
         format!(
             "intent-{}-{}",
             nanos,

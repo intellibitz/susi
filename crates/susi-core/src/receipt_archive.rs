@@ -11,7 +11,6 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::susi_core::capture::ToolReceipt;
 
@@ -117,10 +116,7 @@ impl ReceiptArchive {
             observed_at: receipt.observed_at,
             output_hash: receipt.output_hash.clone(),
             successful: receipt.successful,
-            archived_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            archived_at: susi_paths::unix_epoch_elapsed().as_secs(),
             // Populated after the staging attempt; `None` for ineligible receipts.
             training_staged: None,
         };

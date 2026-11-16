@@ -193,10 +193,8 @@ fn list(json: bool) -> Result<()> {
                 "  {} ({}) — evicted {}s ago",
                 b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
                 b.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0)
+                susi_paths::unix_epoch_elapsed()
+                    .as_secs()
                     .saturating_sub(b.get("banned_at").and_then(|v| v.as_u64()).unwrap_or(0))
             );
         }

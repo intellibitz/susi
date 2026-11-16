@@ -134,10 +134,7 @@ impl std::fmt::Display for ChannelError {
 impl std::error::Error for ChannelError {}
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// Noise `HKDF(chaining_key, input_key_material, n)` for n = 2 or 3, with

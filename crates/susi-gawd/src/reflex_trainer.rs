@@ -196,10 +196,7 @@ struct CycleRecord {
 fn log_cycle(workspace: &Path, outcome: &str, claimed: usize, report: &str) {
     let path = susi_paths::workspace_state_dir(workspace).join(DISTILLATION_LOG);
     let record = CycleRecord {
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+        timestamp: susi_paths::unix_epoch_elapsed().as_secs(),
         outcome: outcome.into(),
         claimed,
         report: crate::susi_config::redact_credentials(report),
@@ -295,10 +292,7 @@ fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<
     if sample_count < threshold {
         return Ok(None);
     }
-    let generation = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
+    let generation = susi_paths::unix_epoch_elapsed().as_nanos();
     let root = susi_dir.join(format!("reflex-claim-{generation}-{}", std::process::id()));
     let claim_dir = root.join(".susi");
     std::fs::create_dir_all(&claim_dir)?;

@@ -208,10 +208,7 @@ impl Drop for EvidenceActivation {
 }
 
 fn now_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_nanos()
 }
 
 fn truncate_utf8(input: &str, max_bytes: usize) -> String {
@@ -328,12 +325,7 @@ impl EvidenceSession {
             let created_at_secs = meta
                 .get("created_at")
                 .and_then(|v| v.as_u64())
-                .unwrap_or_else(|| {
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0)
-                });
+                .unwrap_or_else(|| susi_paths::unix_epoch_elapsed().as_secs());
             return Some(Self {
                 id: id.to_string(),
                 goal,
@@ -476,10 +468,7 @@ impl EvidenceSession {
             id: id.clone(),
             tool: (self.redact)(tool),
             arguments: truncate_utf8(&(self.redact)(&arguments.to_string()), 4096),
-            observed_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            observed_at: susi_paths::unix_epoch_elapsed().as_secs(),
             output_hash: hash_output(&output),
             output,
             successful,

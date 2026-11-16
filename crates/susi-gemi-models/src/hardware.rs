@@ -162,10 +162,7 @@ impl HardwareProfiler {
                     load_avg: String::new(),
                     uptime: String::new(),
                     hostname: Self::get_hostname(),
-                    observed_unix: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
+                    observed_unix: susi_paths::unix_epoch_elapsed().as_secs(),
                 }
             })
             .clone();
