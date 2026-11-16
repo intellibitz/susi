@@ -21,6 +21,11 @@
   },
   "created_by": "CLAUDEONEWAYDOCS",
   "created_unix": 1794813485,
+  "closed": {
+    "at_unix": 1794814339,
+    "commit": "96396733ec804e494ebbddee4af599f1bfcb550a",
+    "by": "CLAUDEONEWAYDOCS"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "Both repositories' governance documents (AGENTS.md, CLAUDE.md, GEMINI.md, README.md, VISION.md, CONTRIBUTING.md, CONTRIBUTORS.md, docs/ceo-agent-mandate.md, docs/ceo-mandate-74..81.md, docs/lean-core.md, .agents/identity.json) and the existing governance drift guards (tests/architecture_tests.rs, tests/three_pillars_governance.rs, tests/agent_bootstrap.rs). The directive amends existing Mandate 72 and the open-core boundary instead of adding a new mandate document, and its guard is one more test beside the existing mandate guards. No new code path, dependency or harvest."
