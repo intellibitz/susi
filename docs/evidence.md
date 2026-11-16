@@ -18,6 +18,11 @@ Use an external output directory where supported; migrating the remaining
 writers and functional record readers is implementation work. Preserve required
 authorization and recovery behavior until a working replacement is verified.
 
+GMCP's native `cargo local-release record-gmcp` stores bounded current snapshots
+under ignored `.susi/records/gmcp/evidence/`, with legacy source reads. See
+[GMCP evidence](../.agents/gmcp/evidence/README.md) for both recording phases and
+the exact-source and mastery-input bindings. No history is proof by itself.
+
 Qualification evidence must remain available with the artifact it qualifies,
 outside the source checkout. Keep license, copyright and required attribution
 notices with distributed source and artifacts. Optional run history does not

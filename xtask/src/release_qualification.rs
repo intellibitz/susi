@@ -64,15 +64,10 @@ pub const BUMP_FILES: [&str; 12] = [
 ];
 pub const BUMP_TASK_DIR: &str = ".agents/tasks/";
 
-/// GMCP vector evidence (`VC-203-*.jsonl`). Each record names the commit it
-/// was made on, so `docs/release-distillation.md` has a release branch
-/// re-record it on the candidate (`scripts/gmcp-record-evidence.sh`, then
-/// `--mastery`) before `release-qualify`. After the envelope, a distilled
-/// release may therefore also add, change or remove `*.jsonl` files directly
-/// in this directory. That admits no unchecked content: the evidence is data
-/// no shipped binary embeds, and the `tests` gate runs
-/// `tests/gmcp_requirements.rs`, which fails on evidence that is stale, names
-/// another tree, or does not match the requirements ledger.
+/// Legacy source GMCP evidence accepted by older distilled envelopes.
+/// New recording uses ignored `.susi/records/gmcp/evidence` snapshots and needs
+/// no source change. Keep this allowance for verification of older releases;
+/// the actual tests gate still rejects missing, stale or mismatched proof.
 pub const GMCP_EVIDENCE_DIR: &str = ".agents/gmcp/evidence/";
 
 fn gmcp_evidence_file(file: &str) -> bool {

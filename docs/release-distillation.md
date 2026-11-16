@@ -115,7 +115,8 @@ one on its own.
 
 Composed commits are new commits on the release base, so development commits
 are not their ancestors. Evidence that binds itself to the commit its check
-ran on (the GMCP records under `.agents/gmcp/evidence`, checked by
+ran on (current GMCP records under `.susi/records/gmcp/evidence`, with legacy
+source records still readable, checked by
 `tests/gmcp_requirements.rs`) follows the composed commits' provenance: a
 `tested_commit` counts as in HEAD's history when it is an ancestor of HEAD or
 of a commit named in a `Source-Commits:` line of a commit that also carries
@@ -125,17 +126,19 @@ as it does on main.
 
 ## Evidence bound to a commit is re-recorded, not carried
 
-Some committed records describe the exact tree they were made on, such as the
-GMCP vector evidence in `.agents/gmcp/evidence/*.jsonl` (each record names its
-commit and the requirements-ledger digest). They are append-only, so
-`.gitattributes` unions them (`merge=union`) and distillation can compose them
-onto an older base. But development-main records describe main's trees: carried
-into a candidate they become the newest records and fail its operations checks.
-On a release branch, reset those logs to the base's version and record fresh
-evidence for the candidate (`scripts/gmcp-record-evidence.sh`, then `--mastery`)
-before `release-qualify`. Main keeps every record. The first distilled
-candidate, `v0.21.55` (`T-CLAUDEDISTILL-1`), followed this and records its gate
-results in `.agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json`.
+GMCP vector proof binds the exact tested source and artifact digest. Refresh
+it on the candidate using `cargo local-release record-gmcp`, then
+`cargo local-release record-gmcp --mastery`, before `release-qualify`. Both phases
+use the same clean committed source tree and retain current snapshots under
+ignored `.susi/records/gmcp/evidence/`; no source commit is needed for the records.
+Mastery also binds the exact requirement records it consumed. Missing or stale
+local evidence fails qualification, and required artifact provenance remains
+with the qualified artifact independently of optional operational history.
+
+Legacy source JSONL remains readable, including its supersession and committed
+input checks. The historical distillation allowance for source evidence files
+continues to validate older release envelopes; it does not authorize new source
+history writes.
 
 ## Work merged outside Susi is refused
 

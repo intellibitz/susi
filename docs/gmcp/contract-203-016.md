@@ -206,7 +206,7 @@ susi extensions validate /path/to/pack
 # 2. Run deterministic air-gapped drift check across pinned extension/schema specs
 susi mcp ledger --drift --refetched .agents/gmcp/spec
 
-# 3. Verify VC-203-016 operations gate and re-record append-only evidence
+# 3. Verify VC-203-016 operations gate and refresh current local evidence
 cargo test --offline --locked --test gmcp_requirements gmcp_req_203_016_06_operations
 cargo local-release record-gmcp
 cargo local-release record-gmcp --mastery
@@ -214,7 +214,7 @@ cargo local-release record-gmcp --mastery
 
 ### Incident triage
 
-Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), missing/invalid extension key collision guard (`Collision` / `NotNamespaced`), bypassed downgrade refusal (`Downgrade`), leaked unknown `_meta` or content extension keys, `stdout` non-JSON frame leak on zero `max_rpc_body_bytes`, or pack admission bypass as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `susi extensions status`, offending manifest or JSON-RPC frame, server `stderr` diagnostics, and latest `.agents/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_016`.
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), missing/invalid extension key collision guard (`Collision` / `NotNamespaced`), bypassed downgrade refusal (`Downgrade`), leaked unknown `_meta` or content extension keys, `stdout` non-JSON frame leak on zero `max_rpc_body_bytes`, or pack admission bypass as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `susi extensions status`, offending manifest or JSON-RPC frame, server `stderr` diagnostics, and latest `.susi/records/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_016`.
 
 ### Migration (extension governance and re-pinning upstream specs)
 
@@ -223,7 +223,7 @@ Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), missi
 
 ### Rollback
 
-All extension specifications, contract prose (`docs/gmcp/contract-203-016.md`), `sources.json`, tests, and `.agents/gmcp/evidence/*.jsonl` chains are immutable, versioned Git artifacts; runtime protocol extension state is per-instance in memory, and extension pack activation cleanly reverts via `susi extensions unload <id>` (restoring compiled defaults with files intact). To roll back a specification re-pin or framework change, run `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes (`verified: true`), re-run `gmcp_req_203_016_06_operations`, and append updated proof lines without deleting historical `.agents/gmcp/evidence/*.jsonl` entries.
+All extension specifications, contract prose (`docs/gmcp/contract-203-016.md`), `sources.json`, tests are versioned Git artifacts; `.susi/records/gmcp/evidence/*.jsonl` holds local current snapshots; runtime protocol extension state is per-instance in memory, and extension pack activation cleanly reverts via `susi extensions unload <id>` (restoring compiled defaults with files intact). To roll back a specification re-pin or framework change, run `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes (`verified: true`), re-run `gmcp_req_203_016_06_operations`, and refresh current local proof; optional history may be absent.
 
 ### Production guarantees and non-claims
 

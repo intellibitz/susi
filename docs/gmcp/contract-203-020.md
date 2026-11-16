@@ -357,7 +357,7 @@ examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
 - **Pinned upstream corpus**: `.agents/gmcp/sources.json` and
   `.agents/gmcp/spec/**`, verified via
   `susi_gmcp::requirements_ledger::verify_pinned_ledger`.
-- **Append-only vector evidence policy**: `.agents/gmcp/evidence/VC-203-020.jsonl`
+- **Current vector evidence policy**: `.susi/records/gmcp/evidence/VC-203-020.jsonl`
   remains **absent** during `T-CODEXGMCPROADMAP-107`..`112` and is created and
   sealed in `T-CODEXGMCPROADMAP-113` (`[GMCP 203.020.M] Mastery`) once all six
   stage gates (`01`..`06`) and `gmcp_vc_203_020_mastery` pass on the shipped
@@ -470,7 +470,7 @@ cargo local-release record-gmcp --mastery
 
 ### Incident triage
 
-Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), `PluginError::IntegrityFailed` / TOFU quarantine event in `~/.susi/extensions/state.json`, residual plugin entries in `GmcpService::ops_snapshot()` after `unload_plugin`, unredacted credential in SSE `notifications/message`, `stdout` non-JSON byte leak on `max_rpc_body_bytes == 0`, or uncontained handler panic as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi extensions status` (including `quarantined` and `trusted_digests`), `GmcpService::ops_snapshot()`, offending `manifest.json` or JSON-RPC payload, server `stderr`, and the latest `.agents/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_020`.
+Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), `PluginError::IntegrityFailed` / TOFU quarantine event in `~/.susi/extensions/state.json`, residual plugin entries in `GmcpService::ops_snapshot()` after `unload_plugin`, unredacted credential in SSE `notifications/message`, `stdout` non-JSON byte leak on `max_rpc_body_bytes == 0`, or uncontained handler panic as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi extensions status` (including `quarantined` and `trusted_digests`), `GmcpService::ops_snapshot()`, offending `manifest.json` or JSON-RPC payload, server `stderr`, and the latest `.susi/records/gmcp/evidence/*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_020`.
 
 ### Migration (SDK authoring, plugin API major upgrades, and re-pinning upstream specs)
 
@@ -482,7 +482,7 @@ Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), `Pl
 
 1. **Live catalog rollback**: Keep the prior validated `CatalogUpdate` snapshot and invoke `GmcpService::reload_catalog(previous_snapshot)`; non-plugin tools/resources/prompts revert atomically in `< 5 ms` while preserving active plugin registrations and in-flight requests.
 2. **Plugin pack rollback**: Run `susi extensions unload <id>` (and `GmcpService::unload_plugin` / `sync_active_pack`) to cancel plugin-owned tasks, remove contributed primitives, and restore `DEFAULT_PACK_ID = "default"` without deleting quarantined forensic files on disk.
-3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir`, confirm `susi mcp ledger --drift --refetched .agents/gmcp/spec` reports `verified: true`, re-run `gmcp_req_203_020_06_operations`, and append fresh `record-gmcp` + `record-gmcp --mastery` lines without truncating historical `.agents/gmcp/evidence/*.jsonl` chains.
+3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir`, confirm `susi mcp ledger --drift --refetched .agents/gmcp/spec` reports `verified: true`, re-run `gmcp_req_203_020_06_operations`, and refresh local snapshots with `record-gmcp` + `record-gmcp --mastery`; optional history may be absent.
 
 ### Production guarantees and non-claims
 

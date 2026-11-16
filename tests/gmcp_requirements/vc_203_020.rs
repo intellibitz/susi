@@ -123,7 +123,7 @@ fn gmcp_req_203_020_01_contract() {
             assert!(!cargo_toml.contains(v), "{manifest_rel} must not depend on `{v}`");
         }
     }
-    assert!(root.join(".agents/gmcp/evidence/VC-203-020.jsonl").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file());
 }
 
 /// GMCP-203-020-02: canonical GMCP server authoring SDK and transactional plugin
@@ -413,7 +413,7 @@ fn gmcp_req_203_020_02_production() {
     for forbidden in ["extern crate rmcp", "schemars::", "axum::", "tower::", "unsafe "] {
         assert!(!sdk_src.contains(forbidden), "forbidden token `{forbidden}` in sdk.rs");
     }
-    assert!(root.join(".agents/gmcp/evidence/VC-203-020.jsonl").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file());
 }
 
 #[test]
@@ -579,7 +579,7 @@ fn gmcp_req_203_020_03_integration() {
         h2.shutdown().await;
     });
     GmcpService::unbind_direct_server("sdk-integ");
-    assert!(root.join(".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
 }
 
 /// GMCP-203-020-04: adversarial and failure behavior across validation, authorization,
@@ -879,7 +879,7 @@ fn gmcp_req_203_020_04_adversarial() {
         std::fs::write(crash_dir.join("tasks.json"), bad_bytes).expect("bad");
         assert!(GmcpService::open_durable(ws.clone(), crash_dir.clone()).is_err());
     }
-    assert!(root.join(".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
 }
 
 #[allow(dead_code)]
@@ -1516,5 +1516,5 @@ fn gmcp_req_203_020_05_interop() {
     }
 
     GmcpService::unbind_direct_server("sdk-020-05");
-    assert!(root.join(".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
 }

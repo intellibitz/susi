@@ -864,10 +864,14 @@ fn gmcp_req_203_007_06_operations() {
         .all(|row| { row["trace"]["evidence"] == ".agents/gmcp/evidence/VC-203-007.jsonl" }));
     let recorder = std::fs::read_to_string(root.join("scripts/gmcp-record-evidence.sh"))
         .expect("reproducible evidence recorder must exist");
-    assert!(recorder.contains("gmcp_vc_") && recorder.contains("artifact_sha256"));
+    assert!(recorder.contains("exec cargo local-release record-gmcp \"$@\""));
+    let native_recorder = std::fs::read_to_string(root.join("xtask/src/gmcp_evidence.rs")).unwrap();
+    assert!(native_recorder.contains(".susi/records/gmcp/evidence")
+        && native_recorder.contains("requirements_sha256")
+        && native_recorder.contains("tested_artifacts"));
 
     let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_raw));
-    let vc7_evidence_path = root.join(".agents/gmcp/evidence/VC-203-007.jsonl");
+    let vc7_evidence_path = gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-007.jsonl");
     if vc7_evidence_path.exists() {
         let evidence = std::fs::read_to_string(&vc7_evidence_path).unwrap();
         if let Some(record) = newest_records(&evidence)
@@ -1199,7 +1203,7 @@ fn gmcp_vc_203_007_mastery() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-007.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-007.jsonl"))
         .expect("VC-203-007 must retain an evidence artifact");
     let artifacts = evidence_artifacts(root, "VC-203-007");
     let head_digest =

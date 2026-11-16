@@ -174,7 +174,7 @@ Ledger disposition tally for `VC-203-012` (`57` rows total): `modern=26`, `optio
 - **Pinned sources and requirements ledger**: `.agents/gmcp/sources.json`, `.agents/gmcp/requirements-ledger.json`
 - **Contract verification test**: `tests/gmcp_requirements.rs` (`gmcp_req_203_012_01_contract`, acceptance target for `T-CODEXGMCPROADMAP-93`)
 - **Vector deliverable tests (`T-CODEXGMCPROADMAP-94`..`99`)**: `tests/gmcp_requirements.rs` (`gmcp_req_203_012_02_production`, `gmcp_req_203_012_03_integration`, `gmcp_req_203_012_04_adversarial`, `gmcp_req_203_012_05_interop`, `gmcp_req_203_012_06_operations`, `gmcp_vc_203_012_mastery`)
-- **Immutable retained evidence**: `.agents/gmcp/evidence/VC-203-012.jsonl` and `.agents/roadmap-verdicts/VC-203-012.json` (generated and hashed during `T-CODEXGMCPROADMAP-98` and `T-CODEXGMCPROADMAP-99`)
+- **Current local evidence**: `.susi/records/gmcp/evidence/VC-203-012.jsonl` and `.agents/roadmap-verdicts/VC-203-012.json` (generated and hashed during `T-CODEXGMCPROADMAP-98` and `T-CODEXGMCPROADMAP-99`)
 
 ## Ambiguities resolved
 
@@ -190,7 +190,7 @@ Ledger disposition tally for `VC-203-012` (`57` rows total): `modern=26`, `optio
 ## Operations and non-claims
 
 - **Rollout & rollback boundary**: Existing `GmcpService::session()` isolates legacy `log_level` and `legacy_subscriptions` per transport session; any regressions in modern enforcement (`T-CODEXGMCPROADMAP-94..98`) remain cleanly revertible without altering on-disk user state, while legacy clients continue operating on negotiated `2025-11-25` adapter paths during the deprecation window.
-- **Historical non-claims at contract stage (`T-CODEXGMCPROADMAP-93`)**: At contract freeze time (`T-CODEXGMCPROADMAP-93`), `gmcp_req_203_012_01_contract` pinned every requirement and design invariant prior to `T-CODEXGMCPROADMAP-94..98` runtime enforcement, differential/interop proof, and downstream `.agents/gmcp/evidence/VC-203-012.jsonl` sealing (`T-CODEXGMCPROADMAP-99`). Those runtime controls (`gmcp_req_203_012_02..06`) are now implemented and verified; final vector-level mastery sealing (`gmcp_vc_203_012_mastery` and `.agents/roadmap-verdicts/VC-203-012.json`) remains scoped to `T-CODEXGMCPROADMAP-99`.
+- **Historical non-claims at contract stage (`T-CODEXGMCPROADMAP-93`)**: At contract freeze time (`T-CODEXGMCPROADMAP-93`), `gmcp_req_203_012_01_contract` pinned every requirement and design invariant prior to `T-CODEXGMCPROADMAP-94..98` runtime enforcement, differential/interop proof, and downstream `.susi/records/gmcp/evidence/VC-203-012.jsonl` sealing (`T-CODEXGMCPROADMAP-99`). Those runtime controls (`gmcp_req_203_012_02..06`) are now implemented and verified; final vector-level mastery sealing (`gmcp_vc_203_012_mastery` and `.agents/roadmap-verdicts/VC-203-012.json`) remains scoped to `T-CODEXGMCPROADMAP-99`.
 
 ## Operations and incident runbook
 
@@ -244,7 +244,7 @@ susi mcp status
 # 2. Run air-gapped standards drift detection against vendored MCP subscription/progress/logging specs
 susi mcp ledger --drift --refetched .agents/gmcp/spec
 
-# 3. Verify VC-203-012 operations gate and re-record append-only evidence
+# 3. Verify VC-203-012 operations gate and refresh current local evidence
 cargo test --offline --locked --test gmcp_requirements gmcp_req_203_012_06_operations
 cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp
 cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp --mastery
@@ -252,7 +252,7 @@ cargo run --offline --locked -p xtask --features release-tooling --bin local-rel
 
 ### Incident triage
 
-Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte `max_rpc_body_bytes` startup failure, `stdout` non-JSON frame contamination, leaked credential inside `notifications/message` or `notifications/progress`, missing `_meta["io.modelcontextprotocol/subscriptionId"]` on subscription events, or silent queue growth bypassing `-32603` slow-consumer termination as a release-blocking incident. Capture the `susi mcp ledger --drift` JSON output, `stderr` logs, `.susi/config.json`, failing request/response frames, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` records before patching, then re-verify `gmcp_req_203_012`.
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte `max_rpc_body_bytes` startup failure, `stdout` non-JSON frame contamination, leaked credential inside `notifications/message` or `notifications/progress`, missing `_meta["io.modelcontextprotocol/subscriptionId"]` on subscription events, or silent queue growth bypassing `-32603` slow-consumer termination as a release-blocking incident. Capture the `susi mcp ledger --drift` JSON output, `stderr` logs, `.susi/config.json`, failing request/response frames, and latest `.susi/records/gmcp/evidence/VC-203-*.jsonl` records before patching, then re-verify `gmcp_req_203_012`.
 
 ### Migration (SEP-2577 deprecation and re-pinning upstream specs)
 
@@ -261,7 +261,7 @@ Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-
 
 ### Rollback
 
-All specifications, contract prose, ledger bindings, tests, and JSONL evidence chains are immutable, versioned Git artifacts, and subscription state across transports is intentionally stateless (no durable subscription store needs migration on downgrade). Revert any offending change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, re-run `gmcp_req_203_012_06_operations`, and append updated proof lines without deleting or mutating historical `.agents/gmcp/evidence/*.jsonl` entries.
+Specifications, contract prose, ledger bindings and tests are versioned Git artifacts; operational evidence uses local current snapshots, and subscription state across transports is intentionally stateless (no durable subscription store needs migration on downgrade). Revert any offending change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, re-run `gmcp_req_203_012_06_operations`, and refresh current local proof; optional history may be absent.
 
 ### Production guarantees and non-claims
 

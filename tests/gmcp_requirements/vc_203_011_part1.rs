@@ -1979,14 +1979,7 @@ fn gmcp_req_203_011_06_operations() {
     for row in vc_rows {
         assert!(contract.contains(row["id"].as_str().unwrap()));
     }
-    let evidence_dir = root.join(".agents/gmcp/evidence");
-    assert!(evidence_dir.is_dir(), ".agents/gmcp/evidence must exist");
-    let evidence_files: Vec<PathBuf> = std::fs::read_dir(&evidence_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
-        .collect();
+    let evidence_files = gmcp_evidence_files(root);
     assert!(!evidence_files.is_empty());
     for file in evidence_files {
         let records = newest_records(&std::fs::read_to_string(&file).unwrap());

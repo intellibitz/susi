@@ -229,7 +229,7 @@ fn gmcp_req_203_017_04_adversarial() {
     assert_eq!(host.call_tool_resolving_tasks("good", "approval_workflow", &json!({"ticket":"T-AFTER-RACE"}), Some(Duration::from_secs(10))).expect("healthy task after cancel")["structuredContent"]["decision"], json!("isolated-ok"));
     host.disconnect("bad_http").expect("disc bad");
     host.disconnect("good").expect("disc good");
-    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-05: interoperability and quality — reference-server interop in both
 /// roles across Streamable HTTP (`2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`),
@@ -590,7 +590,7 @@ fn main() {
     }
     #[cfg(unix)]
     host.disconnect("delta_uds").expect("disconnect uds");
-    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-06: inspectable `McpHost::snapshot()` & `susi mcp` CLI state,
 /// fail-closed configuration validation, bounded W3C `traceparent` SSE redaction,
@@ -826,8 +826,7 @@ fn gmcp_req_203_017_06_operations() {
     }
     let ledger_sha = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).expect("ledger")));
     let mut ev_count = 0usize;
-    for entry in std::fs::read_dir(root.join(".agents/gmcp/evidence")).expect("ev_dir") {
-        let p = entry.expect("e").path();
+    for p in gmcp_evidence_files(root) {
         if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             ev_count += 1;
             let recs = newest_records(&std::fs::read_to_string(&p).expect("read ev"));
@@ -835,7 +834,7 @@ fn gmcp_req_203_017_06_operations() {
         }
     }
     assert!(ev_count >= 16);
-    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
+    assert!(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-M: Vector mastery gate for VC-203-017 (Complete MCP client and host).
 #[test]
@@ -1245,7 +1244,7 @@ fn main() {
     }
     assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
 
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-017.jsonl")).expect("VC-203-017.jsonl");
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-017.jsonl")).expect("VC-203-017.jsonl");
     assert_eq!(check_ev(&evidence, true).expect("VC-203-017.jsonl valid").len(), 6);
 
     // 4. Roadmap, verdict, closed prerequisite tasks, and clean working tree checks.

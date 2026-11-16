@@ -3,19 +3,78 @@
 /// operator's seeded `api_token` mid-exchange.
 static GMCP_HTTP_HOME: Mutex<()> = Mutex::new(());
 
-/// The record each requirement is judged by in an append-only evidence file:
-/// its newest. `.agents/gmcp/evidence/README.md` never edits or deletes a
-/// record: a superseding proof is a later line for the same requirement whose
-/// `supersedes` names a record it replaces (`recorded_unix`, `identity`,
-/// `artifact_sha256`). Earlier lines stay as history. Two branches can each
-/// supersede the same record, and AGENTS.md resolves evidence conflicts by
-/// keeping both sides, so the records form a tree, not a line: a later record
-/// may name any earlier record of its requirement, and the one judged is the
-/// newest tip (a record no later record supersedes) by `recorded_unix`, file
-/// order breaking ties. A later record that names no earlier record fails,
-/// so an unlinked duplicate cannot silently replace audited proof.
-/// Requirements keep the order of their first record; a line that is not
-/// single-line JSON fails, as before.
+/// New operational proof is local; existing source proof remains readable.
+/// A present but unreadable/malformed local record must never fall back.
+fn gmcp_evidence_path(root: &Path, legacy: &str) -> PathBuf {
+    let name = legacy
+        .strip_prefix(".agents/gmcp/evidence/")
+        .expect("legacy evidence path");
+    assert!(!name.contains('/') && name.ends_with(".jsonl"));
+    let local = root.join(".susi/records/gmcp/evidence").join(name);
+    match std::fs::symlink_metadata(&local) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => root.join(legacy),
+        Ok(_) | Err(_) => local,
+    }
+}
+
+fn gmcp_evidence_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = std::collections::BTreeMap::new();
+    for directory in [".agents/gmcp/evidence", ".susi/records/gmcp/evidence"] {
+        let entries = match std::fs::read_dir(root.join(directory)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => panic!("cannot read {directory}: {error}"),
+        };
+        for entry in entries {
+            let path = entry.expect("evidence entry").path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "jsonl")
+            {
+                files.insert(
+                    path.file_name().expect("evidence filename").to_owned(),
+                    path,
+                );
+            }
+        }
+    }
+    files.into_values().collect()
+}
+
+fn gmcp_requirement_inputs_digest(records: &[serde_json::Value]) -> String {
+    use sha2::Digest;
+    let ordered: std::collections::BTreeMap<&str, &serde_json::Value> = records
+        .iter()
+        .map(|record| (record["requirement"].as_str().expect("requirement"), record))
+        .collect();
+    assert!(!ordered.is_empty(), "mastery requires requirement evidence");
+    susi_paths::hex::encode(sha2::Sha256::digest(serde_json::to_vec(&ordered).unwrap()))
+}
+
+/// Local mastery always requires an exact-input binding, including shallow
+/// clones. Only a real legacy source record may use the historical fallback.
+fn gmcp_mastery_inputs_bound(
+    root: &Path,
+    path: &Path,
+    record: &serde_json::Value,
+    requirements: &[serde_json::Value],
+) -> bool {
+    if !path.starts_with(root.join(".susi/records/gmcp/evidence"))
+        && record.get("requirements_sha256").is_none()
+    {
+        return false;
+    }
+    assert_eq!(
+        record["requirements_sha256"].as_str(),
+        Some(gmcp_requirement_inputs_digest(requirements).as_str()),
+        "mastery did not test the current requirement evidence"
+    );
+    true
+}
+
+/// Legacy append-only chains and current one-record-per-requirement snapshots
+/// share this reader. Linked legacy branches select their newest tip; an
+/// unlinked duplicate fails. A current snapshot needs no historical chain.
 fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
     const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
     let names = |record: &serde_json::Value, target: &serde_json::Value| {
@@ -63,6 +122,61 @@ fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+#[test]
+fn gmcp_local_mastery_requires_exact_inputs_even_when_source_is_shallow() {
+    let root = Path::new("fixture");
+    let local = root.join(".susi/records/gmcp/evidence/VC-203-001.jsonl");
+    let legacy = root.join(".agents/gmcp/evidence/VC-203-001.jsonl");
+    let inputs = vec![serde_json::json!({"requirement":"R-1","exit":0,"tested_commit":"source"})];
+    for record in [
+        serde_json::json!({}),
+        serde_json::json!({"requirements_sha256":null}),
+        serde_json::json!({"requirements_sha256":"wrong"}),
+    ] {
+        assert!(std::panic::catch_unwind(|| {
+            let shallow = true;
+            let _legacy_check =
+                !gmcp_mastery_inputs_bound(root, &local, &record, &inputs) && !shallow;
+        })
+        .is_err());
+    }
+    assert!(!gmcp_mastery_inputs_bound(
+        root,
+        &legacy,
+        &serde_json::json!({}),
+        &inputs
+    ));
+    let bound = serde_json::json!({"requirements_sha256":gmcp_requirement_inputs_digest(&inputs)});
+    assert!(gmcp_mastery_inputs_bound(root, &local, &bound, &inputs));
+    let changed = vec![serde_json::json!({"requirement":"R-1","exit":0,"tested_commit":"other"})];
+    assert!(
+        std::panic::catch_unwind(|| gmcp_mastery_inputs_bound(root, &local, &bound, &changed))
+            .is_err()
+    );
+}
+
+#[test]
+fn gmcp_local_records_shadow_legacy_without_hiding_corruption_or_missing_history() {
+    let root = std::env::temp_dir().join(format!("gmcp-local-reader-{}", std::process::id()));
+    std::fs::create_dir_all(root.join(".agents/gmcp/evidence")).unwrap();
+    let legacy = ".agents/gmcp/evidence/VC-203-001.jsonl";
+    std::fs::write(root.join(legacy), "legacy").unwrap();
+    assert_eq!(gmcp_evidence_path(&root, legacy), root.join(legacy));
+    let local = root.join(".susi/records/gmcp/evidence/VC-203-001.jsonl");
+    std::fs::create_dir_all(local.parent().unwrap()).unwrap();
+    std::fs::write(&local, "corrupt").unwrap();
+    assert_eq!(gmcp_evidence_path(&root, legacy), local);
+    assert_eq!(gmcp_evidence_files(&root), vec![local.clone()]);
+    assert!(
+        std::panic::catch_unwind(|| newest_records(&std::fs::read_to_string(&local).unwrap()))
+            .is_err()
+    );
+    std::fs::remove_file(&local).unwrap();
+    std::fs::remove_file(root.join(legacy)).unwrap();
+    assert!(gmcp_evidence_files(&root).is_empty());
+    assert!(std::fs::read_to_string(gmcp_evidence_path(&root, legacy)).is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}
 /// A ledger path the repository can hold: relative, with no `..` (or `.`)
 /// component, so an absolute path or a traversal to a host file never
 /// counts as present. The production verifier confines its documents the
@@ -377,36 +491,26 @@ fn is_shallow(root: &Path) -> bool {
         .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == "true")
 }
 
-/// The mastery record is the one record no mastery test reads (it is that
-/// test's output), so it is checked here: every evidence file keeps exactly
-/// one newest `GMCP-<NNN>-M` record, naming the vector's own mastery test
-/// (which must exist), exit 0, bound to a commit whose artifacts are still
-/// HEAD's, and recorded over the requirement evidence HEAD judges by. In a
-/// full clone that is exact: the evidence file at the record's
-/// `tested_commit` has the same newest requirement records as HEAD's, so the
-/// mastery test passed on precisely them. A shallow clone cannot read that
-/// commit and checks that no requirement record is newer than the mastery
-/// record. Re-recording the requirement checks without the `--mastery`
-/// phase (scripts/gmcp-record-evidence.sh) fails here.
+/// Mastery is current only when its source/artifact binding and the exact
+/// requirement inputs it tested are current. New local records bind those
+/// inputs by digest; legacy records retain their committed-input comparison.
 #[test]
 fn gmcp_mastery_records_are_retained_and_current() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let test_src = read_all_gmcp_requirements_sources(root);
-    let mut vectors: Vec<String> = std::fs::read_dir(root.join(".agents/gmcp/evidence"))
-        .expect("the evidence directory must exist")
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .filter_map(|name| name.strip_suffix(".jsonl").map(str::to_string))
-        .collect();
-    vectors.sort();
-    assert!(!vectors.is_empty(), "no GMCP evidence files");
+    let files = gmcp_evidence_files(root);
+    assert!(!files.is_empty(), "no GMCP evidence files");
     let shallow = is_shallow(root);
-    for vector in vectors {
+    for path in files {
+        let vector = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .expect("vector filename");
         let number = vector
             .strip_prefix("VC-")
             .unwrap_or_else(|| panic!("{vector}: evidence files are named VC-<NNN>-<NNN>.jsonl"));
         let file = format!(".agents/gmcp/evidence/{vector}.jsonl");
-        let evidence =
-            std::fs::read_to_string(root.join(&file)).expect("evidence must be readable");
+        let evidence = std::fs::read_to_string(&path).expect("evidence must be readable");
         let id = format!("GMCP-{number}-M");
         let (mastery, requirements): (Vec<_>, Vec<_>) = newest_records(&evidence)
             .into_iter()
@@ -431,7 +535,7 @@ fn gmcp_mastery_records_are_retained_and_current() {
             "{id}: the mastery record must name its vector's mastery test"
         );
         assert_eq!(record["exit"], 0, "{id}: a mastery record attests a pass");
-        let artifacts = evidence_artifacts(root, &vector);
+        let artifacts = evidence_artifacts(root, vector);
         let head_digest = artifacts_digest(root, "HEAD", &artifacts)
             .expect("HEAD must list the evidence artifacts");
         assert_bound_to_tested_commit(root, record, &artifacts, &head_digest);
@@ -444,7 +548,7 @@ fn gmcp_mastery_records_are_retained_and_current() {
                 requirement["requirement"]
             );
         }
-        if !shallow {
+        if !gmcp_mastery_inputs_bound(root, &path, record, &requirements) && !shallow {
             let commit = record["tested_commit"].as_str().unwrap_or_default();
             let then = Command::new("git")
                 .args(["show", &format!("{commit}:{file}")])
@@ -460,7 +564,7 @@ fn gmcp_mastery_records_are_retained_and_current() {
             assert!(
                 proved == requirements,
                 "{id}: the mastery test ran at {commit} over other requirement evidence than \
-                 HEAD judges by; run scripts/gmcp-record-evidence.sh --mastery {vector}"
+                 the current gate judges by; run scripts/gmcp-record-evidence.sh --mastery {vector}"
             );
         }
     }
@@ -1097,6 +1201,47 @@ fn md5ish(data: &[u8]) -> u128 {
     ((a as u128) << 64) | b as u128
 }
 
+#[test]
+fn gmcp_ledger_trace_finds_local_records_without_qualifying_implementation() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-local-trace-{}", std::process::id()));
+    std::fs::create_dir_all(scratch.join("docs")).unwrap();
+    copy_tree(&root.join(".agents/gmcp"), &scratch.join(".agents/gmcp"));
+    std::fs::copy(
+        root.join("docs/gmcp-roadmap.md"),
+        scratch.join("docs/gmcp-roadmap.md"),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(scratch.join(".agents/gmcp/evidence")).unwrap();
+    let before = susi_gmcp::requirements_ledger::verify_report_json(&scratch).unwrap();
+    assert_eq!(
+        before["trace_references"]["rows_with_missing_evidence"],
+        before["rows"]
+    );
+    let local = scratch.join(".susi/records/gmcp/evidence");
+    std::fs::create_dir_all(&local).unwrap();
+    std::fs::write(local.join("VC-203-001.jsonl"), "not qualification proof").unwrap();
+    let after = susi_gmcp::requirements_ledger::verify_report_json(&scratch).unwrap();
+    assert!(
+        after["trace_references"]["rows_with_missing_evidence"]
+            .as_u64()
+            .unwrap()
+            < before["trace_references"]["rows_with_missing_evidence"]
+                .as_u64()
+                .unwrap()
+    );
+    assert_eq!(
+        after["verified_scope"],
+        "pinned corpus and requirement classification"
+    );
+    assert_eq!(after["implementation_verified"], false);
+    assert_eq!(
+        after["trace_references"]["tests_and_implementation"],
+        "not verified"
+    );
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
 /// Classification verification reports unresolved trace references without
 /// claiming that file existence proves implementation or test coverage.
 #[test]
@@ -1130,7 +1275,10 @@ fn gmcp_ledger_report_discloses_unverified_implementation() {
     ] {
         let missing = rows
             .iter()
-            .filter(|row| !root.join(row["trace"][field].as_str().unwrap()).exists())
+            .filter(|row| {
+                let path = row["trace"][field].as_str().unwrap();
+                !root.join(path).exists() && !(field == "evidence" && gmcp_evidence_path(root, path).exists())
+            })
             .count();
         assert_eq!(
             cli["trace_references"][reported].as_u64(),
