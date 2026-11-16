@@ -779,11 +779,8 @@ pub fn proven_plan_length(goal: &str, traces: &[MissionTrace], limit: usize) -> 
 /// Plan-nameable tools on a trace: `reflex:*` receipts are serve labels
 /// recorded for trace joins — a plan can't name them, so provenance
 /// must not taint or reward them.
-fn plan_tools(t: &MissionTrace) -> impl Iterator<Item = String> + '_ {
-    t.tools
-        .iter()
-        .filter(|x| !x.starts_with("reflex:"))
-        .cloned()
+fn plan_tools(t: &MissionTrace) -> impl Iterator<Item = &String> {
+    t.tools.iter().filter(|x| !x.starts_with("reflex:"))
 }
 
 /// Tools that appeared in failed missions similar to `goal`, with the
@@ -795,29 +792,7 @@ pub fn failing_tool_counts(
     traces: &[MissionTrace],
     limit: usize,
 ) -> std::collections::BTreeMap<String, u32> {
-    let (mut failed, mut succeeded) = (
-        std::collections::BTreeMap::<String, u32>::new(),
-        std::collections::BTreeSet::<String>::new(),
-    );
-    for t in similar(goal, traces, limit) {
-        if t.verified() {
-            succeeded.extend(plan_tools(t));
-        } else if t.succeeded() {
-            // A bare success claim is neutral — it neither taints a tool
-            // nor clears its failure record.
-            continue;
-        } else {
-            // Count failed *missions*, not mentions — a tool invoked five
-            // times in one failure is one data point, not five.
-            for tool in plan_tools(t).collect::<std::collections::BTreeSet<_>>() {
-                *failed.entry(tool.clone()).or_insert(0) += 1;
-            }
-        }
-    }
-    // A tool that also appears on successful similar missions is ambiguous —
-    // only unambiguous failure carries the penalty.
-    failed.retain(|tool, _| !succeeded.contains(tool));
-    failed
+    failing_counts(similar(goal, traces, limit), plan_tools)
 }
 
 /// Agents that appeared only on failed similar missions, counted per
@@ -829,22 +804,28 @@ pub fn failing_agent_counts(
     traces: &[MissionTrace],
     limit: usize,
 ) -> std::collections::BTreeMap<String, u32> {
-    let (mut failed, mut cleared) = (
-        std::collections::BTreeMap::<String, u32>::new(),
-        std::collections::BTreeSet::<String>::new(),
-    );
-    for t in similar(goal, traces, limit) {
-        if t.verified() {
-            cleared.extend(t.agents.iter().cloned());
-        } else if t.succeeded() {
-            continue;
-        } else {
-            for agent in t.agents.iter().collect::<std::collections::BTreeSet<_>>() {
-                *failed.entry(agent.clone()).or_insert(0) += 1;
+    failing_counts(similar(goal, traces, limit), |t| t.agents.iter())
+}
+
+// Both public counters share provenance rules; only their name iterators differ.
+fn failing_counts<'a, I: Iterator<Item = &'a String>>(
+    traces: impl IntoIterator<Item = &'a MissionTrace>,
+    names: impl Fn(&'a MissionTrace) -> I,
+) -> std::collections::BTreeMap<String, u32> {
+    let mut failed = std::collections::BTreeMap::new();
+    let mut cleared = std::collections::BTreeSet::new();
+    for trace in traces {
+        if trace.verified() {
+            cleared.extend(names(trace));
+        } else if !trace.succeeded() {
+            // Count missions, not mentions; bare success claims are neutral.
+            for name in names(trace).collect::<std::collections::BTreeSet<_>>() {
+                *failed.entry(name.clone()).or_insert(0) += 1;
             }
         }
     }
-    failed.retain(|agent, _| !cleared.contains(agent));
+    // A verified success makes a failure attribution ambiguous.
+    failed.retain(|name, _| !cleared.contains(name));
     failed
 }
 
@@ -883,7 +864,7 @@ pub fn proven_tools(
             &mut failed
         };
         // `reflex:*` receipts are serve labels, not plan-nameable tools.
-        target.extend(plan_tools(t));
+        target.extend(plan_tools(t).cloned());
     }
     succeeded.difference(&failed).cloned().collect()
 }
