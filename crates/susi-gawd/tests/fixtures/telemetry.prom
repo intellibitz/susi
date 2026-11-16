@@ -1,0 +1,27 @@
+# HELP susi_inference_requests_total Total LLM inference calls dispatched.
+# TYPE susi_inference_requests_total counter
+susi_inference_requests_total 2
+
+# HELP susi_inference_tokens_total Total tokens processed by inference.
+# TYPE susi_inference_tokens_total counter
+susi_inference_tokens_total{kind="prompt"} 12
+susi_inference_tokens_total{kind="cached"} 4
+susi_inference_tokens_total{kind="completion"} 8
+
+# HELP susi_inference_cost_micros_total Cumulative inference expenditure in micro-dollars.
+# TYPE susi_inference_cost_micros_total counter
+susi_inference_cost_micros_total 25
+
+# HELP susi_inference_errors_total Total failed inference dispatches.
+# TYPE susi_inference_errors_total counter
+susi_inference_errors_total 1
+
+# HELP susi_model_requests_total Requests per model identifier.
+# TYPE susi_model_requests_total counter
+susi_model_requests_total{model="alpha"} 1
+susi_model_requests_total{model="beta"} 1
+
+# HELP susi_model_cost_micros_total Cumulative cost per model in micro-dollars.
+# TYPE susi_model_cost_micros_total counter
+susi_model_cost_micros_total{model="alpha"} 5
+susi_model_cost_micros_total{model="beta"} 20

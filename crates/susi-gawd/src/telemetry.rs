@@ -34,12 +34,7 @@ impl TokenUsage {
     /// Construct a new TokenUsage with automatic sum.
     #[must_use]
     pub const fn new(prompt_tokens: u64, completion_tokens: u64) -> Self {
-        Self {
-            prompt_tokens,
-            completion_tokens,
-            cached_tokens: 0,
-            total_tokens: prompt_tokens.saturating_add(completion_tokens),
-        }
+        Self::with_cache(prompt_tokens, completion_tokens, 0)
     }
 
     /// Construct a new TokenUsage with explicit cached prompt tokens.
@@ -178,45 +173,30 @@ impl InferenceTelemetry {
     /// Render Prometheus exposition format (`/metrics`).
     #[must_use]
     pub fn render_prometheus(&self) -> String {
-        let mut out = String::with_capacity(1024);
-
-        out.push_str(
-            "# HELP susi_inference_requests_total Total LLM inference calls dispatched.\n",
+        let mut out = format!(
+            concat!(
+                "# HELP susi_inference_requests_total Total LLM inference calls dispatched.\n",
+                "# TYPE susi_inference_requests_total counter\n",
+                "susi_inference_requests_total {}\n\n",
+                "# HELP susi_inference_tokens_total Total tokens processed by inference.\n",
+                "# TYPE susi_inference_tokens_total counter\n",
+                "susi_inference_tokens_total{{kind=\"prompt\"}} {}\n",
+                "susi_inference_tokens_total{{kind=\"cached\"}} {}\n",
+                "susi_inference_tokens_total{{kind=\"completion\"}} {}\n\n",
+                "# HELP susi_inference_cost_micros_total Cumulative inference expenditure in micro-dollars.\n",
+                "# TYPE susi_inference_cost_micros_total counter\n",
+                "susi_inference_cost_micros_total {}\n\n",
+                "# HELP susi_inference_errors_total Total failed inference dispatches.\n",
+                "# TYPE susi_inference_errors_total counter\n",
+                "susi_inference_errors_total {}\n\n",
+            ),
+            self.total_requests(),
+            self.total_prompt_tokens(),
+            self.total_cached_tokens(),
+            self.total_completion_tokens(),
+            self.total_cost_micros(),
+            self.total_errors(),
         );
-        out.push_str("# TYPE susi_inference_requests_total counter\n");
-        out.push_str(&format!(
-            "susi_inference_requests_total {}\n\n",
-            self.total_requests()
-        ));
-
-        out.push_str("# HELP susi_inference_tokens_total Total tokens processed by inference.\n");
-        out.push_str("# TYPE susi_inference_tokens_total counter\n");
-        out.push_str(&format!(
-            "susi_inference_tokens_total{{kind=\"prompt\"}} {}\n",
-            self.total_prompt_tokens()
-        ));
-        out.push_str(&format!(
-            "susi_inference_tokens_total{{kind=\"cached\"}} {}\n",
-            self.total_cached_tokens()
-        ));
-        out.push_str(&format!(
-            "susi_inference_tokens_total{{kind=\"completion\"}} {}\n\n",
-            self.total_completion_tokens()
-        ));
-
-        out.push_str("# HELP susi_inference_cost_micros_total Cumulative inference expenditure in micro-dollars.\n");
-        out.push_str("# TYPE susi_inference_cost_micros_total counter\n");
-        out.push_str(&format!(
-            "susi_inference_cost_micros_total {}\n\n",
-            self.total_cost_micros()
-        ));
-
-        out.push_str("# HELP susi_inference_errors_total Total failed inference dispatches.\n");
-        out.push_str("# TYPE susi_inference_errors_total counter\n");
-        out.push_str(&format!(
-            "susi_inference_errors_total {}\n\n",
-            self.total_errors()
-        ));
 
         let lock = self.models.lock().unwrap_or_else(|e| e.into_inner());
         if !lock.is_empty() {
