@@ -1,8 +1,8 @@
-//! "SUSI writes SUSI": the self-build contract (identity.json Mandate 48).
+//! The active self-build contract for code-writing tasks in this checkout.
 //!
 //! When the workspace an agent works in is the SUSI source tree itself,
 //! every code-writing path — the native swarm, delegated external agents
-//! (Claude Code, Codex, aider, Gemini CLI, …), and the self-patch cycle —
+//! and the self-patch cycle —
 //! must follow the same order. Some external agents read `AGENTS.md` on
 //! their own and some do not, so SUSI states the contract in the task
 //! itself instead of hoping each tool finds it.
@@ -29,114 +29,89 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
      && cargo test --workspace --offline --locked \
      && cargo deny --offline --locked check licenses";
 
-/// The CEO's contract, prepended to every coding task in a Susi checkout.
+/// The active contract, prepended to every coding task in a Susi checkout.
 /// Requirements are distinct from verified implementation status.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-87; canonical rules in AGENTS.md]
-The CEO never looks at code. Agents own authorized architecture, implementation, testing, \
-debugging, dependency replacement, integration and production qualification end-to-end. Do not \
-ask the CEO to inspect code or perform technical steps. The CEO grants standing authority to \
-commit, push and merge without routine CEO approval; serialized integration preserves accepted \
-work. This Git authority does not waive production evidence gates or authorize unrelated \
-spending, destructive operations or external publication.
-1. Read AGENTS.md and live task/evidence state. Work in your own worktree and branch, \
-with unique identity and disjoint scopes. Use cargo local-workflow for available \
-local reservations and guarded commits. Never edit the primary checkout, share \
-writable targets/runtime homes/ports, or change another agent's files. Keep one \
-live claim per worker; parallelize independent tasks with isolated agents.
-2. Susi runtime, build/install/release tooling and shipped implementation dependencies \
-must be Rust. Windows must be native MSVC with no Bash, WSL, MSYS, Python, Node or \
-container prerequisite. Replace incompatible dependencies without hiding them behind \
-facades or silently dropping required capabilities. OS ABI/toolchain boundaries \
-are explicit; remote services are not claims about the local implementation.
-3. GitHub is optional. Local development, debug builds, integration and qualification \
-must not require hosted CI, remote claims, origin/main, pull requests or human code \
-review. Use cargo local-build debug for the native candidate path. Complete missing \
-native workflow capabilities rather than claiming they exist.
-4. Debug and optimized candidates stay separate from the installed production \
-toolchain. Tests must be hermetic: private scratch HOME/USERPROFILE/XDG/SUSI_HOME, \
-no production ~/.susi, shared ~/.susi-dev, inherited ports or real credentials. \
-Never copy an unqualified candidate over production.
-5. Allow only Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause for distributed \
-components. Audit transitive dependencies, native objects, build helpers and model \
-assets. Preserve upstream notices and evaluate AND/OR obligations correctly; never \
-relabel third-party code, broaden the allowlist or hide shipped audit failures.
-6. Zero bloat means measured size/memory/latency/build budgets and justified \
-capabilities. Zero required user configuration means automatic discovery, defaults \
-and agent repair. Credentials, privacy consent, spending and destructive-action \
-authorization remain explicit. Do not invent permissions or secret values.
-7. For release qualification, verify with cargo fmt, clippy, required nonempty tests, license \
-and Rust audits on the actual combined tree. Serialize integration and preserve history. Each \
-commit has task ownership (Task: T-<AGENT>-<n>, or native Task: LOCAL-<name> during \
-migration). Namespace evidence EV-<AGENT>-<n>; preserve others' history. A scope receipt or \
-compile is not acceptance. Close only when the entire task's acceptance check passes on the \
-verified local integration head; a partial result does not close a larger requirement.
-8. Susi: AI that earns its next upgrade. Production promotion requires exact \
-source/lock/toolchain/target evidence, executable smoke tests, artifact digest, \
-atomic replacement, health checks and tested rollback to the previous verified \
-artifact. Durable learning requires persisted and retrievable evidence. No model \
-assertion or hosted tag certifies success. Keep unmet requirements open and continue \
-repairing them; report actual evidence without declaring aspirational compliance.
-9. Mandate 62 execution criteria. The CEO sets the aspiration. The workflow and harness are \
-the foundation through which agents build, test, operate and improve Susi for CEOs, in \
-successive groups of 100 steps. Step 1 stays open until measured user response meets declared \
-millisecond budgets and a genuine source change reaches the verified live executable in under \
-60 seconds. Record cold and warm build, test, startup, goal acknowledgment, first useful \
-output and completion separately. Time the complete local delivery loop from change ready \
-through tests, merge, promotion and observation of changed product behavior. Record inputs, \
-repetitions, failures and rollback. Prefer simple stable public protocols and independently \
-installable third-party plugins. Publish conformance tests for permissions, discovery, errors \
-and compatibility. Prove a plugin update by showing that a pack hosted by susi-commercial-apps \
-is admitted over the socket without rebuilding Susi; preserve user capabilities, and measure \
-removed source, dependency reach, executable size and wall-clock cost before claiming bloat \
-reduction. Agents own isolated parallel delivery, continue committing and pushing verified \
-work, and wrap up scoped changes at 10% weekly allowance remaining. Source publication never \
-substitutes for production qualification.
-10. Mandate 73: read docs/ceo-agent-mandate.md. Three isolated laptops each have dot, opus, \
-carbon and grok; an available authorized driver coordinates each laptop: dot, duet, another \
-agent or Susi harness when capabilities are verified. The recursion adapter applies to every \
-Susi container component: driver and engine are composable roles through capability contracts, \
+[SUSI SELF-BUILD CONTRACT — canonical active rules in AGENTS.md]
+Agents own authorized development, verification, integration and production qualification. \
+Do not ask the requester to inspect code or perform routine engineering steps. Requirements \
+are not evidence of completed implementation; keep unmet goals open.
+1. Read AGENTS.md and active local state. Work under your own agent root in an isolated \
+worktree and branch with unique identity and disjoint scopes. Use cargo local-workflow for \
+available reservations and guarded commits, and cargo local-build debug for candidates. \
+Never edit the primary or requester's checkout or another agent's files. Keep one live claim \
+per worker, renew active progress, and release claims when work ends, is handed off or stops. \
+Preserve unpublished work. Cleanup requires every commit on origin/main, a clean tree, no \
+live claim or running agent, and no next-task reuse; remove only your own worktree, merged \
+branch and private target, never shared caches or another owner's state.
+2. Runtime, build/install/release tooling and shipped dependencies must be Rust. Windows \
+uses native MSVC without Bash/WSL/MSYS, Python, Node or container prerequisites. Qualify only \
+on the current x86_64 Windows or Linux host while preserving portable source. OS ABI and \
+installed toolchains are explicit boundaries, not permission to hide foreign runtimes.
+3. Hosting is optional. Local development and qualification need no hosted CI, pull request \
+or remote review. Use portable Git storage and existing access controls. Agents may commit, \
+push and merge authorized work without routine approval, using serialized integration and \
+normal atomic fast-forward updates. Never force-push or overwrite shared history. Fetch and \
+merge current origin/main when reachable before work, on resume and before committing. \
+Commit, push, merge and pull about every ten minutes, meaningfully: a cadence against drift, \
+not a hard limit; resolve conflicts, with no empty commits, noise or time-based refusal. \
+This authority does not authorize unrelated spending, destructive operations or external \
+publication. Send external messages only with explicit user or invoked-workflow authorization. \
+When messaging is authorized, close coordination items by appending, never editing; post \
+facts once, answer requests and reconcile stale items before leaving. Never lift another \
+owner's stop without an authorized decision.
+4. Main has no mandatory pre-push gates and is unqualified development; full exact-tree \
+gates apply to release branches and snapshots. Verify the remote contains a commit before \
+claiming publication. Only refs/heads/main is a remote branch; handoffs use refs/agents/ and \
+release lines refs/candidates/release/. Release tags are immutable. Each commit carries \
+Task: T-<AGENT>-<n> or native Task: LOCAL-<name>. A reservation or compile is not acceptance: \
+close only after the entire acceptance check passes on the actual combined tree.
+5. Tests are hermetic: private HOME/USERPROFILE/XDG/SUSI_HOME, ports, local remotes and \
+scratch configuration, no production state or real credentials. Clear child environments and \
+prove fixture routing before mutation. Never install an unqualified candidate as production. \
+Promotion requires exact source/lock/toolchain/target/feature evidence, nonempty tests, \
+license and Rust audits, executable smoke tests, artifact digest, atomic replacement, health \
+checks and tested rollback. Qualified releases also synchronize the installed binary, \
+susi.build.json and live daemon. Keep Windows scheduled tasks at RunLevel=Limited. \
+Keep the installed release current when a newer host-qualified release is reachable and \
+no client is mid-mission; verify its artifact and retain rollback.
+6. Keep core a generic standards socket with exactly three core pillars: GAWD (A2A, ACP and \
+parallel harness), GEMI and GMCP. Concrete implementations belong in separate packages; \
+prove each destination works through the standard socket before removing core implementation. \
+No functionality is dropped. Core stays under 100,000 physical runtime Rust lines, including \
+all platforms/features, comments, blanks, inline tests and facades; until then it never grows. \
+Lower COMPLETE_SOCKET_CEILING after each reduction. Never hide or minify code or weaken a \
+check to pass. Core has no UI or bundled plug content; keep proprietary code out of core.
+7. Zero bloat requires measured source, dependency, artifact, memory, latency and build cost. \
+Zero required user configuration means discovery, defaults and agent repair. The warm \
+build + test + release budget is <10s, the cold compile target <60s. The delivery goal is a \
+verified live executable in under 60 seconds with declared millisecond response budgets. \
+Measure cold/warm build, test, startup, acknowledgment, first output and completion separately, \
+including failures and rollback. Show plugin updates over the socket without rebuilding core.
+8. Look for reuse inside both repositories, suitable Apache-2.0 work and the locked graph \
+before building; delete what reuse replaces. Copied source must offer pure Apache-2.0, \
+explicitly elected with pinned provenance and all license/modification notices. Distributed \
+components allow Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause under the existing policy. \
+Audit nested exceptions, transitive/native/build/model/standard-library sources and AND/OR \
+obligations. Never relabel third-party code, broaden the allowlist or hide an audit failure. \
+Keep dependency, unsafe and size ratchets, typed errors and justified narrow FFI boundaries.
+9. Operational history, growing facts, evidence and completed records stay outside source, \
+in a local database when available; history may be absent. Missing history never proves \
+acceptance, dependency completion or qualification. Retain mandatory notices, live authority \
+and recovery data and artifact-bound provenance. Keep minimal active coordination only while \
+needed, then remove it. Revisit unfulfilled goals; update the current contract in place.
+10. Drivers and engines compose across every container component with capability contracts, \
 cycle/termination checks and resource/time/depth budgets; nested work cannot amplify \
-permissions. Cloud sessions run independently in full autonomous mode within user \
-authorization. There is no arbitrary agent-count limit or fixed push-rate limit; measured \
-hardware capacity and private state govern. Susi's master brain owns evidence-backed \
-distillation, task and feature manifests, branch composition and serialized \
-integration/publication. Main has no mandatory pre-push gates and is unqualified development; \
-contribute as often as work is ready using normal fast-forward updates against the current \
-head. Full exact-tree gates apply to release branches and snapshots. Preserve accepted work, \
-never force-push or overwrite shared history. Git is portable storage; GitHub is a storage \
-bucket only, with no GitHub Actions and zero hosting-provider dependency. Development branches \
-may advance; release branches require qualification and published release tags are immutable \
-snapshots with source/license/toolchain/test/artifact provenance. Preserve exactly three core \
-pillars (Apache-2.0): GAWD (A2A, ACP, parallel harness), GEMI, GMCP, commercial \
-confidentiality, safety, access controls and production rollback gates. Names and autonomy do \
-not prove provider availability or grant missing approvals. Older cooldown, single-laptop and \
-main-gate rules are superseded; incident safeguards and live access controls are not. Tooling \
-that still enforces them is migration work, never permission to bypass a denial.
-11. Mandate 74: read docs/ceo-mandate-74.md; it wins where older text differs. Dump labelled \
-work straight into main with no gates, no workflows and no PRs; main is an append-only feature \
-dump fixed forward. Label every dump: one feature per commit series, \
-Task/Feature/Depends/Harvest/Origin trailers and a task record. Susi, never GitHub, distills \
-release branches: disjoint lanes, atomic claim refs, cherry-pick -x, exact-tree qualification \
-and atomic fast-forward pushes, re-picking on a lost race. Harvest Apache-2.0 code from any \
-public repository with per-file license verification, quarantine intake, a harvest manifest, \
-Apache-2.0 notices and Origin trailers; never copyleft or unlicensed code. The harness is \
-driver and engine and becomes default driver only on measured parity.
-12. Mandates 75-87: read docs/ceo-mandate-75.md to docs/ceo-mandate-87.md. Harvested source is \
-pure Apache-2.0 only, never MIT-only or BSD-only. Use the Susi Board: read it before claiming or \
-publishing, post Claim and Landed, append only; keep it tidy (Mandate 87). Work only under your \
-own agent root; clean up finished worktrees (Mandate 86). Record the reuse decision before \
-building. Record each CEO vision; run the vision cycle. Review ready work for integration every \
-ten minutes. A release cut also syncs the installed binary, susi.build.json and the live daemon. \
-While you work, commit, push, merge and pull about every ten minutes, meaningfully: a cadence \
-against drift, not a hard limit; resolve a conflict, never force or skip it. Never wait on \
-another agent. Hold no claim you are not working on or are done with (Mandate 85), and keep its \
-progress up to date or another agent may take it. Reach secrets only through the vault and never \
-show a value. Bring a solution with every problem. Keep core under 100,000 lines (Mandate 84).
-13. Mandate 72, CEO directive 2026-11-16: intellibitz/susi is published one way. The CEO alone \
-holds push authority, exercised by the CEO or by the agents the CEO authorizes. Accept nothing \
-from outside: no pull request, patch or commit. The world is free to fork. Susi Commercial \
-Apps is private, closed source and licensed.
+permissions. Cloud sessions remain within user authorization. Concurrency follows measured \
+capacity; default-driver status requires parity. Preserve privacy consent, spending limits \
+and destructive-action authorization. Reach secrets only through the authorized automation \
+vault or scoped environment; never open a private personal vault or disclose a value. \
+Keep credential/refusal compatibility until its implementation is safely migrated.
+11. Core is Apache-2.0 and published one way. The designated publisher alone holds push \
+authority; authorized agents act within that scope, with no additional write access. Accept \
+no outside pull request, patch or commit. Everyone is free to fork under the license, which \
+grants code rights, not the Susi name or marks. Runtime and current documentation stay \
+generic; mandatory legal notices and protocol identifiers retain their original meaning.
 [END CONTRACT]
 
 ";
@@ -167,87 +142,82 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
+    fn the_contract_carries_active_boundaries_without_identity_history() {
         for needle in [
-            "Mandates 43-87",
-            "CEO never looks at code",
+            "canonical active rules in AGENTS.md",
             "cargo local-workflow",
             "cargo local-build debug",
             "native MSVC",
-            "GitHub is optional",
-            "Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause",
-            "Zero bloat",
-            "Zero required user configuration",
-            "Task: T-<AGENT>-<n>",
-            "EV-<AGENT>-<n>",
+            "Hosting is optional",
             "hermetic",
             "SUSI_HOME",
+            "one live claim",
+            "release claims when work ends",
+            "Preserve unpublished work",
+            "no live claim or running agent",
+            "never shared caches",
+            "without routine approval",
+            "Never force-push",
+            "external publication",
+            "Send external messages only with explicit",
+            "normal atomic fast-forward",
+            "Main has no mandatory pre-push gates",
+            "gates apply to release branches",
+            "Release tags are immutable",
+            "Task: T-<AGENT>-<n>",
             "actual combined tree",
+            "entire acceptance check passes",
             "tested rollback",
-            "acceptance check passes",
-            "live claim per worker",
-            "earns its next upgrade",
-            "docs/ceo-agent-mandate.md",
-            "available authorized driver",
-            "every Susi container component",
+            "artifact digest",
+            "susi.build.json and live daemon",
+            "RunLevel=Limited",
+            "exactly three core pillars",
+            "No functionality is dropped",
+            "under 100,000 physical runtime Rust lines",
+            "until then it never grows",
+            "destination works through the standard socket",
+            "Lower COMPLETE_SOCKET_CEILING",
+            "Zero bloat",
+            "Zero required user configuration",
+            "pure Apache-2.0",
+            "Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause",
+            "Never relabel third-party code",
+            "outside source",
+            "history may be absent",
+            "Missing history never proves",
             "nested work cannot amplify permissions",
             "Cloud sessions",
-            "arbitrary agent-count limit or fixed push-rate limit",
-            "task and feature manifests",
-            "release tags are immutable",
-            "access controls",
-            "Main has no mandatory pre-push gates",
-            "exact-tree gates apply to release branches",
-            "docs/ceo-mandate-74.md",
-            "no gates, no workflows and no PRs",
-            "GitHub is a storage bucket only",
-            "Harvest Apache-2.0",
-            "exactly three core pillars",
-            // Items 12 and 13: every clause, so none can be trimmed unseen.
-            "docs/ceo-mandate-75.md to docs/ceo-mandate-87.md",
-            "pure Apache-2.0 only",
-            "Susi Board",
-            "post Claim and Landed, append only; keep it tidy (Mandate 87)",
-            "under your own agent root; clean up finished worktrees (Mandate 86)",
-            "reuse decision",
-            "run the vision cycle",
-            "integration every ten minutes",
-            "commit, push, merge and pull about every ten minutes, meaningfully",
-            "a cadence against drift, not a hard limit",
-            "resolve a conflict, never force or skip it",
-            "Never wait on another agent",
-            "Hold no claim you are not working on or are done with (Mandate 85)",
-            "keep its progress up to date or another agent may take it",
-            "Reach secrets only through the vault and never show a value",
-            "Bring a solution with every problem. Keep core under 100,000 lines (Mandate 84)",
-            "susi.build.json and the live daemon",
+            "never open a private personal vault",
             "published one way",
-            "CEO alone holds push authority",
-            "agents the CEO authorizes",
-            "Accept nothing from outside: no pull request, patch or commit",
+            "designated publisher alone holds push",
+            "no additional write access",
+            "no outside pull request, patch or commit",
             "free to fork",
-            "private, closed source and licensed",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
+        }
+        for historical in ["CEO", "intellibitz", "Mandate", "dot, opus", "EV-<AGENT>"] {
+            assert!(
+                !BRIEF.contains(historical),
+                "identity/history returned: {historical}"
+            );
         }
     }
 
     #[test]
-    fn delegated_speed_criteria_match_mandate_62_and_the_checkout_contract() {
+    fn delegated_delivery_criteria_match_the_active_checkout_contract() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let governance = include_str!("../../../AGENTS.md");
-        let criteria = governance
-            .lines()
-            .find_map(|line| line.strip_prefix("**Mandate 62 execution criteria.** "))
-            .unwrap();
-        assert!(criteria.contains("verified live executable in under 60 seconds"));
-        let identity: serde_json::Value =
-            serde_json::from_str(include_str!("../../../.agents/identity.json")).unwrap();
-        let mandates = identity["pillars"]["dna"]["mandates"].as_array().unwrap();
-        let mandate = mandates.iter().find(|item| item["id"] == 62).unwrap();
-        assert!(mandate["imperative"].as_str().unwrap().ends_with(criteria));
         let delegated = brief_task(&root, "measure the delivery loop");
-        assert!(delegated.contains(criteria));
+        for criterion in [
+            "verified live executable in under 60 seconds",
+            "declared millisecond response budgets",
+            "failures and rollback",
+            "plugin updates over the socket without rebuilding core",
+        ] {
+            assert!(governance.contains(criterion));
+            assert!(delegated.contains(criterion));
+        }
         assert!(delegated.ends_with("measure the delivery loop"));
     }
 

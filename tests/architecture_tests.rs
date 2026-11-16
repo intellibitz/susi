@@ -1500,7 +1500,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
-    for needle in ["cargo local-workflow", "GitHub is optional", "hermetic"] {
+    for needle in ["cargo local-workflow", "Hosting is optional", "hermetic"] {
         assert!(
             susi_core::self_build::BRIEF.contains(needle),
             "the self-build brief must carry `{needle}`"
@@ -1611,7 +1611,7 @@ fn roadmap_vectors_and_tasks_stay_linked() {
 }
 
 /// Agents read the top of AGENTS.md: it must open with the START HERE block
-/// whose first act is the CEO contract and local isolation, before engineering rules.
+/// whose first act is the active contract and local isolation, before engineering rules.
 #[test]
 fn agents_md_opens_with_start_here_and_the_workflow_check() {
     let text =
@@ -1619,11 +1619,11 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
             .unwrap();
     let first = text.lines().next().unwrap();
     assert!(
-        first.starts_with("**START HERE") && first.contains("CEO mandates"),
+        first.starts_with("**START HERE") && first.contains("active contract"),
         "AGENTS.md line 1 must be the START HERE instruction, got: {first}"
     );
     let start = text.find("START HERE").unwrap();
-    let mandates = text.find("# Agent Engineering Mandates").unwrap();
+    let mandates = text.find("## Engineering rules").unwrap();
     assert!(start < mandates, "START HERE must precede the mandates");
     for step in [
         "cargo local-workflow",
@@ -1632,7 +1632,7 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
         // Main is unqualified development (Mandate 73); exact-tree gates
         // belong to release branches and snapshots.
         "exact-tree gates apply to release branches",
-        "CEO never looks at code",
+        "Agents own authorized development",
     ] {
         assert!(
             text[..mandates].contains(step),
@@ -1642,8 +1642,8 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
 }
 
 /// The README is the front door: it must cover the workflow, the task queue,
-/// the ecosystem and brain commands, and its mandate range must match
-/// identity.json — so it cannot silently fall behind again.
+/// the ecosystem and brain commands, and point to the active contract without
+/// growing a second history of policy changes.
 #[test]
 fn readme_covers_the_workflow_ecosystem_and_brain() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1653,41 +1653,17 @@ fn readme_covers_the_workflow_ecosystem_and_brain() {
         "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
         "actual combined tree",
-        "CEO never inspects code",
+        "Agents own authorized development",
         "susi ecosystem scan",
         "susi keys check",
         "susi brain",
         "SUSI_BUDGET",
-        ".agents/tasks/",
-        ".agents/lanes/",
+        "active engineering contract",
+        "Operational history",
+        "outside source",
     ] {
         assert!(readme.contains(needle), "README.md must cover `{needle}`");
     }
-    // "Mandates 49–N": N must be the highest mandate in identity.json.
-    let identity: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/identity.json")).unwrap())
-            .unwrap();
-    let max = identity["pillars"]["dna"]["mandates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|m| m["id"].as_u64())
-        .max()
-        .unwrap();
-    let after = readme
-        .split("Mandates 49–")
-        .nth(1)
-        .expect("README names the workflow mandates as `Mandates 49–N`");
-    let stated: u64 = after
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>()
-        .parse()
-        .unwrap();
-    assert_eq!(
-        stated, max,
-        "README says Mandates 49–{stated}; identity.json goes to {max}"
-    );
 }
 
 /// README quickstart may ask a new user for at most two manual commands;
@@ -2172,6 +2148,129 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
     }
 }
 
+/// Current entry points carry generic requirements. Historical ledgers are
+/// checked separately and must not force duplicate expanding mandate narratives.
+#[test]
+fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let active = flat("AGENTS.md");
+    for requirement in [
+        "generic standards-protocol AI OS socket",
+        "not claims of completed implementation",
+        "exactly three core pillars",
+        "No functionality is dropped",
+        "Prove the destination works through the standard socket before removing",
+        "under 100,000 physical runtime Rust lines",
+        "core never grows",
+        "blanks, comments, inline tests, every feature/platform",
+        "lower `COMPLETE_SOCKET_CEILING`",
+        "Never hide or minify code",
+        "Core ships no UI or bundled plug content",
+        "Keep proprietary source out of core",
+        "one live claim per worker",
+        "release it in the same step",
+        "Preserve unpublished work",
+        "Offline local development remains available",
+        "serialized integration and normal atomic fast-forward publication",
+        "Never force-push or change live access controls",
+        "Verify the remote contains the commit",
+        "without routine approval",
+        "unrelated spending, destructive operations or external publication",
+        "Send external messages only with explicit user or invoked-workflow authorization",
+        "Main has no mandatory pre-push gates",
+        "exact-tree gates apply to release branches",
+        "Only `refs/heads/main`",
+        "`refs/agents/<agent>`",
+        "Release tags are immutable",
+        "every ten minutes, meaningfully",
+        "a cadence against drift, not a hard limit",
+        "no empty commits or noise",
+        "no refusal merely because time elapsed",
+        "every commit is on `origin/main`",
+        "the tree is clean",
+        "no live claim or running agent",
+        "no next task is reusing it",
+        "Never remove the primary checkout",
+        "unpublished commits or shared build caches",
+        "entire acceptance check passes on the actual combined tree",
+        "history, completed tasks, growing facts, evidence and audit records belong outside",
+        "historical records may be absent",
+        "Missing history never proves acceptance",
+        "artifact provenance with the artifact",
+        "current contract in place",
+        "keep it tidy by appending closures rather than editing or deleting items",
+        "Only the originating owner or an authorized decision may lift a stop",
+        "no reply for two days",
+        "both parties have also been silent for two days",
+        "two days after its lease ends",
+        "Nested work cannot amplify permissions",
+        "Default-driver status requires measured parity",
+        "current native x86_64 Windows or Linux host",
+        "native MSVC and OS APIs",
+        "no Bash/WSL/MSYS, Python, Node or container prerequisite",
+        "Keep portable source for other targets",
+        "pure Apache-2.0",
+        "Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause",
+        "Never relabel third-party code",
+        "statically linked standard-library implementation",
+        "nested source exceptions",
+        "mandatory license/attribution notices",
+        "protocol identifiers",
+        "no panic-path macros",
+        "Justify every lint allowance inline",
+        "typed `Result<T, EaiError>`",
+        "Check HTTP status explicitly",
+        "only the authorized automation vault or scoped process environment",
+        "Never open a private personal vault",
+        "Inject only a child's required scope",
+        "Tests are hermetic",
+        "Clear child environments and prove fixture routing",
+        "Do not send real coordination messages from tests",
+        "pinned compiler and committed lockfile",
+        "Nonempty executed tests are required",
+        "exact source/lock/toolchain/target/feature evidence",
+        "artifact digest",
+        "atomic replacement, health checks and tested rollback",
+        "Never install an unqualified candidate as production",
+        "installed binary, `susi.build.json` and live daemon",
+        "`RunLevel=Limited`",
+        "newer release is already qualified for this host",
+        "no client is mid-mission",
+        "under 60 seconds",
+        "millisecond response budgets",
+        "cold and warm separately",
+        "without rebuilding core",
+    ] {
+        assert!(
+            active.contains(requirement),
+            "active contract lost: {requirement}"
+        );
+    }
+    for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
+        let text = flat(path);
+        assert!(text.contains("AGENTS.md") || path == "AGENTS.md");
+        for reference in [
+            "CEO",
+            "intellibitz",
+            "IntelliBitz",
+            "Mandate 8",
+            "dot, opus",
+        ] {
+            assert!(
+                !text.contains(reference),
+                "{path}: identity/history returned: {reference}"
+            );
+        }
+    }
+}
+
 /// New policy must preserve citable historical identities, cover all CEO goals,
 /// and keep the requirement/implementation distinction explicit.
 #[test]
@@ -2243,13 +2342,8 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
 #[test]
 fn ceo_independent_agents_mandate_is_discoverable_and_preserves_boundaries() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-agent-mandate.md"),
@@ -2294,13 +2388,8 @@ fn ceo_independent_agents_mandate_is_discoverable_and_preserves_boundaries() {
 #[test]
 fn ceo_mandate_74_is_discoverable_and_keeps_release_and_license_safeguards() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-mandate-74.md"),
@@ -2342,11 +2431,7 @@ fn ceo_mandate_74_is_discoverable_and_keeps_release_and_license_safeguards() {
 fn ceo_mandate_75_is_discoverable_and_enforces_pure_apache2_harvest() {
     let root = workspace_root();
     for path in [
-        "AGENTS.md",
         ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
         "VISION.md",
         "docs/ceo-mandate-74.md",
         "docs/harvest.md",
@@ -2383,13 +2468,8 @@ fn ceo_mandate_75_is_discoverable_and_enforces_pure_apache2_harvest() {
 #[test]
 fn ceo_mandate_76_makes_susi_board_collaboration_discoverable() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-mandate-76.md"),
@@ -2422,13 +2502,8 @@ fn ceo_mandate_76_makes_susi_board_collaboration_discoverable() {
 #[test]
 fn ceo_mandate_77_makes_agent_roots_discoverable() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-mandate-77.md"),
@@ -2494,13 +2569,8 @@ fn non_rust_scripts_only_decrease() {
 #[test]
 fn ceo_mandate_79_makes_the_vision_loop_discoverable() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-mandate-79.md"),
@@ -2538,13 +2608,8 @@ fn ceo_mandate_79_makes_the_vision_loop_discoverable() {
 #[test]
 fn ceo_mandate_78_makes_reuse_first_discoverable() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("docs/ceo-mandate-78.md"),
@@ -2580,13 +2645,8 @@ fn ceo_mandate_78_makes_reuse_first_discoverable() {
 #[test]
 fn ceo_git_authority_preserves_evidence_and_scope() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("commit, push and merge"),
@@ -3206,14 +3266,7 @@ fn ceo_mandate_82_is_a_ten_minute_cadence_that_refuses_nothing() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "docs/ceo-mandate-74.md",
-    ] {
+    for path in [".agents/identity.json", "docs/ceo-mandate-74.md"] {
         let text = flat(path);
         assert!(
             text.contains("ceo-mandate-82.md"),
@@ -3279,11 +3332,7 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
             .join(" ")
     };
     for path in [
-        "AGENTS.md",
         ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
         "docs/ceo-mandate-76.md",
         "docs/ceo-mandate-82.md",
     ] {
@@ -3321,7 +3370,7 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
     }
     // Full permission never lifts the boundaries the other mandates set.
     let agents = flat("AGENTS.md");
-    assert!(agents.contains("no force push, no destructive action without CEO direction"));
+    assert!(agents.contains("Never force-push") && agents.contains("destructive operations"));
     let vision: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(root.join(".agents/visions/V-8.json")).unwrap(),
     )
@@ -3347,14 +3396,8 @@ fn ceo_mandate_87_keeps_the_board_tidy() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = flat(path);
         assert!(
             text.contains("ceo-mandate-87.md") || text.contains("Mandate 87"),
@@ -3402,14 +3445,8 @@ fn ceo_mandate_86_cleans_up_finished_worktrees() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = flat(path);
         assert!(
             text.contains("ceo-mandate-86.md") || text.contains("Mandate 86"),
@@ -3456,14 +3493,8 @@ fn ceo_mandate_85_ends_a_claim_when_its_work_is_done() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = flat(path);
         assert!(
             text.contains("ceo-mandate-85.md") || text.contains("Mandate 85"),
@@ -3513,14 +3544,8 @@ fn ceo_mandate_84_keeps_core_under_100k_lines() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "crates/susi-core/src/self_build.rs",
-    ] {
+    {
+        let path = ".agents/identity.json";
         let text = flat(path);
         assert!(
             text.contains("ceo-mandate-84.md") || text.contains("Mandate 84"),
@@ -3570,14 +3595,7 @@ fn ceo_mandate_84_keeps_core_under_100k_lines() {
 #[test]
 fn ceo_mandate_81_enforces_release_binary_sync() {
     let root = workspace_root();
-    for path in [
-        "AGENTS.md",
-        ".agents/identity.json",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "README.md",
-        "docs/releases.md",
-    ] {
+    for path in [".agents/identity.json", "docs/releases.md"] {
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(
             text.contains("ceo-mandate-81.md"),
@@ -3663,7 +3681,8 @@ fn core_is_published_one_way_and_free_to_fork() {
             "{path}: must say the world may fork core"
         );
     }
-    for path in ["AGENTS.md", ".agents/identity.json"] {
+    {
+        let path = ".agents/identity.json";
         let text = flat(path);
         assert!(
             text.contains("CEO alone holds push authority"),
@@ -3674,16 +3693,18 @@ fn core_is_published_one_way_and_free_to_fork() {
             "{path}: the CEO's agents push on the CEO's authority"
         );
     }
-    let publication = flat("CONTRIBUTING.md");
-    for requirement in [
-        "designated publisher alone holds push authority",
-        "Authorized agents may exercise that authority within their scope",
-        "this policy grants no additional write access",
-    ] {
-        assert!(
-            publication.contains(requirement),
-            "CONTRIBUTING.md: preserve scoped publication authority: {requirement}"
-        );
+    for path in ["CONTRIBUTING.md", "AGENTS.md"] {
+        let publication = flat(path);
+        for requirement in [
+            "designated publisher alone holds push authority",
+            "Authorized agents may exercise that authority within their scope",
+            "this policy grants no additional write access",
+        ] {
+            assert!(
+                publication.contains(requirement),
+                "{path}: preserve scoped publication authority: {requirement}"
+            );
+        }
     }
     for path in [
         "README.md",
