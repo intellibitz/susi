@@ -1,24 +1,50 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-STARTUPGATE1104-1",
-  "title": "feat(xtask): complete 17-port startup-gate check and add post-upgrade startup verification (D-SP-2, D-OS-6)",
-  "status": "done", "completed_at": "2026-11-04T02:01:00Z",
-  "created_at": "2026-11-04T02:00:30Z",
-  "owner": "gemini",
-  "touch": [
-    "xtask/src/bin/startup-gate.rs",
-    "xtask/src/bin/installed-upgrade.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "xtask",
-      "--bin",
-      "startup-gate"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-STARTUPGATE1104-1",
+    "title":  "feat(xtask): complete 17-port startup-gate check and add post-upgrade startup verification (D-SP-2, D-OS-6)",
+    "goal":  "Complete the 17-port startup-gate check and add post-upgrade startup verification across xtask/src/bin/{startup-gate,installed-upgrade}.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "startup-gate"
+                           ]
+               },
+    "created_by":  "STARTUPGATE1104",
+    "created_unix":  1793757630,
+    "authored":  true,
+    "base_commit":  "3a2354ae6133186565d54135ddd5f45156e18d6d",
+    "implementation_commit":  "3d8e9f9822b66967a74f612f4f6d53f24ed708a9",
+    "verified_commit":  "3d8e9f9822b66967a74f612f4f6d53f24ed708a9",
+    "notes":  "Landed and closed in squash merge 3d8e9f9822b66967a74f612f4f6d53f24ed708a9 (#1389, legacy owner gemini) across xtask/src/bin/{installed-upgrade,startup-gate}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "xtask/src/bin/startup-gate.rs, xtask/src/bin/installed-upgrade.rs",
+                  "target":  "xtask/src/bin/startup-gate.rs",
+                  "why":  "Extended startup-gate and installed-upgrade directly atop isolated SUSI_HOME test helpers.",
+                  "reused_symbols":  [
+                                         "susi_paths::test_env::isolate_home"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-STARTUPGATE1104-1.json",
+                   "xtask/src/bin/installed-upgrade.rs",
+                   "xtask/src/bin/startup-gate.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793757761,
+                   "commit":  "3d8e9f9822b66967a74f612f4f6d53f24ed708a9",
+                   "by":  "STARTUPGATE1104"
+               }
 }

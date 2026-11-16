@@ -1,23 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-LOCALCHAN1104-1",
-  "title": "feat(xtask): add cross-OS local-channel root resolution and verify-startup action (D-OS-6, D-OS-8, D-SP-2)",
-  "status": "done", "completed_at": "2026-11-04T02:09:30Z",
-  "created_at": "2026-11-04T02:09:00Z",
-  "owner": "gemini",
-  "touch": [
-    "xtask/src/bin/local-channel.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "xtask",
-      "--bin",
-      "local-channel"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-LOCALCHAN1104-1",
+    "title":  "feat(xtask): add cross-OS local-channel root resolution and verify-startup action (D-OS-6, D-OS-8, D-SP-2)",
+    "goal":  "Add cross-OS local-channel root resolution and verify-startup action in xtask/src/bin/local-channel.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "local-channel"
+                           ]
+               },
+    "created_by":  "LOCALCHAN1104",
+    "created_unix":  1793758140,
+    "authored":  true,
+    "base_commit":  "a56fd2d346236254e9f47486db540cf1b8c47dc1",
+    "implementation_commit":  "7bc1e1e3853c9f26019b102aacb0a04b9e073835",
+    "verified_commit":  "7bc1e1e3853c9f26019b102aacb0a04b9e073835",
+    "notes":  "Landed and closed in squash merge 7bc1e1e3853c9f26019b102aacb0a04b9e073835 (#1391, legacy owner gemini) in xtask/src/bin/local-channel.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "xtask/src/bin/local-channel.rs, xtask/src/affected.rs",
+                  "target":  "xtask/src/bin/local-channel.rs",
+                  "why":  "Extended the existing local-channel xtask binary directly atop xtask::affected.",
+                  "reused_symbols":  [
+                                         "xtask::affected"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-LOCALCHAN1104-1.json",
+                   "xtask/src/bin/local-channel.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793758303,
+                   "commit":  "7bc1e1e3853c9f26019b102aacb0a04b9e073835",
+                   "by":  "LOCALCHAN1104"
+               }
 }

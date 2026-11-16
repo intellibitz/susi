@@ -1,22 +1,50 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-UNSAFERATCHET1104-1",
-  "agent": "UNSAFERATCHET1104",
-  "branch": "unsafe-ratchet-contracts-1104",
-  "goal": "Add inline contract test suites to susi-unsafe-ratchet strict_json, measurement and inventory: duplicate-key rejection, Cargo graph derivation, measurement tamper detection, and the migrate/check_inventory/receipt admission chain (D-OS-8)",
-  "touch": [
-    "crates/susi-unsafe-ratchet/src/strict_json.rs",
-    "crates/susi-unsafe-ratchet/src/measurement.rs",
-    "crates/susi-unsafe-ratchet/src/inventory.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-unsafe-ratchet"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-UNSAFERATCHET1104-1",
+    "title":  "test(unsafe-ratchet): add strict_json, measurement and inventory contract suites (D-OS-8)",
+    "goal":  "Add inline contract test suites to susi-unsafe-ratchet strict_json, measurement and inventory: duplicate-key rejection, Cargo graph derivation, measurement tamper detection, and the migrate/check_inventory/receipt admission chain (D-OS-8)",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-unsafe-ratchet"
+                           ]
+               },
+    "created_by":  "UNSAFERATCHET1104",
+    "created_unix":  1793765614,
+    "authored":  true,
+    "base_commit":  "58a3789916d0d49da2f1d6e353515c90108c755a",
+    "implementation_commit":  "263e6f5cdcede788465b3f71dd8884225901cf7e",
+    "verified_commit":  "263e6f5cdcede788465b3f71dd8884225901cf7e",
+    "notes":  "Landed and closed in squash merge 263e6f5cdcede788465b3f71dd8884225901cf7e (#1421) across crates/susi-unsafe-ratchet/src/{inventory,measurement,strict_json}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-unsafe-ratchet/src/strict_json.rs, crates/susi-unsafe-ratchet/src/measurement.rs, crates/susi-unsafe-ratchet/src/inventory.rs",
+                  "target":  "crates/susi-unsafe-ratchet/src/inventory.rs",
+                  "why":  "Added inline contract suites directly atop Identity and ReviewedFile in crates/susi-unsafe-ratchet.",
+                  "reused_symbols":  [
+                                         "susi_unsafe_ratchet::measurement::Identity",
+                                         "susi_unsafe_ratchet::inventory::ReviewedFile"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-UNSAFERATCHET1104-1.json",
+                   "crates/susi-unsafe-ratchet/src/inventory.rs",
+                   "crates/susi-unsafe-ratchet/src/measurement.rs",
+                   "crates/susi-unsafe-ratchet/src/strict_json.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793765614,
+                   "commit":  "263e6f5cdcede788465b3f71dd8884225901cf7e",
+                   "by":  "UNSAFERATCHET1104"
+               }
 }

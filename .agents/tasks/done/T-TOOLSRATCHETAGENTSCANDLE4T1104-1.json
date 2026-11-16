@@ -1,17 +1,52 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-TOOLSRATCHETAGENTSCANDLE4T1104-1",
-  "title": "test(tools,unsafe-ratchet,vendor-agents,vendor-candle): expand inline unit tests to 4 in lib, git_identity, and device",
-  "touch": [
-    "crates/susi-tools/src/lib.rs",
-    "crates/susi-unsafe-ratchet/src/lib.rs",
-    "crates/susi-vendor-agents/src/external/git_identity.rs",
-    "crates/susi-vendor-candle/src/device.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-tools -p susi-unsafe-ratchet -p susi-vendor-agents -p susi-vendor-candle --lib",
-      "cargo clippy --offline --locked -p susi-tools -p susi-unsafe-ratchet -p susi-vendor-agents -p susi-vendor-candle --tests -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-TOOLSRATCHETAGENTSCANDLE4T1104-1",
+    "title":  "test(tools,unsafe-ratchet,vendor-agents,vendor-candle): expand inline unit tests to 4 in lib, git_identity, and device",
+    "goal":  "Expand inline unit test suites to at least 4 tests across susi-tools/src/lib.rs, susi-unsafe-ratchet/src/lib.rs, susi-vendor-agents/src/external/git_identity.rs, and susi-vendor-candle/src/device.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-tools",
+                               "-p",
+                               "susi-unsafe-ratchet",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "TOOLSRATCHETAGENTSCANDLE4T1104",
+    "created_unix":  1793781685,
+    "authored":  true,
+    "base_commit":  "b917fb460fae1890ca56c8059e0fdc2fe2272984",
+    "implementation_commit":  "e45a36181eba8f50453c97e5979cddc6ae0c523f",
+    "verified_commit":  "be0fbba3262104465958cc4b2212cc7d9e0870db",
+    "notes":  "Implemented in e45a36181eba8f50453c97e5979cddc6ae0c523f, closed in be0fbba3262104465958cc4b2212cc7d9e0870db, and merged in 715443b2b2e5dfbafea1812b22ffca987d259d35 (#1482); susi-vendor-agents and susi-vendor-candle were later retired during Lean Core consolidation while crates/susi-tools/src/lib.rs and crates/susi-unsafe-ratchet/src/lib.rs remain active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-tools/src/lib.rs, crates/susi-unsafe-ratchet/src/lib.rs",
+                  "target":  "crates/susi-unsafe-ratchet/src/lib.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop UnsafeExposure and GeigerVerdict in susi-unsafe-ratchet and susi-tools.",
+                  "reused_symbols":  [
+                                         "susi_unsafe_ratchet::UnsafeExposure",
+                                         "susi_unsafe_ratchet::GeigerVerdict"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-TOOLSRATCHETAGENTSCANDLE4T1104-1.json",
+                   "crates/susi-tools/src/lib.rs",
+                   "crates/susi-unsafe-ratchet/src/lib.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793781984,
+                   "commit":  "715443b2b2e5dfbafea1812b22ffca987d259d35",
+                   "by":  "TOOLSRATCHETAGENTSCANDLE4T1104"
+               }
 }

@@ -1,8 +1,14 @@
 {
+    "schema":  "susi.task_record/v1",
     "id":  "T-LEAFSERVICES4T1104-1",
     "title":  "D-OS-8: Expand inline unit tests to 4 in error_svc, native_svc, paths_svc, and sandbox_svc",
+    "goal":  "Expand inline unit test suites to at least 4 tests across error_svc, native_svc, paths_svc, and sandbox_svc in crates/susi-leaf-services.",
+    "size":  "s",
+    "state":  "closed",
     "status":  "done",
-    "created_at":  "2026-11-04T08:10:00Z",
+    "deps":  [
+
+             ],
     "accept":  {
                    "cmd":  [
                                "cargo",
@@ -15,12 +21,33 @@
                                "--all-features"
                            ]
                },
-    "scope":  [
-                  "crates/susi-leaf-services/src/error_svc.rs",
-                  "crates/susi-leaf-services/src/native_svc.rs",
-                  "crates/susi-leaf-services/src/paths_svc.rs",
-                  "crates/susi-leaf-services/src/sandbox_svc.rs",
-                  ".agents/tasks/T-LEAFSERVICES4T1104-1.json",
-                  ".agents/tasks/done/T-LEAFSERVICES4T1104-1.json"
-              ]
+    "created_by":  "LEAFSERVICES4T1104",
+    "created_unix":  1793779800,
+    "authored":  true,
+    "base_commit":  "ce275e1dfe3b2e44a387fb3ecdba4f16b533a591",
+    "implementation_commit":  "b1faf965d55908c62f6db98fdfafc8fcbece8051",
+    "verified_commit":  "b1faf965d55908c62f6db98fdfafc8fcbece8051",
+    "notes":  "Landed and closed in squash merge b1faf965d55908c62f6db98fdfafc8fcbece8051 (#1475) across crates/susi-leaf-services/src/{error_svc,native_svc,paths_svc,sandbox_svc}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-leaf-services/src/error_svc.rs, crates/susi-leaf-services/src/native_svc.rs, crates/susi-leaf-services/src/paths_svc.rs, crates/susi-leaf-services/src/sandbox_svc.rs",
+                  "target":  "crates/susi-leaf-services/src/error_svc.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop PostedErrorEvent and append_posted_event in susi-leaf-services.",
+                  "reused_symbols":  [
+                                         "susi_error::PostedErrorEvent",
+                                         "susi_error::append_posted_event"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-LEAFSERVICES4T1104-1.json",
+                   "crates/susi-leaf-services/src/error_svc.rs",
+                   "crates/susi-leaf-services/src/native_svc.rs",
+                   "crates/susi-leaf-services/src/paths_svc.rs",
+                   "crates/susi-leaf-services/src/sandbox_svc.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793780371,
+                   "commit":  "b1faf965d55908c62f6db98fdfafc8fcbece8051",
+                   "by":  "LEAFSERVICES4T1104"
+               }
 }
