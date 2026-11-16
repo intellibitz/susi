@@ -464,8 +464,11 @@ everything that is not one of those four is a plug that lives in
 `susi-commercial-apps` and is admitted over the socket. The plan, the measured
 ladder and the crate classification are in [`docs/lean-core.md`](lean-core.md);
 its dependency-reach ceilings are pinned by `tests/lean_core_ceilings.rs` and
-may only go down; source size is measured there and has no ceiling (CEO
-decision 2026-11-16).
+may only go down. The earlier per-pillar and per-file size ceilings remain
+removed. The subsequent Vision V-6 requires the complete standards socket
+strictly below 100,000 physical runtime Rust lines, with no functionality
+dropped; `cargo core-size` checks the size goal, currently unmet. The counting
+contract and separate behavioral acceptance are in the lean-core plan.
 
 Where it stands on 2026-11-08:
 

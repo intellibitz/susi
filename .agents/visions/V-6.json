@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-6",
+  "statement": "susi core must be less than 100k lines. no functionalities must be dropped. susi core is a pure standards protocol compliant ai os socket.",
+  "set_by": "ceo",
+  "recorded_by": "CODEXCORE100KIMPLEMENTATION",
+  "set_unix": 1794818760
+}

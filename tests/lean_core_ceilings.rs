@@ -4,9 +4,10 @@
 //! reach may only shrink. Every cut lowers a constant here in the same change;
 //! nothing raises one without a CEO decision recorded in the doc.
 //!
-//! Source size is measured and printed here, not capped. Every line-count
-//! ceiling (per pillar, per category and per file) was removed by CEO decision
-//! 2026-11-16, "remove all ceiling" (T-CLAUDEREMOVECEILINGS-1, `docs/lean-core.md`).
+//! Per-pillar, category and file ceilings remain removed. The later explicit
+//! under-100k socket goal (Vision V-6) has a separate acceptance check, run by
+//! `cargo core-size`. It is intentionally not a claim that today's tree meets
+//! the goal, nor does a size check establish functional/protocol parity.
 //!
 //! The reach is measured from `cargo metadata` (normal and build edges, the
 //! way the linked product is built; dev edges excluded), so the numbers are
@@ -386,6 +387,11 @@ fn physical_lines(path: &Path) -> usize {
 }
 
 fn is_test_or_bench_rust(rel: &str) -> bool {
+    // Despite its name, this is an unconditional public runtime module used
+    // by release tooling, not a cfg(test)-only suite.
+    if rel == "crates/susi-paths/src/test_env.rs" {
+        return false;
+    }
     let parts: Vec<&str> = rel.split('/').collect();
     let Some((&file, dirs)) = parts.split_last() else {
         return false;
@@ -397,16 +403,39 @@ fn is_test_or_bench_rust(rel: &str) -> bool {
         || file.ends_with("_tests.rs")
 }
 
-/// Tracked physical lines by repository category (`git ls-files -z`), printed
+/// Physical lines by repository category (`git ls-files -z`), printed
 /// for the record: runtime Rust, vendor facades, tests, tooling, vendored sources
-/// and audit trails, with the largest file of each watched kind. Sizes are not
-/// capped; only the number of unsafe baseline files is.
+/// and audit trails, with the largest file of each watched kind. Includes
+/// untracked, non-ignored files so a new unstaged source file is not invisible.
+/// This report does not enforce the separate under-100k goal.
 #[test]
 fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
+    repository_size();
+}
+
+/// Goal acceptance is explicit while the reduction remains in progress. All
+/// first-party runtime and facade code counts, not just the pillar crates.
+#[test]
+#[ignore = "unfinished reduction goal; run cargo core-size to measure acceptance"]
+fn complete_socket_is_under_100k_lines() {
+    let lines = repository_size();
+    assert!(
+        lines < 100_000,
+        "complete socket has {lines} physical Rust lines; must be strictly below 100000; functionality and protocol parity must also be verified"
+    );
+}
+
+fn repository_size() -> usize {
     let root = workspace_root();
     let output = Command::new("git")
         .current_dir(&root)
-        .args(["ls-files", "-z"])
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
         .output()
         .expect("git ls-files runs");
     assert!(
@@ -423,13 +452,14 @@ fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
     let mut agents_lines = 0usize;
     let mut unsafe_baseline_files = 0usize;
     let mut evidence_jsonl_lines = 0usize;
+    let mut runtime_by_package: BTreeMap<String, usize> = BTreeMap::new();
     let mut largest_xtask_file = (0usize, String::new());
     let mut largest_gmcp_tools_file = (0usize, String::new());
     let mut largest_gmcp_core_file = (0usize, String::new());
     let mut largest_integration_test_file = (0usize, String::new());
     let mut largest_gmcp_requirements_file = (0usize, String::new());
 
-    for raw in output.stdout.split(|&b| b == 0) {
+    for raw in output.stdout.split(|&b| b == 0).collect::<BTreeSet<_>>() {
         if raw.is_empty() {
             continue;
         }
@@ -477,8 +507,16 @@ fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
                 test_rust += lines;
             } else if rel.starts_with("crates/susi-vendor-") {
                 vendor_facade_rust += lines;
+                let package = rel.split('/').nth(1).expect("crate path");
+                *runtime_by_package.entry(package.to_owned()).or_default() += lines;
             } else {
                 first_party_runtime_rust += lines;
+                let package = if rel.starts_with("crates/") {
+                    rel.split('/').nth(1).expect("crate path")
+                } else {
+                    "susi (root)"
+                };
+                *runtime_by_package.entry(package.to_owned()).or_default() += lines;
             }
         }
     }
@@ -486,6 +524,35 @@ fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
     eprintln!(
         "lean-core categories: runtime_rust={first_party_runtime_rust}, vendor_facade_rust={vendor_facade_rust}, test_rust={test_rust}, tooling_rust={tooling_rust}, vendor={vendor_lines}, .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})"
     );
+    // A missing/empty inventory cannot satisfy the goal by counting zero.
+    // Include ACP explicitly: the historical pillar report predates its crate.
+    for package in PILLAR_CRATES.iter().copied().chain([
+        "susi (root)",
+        "susi-gawd-acp",
+        "susi-core",
+        "susi-config",
+        "susi-daemon",
+    ]) {
+        assert!(
+            runtime_by_package
+                .get(package)
+                .is_some_and(|&lines| lines > 0),
+            "runtime inventory is incomplete: no source counted for {package}"
+        );
+    }
+    let complete_socket = first_party_runtime_rust + vendor_facade_rust;
+    eprintln!(
+        "lean-core goal: complete_socket_rust={complete_socket}, strict_limit=100000, remaining_to_remove={}, size_goal_met={}",
+        complete_socket.saturating_sub(99_999),
+        complete_socket < 100_000
+    );
+    let mut packages: Vec<_> = runtime_by_package.into_iter().collect();
+    packages.sort_by(|(a_name, a_size), (b_name, b_size)| {
+        b_size.cmp(a_size).then_with(|| a_name.cmp(b_name))
+    });
+    for (package, lines) in packages {
+        eprintln!("lean-core runtime: {package} = {lines} lines");
+    }
     for (kind, (lines, file)) in [
         ("tests/", &largest_integration_test_file),
         ("gmcp_requirements", &largest_gmcp_requirements_file),
@@ -500,4 +567,5 @@ fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
         unsafe_baseline_files <= UNSAFE_BASELINE_FILES_CEILING,
         "unsafe baseline file count reached {unsafe_baseline_files} (ceiling {UNSAFE_BASELINE_FILES_CEILING})"
     );
+    complete_socket
 }

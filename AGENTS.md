@@ -390,10 +390,14 @@ classification, the measured ladder toward zero third-party dependencies and the
 split of work between agents are in `docs/lean-core.md`. The dependency-reach
 ceilings in `tests/lean_core_ceilings.rs` only go down: every cut lowers them in
 the same change, and nothing raises one without a CEO decision recorded in the
-doc. Source size has no ceiling (CEO decision 2026-11-16, "remove all ceiling"):
-the same test measures and prints the line counts per pillar, per category and
-for the largest files, and growth never fails it. A change that makes core
-bigger still needs a measured reason (Mandates 69 and 78).
+doc. The earlier removal of per-pillar, category and per-file ceilings remains
+in effect. The subsequent CEO goal (Vision V-6, 2026-11-16) requires the complete
+standards socket below 100,000 lines without dropping functionality. Run
+`cargo core-size` for the explicit, currently unmet acceptance check; scope
+and parity requirements are in `docs/lean-core.md`. Do not obtain a smaller
+number by hiding code, moving tests, dropping capabilities or weakening
+protocol/security checks. A change that makes core bigger still needs a
+measured reason (Mandates 69 and 78).
 Before migrating a module out of core, grep every cfg (`#[cfg(windows)]` code
 is invisible to a Linux build), then `cargo check --workspace --all-targets`
 and `cargo fmt --all --check` on the exact tree, and ship through the gate.

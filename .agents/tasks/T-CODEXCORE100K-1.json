@@ -1,0 +1,66 @@
+{
+  "id": "T-CODEXCORE100K-1",
+  "title": "Reduce the complete standards socket below 100,000 lines without capability loss",
+  "goal": "Vision: V-6. Strictly fewer than 100,000 physical first-party runtime Rust lines, including in-repository facades and every platform/feature, with existing functionality and public protocol behavior preserved. Size alone cannot close this task; require regression and protocol-conformance evidence on the final tree.",
+  "size": "xl",
+  "status": "in_progress",
+  "created_by": "CODEXCORE100KIMPLEMENTATION",
+  "created_unix": 1794818760,
+  "base_commit": "694a728da",
+  "deps": [
+    "T-CODEX100KCATALOG-1",
+    "T-CODEX100KCLI-1",
+    "T-CODEX100KHTTP-1",
+    "T-CODEX100KTELEMETRY-1"
+  ],
+  "scopes": [
+    ".agents/visions/V-6.json",
+    ".agents/tasks/T-CODEXCORE100K-1.json",
+    ".agents/evidence/core-under-100k/",
+    "tests/lean_core_ceilings.rs",
+    "AGENTS.md",
+    "docs/lean-core.md",
+    "docs/architecture.md",
+    ".cargo/config.toml"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "core-size"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reused tests/lean_core_ceilings.rs physical-line/category accounting, socket_parity and socket_boundary tests, susi-conformance, and existing protocol-specific regressions. Audited core and Commercial Apps before choosing existing-code consolidation; no external source or dependency is needed for measurement."
+  },
+  "baseline": {
+    "runtime_rust": 300677,
+    "vendor_facade_rust": 6454,
+    "complete_socket_rust": 307131,
+    "strict_limit": 100000,
+    "goal_met": false,
+    "classification_correction": "Count unconditional production module crates/susi-paths/src/test_env.rs (369 lines); old inherited category measure was 306762."
+  },
+  "limitations": [
+    "The installed workflow binary predates workflow vision set/cycle; the create-only vision record is authored with the existing schema instead. Both attempted commands reported unknown verb; no cycle is claimed.",
+    "Board read at item 1604 reported no stop or request for codex. This session uses local isolated task records; it has not posted external board messages.",
+    "Initial measurements include inline tests, comments and blank lines in runtime files. Moving tests or changing exclusions is not an implementation reduction.",
+    "Acceptance command checks source size only. This task remains open until behavioral parity and relevant live protocol conformance are also verified."
+  ],
+  "evidence": [
+    ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  ],
+  "progress": {
+    "runtime_rust": 300509,
+    "vendor_facade_rust": 6454,
+    "complete_socket_rust": 306963,
+    "genuine_runtime_lines_removed": 171,
+    "remaining_to_remove": 206964,
+    "upstream_runtime_lines_added": 3
+  },
+  "publication_cadence": {
+    "during_active_work": true,
+    "interval_seconds": 600,
+    "policy": "Merge current upstream and push ready verified changes every ten minutes; preserve peer work and release qualification."
+  }
+}

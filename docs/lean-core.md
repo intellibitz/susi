@@ -20,8 +20,53 @@ software) and admitted over the standard protocol socket.
 
 This page is the shared plan for every agent on the program. Numbers come from
 `tests/lean_core_ceilings.rs`. Its dependency-reach ceilings only go down.
-Source size is measured and printed there and has no ceiling (CEO decision
-2026-11-16, "remove all ceiling"; wave log).
+The earlier per-pillar, category and per-file line ceilings remain removed
+(CEO decision 2026-11-16, "remove all ceiling"; wave log). The subsequent
+explicit complete-core goal is recorded below; it does not restore those
+individual ceilings.
+
+## Complete socket below 100,000 lines (Vision V-6)
+
+The CEO's current goal, verbatim:
+
+> susi core must be less than 100k lines. no functionalities must be dropped.
+> susi core is a pure standards protocol compliant ai os socket.
+
+At `694a728da`, the previous category measure reports 300,308 first-party
+runtime Rust lines and 6,454 in-repository facade lines. Its test-name rule
+misses the unconditionally public `susi-paths/src/test_env.rs` (369 lines).
+Counting that production module gives the corrected baseline: **307,131 total**
+(300,677 runtime + 6,454 facades).
+The goal is **not met**. Its explicit acceptance command is `cargo core-size`;
+it returns nonzero until the complete total is at most 99,999. The ordinary
+`lean_core_ceilings` suite continues reporting sizes without imposing the old
+individual budgets. The acceptance test is ignored by default because this is
+an unfinished reduction program, and is selected explicitly by that command.
+Acceptance evidence must show one executed test and its size result, not just
+a zero exit code from an empty or skipped test selection.
+
+Counting contract: physical Rust lines, including comments, blanks, inline
+tests, every platform and every feature in first-party runtime files, plus
+the `susi-vendor-*` facades. Count all pillar, foundation, host, client and
+compatibility code, rather than only the crate named `susi-core`. Reuse the
+existing path-based category rules, correcting `test_env.rs` as above;
+separately report test/bench/fuzz files,
+development tooling, third-party `vendor/` source and `.agents/` evidence.
+Count tracked and non-ignored untracked files; deduplicate Git's file list.
+The source report is not the size of linked dependencies or executable bytes.
+Test relocation, minification, excluding compiled code, or deleting coverage
+does not qualify as a functional implementation reduction.
+
+Preserve public APIs, CLI actions, the five-port contract, MCP revisions and
+transports, ACP, A2A, OpenAI-compatible and Anthropic behavior, Wasm admission,
+permissions, cancellation, persistence and harness execution. Consolidate
+duplicate implementations behind existing contracts. Any product extraction
+must first have a working destination and demonstrated old/new behavior over
+the socket, including platform-specific callers. Moving code alone is not
+evidence of preserved functionality. Neither a size pass nor structural
+`socket_parity` tests alone establish standards conformance: run affected
+behavioral regressions and the relevant live conformance checks on the final
+tree. Keep this goal open until both size and behavior are verified.
 
 ## The ladder (measured)
 
