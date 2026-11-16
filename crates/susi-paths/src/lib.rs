@@ -468,6 +468,7 @@ pub mod console;
 pub mod hex;
 pub mod http_body;
 pub mod loopback;
+pub mod native_path;
 pub mod ports;
 pub mod sha1;
 pub mod shlex;
