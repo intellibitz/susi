@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-10",
+  "statement": "make a mandate that an agent cannot hold a claim, after it is done with it",
+  "set_by": "ceo",
+  "recorded_by": "AGENTCLAUDECLAIMDONE",
+  "set_unix": 1794837682
+}

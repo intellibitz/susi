@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=84).collect::<Vec<_>>(),
+        (1..=85).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2214,6 +2214,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (82, "pulls and merges origin/main every ten minutes"),
         (83, "Never wait on another agent"),
         (84, "Susi core stays under 100,000 lines"),
+        (85, "No agent holds a claim after it is done with it"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3331,6 +3332,62 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
     ] {
         assert!(said.contains(words), "V-8 lost the CEO's words: {words}");
     }
+}
+
+/// Mandate 85 (CEO 2026-11-16): no agent holds a claim after it is done with it.
+#[test]
+fn ceo_mandate_85_ends_a_claim_when_its_work_is_done() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("ceo-mandate-85.md") || text.contains("Mandate 85"),
+            "{path}: Mandate 85 must be discoverable"
+        );
+    }
+    let doc = flat("docs/ceo-mandate-85.md");
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "1. **Done means done.**",
+        "2. **The claim ends in the same step that ends the work.**",
+        "3. **Never hold a claim for later.**",
+        "4. **A claim on done work holds nothing.**",
+        "5. **The lease is the last resort, not the release.**",
+        "6. **Look before you leave.**",
+        "susi-commercial workflow finish <id>",
+        "susi-commercial tasks release <id>",
+        "never dropped silently",
+        "Implementation truth",
+        "**Not enforced:**",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 85 lost requirement: {phrase}"
+        );
+    }
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-10.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        vision["statement"].as_str(),
+        Some("make a mandate that an agent cannot hold a claim, after it is done with it"),
+        "the CEO's words are recorded as they were given"
+    );
 }
 
 /// Mandate 84 (CEO 2026-11-16): Susi core stays under 100,000 lines and, until it

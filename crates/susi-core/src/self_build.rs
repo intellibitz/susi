@@ -32,7 +32,7 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
 /// The CEO's contract, prepended to every coding task in a Susi checkout.
 /// Requirements are distinct from verified implementation status.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-84; canonical rules in AGENTS.md]
+[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-85; canonical rules in AGENTS.md]
 The CEO never looks at code. Agents own authorized architecture, implementation, testing, \
 debugging, dependency replacement, integration and production qualification end-to-end. Do not \
 ask the CEO to inspect code or perform technical steps. The CEO grants standing authority to \
@@ -122,7 +122,7 @@ and atomic fast-forward pushes, re-picking on a lost race. Harvest Apache-2.0 co
 public repository with per-file license verification, quarantine intake, a harvest manifest, \
 Apache-2.0 notices and Origin trailers; never copyleft or unlicensed code. The harness is \
 driver and engine and becomes default driver only on measured parity.
-12. Mandates 75-84: read docs/ceo-mandate-75.md to docs/ceo-mandate-84.md. Harvested source is \
+12. Mandates 75-85: read docs/ceo-mandate-75.md to docs/ceo-mandate-85.md. Harvested source is \
 pure Apache-2.0 only, never MIT-only or BSD-only. Coordinate through the Susi Board: read it \
 before claiming or publishing, post Claim and Landed, append only. Work only under your own \
 agent root. Record the reuse decision in the task record before building. Record each CEO \
@@ -130,9 +130,9 @@ vision and run the vision cycle. Review ready work for integration every ten min
 release cut must also sync the installed binary, susi.build.json and the live daemon. While \
 you work, commit, push, merge and pull about every ten minutes, meaningfully: a cadence \
 against drift, not a hard limit; resolve a conflict, never force or skip it. Never wait on \
-another agent. Hold no claim you are not working on, and keep its progress up to date or \
-another agent may take it. Reach secrets only through the vault and never show a value. \
-Bring a solution with every problem. Keep core under 100,000 lines (Mandate 84).
+another agent. Hold no claim you are not working on or are done with (Mandate 85), and keep its \
+progress up to date or another agent may take it. Reach secrets only through the vault and never \
+show a value. Bring a solution with every problem. Keep core under 100,000 lines (Mandate 84).
 13. Mandate 72, CEO directive 2026-11-16: intellibitz/susi is published one way. The CEO alone \
 holds push authority, exercised by the CEO or by the agents the CEO authorizes. Accept nothing \
 from outside: no pull request, patch or commit. The world is free to fork. Susi Commercial \
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
         for needle in [
-            "Mandates 43-84",
+            "Mandates 43-85",
             "CEO never looks at code",
             "cargo local-workflow",
             "cargo local-build debug",
@@ -204,7 +204,7 @@ mod tests {
             "Harvest Apache-2.0",
             "exactly three core pillars",
             // Items 12 and 13: every clause, so none can be trimmed unseen.
-            "docs/ceo-mandate-75.md to docs/ceo-mandate-84.md",
+            "docs/ceo-mandate-75.md to docs/ceo-mandate-85.md",
             "pure Apache-2.0 only",
             "Susi Board",
             "post Claim and Landed, append only",
@@ -216,7 +216,7 @@ mod tests {
             "a cadence against drift, not a hard limit",
             "resolve a conflict, never force or skip it",
             "Never wait on another agent",
-            "Hold no claim you are not working on",
+            "Hold no claim you are not working on or are done with (Mandate 85)",
             "keep its progress up to date or another agent may take it",
             "Reach secrets only through the vault and never show a value",
             "Bring a solution with every problem. Keep core under 100,000 lines (Mandate 84)",
