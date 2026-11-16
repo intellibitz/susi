@@ -14,5 +14,16 @@
     ]
   },
   "created_by": "CLAUDEMANDATE83",
-  "created_unix": 1794825940
+  "created_unix": 1794825940,
+  "closed": {
+    "at_unix": 1794825940,
+    "commit": "b1ccf5c961a0e829212ef8bdfaf5c9a54f3d74cb",
+    "by": "CLAUDEMANDATE83"
+  },
+  "scopes": [
+    "docs/ceo-mandate-83.md"
+  ],
+  "limitations": [
+    "Wording only. Main is unqualified development, not a release."
+  ]
 }
