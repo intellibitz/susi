@@ -37,7 +37,12 @@
     ".agents/tasks/done/T-AGYREL071-10.json",
     "releases/v0.21.71.json"
   ],
-  "state": "in-progress",
-  "status": "in-progress",
-  "updated_unix": 1794833751
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794834066,
+  "closed": {
+    "at_unix": 1794834066,
+    "commit": "06efd5a54852f95d32fecfe3576178bb428cff6c",
+    "by": "ANTIGRAVITY"
+  }
 }
