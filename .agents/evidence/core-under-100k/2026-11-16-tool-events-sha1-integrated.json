@@ -1,0 +1,364 @@
+{
+  "task": "T-CODEXCORE100K-1",
+  "vision": "V-6",
+  "checked_unix": 1794834885,
+  "source_commit": "2dd49a7cea7005a4e89f490bfafcb3c6193692a9",
+  "upstream_integrated": "cce56ca18",
+  "source_version": "0.21.71",
+  "goal_met": false,
+  "full_acp_compliance_claimed": false,
+  "release_qualification_claimed": false,
+  "components": {
+    "typed_MCP_events": {
+      "source": "72324f7a194e306fb6ea96e093b06c2d73553f2e",
+      "coherent_tip": "44d641d0ddec3e4f4699552cb3301ee582174eff",
+      "runtime_lines_added": 491,
+      "separate_test_lines_added": 1173,
+      "worker_evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json"
+    },
+    "shared_SHA1": {
+      "source": "9d33a24513eb6769bf5031139c500dc44baccbf1",
+      "runtime_lines_removed": 43,
+      "separate_test_lines_added": 62,
+      "worker_evidence": ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json"
+    }
+  },
+  "size": {
+    "before_complete_socket_rust": 307361,
+    "runtime_rust": 301355,
+    "vendor_facade_rust": 6454,
+    "complete_socket_rust": 307809,
+    "remaining_to_remove": 207810,
+    "strict_limit": 100000,
+    "command": "cargo core-size",
+    "executed": 1,
+    "failed": 1,
+    "exclusions_or_ceilings_changed": false
+  },
+  "parent_validation": {
+    "ACP_units": 34,
+    "core_scoped_units": 8,
+    "tool_registry_units": 17,
+    "root_managed_IO_and_event_units": 12,
+    "actual_CLI": {
+      "passed": 10,
+      "failed": 0,
+      "seconds": 25.63,
+      "command": "SUSI_ACP_BRIDGE_TEST_ROOT=<private-root> cargo test --offline --locked -p susi --test acp_mcp_bridge -- --ignored --nocapture",
+      "artifact_root": "/workspace/codex/core-100k-state/acp-tool-events-final",
+      "scope": "Nine retained real CLI cases plus MCP isError case; live pending-before-result/cancel, terminal statuses, same-session multi-turn IDs and owning results/evidence. Env-cleared real Rust tool subprocess and deterministic loopback inference; no paid calls."
+    },
+    "SHA1": {
+      "paths_tests": 113,
+      "model_license_selected_tests": 8,
+      "model_license_explicit_network_qualification_ignored": 1,
+      "NAT_tests": 9,
+      "differential": {
+        "baseline": "6e599c111575b8b84a5414e5239b16901b17f9fd",
+        "cases": 6043,
+        "old_new_digest_comparisons": 18129,
+        "independent_digest_comparisons": 18129,
+        "independent_reference": "Python hashlib.sha1 and hmac.new(..., hashlib.sha1)",
+        "source_sha256": {
+          "crates/susi-daemon-runtime/src/nat.rs": "2375c44c4a64bf9c1978ac5062a2beb50c00087568292325f9a92a12cd5149d1",
+          "crates/susi-gemi-models/src/model_license.rs": "192a32e019de62e5ccc1c2c2765a817de0650675753481e4f874e8b763358fd1",
+          "crates/susi-paths/src/sha1.rs": "735ca01bf52ff431a50ca383c1c269fa259711638bb8219eb6cc77978e1a0150"
+        },
+        "shared_core_byte_identical_to_nat_suffix_except_signature_and_20_constant": true,
+        "hmac_body_unchanged": true,
+        "original_test_tails_byte_identical": true,
+        "caller_allocation_framing_and_no_extra_payload_copy_verified": true,
+        "corpus": "Padding boundaries, all lengths0..1024,65536and1millionbytes,5000seededbinary cases with key lengths0/1/16/63/64/65/80/128. Finite corpus, not exhaustive proof."
+      },
+      "comparison": "Parent regenerated baseline/current harness from integrated files, compiled it, ran6043cases/18129digest comparisons and byte-compared all outputs with18129Python hashlib/hmac reference answers."
+    },
+    "boundaries": {
+      "architecture": 55,
+      "socket_boundary": 1,
+      "socket_parity": 6,
+      "task_records": 3
+    },
+    "workspace_all_targets": "cargo check --offline --locked --workspace --all-targets passed",
+    "parent_strict_clippy": "cargo clippy --offline --locked -p susi --bin susi --test acp_mcp_bridge -- -D warnings passed",
+    "worker_strict_clippy": "ACP all-targets, tools/core observer, root all-tests, and paths/models/daemon-runtime affected all-targets passed in their isolated worktrees.",
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "native_host": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false
+  },
+  "actual_named_schema_validation": {
+    "schema_sha256": "e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21",
+    "counts": {
+      "InitializeResponse": 9,
+      "NewSessionResponse": 10,
+      "ToolCall": 27,
+      "SessionNotification": 61,
+      "ToolCallUpdate": 27,
+      "PromptResponse": 8,
+      "JSON-RPC_errors_envelope_only": 2,
+      "legacy_transcripts_skipped": 1
+    },
+    "transcripts": [
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/cancel-426288-1794834315324462011/acp.stdout.jsonl",
+        "sha256": "ffa1385d85287a5515da9ce641efbbb003e0a888f2ea09e0ab64e6a76020f8e9",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 1,
+          "ToolCall": 1,
+          "SessionNotification": 2,
+          "ToolCallUpdate": 1,
+          "PromptResponse": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/empty-mcp-426288-1794834315324466474/acp.stdout.jsonl",
+        "sha256": "9ad4117de9e5b41aef133ac2efeaee4192fc43e8324fa21015a0843eee97eb37",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 1,
+          "SessionNotification": 1,
+          "PromptResponse": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/env-order-426288-1794834322763760667/acp.stdout.jsonl",
+        "sha256": "21ae3a77ad0af35e83afd8e27c893807da17fe57daa5e163a4b1a208cd56cbc9",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 2
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/init-deadline-426288-1794834315814077906/acp.stdout.jsonl",
+        "sha256": "a1f432c56403b6f93d57d1ee97fc4a3d3a0e7d7dda38e1a4c6e1a90406b2c1c9",
+        "validated": {
+          "InitializeResponse": 1,
+          "JSON-RPC_errors_envelope_only": 1,
+          "NewSessionResponse": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/isolated-tools-426288-1794834323067343397/acp.stdout.jsonl",
+        "sha256": "ed011d65fedf071b11fe9471600431f3734a3a9a3a4aa938a90fee17252390b2",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 3,
+          "ToolCall": 15,
+          "SessionNotification": 34,
+          "ToolCallUpdate": 15,
+          "PromptResponse": 4
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/parent-exit-426288-1794834315324456829/acp.stdout.jsonl",
+        "sha256": "d3f58a7601fd08b02c821402a9fde17449cbf84d84ab64dfed27cac3972ee2f7",
+        "validated": {
+          "InitializeResponse": 1,
+          "JSON-RPC_errors_envelope_only": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/pending-init-426288-1794834315324462001/acp.stdout.jsonl",
+        "sha256": "576d71ca5759e8963194a36cb8a37c764e47561f3d163751677d859c7f1b7658",
+        "validated": {
+          "InitializeResponse": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/revoke-426288-1794834317281024102/acp.stdout.jsonl",
+        "sha256": "dc9748751b2cc5cc19df42f36c970679491ab949e85f73f02abe6739c03370c6",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 1,
+          "ToolCall": 6,
+          "SessionNotification": 13,
+          "ToolCallUpdate": 6,
+          "PromptResponse": 1
+        }
+      },
+      {
+        "path": "/workspace/codex/core-100k-state/acp-tool-events-final/tool-error-426288-1794834316727123812/acp.stdout.jsonl",
+        "sha256": "a1459907e17e30cf61cf885b217c7f942b44efd5d2ef9a740f41b8c7697ce0f3",
+        "validated": {
+          "InitializeResponse": 1,
+          "NewSessionResponse": 1,
+          "ToolCall": 5,
+          "SessionNotification": 11,
+          "ToolCallUpdate": 5,
+          "PromptResponse": 1
+        }
+      }
+    ],
+    "limits": "Named-definition shape validation of actual wire values; JSON-RPC errors checked only for basic envelope; no full ACP certification."
+  },
+  "actual_event_order_validation": {
+    "counts": {
+      "starts": 27,
+      "failed": 12,
+      "completed": 15
+    },
+    "checks": [
+      "IDs unique within session over entire transcript",
+      "every update follows its matching start",
+      "no update after terminal",
+      "every accepted start has one terminal by transcript end"
+    ],
+    "limits": "Does not independently reconstruct request-to-turn mapping from stdout-only data; actual CLI tests check prompt/turn separation.",
+    "files": [
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/cancel-426288-1794834315324462011/acp.stdout.jsonl",
+        "invocations": 1
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/empty-mcp-426288-1794834315324466474/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/env-order-426288-1794834322763760667/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/init-deadline-426288-1794834315814077906/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/isolated-tools-426288-1794834323067343397/acp.stdout.jsonl",
+        "invocations": 15
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/legacy-empty-mcp-426288-1794834315817341829/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/parent-exit-426288-1794834315324456829/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/pending-init-426288-1794834315324462001/acp.stdout.jsonl",
+        "invocations": 0
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/revoke-426288-1794834317281024102/acp.stdout.jsonl",
+        "invocations": 6
+      },
+      {
+        "file": "/workspace/codex/core-100k-state/acp-tool-events-final/tool-error-426288-1794834316727123812/acp.stdout.jsonl",
+        "invocations": 5
+      }
+    ]
+  },
+  "live_host_contract": {
+    "passed": 27,
+    "nonpassing": [
+      {
+        "detail": "opt-in: signed_udp_ping verifies positive SUSI_PONG_SIG* reply",
+        "id": "udp.discovery-signed@26092",
+        "ms": 0,
+        "outcome": "skip"
+      },
+      {
+        "detail": "opt-in: --inference runs one local, 1-token streamed completion",
+        "id": "gemi.stream@26091",
+        "ms": 0,
+        "outcome": "skip"
+      }
+    ],
+    "scope": "Existing host contract checks including legacy ACP; official-v1 typed values checked separately above. Not full protocol certification.",
+    "isolation": "Rebuilt private conformance binary; owned offset17000 instance, private homes/Git/Board fixtures, env cleared and host_only policy; start and stop succeeded. No production daemon or release promoted."
+  },
+  "review": {
+    "findings_fixed": [
+      "Terminal previews initially bypassed existing sink redaction; now redacted before UTF-8-safe preview truncation, with success/error regressions.",
+      "Observer admission initially ignored child cancellation, owner closure and lease while full; it now checks the captured child token and existing availability/lease predicate on every capacity retry."
+    ],
+    "queue": "32 queued events,64 pending observations; accepted starts and terminal bookkeeping serialized with close. Close freezes producers before result delivery and resolves pending IDs; late worker clones cannot hold completion open. Tested callback unwinding revokes producers and original cancellation before scoped join.",
+    "typed_status": "Outcome Result determines status after existing authority/evidence and ToolScope post-call cancellation; no classification by output wording. MCP isError yields failed without changing old return strings.",
+    "source_parity": "SHA1 core equals the existing NAT padding/compression suffix apart from signature/constant spelling. Git framing, NAT allocation and unchanged HMAC/test bodies rechecked against baseline; no extra payload copy or dependency.",
+    "identity": "Unpublished observer attribution was corrected to its agent localhost identity before composition; old e3b03bd8c is absent from integrated ancestry. No published history rewritten."
+  },
+  "limits": [
+    "Supplied-MCP lifecycle only. Builtin lifecycle, forwarding MCP progress and normal provider result continuation remain follow-up work; full ACP compliance is unestablished.",
+    "An attempt refused before a full event queue admits a start may have no lifecycle frames; accepted starts receive terminal updates while output remains available.",
+    "Preview cap is16KiB plus fixed truncation marker; full tool results and evidence retain existing behavior. Output redaction is the existing policy, not a new universal secret detector.",
+    "Generic blocking I/O/noncooperative executors may delay shutdown. Process groups/Jobs contain ordinary owned descendants; this is not a hostile filesystem/process sandbox. Already-performed external effects are not reversed.",
+    "Finite SHA1 corpus and sampled ACP traces are not exhaustive proofs. No native Windows execution or production release qualification claimed.",
+    "Complete source goal still fails. No capability/test removal, test relocation, count exclusion or new dependency."
+  ],
+  "board_read": {
+    "last_item": 1816,
+    "findings": [],
+    "requests": [],
+    "stops": [],
+    "messages_posted": false
+  },
+  "logs": {
+    "tool-events-parent-acp.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-acp.log",
+      "sha256": "72338e1823b7dc18a29dd4d804a6563d718e78e6af5c55adc2762cee76e7eeb0"
+    },
+    "tool-events-parent-scope.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-scope.log",
+      "sha256": "c00fb6582640ba80c132b2331e3e5149fe2cef973ac221123f33104692b3424e"
+    },
+    "tool-events-parent-registry.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-registry.log",
+      "sha256": "3a57372cabd8f7d9c2ae70d1babf7c0286876915d72061f9465c107bf2d335e2"
+    },
+    "tool-events-parent-root.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-root.log",
+      "sha256": "55f821732f0dc974bcdf1ce1301d791047a6bea5adfe03157aa175dc58e9b962"
+    },
+    "tool-events-parent-cli.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-cli.log",
+      "sha256": "a2bd1708475dfc2825b61e54dca7a2765c5c7150de14c0f9559c887d62bdb65f"
+    },
+    "sha1-parent-paths.log": {
+      "path": "/workspace/codex/core-100k-state/logs/sha1-parent-paths.log",
+      "sha256": "b40d3d05f680df3c23ce830e07f6c2f0fca420fa3081817f38a298e6850cb94c"
+    },
+    "sha1-parent-model.log": {
+      "path": "/workspace/codex/core-100k-state/logs/sha1-parent-model.log",
+      "sha256": "e82805ebd006779da9143d04e271918faa6a3ba5c502d358dc2d09096fb7b4b1"
+    },
+    "sha1-parent-nat.log": {
+      "path": "/workspace/codex/core-100k-state/logs/sha1-parent-nat.log",
+      "sha256": "e46a5ed114f0fe88015deb51510391118c2139cc5687a1345ffe8b1867d9b497"
+    },
+    "sha1-parent-source-proof.log": {
+      "path": "/workspace/codex/core-100k-state/logs/sha1-parent-source-proof.log",
+      "sha256": "7e0c0a90a6b075242bd2adb21587d71ab32ef900bb9ac9c46a6d8330a6dd8027"
+    },
+    "sha1-parent-differential.log": {
+      "path": "/workspace/codex/core-100k-state/logs/sha1-parent-differential.log",
+      "sha256": "52ac8bb2d7063acc7426c73e130a17cc34740725defbaa24377273fa8ecda40c"
+    },
+    "tool-events-parent-boundaries.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-boundaries.log",
+      "sha256": "90df05be26b47e16a5e97c27afc900313f2974a2be6c1446ffe7c6f44272c826"
+    },
+    "tool-events-parent-workspace-check.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-workspace-check.log",
+      "sha256": "d5b06412d2e9b8d403ce02021acaf56078dc61e4faff9b52130ca5c7a057c0ba"
+    },
+    "tool-events-parent-clippy.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-clippy.log",
+      "sha256": "7eb51b1b6c214e9e9f06084279df9fd62a0d60ef3e7837b2b715e7056eccde35"
+    },
+    "tool-events-parent-fmt.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-parent-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tool-events-conformance-build.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-conformance-build.log",
+      "sha256": "6c7b908eed22d2d7085f7054d026bf5734d92e617c5ed6987c219cbdf5492b28"
+    },
+    "tool-events-live-conformance.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-live-conformance.log",
+      "sha256": "cf83294fcfdab555955a9ab64a63a3a736a8210197ead75ed37ee4503b3b3554"
+    },
+    "tool-events-sha1-core-size.log": {
+      "path": "/workspace/codex/core-100k-state/logs/tool-events-sha1-core-size.log",
+      "sha256": "0f5672228ddd82c174892a9a14cb097a85efac5bc2cff667163daa38a78fb53d"
+    }
+  }
+}

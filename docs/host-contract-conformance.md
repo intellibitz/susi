@@ -56,18 +56,33 @@ The separate MCP frame limit remains 16 MiB. Child ownership uses existing
 Unix process groups and Windows Jobs. Cancellation and timeouts abort active
 MCP I/O and close affected peers; idle session peers can remain alive. Failed
 setup and connection/session closure stop owned peers. Final reaping runs
-outside engine locks. Process execution permission is not filesystem confinement: the MCP
-child keeps the original session cwd while GAWD workers may use isolated
-checkouts, and deliberately escaping Unix descendants are not contained.
+outside engine locks. Process execution permission is not filesystem
+confinement: the MCP child keeps the original session cwd while GAWD workers
+may use isolated checkouts, and deliberately escaping Unix descendants are not contained.
 
-Nine isolated Linux tests run the shipped `susi acp serve` command, real
+Live reporting for session-owned MCP attempts uses official `tool_call` and
+`tool_call_update` notifications with invocation IDs unique within the session.
+An attempt refused before admission to a full event queue may have no lifecycle
+frames; every accepted start receives a terminal update while output is available. Status follows the
+actual guarded result: permission refusals, MCP errors and observed cancellation
+report `failed`; successful text is not classified by its wording. Display
+previews use existing output redaction and are limited to 16 KiB plus a fixed
+truncation marker. Full execution results and evidence retain their existing path.
+A bounded queue preserves event order; a turn-completion barrier closes pending
+calls and rejects late worker events. Callback unwinding cancels the owning turn
+and releases blocked event producers before joining the mission worker.
+
+Ten isolated Linux tests run the shipped `susi acp serve` command, real
 Rust MCP children and a deterministic loopback inference provider. They
 exercise fresh same-cwd A/B/A calls, exact results and owning mission receipts,
 revocation, cancellation during a tool call, startup/EOF/deadline cleanup,
 ordinary descendants, ordered environment aliases, and both legacy and v1
-stdout purity. Evidence is in
+stdout purity. They also check live pending/completed/failed tool updates, MCP
+`isError`, cancellation, and IDs across multiple turns. Evidence is in
 `.agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json` and
-`.agents/evidence/core-under-100k/2026-11-16-acp-integrated.json`.
+`.agents/evidence/core-under-100k/2026-11-16-acp-integrated.json`; live tool-event
+evidence is in `.agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json`
+and `.agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json`.
 Native Windows execution is not established by those tests.
 
 Resource links are passed to the text executor as references,
@@ -82,9 +97,9 @@ or partial streaming. Output closure signals active turns without waiting on
 output locks. Generic blocking I/O and an executor that ignores cancellation
 can still delay shutdown; these tests do not establish bounded total shutdown.
 Neither this adapter nor the legacy `acp.*` host checks establish complete ACP
-v1 compliance. Typed `tool_call`/`tool_call_update` lifecycle notifications and
-normal model continuation with tool results remain follow-up work. The current
-fulfillment path returns tool results through the agent response and evidence;
+v1 compliance. Lifecycle notifications for builtin tools, forwarding MCP progress
+updates, and normal model continuation with tool results remain follow-up work.
+The current fulfillment path returns tool results through the agent response and evidence;
 it does not add a provider conversation loop.
 
 ## Checks
