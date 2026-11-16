@@ -15,5 +15,5 @@
   "task": "T-AGENTCLAUDEBOARDTIDY-1",
   "agent": "AGENTCLAUDEBOARDTIDY",
   "claimed_unix": 1794841026,
-  "lease_until_unix": 1794844626
+  "lease_until_unix": 1794844830
 }
