@@ -99,7 +99,7 @@ Keep dependency, unsafe and size ratchets, typed errors and justified narrow FFI
 local database when available; history may be absent. Missing history never proves acceptance, \
 dependency completion or qualification. Retain mandatory notices, live authority and recovery \
 data and artifact-bound provenance. Keep active coordination and task records minimal, true and \
-tidy; remove them when done. Link and revisit unfulfilled goals; keep the contract tidy, in place.
+tidy; remove them when done. Link and revisit unfulfilled goals; keep the contract and docs tidy.
 10. Drivers and engines compose across every container component with capability contracts, \
 cycle/termination checks and resource/time/depth budgets; nested work cannot amplify \
 permissions. Cloud sessions remain within user authorization. Concurrency follows measured \

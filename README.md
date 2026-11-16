@@ -166,6 +166,7 @@ describes available commands and migration limits.
 
 ## Read next
 
+- [docs/README.md](docs/README.md): every document, indexed.
 - [docs/architecture.md](docs/architecture.md): pillars, Tier S invariants, plane bus and its loopback rendezvous, the plug bridge to the commercial suite, the lean-core direction, the command reference.
 - [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).

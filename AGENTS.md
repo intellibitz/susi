@@ -136,6 +136,14 @@ no two current texts disagree. Keep every link and named command resolving, and
 every implementation-truth note true, updated in the change that alters what
 holds its rule. Agent rule files stay identical pointers that restate nothing.
 
+Keep documentation tidy. A document says what is true now and changes in the
+change that alters what it describes; correct or remove it when its subject
+goes. Keep one topic in one document, found through the documentation index
+(`docs/README.md`) and extended rather than copied, and list every new document
+there. Keep every relative link and named command resolving. Dated records say
+their date and are listed as records; quoted upstream text keeps its words and
+links.
+
 The local delivery goal remains a verified live executable in under 60 seconds,
 with declared millisecond response budgets. Measure cold/warm build, test,
 startup, goal acknowledgment, first useful output and completion separately;
