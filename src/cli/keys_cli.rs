@@ -131,7 +131,7 @@ fn run_vault(action: VaultCommands) {
             enroll_kdbx_passphrase,
         } => {
             if let Some(ref db_path) = db {
-                if susi_config::keepass_bridge::is_personal_vault_path(db_path) {
+                if susi_config::vault_exec::is_personal_vault_path(db_path) {
                     eprintln!(
                         "Refusing `{}`: Personal KeePassXC vaults are off limits.",
                         db_path.display()
@@ -140,7 +140,7 @@ fn run_vault(action: VaultCommands) {
                 }
             }
             if let Some(ref gd_path) = gdrive_path {
-                if susi_config::keepass_bridge::is_personal_vault_path(gd_path) {
+                if susi_config::vault_exec::is_personal_vault_path(gd_path) {
                     eprintln!(
                         "Refusing `{}`: Personal KeePassXC vaults are off limits.",
                         gd_path.display()
@@ -210,46 +210,11 @@ fn run_vault(action: VaultCommands) {
             dry_run,
             json,
         } => {
-            let dir = match susi_config::keepass_bridge::GDriveSyncDirection::parse(&direction) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(2);
-                }
-            };
-            match susi_config::keepass_bridge::sync_kdbx_to_sealed_vault(
-                &cfg_dir,
-                db.as_deref(),
-                dir,
-                io::stdin().is_terminal()
-                    && io::stderr().is_terminal()
-                    && !susi_paths::console::is_unattended_env(),
-                dry_run,
-            ) {
-                Ok(report) => {
-                    if json {
-                        if let Ok(text) = serde_json::to_string_pretty(&report) {
-                            println!("{text}");
-                        }
-                    } else {
-                        println!(
-                            "Synced `{}` -> sealed vault ({} cloud, {} commercial, {} total sealed entries{})",
-                            report.db_path.display(),
-                            report.imported_cloud_keys.len(),
-                            report.imported_commercial_keys.len(),
-                            report.total_sealed_entries,
-                            if report.dry_run { ", dry-run" } else { "" }
-                        );
-                        if let Some(gd) = &report.gdrive_report {
-                            println!("Google Drive sync: {} ({})", gd.action, gd.remote_desc);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Vault sync failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+            let mut args = vec!["sync".to_string(), "--direction".to_string(), direction];
+            push_database(&mut args, db, "Vault sync failed");
+            push_flag(&mut args, dry_run, "--dry-run");
+            push_flag(&mut args, json, "--json");
+            std::process::exit(forward_vault(&args, &[]));
         }
         VaultCommands::MigrateCloudEnv { keep_plaintext } => {
             match susi_config::vault_store::migrate_plaintext_cloud_env(&cfg_dir, keep_plaintext) {
@@ -314,7 +279,8 @@ fn run_vault(action: VaultCommands) {
             );
         }
         VaultCommands::Exec { client, command } => {
-            match susi_config::keepass_bridge::exec_with_client_env(
+            refresh_sealed_vault();
+            match susi_config::vault_exec::exec_with_client_env(
                 &cfg_dir,
                 client.as_deref(),
                 &command,
@@ -327,95 +293,21 @@ fn run_vault(action: VaultCommands) {
             }
         }
         VaultCommands::Doctor { json } => {
-            let report = susi_config::keepass_bridge::vault_doctor(&cfg_dir);
-            if json {
-                if let Ok(text) = serde_json::to_string_pretty(&report) {
-                    println!("{text}");
-                }
-                return;
-            }
-            println!(
-                "Vault doctor ({}):\n  keepassxc-cli: {} ({})\n  kdbx db:       {} (valid magic: {})\n  keyfile:       {}\n  dbus bus:      {}\n  real gpg:      {}\n  gpg preset:    {} (allow-preset-passphrase: {})\n  git gpg.prog:  {}\n  git sshCmd:    {}",
-                report.os,
-                report.keepassxc_cli,
-                report
-                    .keepassxc_version
-                    .as_deref()
-                    .unwrap_or(if report.keepassxc_available { "ok" } else { "unavailable" }),
-                report
-                    .kdbx_path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "none".to_string()),
-                report.kdbx_valid_magic,
-                report
-                    .kdbx_key_file
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "none".to_string()),
-                report.dbus_bus.as_deref().unwrap_or("none"),
-                report.real_gpg_path.as_deref().unwrap_or("none"),
-                report.gpg_preset_passphrase_path.as_deref().unwrap_or("none"),
-                report.gpg_agent_allow_preset,
-                report.git_gpg_program.as_deref().unwrap_or("unset"),
-                report.git_ssh_command.as_deref().unwrap_or("unset"),
-            );
-            for issue in &report.issues {
-                println!("  ISSUE:         {issue}");
-            }
-            for rec in &report.recommendations {
-                println!("  NEXT:          {rec}");
-            }
+            let mut args = vec!["doctor".to_string()];
+            push_flag(&mut args, json, "--json");
+            std::process::exit(forward_vault(&args, &[]));
         }
         VaultCommands::PrimeSigning { gpg_only, json } => {
-            match susi_config::keepass_bridge::prime_signing_agents(&cfg_dir, gpg_only) {
-                Ok(report) => {
-                    if json {
-                        if let Ok(text) = serde_json::to_string_pretty(&report) {
-                            println!("{text}");
-                        }
-                    } else {
-                        println!(
-                            "Primed signing agents (gpg keygrips: {}, ssh identity: {})",
-                            report.gpg_primed_keygrips.len(),
-                            if report.ssh_primed {
-                                "primed"
-                            } else {
-                                "skipped/unchanged"
-                            }
-                        );
-                        for note in &report.notes {
-                            println!("  note: {note}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Prime signing failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+            let mut args = vec!["prime-signing".to_string()];
+            push_flag(&mut args, gpg_only, "--gpg-only");
+            push_flag(&mut args, json, "--json");
+            std::process::exit(forward_vault(&args, &[]));
         }
         VaultCommands::SetupGit { gpgsign, json } => {
-            match susi_config::keepass_bridge::setup_git_signing(&cfg_dir, gpgsign) {
-                Ok(report) => {
-                    if json {
-                        if let Ok(text) = serde_json::to_string_pretty(&report) {
-                            println!("{text}");
-                        }
-                    } else {
-                        println!(
-                            "Configured Git signing:\n  gpg.program:     {}\n  core.sshCommand: {}\n  commit.gpgsign:  {}",
-                            report.gpg_program_set,
-                            report.ssh_command_action,
-                            report.commit_gpgsign_enabled
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Git signing setup failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+            let mut args = vec!["setup-git".to_string()];
+            push_flag(&mut args, gpgsign, "--gpgsign");
+            push_flag(&mut args, json, "--json");
+            std::process::exit(forward_vault(&args, &[]));
         }
         VaultCommands::Rekey {
             db,
@@ -424,68 +316,93 @@ fn run_vault(action: VaultCommands) {
             with_passphrase,
             json,
         } => {
-            let new_pass = if let Ok(v) = std::env::var("SUSI_NEW_KDBX_PASSPHRASE") {
-                let clean = v.trim_end_matches(&['\r', '\n'][..]).to_string();
-                (!clean.is_empty()).then_some(clean)
-            } else if with_passphrase || no_key_file {
+            let mut args = vec!["rekey".to_string()];
+            push_database(&mut args, db, "Rekey failed");
+            if let Some(out) = key_file_out {
+                args.push("--key-file-out".to_string());
+                args.push(out.to_string_lossy().into_owned());
+            }
+            push_flag(&mut args, no_key_file, "--no-key-file");
+            push_flag(&mut args, with_passphrase, "--with-passphrase");
+            push_flag(&mut args, json, "--json");
+            // Core asked for the new passphrase at a terminal; `susi-commercial` reads it
+            // from the environment or piped stdin only, so the prompt stays here and the
+            // value reaches the child's environment alone.
+            let mut prompted = None;
+            if std::env::var_os("SUSI_NEW_KDBX_PASSPHRASE").is_none()
+                && (with_passphrase || no_key_file)
+                && io::stdin().is_terminal()
+            {
                 match read_secret_prompt(
                     "Enter new portable KeePassXC passphrase (piped stdin supported): ",
                 ) {
-                    Ok(p) => Some(p),
+                    Ok(p) => prompted = Some(p),
                     Err(e) => {
                         eprintln!("Failed to read new passphrase: {e}");
                         std::process::exit(1);
                     }
                 }
-            } else {
-                None
-            };
-            let res = susi_config::keepass_bridge::rekey_kdbx_portable(
-                &cfg_dir,
-                susi_config::keepass_bridge::RekeyOptions {
-                    db_override: db.as_deref(),
-                    keyfile_out: key_file_out.as_deref(),
-                    generate_keyfile: !no_key_file,
-                    new_passphrase: new_pass.as_deref(),
-                    allow_interactive: io::stdin().is_terminal()
-                        && io::stderr().is_terminal()
-                        && !susi_paths::console::is_unattended_env(),
-                },
-            );
-            if let Some(mut p) = new_pass {
+            }
+            let envs: Vec<(&str, &str)> = prompted
+                .as_deref()
+                .map(|p| vec![("SUSI_NEW_KDBX_PASSPHRASE", p)])
+                .unwrap_or_default();
+            let code = forward_vault(&args, &envs);
+            if let Some(mut p) = prompted {
                 susi_config::vault_store::wipe_string(&mut p);
             }
-            match res {
-                Ok(report) => {
-                    if json {
-                        if let Ok(text) = serde_json::to_string_pretty(&report) {
-                            println!("{text}");
-                        }
-                    } else {
-                        println!(
-                            "Re-keyed `{}` (backup: `{}`, keyfile: `{}`, passphrase set: {})",
-                            report.db_path.display(),
-                            report.backup_path.display(),
-                            report
-                                .key_file
-                                .as_ref()
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_else(|| "none".to_string()),
-                            report.has_passphrase
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Rekey failed: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        VaultCommands::GpgProgram { args } => {
-            let code = susi_config::keepass_bridge::run_git_gpg_program(&cfg_dir, &args);
             std::process::exit(code);
         }
+        VaultCommands::GpgProgram { args } => {
+            std::process::exit(susi_config::vault_exec::run_git_gpg_program(&args));
+        }
     }
+}
+
+/// Runs a KeePassXC verb in `susi-commercial vault`, which serves the bridge that left core
+/// (Mandate 84); prints the command to run and exits 2 when it is not installed.
+fn forward_vault(args: &[String], envs: &[(&str, &str)]) -> i32 {
+    match susi_config::vault_exec::run_commercial_vault(args, envs) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("{e}");
+            2
+        }
+    }
+}
+
+fn push_flag(args: &mut Vec<String>, on: bool, flag: &str) {
+    if on {
+        args.push(flag.to_string());
+    }
+}
+
+/// `--db` with core's precedence (explicit, then `SUSI_VAULT_DB`, then `SUSI_COMMERCIAL_VAULT`).
+fn push_database(args: &mut Vec<String>, explicit: Option<PathBuf>, failure: &str) {
+    match susi_config::vault_exec::forwarded_database(explicit) {
+        Ok(Some(db)) => {
+            args.push("--db".to_string());
+            args.push(db.to_string_lossy().into_owned());
+        }
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("{failure}: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Core's bridge refreshed the sealed vault from the enrolled KeePassXC database before
+/// `exec` read it. Susi Commercial Apps serves that refresh now: its plug host over the
+/// plane bus, else the installed `susi-commercial`. Best effort: `exec` reads what is sealed.
+fn refresh_sealed_vault() {
+    let topic = susi_config::vault_exec::TOPIC_KDBX_AUTO_SYNC;
+    let bus = susi_core::plane_bus::PlaneBus::global();
+    if bus.is_wired(topic) {
+        let _ = bus.request(topic, serde_json::json!({}));
+        return;
+    }
+    let _ = susi_config::vault_exec::commercial_auto_sync();
 }
 
 fn read_secret_prompt(prompt: &str) -> io::Result<String> {

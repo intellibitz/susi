@@ -1,0 +1,36 @@
+{
+  "id": "T-CORESIZEVAULT-1",
+  "title": "Move the KeePassXC/Drive/GPG vault bridge out of core; keep the sealed-vault verbs",
+  "goal": "Vision: V-6. Mandate 84: crates/susi-config/src/keepass_bridge.rs (4,527 lines) leaves core. Core keeps what only touches the sealed vault (susi keys vault status, enroll, migrate-cloud-env, init-cloud-key, exec with its client profiles) in a small vault_exec module. sync, doctor, prime-signing, setup-git, rekey and gpg-program forward to susi-commercial vault <verb> with core's flags, database precedence and passphrase prompt, and name that command when it is not installed. A susi-gpg wrapper without commercial still runs the real gpg. The daemon's unattended kdbx refresh is requested from the plug host on vault.kdbx.auto_sync.v1. Old-against-new runs on one throwaway database showed every forwarded verb's sealed keys, JSON keys and exit codes match once T-CORESIZEVAULT-2 lands in commercial.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "vault_exec"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794858792,
+  "scopes": [
+    ".agents/tasks/T-CORESIZEVAULT-1.json",
+    "crates/susi-config/src/keepass_bridge.rs",
+    "crates/susi-config/src/vault_exec.rs",
+    "crates/susi-config/src/lib.rs",
+    "src/cli/keys_cli.rs",
+    "src/main.rs",
+    "crates/susi-daemon/src/runtime_admin.rs",
+    "xtask/src/fast_release.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "The destination already existed: intellibitz/susi-commercial-apps src/vault.rs carries the KeePassXC bridge as a fork and answers the same verbs as susi-commercial vault <verb>, and its plug host serves the plane bus. Old-against-new runs found four gaps there, closed first (commercial T-CORESIZEVAULT-1 and -2, on its main). Core's sealed-vault exec and client profiles stay in core because the fork's profiles differ. The plane bus (is_wired/request) is the existing socket for the daemon's refresh; no new transport."
+  },
+  "limitations": "Core alone no longer syncs KeePassXC, diagnoses signing, primes gpg/ssh agents, sets up git signing or re-keys a database: those verbs name susi-commercial vault <verb> and exit 2 when it is not installed, and the daemon refreshes the sealed vault only while the plug host runs beside it. A susi-gpg wrapper without commercial signs with the real gpg but no longer primes the passphrase from the vault. When more than one candidate database exists and no --db, SUSI_VAULT_DB, SUSI_COMMERCIAL_VAULT or vault.json names one, commercial searches its own locations first. A forwarded sync that fails records its --db in vault.json, where core recorded it only after success. Proven on Windows x86_64; Linux (where susi-gpg is a symlink to susi) is not yet run.",
+  "progress": "Bridge removed; vault_exec keeps the sealed-vault residue; forwarder, gpg residue and daemon bus request in place. End-to-end: forwarded sync seals the same keys as susi-commercial, doctor/setup-git/prime-signing/rekey give the same JSON keys and exit codes, a missing install names the command (exit 2), and susi-gpg without commercial runs gpg. Complete socket 305,757 -> 301,885 (-3,872)."
+}

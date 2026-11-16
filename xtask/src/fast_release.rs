@@ -68,7 +68,6 @@ const SOAK_SKIP_FILTERS: &[&str] = &[
     "primary_election_tests::",
     "model_catalogue_drift_tests::",
     "provider_contract::tests::provider_contract_opt_in_gate",
-    "keepass_bridge::tests::",
     "extensions::extensions_state_lock_tests::",
     "extensions_tests::",
     "cluster_key::inline_tests::",

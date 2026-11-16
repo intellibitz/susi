@@ -41,7 +41,6 @@ pub mod extensions;
 pub mod file_lock;
 pub mod host_metrics;
 mod json_util;
-pub mod keepass_bridge;
 pub mod key_rotation;
 pub mod key_scope;
 pub mod mac_policy;
@@ -61,6 +60,7 @@ pub mod setup_workflow;
 pub mod state_migration;
 mod types;
 pub mod validate;
+pub mod vault_exec;
 pub mod vault_store;
 pub mod versioned_store;
 #[cfg(windows)]
