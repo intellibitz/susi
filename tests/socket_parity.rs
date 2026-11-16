@@ -391,6 +391,34 @@ const EXEMPT: &[(&str, &str)] = &[
         "mcp tools",
         "socket client: lists another MCP endpoint's tools; the desktop calls tools/list on the socket itself",
     ),
+    (
+        "mcp discover",
+        "socket client: queries another MCP endpoint's server/discover or initialize capability handshake",
+    ),
+    (
+        "mcp resources",
+        "socket client: lists resources and resourceTemplates exposed by another MCP endpoint",
+    ),
+    (
+        "mcp read",
+        "socket client: reads a resource URI or inspects ui:// app metadata on another MCP endpoint",
+    ),
+    (
+        "mcp prompts",
+        "socket client: lists prompts exposed by another MCP endpoint",
+    ),
+    (
+        "mcp prompt",
+        "socket client: materializes a prompt on another MCP endpoint via prompts/get",
+    ),
+    (
+        "mcp complete",
+        "socket client: requests completion/complete suggestions on another MCP endpoint",
+    ),
+    (
+        "mcp task",
+        "socket client: inspects, updates, or cancels a durable task on another MCP endpoint",
+    ),
     ("gemi", "process entry point: serves the GEMI HTTP listener"),
     (
         "harness api",
