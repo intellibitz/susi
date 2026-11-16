@@ -4,62 +4,6 @@ use crate::device::Device;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
-/// Direct Win32 disk probe (`kernel32.dll`) so Windows builds measure real
-/// disk capacity/free space without spawning PowerShell or returning
-/// hardcoded stubs. Memory, swap and uptime come from
-/// `susi_config::host_metrics`, which reads the same Win32 counters.
-#[cfg(windows)]
-#[allow(unsafe_code)]
-mod win32_hw {
-    use std::os::windows::ffi::OsStrExt;
-    use std::path::Path;
-
-    #[allow(non_snake_case)] // the Win32 spellings are the API contract
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetDiskFreeSpaceExW(
-            directory_name: *const u16,
-            free_bytes_available_to_caller: *mut u64,
-            total_number_of_bytes: *mut u64,
-            total_number_of_free_bytes: *mut u64,
-        ) -> i32;
-    }
-
-    /// Returns `(free_bytes_available, total_bytes)` for the volume containing
-    /// `path` (or its nearest existing ancestor / current directory).
-    pub(super) fn disk_space(path: &Path) -> Option<(u64, u64)> {
-        let existing = path
-            .ancestors()
-            .find(|p| !p.as_os_str().is_empty() && p.exists())
-            .map(Path::to_path_buf)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\"));
-        let wide: Vec<u16> = existing
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let mut free_avail: u64 = 0;
-        let mut total_bytes: u64 = 0;
-        let mut total_free: u64 = 0;
-        // SAFETY: `wide` is a valid NUL-terminated UTF-16 path and the three
-        // out-pointers reference live stack `u64` variables.
-        if unsafe {
-            GetDiskFreeSpaceExW(
-                wide.as_ptr(),
-                &mut free_avail,
-                &mut total_bytes,
-                &mut total_free,
-            )
-        } != 0
-        {
-            Some((free_avail, total_bytes))
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareProfile {
     pub cpus: usize,
@@ -276,36 +220,12 @@ impl HardwareProfiler {
             })
     }
 
-    #[cfg(unix)]
-    #[allow(unsafe_code)]
     fn get_disk_stats() -> (usize, u8) {
-        use std::ffi::CString;
-        if let Ok(c_path) = CString::new("/") {
-            // SAFETY: statvfs is a plain C struct; all-zero is a valid value that statvfs() overwrites.
-            let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-            // SAFETY: `c_path` is a valid NUL-terminated string and `stat` is a live, writable statvfs.
-            if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
-                let block_size = stat.f_frsize as u64;
-                let total_blocks = stat.f_blocks as u64;
-                let free_blocks = stat.f_bavail as u64;
-                let total_bytes = total_blocks * block_size;
-                let free_bytes = free_blocks * block_size;
-                let used_bytes = total_bytes.saturating_sub(free_bytes);
-                let total_gb = (total_bytes / (1024 * 1024 * 1024)) as usize;
-                let usage_pct = if total_bytes > 0 {
-                    ((used_bytes as f64 / total_bytes as f64) * 100.0) as u8
-                } else {
-                    0
-                };
-                return (total_gb, usage_pct);
-            }
-        }
-        (256, 0)
-    }
-
-    #[cfg(windows)]
-    fn get_disk_stats() -> (usize, u8) {
-        if let Some((free_bytes, total_bytes)) = win32_hw::disk_space(std::path::Path::new(".")) {
+        #[cfg(unix)]
+        let path = std::path::Path::new("/");
+        #[cfg(not(unix))]
+        let path = std::path::Path::new(".");
+        if let Some((free_bytes, total_bytes)) = susi_config::disk_space::available(path) {
             let used_bytes = total_bytes.saturating_sub(free_bytes);
             let total_gb = (total_bytes / (1024 * 1024 * 1024)) as usize;
             let usage_pct = if total_bytes > 0 {
@@ -318,52 +238,22 @@ impl HardwareProfiler {
         (256, 0)
     }
 
-    #[cfg(not(any(unix, windows)))]
-    fn get_disk_stats() -> (usize, u8) {
-        (256, 0)
-    }
-
-    /// Free bytes on the filesystem containing `path` (falls back to `/` if
-    /// `path` doesn't exist yet, e.g. the models directory hasn't been
-    /// created on first run - `statvfs` needs an existing path to resolve).
-    /// Unlike `get_disk_stats` (hardcoded to `/`, used only for
-    /// `HardwareProfile` reporting), this checks the actual target
-    /// directory a model download would land in, and returns exact bytes
-    /// rather than a rounded GB figure, so `get_progressive_model_ladder`
-    /// can gate tier selection on real available space, not just RAM.
-    #[cfg(unix)]
-    #[allow(unsafe_code)]
+    /// Free bytes where a model download would land. Unix keeps its existing
+    /// missing-path fallback to `/`; Windows probes the nearest existing ancestor.
     pub fn get_free_disk_bytes(path: &std::path::Path) -> u64 {
-        use std::ffi::CString;
-        let probe_path = if path.exists() {
+        #[cfg(unix)]
+        let path = if path.exists() {
             path
         } else {
             std::path::Path::new("/")
         };
-        let Some(path_str) = probe_path.to_str() else {
-            return 0;
-        };
-        let Ok(c_path) = CString::new(path_str) else {
-            return 0;
-        };
-        // SAFETY: statvfs is a plain C struct; all-zero is a valid value that statvfs() overwrites.
-        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-        // SAFETY: `c_path` is a valid NUL-terminated string and `stat` is a live, writable statvfs.
-        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
-            (stat.f_bavail as u64) * (stat.f_frsize as u64)
-        } else {
-            0
+        #[cfg(any(unix, windows))]
+        return susi_config::disk_space::available(path).map_or(0, |(free, _)| free);
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = path;
+            u64::MAX // Unknown on this platform - don't block downloads over it.
         }
-    }
-
-    #[cfg(windows)]
-    pub fn get_free_disk_bytes(path: &std::path::Path) -> u64 {
-        win32_hw::disk_space(path).map_or(0, |(free, _)| free)
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    pub fn get_free_disk_bytes(_path: &std::path::Path) -> u64 {
-        u64::MAX // Unknown on this platform - don't block downloads over it.
     }
 
     fn determine_disk_usage_pct() -> u8 {

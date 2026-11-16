@@ -36,6 +36,7 @@ pub mod cluster_key;
 mod config;
 pub mod credential;
 pub mod desired_state;
+pub mod disk_space;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
