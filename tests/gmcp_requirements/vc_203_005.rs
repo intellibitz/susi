@@ -885,12 +885,7 @@ fn gmcp_vc_203_005_mastery() {
     let mut session = StdioSession::spawn(root, &home);
     let ping = session
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "mastery-ping",
-                "method": "ping",
-                "params": {}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "mastery-ping", "method": "ping", "params": {}}),
             std::time::Duration::from_secs(180),
         )
         .expect("stdio ping must answer on served path");
@@ -939,12 +934,7 @@ fn gmcp_vc_203_005_mastery() {
     // Next well-formed request recovers immediately without cross-request corruption
     let recovered = session
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "mastery-recovered",
-                "method": "ping",
-                "params": {}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "mastery-recovered", "method": "ping", "params": {}}),
             std::time::Duration::from_secs(180),
         )
         .expect("session must recover after malformed input");

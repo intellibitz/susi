@@ -342,10 +342,7 @@ fn gmcp_req_203_002_02_production() {
 
     // A cancellation notification is silent, and malformed input never
     // corrupts the session: the next request still answers.
-    wire.send(&serde_json::json!({
-        "jsonrpc":"2.0","method":"notifications/cancelled",
-        "params":{"requestId":"in-flight-x","reason":"probe"}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc":"2.0","method":"notifications/cancelled", "params":{"requestId":"in-flight-x","reason":"probe"}}));
     std::thread::sleep(std::time::Duration::from_millis(300));
     let result = wire.request("ping", serde_json::json!({}));
     assert!(result.get("resultType").is_none());
@@ -356,13 +353,7 @@ fn gmcp_req_203_002_02_production() {
     // server/discover with _meta establishes the modern era.
     let response = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc":"2.0","id":"discover-1","method":"server/discover",
-                "params":{"_meta":{
-                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities":{}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc":"2.0","id":"discover-1","method":"server/discover", "params":{"_meta":{ "io.modelcontextprotocol/protocolVersion":"2026-07-28", "io.modelcontextprotocol/clientCapabilities":{}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("server/discover must be answered");
@@ -380,13 +371,7 @@ fn gmcp_req_203_002_02_production() {
     // A request carrying the fields is served, with resultType.
     let response = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc":"2.0","id":"meta-ok","method":"tools/list",
-                "params":{"_meta":{
-                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities":{}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc":"2.0","id":"meta-ok","method":"tools/list", "params":{"_meta":{ "io.modelcontextprotocol/protocolVersion":"2026-07-28", "io.modelcontextprotocol/clientCapabilities":{}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("a conforming modern request must be answered");
@@ -398,13 +383,7 @@ fn gmcp_req_203_002_02_production() {
     // An unsupported per-request version is -32022 with data.supported.
     let response = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc":"2.0","id":"bad-version","method":"tools/list",
-                "params":{"_meta":{
-                    "io.modelcontextprotocol/protocolVersion":"1900-01-01",
-                    "io.modelcontextprotocol/clientCapabilities":{}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc":"2.0","id":"bad-version","method":"tools/list", "params":{"_meta":{ "io.modelcontextprotocol/protocolVersion":"1900-01-01", "io.modelcontextprotocol/clientCapabilities":{}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("an unsupported version must be answered");
@@ -626,12 +605,7 @@ fn gmcp_req_203_002_04_adversarial() {
         .recv_timeout(std::time::Duration::from_secs(300))
         .expect("malformed input must receive a typed error");
     assert_eq!(malformed["error"]["code"], -32700);
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 700,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 700, "method": "ping", "params": {}}));
     let recovered = wire
         .response_for(&serde_json::json!(700), std::time::Duration::from_secs(300))
         .expect("a malformed frame must not poison its neighbor");
@@ -642,24 +616,14 @@ fn gmcp_req_203_002_04_adversarial() {
     // be unique), so the server need not promise two responses. It must not
     // let the duplicate poison a later, correctly identified request.
     for _ in 0..2 {
-        wire.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 701,
-            "method": "ping",
-            "params": {}
-        }));
+        wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 701, "method": "ping", "params": {}}));
     }
     let response = wire
         .response_for(&serde_json::json!(701), std::time::Duration::from_secs(300))
         .expect("a duplicate request must not prevent one valid response");
     assert_eq!(response["id"], 701);
     assert!(response["result"].is_object());
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 705,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 705, "method": "ping", "params": {}}));
     let response = wire
         .response_for(&serde_json::json!(705), std::time::Duration::from_secs(300))
         .expect("a duplicate request must not poison a later request");
@@ -668,18 +632,8 @@ fn gmcp_req_203_002_04_adversarial() {
 
     // Concurrent requests can complete in either order, but their IDs must
     // stay attached to their own response.
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 702,
-        "method": "tools/list",
-        "params": {}
-    }));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 703,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 702, "method": "tools/list", "params": {}}));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 703, "method": "ping", "params": {}}));
     for id in [702, 703] {
         let response = wire
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
@@ -691,18 +645,9 @@ fn gmcp_req_203_002_04_adversarial() {
     // Cancellation is a notification: it produces no response, including
     // invalid/late request references, and the next request remains usable.
     for request_id in ["in-flight", "missing"] {
-        wire.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": request_id, "reason": "adversarial probe"}
-        }));
+        wire.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": request_id, "reason": "adversarial probe"}}));
     }
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 704,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 704, "method": "ping", "params": {}}));
     let response = wire
         .response_for(&serde_json::json!(704), std::time::Duration::from_secs(300))
         .expect("cancellation notifications must not block the next request");
@@ -715,21 +660,8 @@ fn gmcp_req_203_002_04_adversarial() {
     // A cancellation notification cannot cancel initialize: a raw session
     // still completes its handshake and emits only the initialize response.
     let mut raw = StdioSession::spawn_raw(root, &home);
-    raw.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "gmcp-adv", "version": "1"}
-        }
-    }));
-    raw.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": 1}
-    }));
+    raw.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-adv", "version": "1"}}}));
+    raw.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}));
     let initialize = raw
         .response_for(&serde_json::json!(1), std::time::Duration::from_secs(300))
         .expect("initialize must not be cancelled");
@@ -738,25 +670,14 @@ fn gmcp_req_203_002_04_adversarial() {
         raw.pending.iter().all(|value| !value["id"].is_null()),
         "initialize cancellation must be silent"
     );
-    raw.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/initialized"
-    }));
+    raw.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized"}));
 
     // Modern policy remains deterministic after an unsupported version and a
     // metadata omission; a fully populated request still succeeds.
     let mut modern = StdioSession::spawn_modern(root, &home);
     let unsupported = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "bad-version",
-                "method": "tools/list",
-                "params": {"_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "1900-01-01",
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "bad-version", "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("unsupported versions must be answered");
@@ -764,24 +685,14 @@ fn gmcp_req_203_002_04_adversarial() {
     assert!(unsupported["error"]["data"]["supported"].is_array());
     let missing_meta = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "missing-meta",
-                "method": "tools/list",
-                "params": {}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "missing-meta", "method": "tools/list", "params": {}}),
             std::time::Duration::from_secs(300),
         )
         .expect("modern metadata failures must be answered");
     assert_eq!(missing_meta["error"]["code"], -32602);
     let modern_result = modern.request(
         "tools/list",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {},
-            "progressToken": "adv-1",
-            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "progressToken": "adv-1", "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}}),
     );
     assert_eq!(modern_result["resultType"], "complete");
 
@@ -868,12 +779,7 @@ fn gmcp_req_203_002_05_interop() {
     )
     .unwrap();
     legacy.send(&cancelled["request"]);
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 900,
-        "method": "ping",
-        "params": {}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 900, "method": "ping", "params": {}}));
     let response = legacy
         .response_for(&serde_json::json!(900), std::time::Duration::from_secs(300))
         .expect("a notification must not stall the next request");
@@ -941,12 +847,7 @@ fn gmcp_req_203_002_05_interop() {
     // the same 30-second per-request budget used by the acceptance harness.
     let burst_start = std::time::Instant::now();
     for id in 1_000..1_016 {
-        legacy.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "ping",
-            "params": {}
-        }));
+        legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "ping", "params": {}}));
     }
     for id in 1_000..1_016 {
         let response = legacy
@@ -1206,30 +1107,15 @@ fn gmcp_vc_203_002_mastery() {
         .recv_timeout(std::time::Duration::from_secs(300))
         .expect("a null request id must be answered");
     assert_eq!(null_id["error"]["code"], -32600);
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 802,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 802, "method": "ping", "params": {}}));
     let alive = wire
         .response_for(&serde_json::json!(802), std::time::Duration::from_secs(300))
         .expect("the stream must remain usable after every failure kind");
     assert!(alive["result"].is_object());
 
     // Reordered concurrent answers keep their request identity.
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 803,
-        "method": "tools/list",
-        "params": {}
-    }));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 804,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 803, "method": "tools/list", "params": {}}));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 804, "method": "ping", "params": {}}));
     for id in [803, 804] {
         let response = wire
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
@@ -1240,17 +1126,8 @@ fn gmcp_vc_203_002_mastery() {
     // A notification is never answered, and a client response envelope
     // (a result-bearing line answering a server→client request) is a
     // valid message, not an invalid request.
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "never", "reason": "mastery probe"}
-    }));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 805,
-        "method": "ping",
-        "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "never", "reason": "mastery probe"}}));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 805, "method": "ping", "params": {}}));
     let response = wire
         .response_for(&serde_json::json!(805), std::time::Duration::from_secs(300))
         .expect("a notification must not block the next request");
@@ -1288,27 +1165,14 @@ fn gmcp_vc_203_002_mastery() {
     let mut modern = StdioSession::spawn_modern(root, &home);
     let missing_meta = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "m-meta",
-                "method": "tools/list",
-                "params": {}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "m-meta", "method": "tools/list", "params": {}}),
             std::time::Duration::from_secs(300),
         )
         .expect("modern metadata failures must be answered");
     assert_eq!(missing_meta["error"]["code"], -32602);
     let unsupported = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "m-vers",
-                "method": "tools/list",
-                "params": {"_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "1900-01-01",
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "m-vers", "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("unsupported versions must be answered");
@@ -1316,12 +1180,7 @@ fn gmcp_vc_203_002_mastery() {
     assert!(unsupported["error"]["data"]["supported"].is_array());
     let modern_result = modern.request(
         "tools/list",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {},
-            "progressToken": "mastery-1",
-            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "progressToken": "mastery-1", "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}}),
     );
     assert_eq!(modern_result["resultType"], "complete");
     drop(wire);

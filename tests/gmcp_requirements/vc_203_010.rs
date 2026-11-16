@@ -104,14 +104,7 @@ fn gmcp_req_203_010_03_integration() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "resources-it", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "resources-it", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -176,13 +169,7 @@ fn gmcp_req_203_010_03_integration() {
     // URI completion resolves the template argument.
     let completion = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "complete", "method": "completion/complete",
-                "params": {
-                    "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
-                    "argument": {"name": "name", "value": "ledger"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "complete", "method": "completion/complete", "params": { "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"}, "argument": {"name": "name", "value": "ledger"}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("completion must earn a typed answer");
@@ -200,10 +187,7 @@ fn gmcp_req_203_010_03_integration() {
     // Invalid and unknown URIs fail closed.
     let unknown = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "unknown-resource", "method": "resources/read",
-                "params": {"uri": "susi://tools/definitely_not_a_tool"}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "unknown-resource", "method": "resources/read", "params": {"uri": "susi://tools/definitely_not_a_tool"}}),
             std::time::Duration::from_secs(180),
         )
         .expect("an unknown resource must earn a typed answer");
@@ -213,10 +197,7 @@ fn gmcp_req_203_010_03_integration() {
     );
     let malformed = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "malformed-uri", "method": "resources/read",
-                "params": {"uri": "not a uri"}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "malformed-uri", "method": "resources/read", "params": {"uri": "not a uri"}}),
             std::time::Duration::from_secs(180),
         )
         .expect("a malformed URI must earn a typed answer");
@@ -228,10 +209,7 @@ fn gmcp_req_203_010_03_integration() {
     // Legacy subscriptions round-trip on the negotiated-legacy session.
     let subscribe = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "subscribe", "method": "resources/subscribe",
-                "params": {"uri": "susi://tools"}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "subscribe", "method": "resources/subscribe", "params": {"uri": "susi://tools"}}),
             std::time::Duration::from_secs(180),
         )
         .expect("subscribe must answer");
@@ -241,10 +219,7 @@ fn gmcp_req_203_010_03_integration() {
     );
     let unsubscribe = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "unsubscribe", "method": "resources/unsubscribe",
-                "params": {"uri": "susi://tools"}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "unsubscribe", "method": "resources/unsubscribe", "params": {"uri": "susi://tools"}}),
             std::time::Duration::from_secs(180),
         )
         .expect("unsubscribe must answer");
@@ -297,14 +272,7 @@ fn gmcp_req_203_010_04_adversarial() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "resources-adv", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "resources-adv", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -341,10 +309,7 @@ fn gmcp_req_203_010_04_adversarial() {
     for (index, (label, uri)) in hostile_reads.iter().enumerate() {
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("hostile-{index}"), "method": "resources/read",
-                    "params": {"uri": uri}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("hostile-{index}"), "method": "resources/read", "params": {"uri": uri}}),
                 std::time::Duration::from_secs(180),
             )
             .unwrap_or_else(|| panic!("hostile read {label} must earn a typed answer"));
@@ -385,10 +350,7 @@ fn gmcp_req_203_010_04_adversarial() {
     {
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("sub-{index}"), "method": "resources/subscribe",
-                    "params": {"uri": uri}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("sub-{index}"), "method": "resources/subscribe", "params": {"uri": uri}}),
                 std::time::Duration::from_secs(180),
             )
             .expect("hostile subscribe must answer");
@@ -401,13 +363,7 @@ fn gmcp_req_203_010_04_adversarial() {
     // Completion with a wrong reference or argument never fabricates values.
     let completion = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "complete-miss", "method": "completion/complete",
-                "params": {
-                    "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
-                    "argument": {"name": "name", "value": "zzz-no-such-tool-zzz"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "complete-miss", "method": "completion/complete", "params": { "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"}, "argument": {"name": "name", "value": "zzz-no-such-tool-zzz"}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("a missing completion must answer");
@@ -421,13 +377,7 @@ fn gmcp_req_203_010_04_adversarial() {
     }
     let bad_ref = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "complete-bad-ref", "method": "completion/complete",
-                "params": {
-                    "ref": {"type": "ref/resource", "uri": "susi://nope/{x}"},
-                    "argument": {"name": "x", "value": ""}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "complete-bad-ref", "method": "completion/complete", "params": { "ref": {"type": "ref/resource", "uri": "susi://nope/{x}"}, "argument": {"name": "x", "value": ""}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("an unknown template completion must answer");
@@ -442,9 +392,7 @@ fn gmcp_req_203_010_04_adversarial() {
     // Missing params earn a typed error and the templated read still works.
     let no_params = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "no-params", "method": "resources/read"
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "no-params", "method": "resources/read"}),
             std::time::Duration::from_secs(180),
         )
         .expect("missing params must answer");
@@ -477,14 +425,7 @@ fn gmcp_req_203_010_05_interop() {
     let started = std::time::Instant::now();
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "resources-interop", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "resources-interop", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -539,10 +480,7 @@ fn gmcp_req_203_010_05_interop() {
     assert!(instance["contents"][0]["text"].is_string());
     let completion = wire.request(
         "completion/complete",
-        serde_json::json!({
-            "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
-            "argument": {"name": "name", "value": "ledger"}
-        }),
+        serde_json::json!({ "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"}, "argument": {"name": "name", "value": "ledger"}}),
     );
     assert!(completion["completion"]["values"].is_array());
 
@@ -557,10 +495,7 @@ fn gmcp_req_203_010_05_interop() {
     {
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("neg-{index}"), "method": "resources/read",
-                    "params": {"uri": uri}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("neg-{index}"), "method": "resources/read", "params": {"uri": uri}}),
                 std::time::Duration::from_secs(180),
             )
             .expect("negative read must answer");
@@ -583,14 +518,7 @@ fn gmcp_req_203_010_05_interop() {
     let mut other = StdioSession::spawn_raw(root, &home2);
     other
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "resources-interop-2", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "resources-interop-2", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("second initialize must be answered");
@@ -798,14 +726,7 @@ fn gmcp_req_203_010_06_operations() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "resources-ops", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "resources-ops", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -849,10 +770,7 @@ fn gmcp_req_203_010_06_operations() {
     let subscribed_uri = "susi://tools";
     let subscribe = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "sub", "method": "resources/subscribe",
-                "params": {"uri": subscribed_uri}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "sub", "method": "resources/subscribe", "params": {"uri": subscribed_uri}}),
             std::time::Duration::from_secs(120),
         )
         .expect("subscribe must answer");
@@ -862,10 +780,7 @@ fn gmcp_req_203_010_06_operations() {
     );
     let unsubscribe = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "unsub", "method": "resources/unsubscribe",
-                "params": {"uri": subscribed_uri}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "unsub", "method": "resources/unsubscribe", "params": {"uri": subscribed_uri}}),
             std::time::Duration::from_secs(120),
         )
         .expect("unsubscribe must answer");
@@ -881,10 +796,7 @@ fn gmcp_req_203_010_06_operations() {
     {
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("ops-neg-{index}"),
-                    "method": "resources/read", "params": {"uri": uri}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("ops-neg-{index}"), "method": "resources/read", "params": {"uri": uri}}),
                 std::time::Duration::from_secs(180),
             )
             .expect("diagnostic read must answer");
@@ -1026,12 +938,7 @@ fn gmcp_vc_203_010_mastery() {
         ("encoded-traversal", "susi://tools/%2e%2e%2fsecrets"),
         ("not-a-uri", "not a uri"),
     ] {
-        wire.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "resources/read",
-            "params": {"uri": uri}
-        }));
+        wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "resources/read", "params": {"uri": uri}}));
         let refused = wire
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
             .expect("a refused read must still be answered on the served surface");
@@ -1068,7 +975,7 @@ fn gmcp_vc_203_010_mastery() {
                     let contents = contents.clone();
                     Box::pin(async move {
                         let result: ReadResourceResult =
-                            serde_json::from_value(serde_json::json!({ "contents": contents }))
+                            serde_json::from_value(serde_json::json!({ "contents": contents}))
                                 .expect("fixture contents");
                         Ok(result.into())
                     })
@@ -1114,13 +1021,8 @@ fn gmcp_vc_203_010_mastery() {
             });
             let mut wire = tokio::io::BufReader::new(client);
             let mut ask = async |id: i64, method: &str, mut params: serde_json::Value| {
-                params["_meta"] = serde_json::json!({
-                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                });
-                let request = serde_json::json!({
-                    "jsonrpc": "2.0", "id": id, "method": method, "params": params
-                });
+                params["_meta"] = serde_json::json!({ "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}});
+                let request = serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params});
                 wire.get_mut()
                     .write_all(format!("{request}\n").as_bytes())
                     .await
@@ -1162,7 +1064,7 @@ fn gmcp_vc_203_010_mastery() {
                 (4, "m010://empty"),
                 (5, "m010://huge"),
             ] {
-                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri })).await;
+                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri})).await;
                 assert_eq!(refused["error"]["code"], -32603, "{uri}: {refused}");
                 assert!(refused.get("result").is_none(), "{uri} served: {refused}");
             }
@@ -1191,7 +1093,7 @@ fn gmcp_vc_203_010_mastery() {
                 (10, "m010://white space"),
                 (11, "no-scheme"),
             ] {
-                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri })).await;
+                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri})).await;
                 assert_eq!(refused["error"]["code"], -32602, "{uri}: {refused}");
             }
             let denied = ask(

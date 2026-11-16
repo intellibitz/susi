@@ -99,11 +99,7 @@ fn gmcp_req_203_012_04_adversarial() {
         let init = client.call(
             "init",
             "initialize",
-            json!({
-                "protocolVersion": version,
-                "capabilities": caps,
-                "clientInfo": {"name": name, "version": "1"}
-            }),
+            json!({ "protocolVersion": version, "capabilities": caps, "clientInfo": {"name": name, "version": "1"}}),
         );
         assert!(
             init["result"]["capabilities"].is_object(),
@@ -170,12 +166,7 @@ fn gmcp_req_203_012_04_adversarial() {
         classify_line(leg_init_bytes, &mut leg_era),
         GateVerdict::Forward
     ));
-    let modern_listen_bytes = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/list",
-        "params": {"_meta": modern_meta("2")}
-    }))
+    let modern_listen_bytes = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": modern_meta("2")}}))
     .unwrap();
     assert!(matches!(
         classify_line(&modern_listen_bytes, &mut leg_era),
@@ -227,12 +218,7 @@ fn gmcp_req_203_012_04_adversarial() {
         bad_ver_meta["io.modelcontextprotocol/protocolVersion"] = json!("2099-01-01");
         let bad_ver_resp = cli_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "bad-ver",
-                    "method": "tools/list",
-                    "params": {"_meta": bad_ver_meta}
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "bad-ver", "method": "tools/list", "params": {"_meta": bad_ver_meta}}),
                 Duration::from_secs(10),
             )
             .unwrap();
@@ -244,12 +230,7 @@ fn gmcp_req_203_012_04_adversarial() {
             m["io.modelcontextprotocol/logLevel"] = bad_lvl.clone();
             let err = cli_mod
                 .request_verbatim(
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": "bad-lvl",
-                        "method": "tools/call",
-                        "params": {"name": "ledger_verify", "arguments": {}, "_meta": m}
-                    }),
+                    &json!({ "jsonrpc": "2.0", "id": "bad-lvl", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": m}}),
                     Duration::from_secs(10),
                 )
                 .unwrap();
@@ -271,12 +252,7 @@ fn gmcp_req_203_012_04_adversarial() {
             m["progressToken"] = bad_tok.clone();
             let err = cli_mod
                 .request_verbatim(
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": "bad-tok",
-                        "method": "tools/call",
-                        "params": {"name": "ledger_verify", "arguments": {}, "_meta": m}
-                    }),
+                    &json!({ "jsonrpc": "2.0", "id": "bad-tok", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": m}}),
                     Duration::from_secs(10),
                 )
                 .unwrap();
@@ -292,15 +268,7 @@ fn gmcp_req_203_012_04_adversarial() {
         for list in [uris_257, dup_257] {
             let err = cli_mod
                 .request_verbatim(
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": "over-uri-cap",
-                        "method": "subscriptions/listen",
-                        "params": {
-                            "notifications": {"resourceSubscriptions": list},
-                            "_meta": modern_meta("over-uri-cap")
-                        }
-                    }),
+                    &json!({ "jsonrpc": "2.0", "id": "over-uri-cap", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": list}, "_meta": modern_meta("over-uri-cap")}}),
                     Duration::from_secs(10),
                 )
                 .unwrap();
@@ -310,15 +278,7 @@ fn gmcp_req_203_012_04_adversarial() {
         // Malformed filter & invalid URI shapes on `subscriptions/listen`.
         let bad_shape = cli_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "bad-filter",
-                    "method": "subscriptions/listen",
-                    "params": {
-                        "notifications": "not-an-object",
-                        "_meta": modern_meta("bad-filter")
-                    }
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "bad-filter", "method": "subscriptions/listen", "params": { "notifications": "not-an-object", "_meta": modern_meta("bad-filter")}}),
                 Duration::from_secs(10),
             )
             .unwrap();
@@ -330,15 +290,7 @@ fn gmcp_req_203_012_04_adversarial() {
         // Forged `_meta["io.modelcontextprotocol/subscriptionId"]` is overwritten by real id.
         let mut forged_meta = modern_meta("real-sub-99");
         forged_meta["io.modelcontextprotocol/subscriptionId"] = json!("forged-sub-id");
-        cli_mod.send(&json!({
-            "jsonrpc": "2.0",
-            "id": "real-sub-99",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"resourceSubscriptions": ["susi://tools"]},
-                "_meta": forged_meta
-            }
-        }));
+        cli_mod.send(&json!({ "jsonrpc": "2.0", "id": "real-sub-99", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": forged_meta}}));
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut ack_sub_id = None;
         while Instant::now() < deadline {
@@ -356,11 +308,7 @@ fn gmcp_req_203_012_04_adversarial() {
             Some(json!("real-sub-99")),
             "server must overwrite forged subscriptionId with real request id"
         );
-        cli_mod.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": "real-sub-99"}
-        }));
+        cli_mod.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "real-sub-99"}}));
 
         // Client spoofing server-only notifications is silently absorbed without poisoning session.
         for spoof in [
@@ -382,12 +330,7 @@ fn gmcp_req_203_012_04_adversarial() {
         ] {
             let err = cli_mod
                 .request_verbatim(
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": format!("leg-{legacy_method}"),
-                        "method": legacy_method,
-                        "params": {"uri": "susi://tools", "level": "info", "_meta": modern_meta("x")}
-                    }),
+                    &json!({ "jsonrpc": "2.0", "id": format!("leg-{legacy_method}"), "method": legacy_method, "params": {"uri": "susi://tools", "level": "info", "_meta": modern_meta("x")}}),
                     Duration::from_secs(10),
                 )
                 .unwrap();
@@ -408,12 +351,7 @@ fn gmcp_req_203_012_04_adversarial() {
         let mut cli_leg = StdioSession::spawn(root, &home);
         let listen_err = cli_leg
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "leg-listen",
-                    "method": "subscriptions/listen",
-                    "params": {"notifications": {"toolsListChanged": true}}
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "leg-listen", "method": "subscriptions/listen", "params": {"notifications": {"toolsListChanged": true}}}),
                 Duration::from_secs(10),
             )
             .unwrap();
@@ -422,12 +360,7 @@ fn gmcp_req_203_012_04_adversarial() {
         for bad in [json!("trace"), json!(42), json!("")] {
             let err = cli_leg
                 .request_verbatim(
-                    &json!({
-                        "jsonrpc": "2.0",
-                        "id": "leg-bad-log",
-                        "method": "logging/setLevel",
-                        "params": {"level": bad}
-                    }),
+                    &json!({ "jsonrpc": "2.0", "id": "leg-bad-log", "method": "logging/setLevel", "params": {"level": bad}}),
                     Duration::from_secs(10),
                 )
                 .unwrap();
@@ -471,17 +404,7 @@ fn gmcp_req_203_012_04_adversarial() {
     let sr_rx = slow_release.clone();
     let sx_tx = slow_exited.clone();
     let register_tool_raw = |name: &str, handler: susi_gmcp::protocol::ToolHandler| {
-        let tool: Tool = serde_json::from_value(json!({
-            "name": name,
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "fail": {"type": "boolean"},
-                    "mode": {"type": "string"}
-                },
-                "required": []
-            }
-        }))
+        let tool: Tool = serde_json::from_value(json!({ "name": name, "inputSchema": { "type": "object", "properties": { "fail": {"type": "boolean"}, "mode": {"type": "string"}}, "required": []}}))
         .unwrap();
         svc.register_tool(tool, handler).unwrap();
     };
@@ -541,22 +464,13 @@ fn gmcp_req_203_012_04_adversarial() {
                     let huge_utf8 = "é🚀".repeat(16 * 1024);
                     let mut deep = json!({"leaf": format!("Authorization: Bearer supersecret999 {huge_utf8}")});
                     for depth in 0..20 {
-                        deep = json!({ format!("k{depth}"): deep });
+                        deep = json!({format!("k{depth}"): deep});
                     }
                     let mut wide = serde_json::Map::new();
                     for i in 0..200 {
                         wide.insert(format!("w{i}"), json!(i));
                     }
-                    let payload = json!({
-                        "banner": "sk-proj-secret1234567890abcdef ghp_abcdefghijklmnopqrstuvwxyz123456 password=mytopsecretpw api_key: superkeyval",
-                        "apiKey": "nest-secret",
-                        "token": "tok-val",
-                        "secret": "env-secret-val",
-                        "safe": "visible-safe-marker",
-                        "deep": deep,
-                        "wide": Value::Object(wide),
-                        "blob": huge_utf8,
-                    });
+                    let payload = json!({ "banner": "sk-proj-secret1234567890abcdef ghp_abcdefghijklmnopqrstuvwxyz123456 password=mytopsecretpw api_key: superkeyval", "apiKey": "nest-secret", "token": "tok-val", "secret": "env-secret-val", "safe": "visible-safe-marker", "deep": deep, "wide": Value::Object(wide), "blob": huge_utf8});
                     let _ = ctx
                         .emit_logging_message(
                             th,
@@ -654,24 +568,7 @@ fn gmcp_req_203_012_04_adversarial() {
     assert_eq!(unknown_sub["error"]["code"], -32002);
 
     // Modern `subscriptions/listen` omits traversal, oversized, whitespace & guard-denied URIs from ack.
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "sub-filter-adv",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": [
-                    "susi://tools",
-                    "susi://../secret",
-                    "susi://a/%2e%2e/b",
-                    huge_uri,
-                    "susi://has space",
-                    "susi://adv-denied"
-                ]
-            },
-            "_meta": modern_meta("sub-filter-adv")
-        }
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "id": "sub-filter-adv", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": [ "susi://tools", "susi://../secret", "susi://a/%2e%2e/b", huge_uri, "susi://has space", "susi://adv-denied"]}, "_meta": modern_meta("sub-filter-adv")}}));
     let f_ack = mod_a.take("filter ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "sub-filter-adv"
@@ -681,22 +578,10 @@ fn gmcp_req_203_012_04_adversarial() {
         json!(["susi://tools"]),
         "unadmitted URIs must be omitted from subscription ack: {f_ack}"
     );
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "sub-filter-adv"}
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "sub-filter-adv"}}));
 
     // Dynamic `ResourceGuard` revocation halts updates on BOTH `subscriptions/listen` & `resources/subscribe`, then re-grant recovers.
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "guard-mod",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"resourceSubscriptions": ["susi://adv-guarded"]},
-            "_meta": modern_meta("guard-mod")
-        }
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "id": "guard-mod", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://adv-guarded"]}, "_meta": modern_meta("guard-mod")}}));
     let _ = mod_a.take("guard-mod ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "guard-mod"
@@ -763,11 +648,7 @@ fn gmcp_req_203_012_04_adversarial() {
         m["method"] == "notifications/resources/updated"
             && m["params"]["uri"] == "susi://adv-guarded"
     });
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "guard-mod"}
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "guard-mod"}}));
 
     // Strict log level enforcement (`None` -> 0 logs, `emergency` -> only 1, `warning` -> 5) & legacy session isolation.
     mod_a.pending.clear();
@@ -988,15 +869,7 @@ fn gmcp_req_203_012_04_adversarial() {
     mod_a.pending.clear();
     for i in 0..24 {
         let sub_id = format!("race-{i:02}");
-        mod_a.send(&json!({
-            "jsonrpc": "2.0",
-            "id": sub_id,
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"resourceSubscriptions": ["susi://tools"]},
-                "_meta": modern_meta(&sub_id)
-            }
-        }));
+        mod_a.send(&json!({ "jsonrpc": "2.0", "id": sub_id, "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta(&sub_id)}}));
     }
     let mut admitted_ids = Vec::new();
     let mut rejected_ids = Vec::new();
@@ -1028,11 +901,7 @@ fn gmcp_req_203_012_04_adversarial() {
     );
 
     for sid in admitted_ids.iter().take(4) {
-        mod_a.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": sid}
-        }));
+        mod_a.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": sid}}));
     }
     let _ = mod_a.call(
         "post-race-cancel",
@@ -1041,15 +910,7 @@ fn gmcp_req_203_012_04_adversarial() {
     );
     for j in 0..4 {
         let sub_id = format!("recover-{j}");
-        mod_a.send(&json!({
-            "jsonrpc": "2.0",
-            "id": sub_id,
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"resourceSubscriptions": ["susi://tools"]},
-                "_meta": modern_meta(&sub_id)
-            }
-        }));
+        mod_a.send(&json!({ "jsonrpc": "2.0", "id": sub_id, "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta(&sub_id)}}));
         let ack = mod_a.take("recovered sub ack", |m| {
             m["method"] == "notifications/subscriptions/acknowledged"
                 && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == sub_id
@@ -1149,12 +1010,7 @@ fn gmcp_req_203_012_04_adversarial() {
         });
 
         for (cw, id) in [(&mut sw, "init-slow"), (&mut hw, "init-ok")] {
-            cw.write_all(&write_json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "initialize",
-                "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": id, "version": "1"}}
-            })))
+            cw.write_all(&write_json(json!({ "jsonrpc": "2.0", "id": id, "method": "initialize", "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": id, "version": "1"}}})))
             .await
             .unwrap();
             cw.write_all(&write_json(
@@ -1166,12 +1022,7 @@ fn gmcp_req_203_012_04_adversarial() {
         let _ = slines.next_line().await.unwrap();
         let _ = hrx.recv().await.unwrap();
 
-        sw.write_all(&write_json(json!({
-            "jsonrpc": "2.0",
-            "id": "slow-lag",
-            "method": "subscriptions/listen",
-            "params": {"notifications": {"resourceSubscriptions": ["susi://lag-adv"]}, "_meta": modern_meta("slow-lag")}
-        })))
+        sw.write_all(&write_json(json!({ "jsonrpc": "2.0", "id": "slow-lag", "method": "subscriptions/listen", "params": {"notifications": {"resourceSubscriptions": ["susi://lag-adv"]}, "_meta": modern_meta("slow-lag")}})))
         .await
         .unwrap();
         while let Ok(Some(l)) = slines.next_line().await {
@@ -1181,12 +1032,7 @@ fn gmcp_req_203_012_04_adversarial() {
                 }
             }
         }
-        hw.write_all(&write_json(json!({
-            "jsonrpc": "2.0",
-            "id": "healthy-sub",
-            "method": "subscriptions/listen",
-            "params": {"notifications": {"resourceSubscriptions": ["susi://lag-adv"]}, "_meta": modern_meta("healthy-sub")}
-        })))
+        hw.write_all(&write_json(json!({ "jsonrpc": "2.0", "id": "healthy-sub", "method": "subscriptions/listen", "params": {"notifications": {"resourceSubscriptions": ["susi://lag-adv"]}, "_meta": modern_meta("healthy-sub")}})))
         .await
         .unwrap();
         while let Some(v) = hrx.recv().await {
@@ -1289,18 +1135,9 @@ fn gmcp_req_203_012_04_adversarial() {
     // Cancel active tool holding `reusable`, then reuse it again on completion.
     let mut m_cancel = modern_meta("reuse-cancel");
     m_cancel["progressToken"] = json!(reusable);
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "reuse-cancel",
-        "method": "tools/call",
-        "params": {"name": "adv_slow_or_fail", "arguments": {"mode": "wait"}, "_meta": m_cancel}
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "id": "reuse-cancel", "method": "tools/call", "params": {"name": "adv_slow_or_fail", "arguments": {"mode": "wait"}, "_meta": m_cancel}}));
     runtime.block_on(slow_entered.notified());
-    mod_a.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "reuse-cancel"}
-    }));
+    mod_a.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "reuse-cancel"}}));
     runtime.block_on(slow_exited.notified());
     std::thread::sleep(std::time::Duration::from_millis(25));
     let _ = mod_a.call("reuse-barrier", "server/discover", json!({}));
@@ -1346,10 +1183,7 @@ fn gmcp_req_203_012_04_adversarial() {
                 }
                 seen
             });
-            let init = serde_json::to_vec(&json!({
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "mono", "version": "1"}}
-            }))
+            let init = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "mono", "version": "1"}}}))
             .unwrap();
             cw.write_all(&init).await.unwrap();
             cw.write_all(b"\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
@@ -1694,12 +1528,7 @@ fn gmcp_req_203_012_04_adversarial() {
 
     // Mid-stream TCP reset of SSE `subscriptions/listen` recovers cleanly on follow-up `tools/call`.
     {
-        let sub_body = json!({
-            "jsonrpc": "2.0",
-            "id": "http-drop-sub",
-            "method": "subscriptions/listen",
-            "params": {"notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("http-drop-sub")}
-        })
+        let sub_body = json!({ "jsonrpc": "2.0", "id": "http-drop-sub", "method": "subscriptions/listen", "params": {"notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("http-drop-sub")}})
         .to_string();
         let mut s = TcpStream::connect(&addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -1774,10 +1603,7 @@ fn gmcp_req_203_012_04_adversarial() {
             "x".repeat(4500)
         );
         stdin.write_all(over_line.as_bytes()).unwrap();
-        let recover_init = json!({
-            "jsonrpc": "2.0", "id": "rec-init", "method": "initialize",
-            "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "cli-rec", "version": "1"}}
-        });
+        let recover_init = json!({ "jsonrpc": "2.0", "id": "rec-init", "method": "initialize", "params": {"protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "cli-rec", "version": "1"}}});
         stdin
             .write_all(recover_init.to_string().as_bytes())
             .unwrap();
@@ -1801,10 +1627,7 @@ fn gmcp_req_203_012_04_adversarial() {
                 break;
             }
         }
-        let recover_call = json!({
-            "jsonrpc": "2.0", "id": "rec-call", "method": "tools/call",
-            "params": {"name": "ledger_verify", "arguments": {}, "_meta": modern_meta("rec-call")}
-        });
+        let recover_call = json!({ "jsonrpc": "2.0", "id": "rec-call", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": modern_meta("rec-call")}});
         stdin
             .write_all(recover_call.to_string().as_bytes())
             .unwrap();

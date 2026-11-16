@@ -82,15 +82,7 @@ fn gmcp_req_203_016_06_operations() {
     std::fs::write(valid_pack.join("rules.json"), payload_bytes).unwrap();
     std::fs::write(
         valid_pack.join("manifest.json"),
-        json!({
-            "id": "ops-sample-pack",
-            "name": "Ops Sample Pack",
-            "version": "1.0.0",
-            "apiVersion": "1",
-            "permissions": ["filesystem.read"],
-            "files": {"rules": "rules.json"},
-            "checksums": {"rules": format!("sha256:{payload_sha}")}
-        })
+        json!({ "id": "ops-sample-pack", "name": "Ops Sample Pack", "version": "1.0.0", "apiVersion": "1", "permissions": ["filesystem.read"], "files": {"rules": "rules.json"}, "checksums": {"rules": format!("sha256:{payload_sha}")}})
         .to_string(),
     )
     .unwrap();
@@ -113,32 +105,15 @@ fn gmcp_req_203_016_06_operations() {
     for (label, manifest_doc) in [
         (
             "unknown-permission",
-            json!({
-                "id": "bad-perm",
-                "name": "Bad Perm",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "permissions": ["network.unknown"]
-            }),
+            json!({ "id": "bad-perm", "name": "Bad Perm", "version": "1.0.0", "apiVersion": "1", "permissions": ["network.unknown"]}),
         ),
         (
             "incompatible-api-version",
-            json!({
-                "id": "bad-api",
-                "name": "Bad API",
-                "version": "1.0.0",
-                "apiVersion": "99"
-            }),
+            json!({ "id": "bad-api", "name": "Bad API", "version": "1.0.0", "apiVersion": "99"}),
         ),
         (
             "path-escape-without-permission",
-            json!({
-                "id": "bad-escape",
-                "name": "Bad Escape",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "files": {"rules": "../outside.json"}
-            }),
+            json!({ "id": "bad-escape", "name": "Bad Escape", "version": "1.0.0", "apiVersion": "1", "files": {"rules": "../outside.json"}}),
         ),
     ] {
         let bad_pack = scratch.join(format!("bad-pack-{label}"));
@@ -213,12 +188,7 @@ fn gmcp_req_203_016_06_operations() {
     let mut stdio = StdioSession::spawn_raw(root, &home);
     let stdio_disc = stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops016-stdio",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops016-stdio", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(120),
         )
         .expect("stdio server/discover must answer");
@@ -245,12 +215,7 @@ fn gmcp_req_203_016_06_operations() {
     let wire_cli = susi_wire_client::mcp::Session::open_with_capabilities(
         &http_addr,
         Some(token),
-        &json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {},
-                "vendor.ops/probe": {"v": 1}
-            }
-        }),
+        &json!({ "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.ops/probe": {"v": 1}}}),
         Duration::from_secs(15),
     )
     .expect("Wire SDK session must open and capture server extensions");
@@ -316,12 +281,7 @@ fn gmcp_req_203_016_06_operations() {
         writeln!(
             stdin,
             "{}",
-            json!({
-                "jsonrpc": "2.0",
-                "id": "ops-zero-ping",
-                "method": "ping",
-                "params": adapter_modern_meta()
-            })
+            json!({ "jsonrpc": "2.0", "id": "ops-zero-ping", "method": "ping", "params": adapter_modern_meta()})
         )
         .unwrap();
     }
@@ -404,16 +364,7 @@ fn gmcp_req_203_016_06_operations() {
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
             ),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops016-http-info",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": trace_meta
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops016-http-info", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": trace_meta}}),
     );
     assert!(http_st.starts_with("HTTP/1.1 200"), "{http_st} {http_raw}");
     let info_res = http_frames
@@ -437,16 +388,7 @@ fn gmcp_req_203_016_06_operations() {
             ("Mcp-Method", "tools/call"),
             ("Mcp-Name", "ledger_verify"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops016-http-quiet",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": quiet_meta
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops016-http-quiet", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": quiet_meta}}),
     );
     assert!(
         quiet_frames
@@ -1057,12 +999,7 @@ fn gmcp_vc_203_016_mastery() {
     let wire = susi_wire_client::mcp::Session::open_with_capabilities(
         &http_addr,
         Some(token),
-        &json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {},
-                "vendor.mastery/probe": {"v": 1}
-            }
-        }),
+        &json!({ "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.mastery/probe": {"v": 1}}}),
         Duration::from_secs(15),
     )
     .expect("Wire SDK HTTP session must open");
@@ -1100,17 +1037,7 @@ fn gmcp_vc_203_016_mastery() {
         ("GMCP-203-016-06", "gmcp_req_203_016_06_operations"),
     ];
     let make_row = |req: &str, test_fn: &str| {
-        json!({
-            "requirement": req,
-            "check": format!("cargo test --locked --test gmcp_requirements {test_fn}"),
-            "exit": 0,
-            "detail": "synthetic valid row",
-            "recorded_unix": now,
-            "artifact_sha256": ledger_hash,
-            "identity": "AG2FEATURES",
-            "tested_commit": "0".repeat(40),
-            "tested_artifacts": head_digest
-        })
+        json!({ "requirement": req, "check": format!("cargo test --locked --test gmcp_requirements {test_fn}"), "exit": 0, "detail": "synthetic valid row", "recorded_unix": now, "artifact_sha256": ledger_hash, "identity": "AG2FEATURES", "tested_commit": "0".repeat(40), "tested_artifacts": head_digest})
     };
     let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| make_row(r, t)).collect();
     let good_text = good_lines

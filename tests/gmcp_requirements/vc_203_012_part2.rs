@@ -37,17 +37,7 @@ fn gmcp_req_203_012_03_integration() {
         GateVerdict::Forward
     ));
 
-    let valid_listen = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "id": "gate-sub-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["susi://tools"]
-            },
-            "_meta": modern_meta("gate-sub-1")
-        }
-    }))
+    let valid_listen = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": "gate-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("gate-sub-1")}}))
     .unwrap();
     assert!(matches!(
         classify_envelope(&valid_listen),
@@ -91,12 +81,7 @@ fn gmcp_req_203_012_03_integration() {
         http_envelope_rejection(bad_ver).and_then(|v| v["error"]["code"].as_i64()),
         Some(-32600)
     );
-    let legacy_req_with_modern_meta = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/list",
-        "params": {"_meta": modern_meta("3")}
-    }))
+    let legacy_req_with_modern_meta = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {"_meta": modern_meta("3")}}))
     .unwrap();
     let mut leg_era = EraState::default();
     assert!(matches!(
@@ -126,12 +111,7 @@ fn gmcp_req_203_012_03_integration() {
     let mut cli_mod = StdioSession::spawn_raw(root, &cli_home);
     let discover = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-disc",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-disc", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(30),
         )
         .expect("susi mcp serve server/discover must reply");
@@ -145,12 +125,7 @@ fn gmcp_req_203_012_03_integration() {
     // Modern 2026-07-28 stateless lifecycle rejects legacy `logging/setLevel` (-32601).
     let stateless_set_level = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-stateless-log",
-                "method": "logging/setLevel",
-                "params": {"level": "info", "_meta": modern_meta("cli-stateless-log")}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-stateless-log", "method": "logging/setLevel", "params": {"level": "info", "_meta": modern_meta("cli-stateless-log")}}),
             Duration::from_secs(10),
         )
         .expect("stateless modern CLI must answer logging/setLevel");
@@ -169,16 +144,7 @@ fn gmcp_req_203_012_03_integration() {
 
     let init_ok = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-init",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2026-07-28",
-                    "capabilities": {},
-                    "clientInfo": {"name": "int-cli-modern", "version": "1"}
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-init", "method": "initialize", "params": { "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "int-cli-modern", "version": "1"}}}),
             Duration::from_secs(30),
         )
         .expect("modern CLI initialize must succeed after oversized frame");
@@ -197,12 +163,7 @@ fn gmcp_req_203_012_03_integration() {
     // Modern 2026-07-28 sessions always reject legacy `resources/subscribe` (-32601).
     let cli_leg_sub = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-leg-sub",
-                "method": "resources/subscribe",
-                "params": {"uri": "susi://tools", "_meta": modern_meta("cli-leg-sub")}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-leg-sub", "method": "resources/subscribe", "params": {"uri": "susi://tools", "_meta": modern_meta("cli-leg-sub")}}),
             Duration::from_secs(10),
         )
         .expect("resources/subscribe on 2026-07-28 must answer");
@@ -212,16 +173,7 @@ fn gmcp_req_203_012_03_integration() {
     assert!(McpGatewayProxy::evaluate_tool_policy("ledger_verify").is_ok());
     let policy_denied = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-policy",
-                "method": "tools/call",
-                "params": {
-                    "name": "susi_restricted_probe",
-                    "arguments": {},
-                    "_meta": modern_meta("cli-policy")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-policy", "method": "tools/call", "params": { "name": "susi_restricted_probe", "arguments": {}, "_meta": modern_meta("cli-policy")}}),
             Duration::from_secs(10),
         )
         .expect("restricted tool call must answer");
@@ -240,16 +192,7 @@ fn gmcp_req_203_012_03_integration() {
     tool_meta["progressToken"] = json!("cli-prog-1");
     let tool_call = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-tool-1",
-                "method": "tools/call",
-                "params": {
-                    "name": "ledger_verify",
-                    "arguments": {},
-                    "_meta": tool_meta
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-tool-1", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": tool_meta}}),
             Duration::from_secs(30),
         )
         .expect("CLI modern tools/call must reply");
@@ -279,17 +222,7 @@ fn gmcp_req_203_012_03_integration() {
         "CLI must emit request-scoped log message: {cli_notes:?}"
     );
 
-    cli_mod.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "cli-sub-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["susi://tools"]
-            },
-            "_meta": modern_meta("cli-sub-1")
-        }
-    }));
+    cli_mod.send(&json!({ "jsonrpc": "2.0", "id": "cli-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("cli-sub-1")}}));
     let ack_deadline = Instant::now() + Duration::from_secs(10);
     let mut got_cli_ack = false;
     let mut ack_seen = Vec::new();
@@ -313,11 +246,7 @@ fn gmcp_req_203_012_03_integration() {
         got_cli_ack,
         "CLI subscriptions/listen must emit ack; saw: {ack_seen:?}"
     );
-    cli_mod.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "cli-sub-1", "reason": "integration cancel"}
-    }));
+    cli_mod.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "cli-sub-1", "reason": "integration cancel"}}));
     let barrier = cli_mod.request(
         "tools/list",
         json!({"_meta": modern_meta("cli-post-cancel")}),
@@ -491,17 +420,7 @@ fn gmcp_req_203_012_03_integration() {
 
     // Streaming `subscriptions/listen` over HTTP SSE -> ack arrives, disconnect tears down cleanly.
     {
-        let sub_body = json!({
-            "jsonrpc": "2.0",
-            "id": "http-sub-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "resourceSubscriptions": ["susi://tools"]
-                },
-                "_meta": modern_meta("http-sub-1")
-            }
-        })
+        let sub_body = json!({ "jsonrpc": "2.0", "id": "http-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("http-sub-1")}})
         .to_string();
         let mut s = TcpStream::connect(&addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -544,17 +463,7 @@ fn gmcp_req_203_012_03_integration() {
 
     // `> 256` resourceSubscriptions fails `-32602` pre-ack; legacy RPCs fail `-32601` on `2026-07-28`.
     let too_many_uris: Vec<String> = (0..257).map(|i| format!("susi://res/{i}")).collect();
-    let cap_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-sub-cap",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": too_many_uris
-            },
-            "_meta": modern_meta("http-sub-cap")
-        }
-    })
+    let cap_body = json!({ "jsonrpc": "2.0", "id": "http-sub-cap", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": too_many_uris}, "_meta": modern_meta("http-sub-cap")}})
     .to_string();
     let cap_raw = http_send(
         "POST",
@@ -570,15 +479,7 @@ fn gmcp_req_203_012_03_integration() {
     let (_, _, cap_frames) = parse_frames(&cap_raw);
     assert_eq!(cap_frames[0]["error"]["code"], -32602, "{cap_raw}");
 
-    let leg_http_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-leg-1",
-        "method": "logging/setLevel",
-        "params": {
-            "level": "info",
-            "_meta": modern_meta("http-leg-1")
-        }
-    })
+    let leg_http_body = json!({ "jsonrpc": "2.0", "id": "http-leg-1", "method": "logging/setLevel", "params": { "level": "info", "_meta": modern_meta("http-leg-1")}})
     .to_string();
     let leg_http_raw = http_send(
         "POST",
@@ -597,15 +498,7 @@ fn gmcp_req_203_012_03_integration() {
         "{leg_http_raw}"
     );
 
-    let leg_sub_http_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-leg-sub",
-        "method": "resources/subscribe",
-        "params": {
-            "uri": "susi://tools",
-            "_meta": modern_meta("http-leg-sub")
-        }
-    })
+    let leg_sub_http_body = json!({ "jsonrpc": "2.0", "id": "http-leg-sub", "method": "resources/subscribe", "params": { "uri": "susi://tools", "_meta": modern_meta("http-leg-sub")}})
     .to_string();
     let leg_sub_http_raw = http_send(
         "POST",
@@ -627,16 +520,7 @@ fn gmcp_req_203_012_03_integration() {
 
     let mut bad_lvl_meta = modern_meta("http-bad-lvl");
     bad_lvl_meta["io.modelcontextprotocol/logLevel"] = json!("bogus");
-    let bad_level_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-bad-lvl",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": bad_lvl_meta
-        }
-    })
+    let bad_level_body = json!({ "jsonrpc": "2.0", "id": "http-bad-lvl", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": bad_lvl_meta}})
     .to_string();
     let bad_lvl_raw = http_send(
         "POST",
@@ -653,16 +537,7 @@ fn gmcp_req_203_012_03_integration() {
     let (_, _, bad_lvl_frames) = parse_frames(&bad_lvl_raw);
     assert_eq!(bad_lvl_frames[0]["error"]["code"], -32602, "{bad_lvl_raw}");
 
-    let http_policy_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-policy-1",
-        "method": "tools/call",
-        "params": {
-            "name": "susi_restricted_probe",
-            "arguments": {},
-            "_meta": modern_meta("http-policy-1")
-        }
-    })
+    let http_policy_body = json!({ "jsonrpc": "2.0", "id": "http-policy-1", "method": "tools/call", "params": { "name": "susi_restricted_probe", "arguments": {}, "_meta": modern_meta("http-policy-1")}})
     .to_string();
     let http_policy_raw = http_send(
         "POST",
@@ -687,16 +562,7 @@ fn gmcp_req_203_012_03_integration() {
     let mut http_tool_meta = modern_meta("http-int-tool");
     http_tool_meta["io.modelcontextprotocol/logLevel"] = json!("info");
     http_tool_meta["progressToken"] = json!("http-int-1");
-    let http_tool_body = json!({
-        "jsonrpc": "2.0",
-        "id": "http-int-tool",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": http_tool_meta
-        }
-    })
+    let http_tool_body = json!({ "jsonrpc": "2.0", "id": "http-int-tool", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": http_tool_meta}})
     .to_string();
     let http_tool_raw = http_send(
         "POST",
@@ -784,16 +650,7 @@ fn gmcp_req_203_012_03_integration() {
 
     // Legacy 2025-11-25 session opens `GET /mcp` standalone SSE cleanly.
     {
-        let leg_init = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": {"name": "get-sse-check", "version": "1"}
-            }
-        })
+        let leg_init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "get-sse-check", "version": "1"}}})
         .to_string();
         let leg_init_raw = http_send(
             "POST",
@@ -880,11 +737,7 @@ fn gmcp_req_203_012_03_integration() {
         let init = client.call(
             "init-modern",
             "initialize",
-            json!({
-                "protocolVersion": "2026-07-28",
-                "capabilities": {},
-                "clientInfo": {"name": name, "version": "1"}
-            }),
+            json!({ "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": name, "version": "1"}}),
         );
         assert!(
             init["result"]["capabilities"].is_object(),
@@ -895,17 +748,7 @@ fn gmcp_req_203_012_03_integration() {
 
     let (mut embedded, embedded_sess) = embedded_adapter(&runtime, root);
     adapter_modern_handshake(&mut embedded, "012-int-embedded");
-    embedded.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "emb-sub-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["susi://tools"]
-            },
-            "_meta": modern_meta("emb-sub-1")
-        }
-    }));
+    embedded.send(&json!({ "jsonrpc": "2.0", "id": "emb-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("emb-sub-1")}}));
     let emb_ack = embedded.take("embedded ack", |m| {
         m["id"] == "emb-sub-1"
             || (m["method"] == "notifications/subscriptions/acknowledged"
@@ -915,11 +758,7 @@ fn gmcp_req_203_012_03_integration() {
         emb_ack["method"], "notifications/subscriptions/acknowledged",
         "{emb_ack}"
     );
-    embedded.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "emb-sub-1"}
-    }));
+    embedded.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "emb-sub-1"}}));
     assert!(
         embedded.call(
             "emb-post-cancel",
@@ -937,17 +776,7 @@ fn gmcp_req_203_012_03_integration() {
     {
         let (mut socket, sock_sess) = socket_adapter(&runtime, root);
         adapter_modern_handshake(&mut socket, "012-int-socket");
-        socket.send(&json!({
-            "jsonrpc": "2.0",
-            "id": "sock-sub-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "resourceSubscriptions": ["susi://tools"]
-                },
-                "_meta": modern_meta("sock-sub-1")
-            }
-        }));
+        socket.send(&json!({ "jsonrpc": "2.0", "id": "sock-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("sock-sub-1")}}));
         let sock_ack = socket.take("unix socket ack", |m| {
             m["id"] == "sock-sub-1"
                 || (m["method"] == "notifications/subscriptions/acknowledged"
@@ -958,11 +787,7 @@ fn gmcp_req_203_012_03_integration() {
             sock_ack["method"], "notifications/subscriptions/acknowledged",
             "{sock_ack}"
         );
-        socket.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": "sock-sub-1"}
-        }));
+        socket.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "sock-sub-1"}}));
         assert!(
             socket.call(
                 "sock-post-cancel",
@@ -1110,28 +935,8 @@ fn gmcp_req_203_012_03_integration() {
     let (mut custom_client, custom_stop, custom_sess) = spawn_duplex(&runtime, custom_svc.clone());
     adapter_modern_handshake(&mut custom_client, "012-int-custom");
 
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "mux-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["susi://int-resource"]
-            },
-            "_meta": modern_meta("mux-1")
-        }
-    }));
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "mux-2",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["susi://tools"]
-            },
-            "_meta": modern_meta("mux-2")
-        }
-    }));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "id": "mux-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://int-resource"]}, "_meta": modern_meta("mux-1")}}));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "id": "mux-2", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("mux-2")}}));
     for sub_id in ["mux-1", "mux-2"] {
         let ack = custom_client.take(sub_id, |m| {
             m["id"] == sub_id
@@ -1155,16 +960,7 @@ fn gmcp_req_203_012_03_integration() {
     let mut slow_meta = modern_meta("slow-1");
     slow_meta["io.modelcontextprotocol/logLevel"] = json!("info");
     slow_meta["progressToken"] = json!("dup-tok-1");
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "slow-1",
-        "method": "tools/call",
-        "params": {
-            "name": "int_slow_progress",
-            "arguments": {},
-            "_meta": slow_meta
-        }
-    }));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "id": "slow-1", "method": "tools/call", "params": { "name": "int_slow_progress", "arguments": {}, "_meta": slow_meta}}));
     runtime.block_on(entered.notified());
     let log_note = custom_client.take("notifications/message", |m| {
         m["method"] == "notifications/message"
@@ -1181,11 +977,7 @@ fn gmcp_req_203_012_03_integration() {
     let dup_err = custom_client.call(
         "slow-dup",
         "tools/call",
-        json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": slow_dup_meta
-        }),
+        json!({ "name": "ledger_verify", "arguments": {}, "_meta": slow_dup_meta}),
     );
     assert_eq!(dup_err["error"]["code"], -32602);
     release.notify_one();
@@ -1195,11 +987,7 @@ fn gmcp_req_203_012_03_integration() {
     );
 
     // Cancelling mux-1 isolates mux-2 cleanly and silences mux-1 updates.
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "mux-1"}
-    }));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "mux-1"}}));
     let _ = custom_client.call(
         "mux1-post-cancel",
         "server/discover",
@@ -1227,10 +1015,7 @@ fn gmcp_req_203_012_03_integration() {
     let revoked = custom_client.call(
         "res-revoked",
         "resources/read",
-        json!({
-            "uri": "susi://int-resource",
-            "_meta": adapter_modern_meta()["_meta"]
-        }),
+        json!({ "uri": "susi://int-resource", "_meta": adapter_modern_meta()["_meta"]}),
     );
     assert_eq!(revoked["error"]["code"], -32602);
 
@@ -1277,16 +1062,7 @@ fn gmcp_req_203_012_03_integration() {
             s.push(b'\n');
             s
         };
-        cw.write_all(&write_json(json!({
-            "jsonrpc": "2.0",
-            "id": "lag-init",
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2026-07-28",
-                "capabilities": {},
-                "clientInfo": {"name": "lag", "version": "1"}
-            }
-        })))
+        cw.write_all(&write_json(json!({ "jsonrpc": "2.0", "id": "lag-init", "method": "initialize", "params": { "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "lag", "version": "1"}}})))
         .await
         .unwrap();
         let _ = lines.next_line().await.unwrap();
@@ -1295,17 +1071,7 @@ fn gmcp_req_203_012_03_integration() {
         ))
         .await
         .unwrap();
-        cw.write_all(&write_json(json!({
-            "jsonrpc": "2.0",
-            "id": "lag-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "resourceSubscriptions": ["susi://lag-res"]
-                },
-                "_meta": lag_meta
-            }
-        })))
+        cw.write_all(&write_json(json!({ "jsonrpc": "2.0", "id": "lag-1", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["susi://lag-res"]}, "_meta": lag_meta}})))
         .await
         .unwrap();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -1353,11 +1119,7 @@ fn gmcp_req_203_012_03_integration() {
         .call(
             "leg-init",
             "initialize",
-            json!({
-                "protocolVersion": "2025-11-25",
-                "capabilities": {"extensions": {"io.modelcontextprotocol/tasks": {}}},
-                "clientInfo": {"name": "leg-live", "version": "1"}
-            }),
+            json!({ "protocolVersion": "2025-11-25", "capabilities": {"extensions": {"io.modelcontextprotocol/tasks": {}}}, "clientInfo": {"name": "leg-live", "version": "1"}}),
         )
         .get("result")
         .is_some());

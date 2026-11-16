@@ -105,14 +105,7 @@ fn gmcp_req_203_009_03_integration() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "tools-it", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "tools-it", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -160,10 +153,7 @@ fn gmcp_req_203_009_03_integration() {
     // Unknown tools fail closed with a typed answer.
     let unknown = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "unknown-tool", "method": "tools/call",
-                "params": {"name": "definitely_not_a_tool", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "unknown-tool", "method": "tools/call", "params": {"name": "definitely_not_a_tool", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("an unknown tool must earn a typed answer, never a hang");
@@ -175,10 +165,7 @@ fn gmcp_req_203_009_03_integration() {
     // A schema violation fails closed too: the required `path` is absent.
     let invalid = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "invalid-args", "method": "tools/call",
-                "params": {"name": "read_file", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "invalid-args", "method": "tools/call", "params": {"name": "read_file", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("a schema violation must earn a typed answer");
@@ -191,12 +178,8 @@ fn gmcp_req_203_009_03_integration() {
     // Concurrent calls stay correlated (the service may answer out of order).
     // Each answers the first page, so both must equal a sequential first page.
     let first_page = wire.request("tools/list", serde_json::json!({}));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 700, "method": "tools/list", "params": {}
-    }));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 701, "method": "tools/list", "params": {}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 700, "method": "tools/list", "params": {}}));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 701, "method": "tools/list", "params": {}}));
     for id in [700, 701] {
         let answer = wire
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(180))
@@ -295,13 +278,7 @@ fn gmcp_req_203_009_04_adversarial() {
     register_tool_schema(
         "susi",
         "adversarial_math",
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "divisor": { "type": "integer", "minimum": 1 }
-            },
-            "required": ["divisor"]
-        }),
+        serde_json::json!({ "type": "object", "properties": { "divisor": { "type": "integer", "minimum": 1}}, "required": ["divisor"]}),
     );
     assert!(validate_tool_args(
         "susi",
@@ -344,14 +321,7 @@ fn gmcp_req_203_009_04_adversarial() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init-adv", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "tools-adv", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init-adv", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "tools-adv", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must succeed");
@@ -361,10 +331,7 @@ fn gmcp_req_203_009_04_adversarial() {
     // (a) Unknown tool name returns typed error
     let unknown = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "adv-unknown", "method": "tools/call",
-                "params": {"name": "non_existent_tool_xyz", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "adv-unknown", "method": "tools/call", "params": {"name": "non_existent_tool_xyz", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("unknown tool must answer with error");
@@ -377,10 +344,7 @@ fn gmcp_req_203_009_04_adversarial() {
     // (b) Hostile tool names: traversal, injection, oversized names
     for hostile_name in ["../../etc/passwd", "tool;rm -rf /", "", &"a".repeat(256)] {
         let hostile = wire.request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": format!("adv-hostile-{}", hostile_name.len()), "method": "tools/call",
-                "params": {"name": hostile_name, "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": format!("adv-hostile-{}", hostile_name.len()), "method": "tools/call", "params": {"name": hostile_name, "arguments": {}}}),
             std::time::Duration::from_secs(180),
         ).expect("hostile tool name must answer");
         assert!(
@@ -393,10 +357,7 @@ fn gmcp_req_203_009_04_adversarial() {
     // (c) Schema-violating call on live server: missing required parameters
     let missing_args = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "adv-missing-args", "method": "tools/call",
-                "params": {"name": "read_file", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "adv-missing-args", "method": "tools/call", "params": {"name": "read_file", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("missing required args must answer");
@@ -409,10 +370,7 @@ fn gmcp_req_203_009_04_adversarial() {
     // (d) Malformed parameter envelope
     let malformed_params = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "adv-malformed-params", "method": "tools/call",
-                "params": {"name": 12345, "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "adv-malformed-params", "method": "tools/call", "params": {"name": 12345, "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("malformed params must answer");
@@ -425,10 +383,7 @@ fn gmcp_req_203_009_04_adversarial() {
     // (e) Privileged tool governance policy gating
     let priv_call = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "adv-priv", "method": "tools/call",
-                "params": {"name": "susi_restricted_ops", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "adv-priv", "method": "tools/call", "params": {"name": "susi_restricted_ops", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("privileged tool call must answer");
@@ -446,14 +401,9 @@ fn gmcp_req_203_009_04_adversarial() {
     for i in 0..10 {
         let is_adversarial = i % 2 == 0;
         let req = if is_adversarial {
-            serde_json::json!({
-                "jsonrpc": "2.0", "id": 800 + i, "method": "tools/call",
-                "params": {"name": format!("adversarial_bogus_{i}"), "arguments": {}}
-            })
+            serde_json::json!({ "jsonrpc": "2.0", "id": 800 + i, "method": "tools/call", "params": {"name": format!("adversarial_bogus_{i}"), "arguments": {}}})
         } else {
-            serde_json::json!({
-                "jsonrpc": "2.0", "id": 800 + i, "method": "tools/list", "params": {}
-            })
+            serde_json::json!({ "jsonrpc": "2.0", "id": 800 + i, "method": "tools/list", "params": {}})
         };
         wire.send(&req);
     }
@@ -537,14 +487,7 @@ fn gmcp_req_203_009_05_interop() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init-interop", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "reference-sdk-interop", "version": "1.0.0"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init-interop", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "reference-sdk-interop", "version": "1.0.0"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("reference client initialization must succeed");
@@ -613,10 +556,7 @@ fn gmcp_req_203_009_05_interop() {
 
     let wire_missing = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "interop-missing-wire", "method": "tools/call",
-                "params": {"name": "read_file", "arguments": {}}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "interop-missing-wire", "method": "tools/call", "params": {"name": "read_file", "arguments": {}}}),
             std::time::Duration::from_secs(180),
         )
         .expect("wire missing args must answer");
@@ -694,15 +634,7 @@ fn gmcp_req_203_009_05_interop() {
     register_tool_schema(
         "susi",
         "interop_calc",
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "op": { "type": "string", "enum": ["add", "sub"] },
-                "a": { "type": "integer" },
-                "b": { "type": "integer" }
-            },
-            "required": ["op", "a", "b"]
-        }),
+        serde_json::json!({ "type": "object", "properties": { "op": { "type": "string", "enum": ["add", "sub"]}, "a": { "type": "integer"}, "b": { "type": "integer"}}, "required": ["op", "a", "b"]}),
     );
     register_tool_handler(
         "susi",
@@ -836,14 +768,7 @@ fn gmcp_req_203_009_06_operations() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init-ops", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "ops-client", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init-ops", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "ops-client", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must succeed");
@@ -1081,12 +1006,7 @@ fn gmcp_vc_203_009_mastery() {
         !served.is_empty(),
         "the served tool surface must not be empty: {listed}"
     );
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "unknown-tool",
-        "method": "tools/call",
-        "params": {"name": "susi_no_such_tool_009", "arguments": {}}
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "unknown-tool", "method": "tools/call", "params": {"name": "susi_no_such_tool_009", "arguments": {}}}));
     let unknown = wire
         .response_for(
             &serde_json::json!("unknown-tool"),

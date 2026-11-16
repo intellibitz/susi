@@ -56,14 +56,7 @@ fn gmcp_req_203_007_02_production() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "gmcp-007-02-prod", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-007-02-prod", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered on the production stdio path");
@@ -207,11 +200,7 @@ fn gmcp_req_203_007_04_adversarial() {
     let hello = bystander.call(
         "init",
         "initialize",
-        serde_json::json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "gmcp-007-04-bystander", "version": "1"}
-        }),
+        serde_json::json!({ "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-007-04-bystander", "version": "1"}}),
     );
     assert!(
         hello["result"].is_object(),
@@ -602,11 +591,7 @@ fn gmcp_req_203_007_06_operations() {
     let embedded_tool = embedded.call(
         "verify-embedded",
         "tools/call",
-        serde_json::json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": adapter_modern_meta()["_meta"]
-        }),
+        serde_json::json!({ "name": "ledger_verify", "arguments": {}, "_meta": adapter_modern_meta()["_meta"]}),
     );
     let embedded_tool_report = call_tool_report(&embedded_tool["result"]);
     assert_eq!(embedded_tool_report["verified"], true);
@@ -634,12 +619,7 @@ fn gmcp_req_203_007_06_operations() {
     let mut served = StdioSession::spawn_raw(root, &op_home);
     let served_discover = served
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "discover-stdio",
-                "method": "server/discover",
-                "params": adapter_modern_meta(),
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "discover-stdio", "method": "server/discover", "params": adapter_modern_meta(),}),
             std::time::Duration::from_secs(120),
         )
         .expect("served stdio server/discover must answer");
@@ -736,12 +716,7 @@ fn gmcp_req_203_007_06_operations() {
         writeln!(
             stdin,
             "{}",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "ops-corrupt-ping",
-                "method": "ping",
-                "params": adapter_modern_meta()
-            })
+            serde_json::json!({ "jsonrpc": "2.0", "id": "ops-corrupt-ping", "method": "ping", "params": adapter_modern_meta()})
         )
         .unwrap();
     }

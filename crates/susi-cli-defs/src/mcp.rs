@@ -77,4 +77,91 @@ pub enum McpCommands {
         #[arg(long)]
         token: Option<String>,
     },
+    /// Discover a peer MCP server's protocol revision, serverInfo, and capabilities (`VC-203-017`).
+    Discover {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Negotiate stateful 2025-11-25 initialize instead of stateless 2026-07-28 server/discover
+        #[arg(long)]
+        legacy: bool,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// List static resources (and optional URI templates) exposed by a peer MCP endpoint (`VC-203-017`).
+    Resources {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Include RFC 6570 resourceTemplates in output
+        #[arg(long)]
+        templates: bool,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Read a resource URI (or headlessly inspect a `ui://` MCP App resource) on a peer MCP endpoint (`VC-203-017`).
+    Read {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Resource URI (e.g. memo://welcome or ui://app/card)
+        uri: String,
+        /// Inspect `ui://` MCP Apps CSP, permissions, and domain metadata headlessly
+        #[arg(long)]
+        app: bool,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// List prompts exposed by a peer MCP endpoint (`VC-203-017`).
+    Prompts {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Materialize a prompt on a peer MCP endpoint (`VC-203-017`).
+    Prompt {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Prompt name
+        name: String,
+        /// Optional JSON arguments object (default {})
+        #[arg(default_value = "{}")]
+        args: String,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Request argument completions (`ref/prompt` or `ref/resource`) on a peer MCP endpoint (`VC-203-017`).
+    Complete {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Reference kind: `prompt` or `resource`
+        kind: String,
+        /// Prompt name or resource template URI
+        target: String,
+        /// Argument name
+        arg: String,
+        /// Current argument prefix value
+        value: String,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Inspect, update, or cancel an Official MCP Task on a peer MCP endpoint (`VC-203-017`).
+    Task {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Task operation: `get`, `update`, or `cancel`
+        op: String,
+        /// Durable task identifier
+        task_id: String,
+        /// JSON inputResponses object when `op` is `update` (default {})
+        #[arg(default_value = "{}")]
+        responses: String,
+        /// Bearer token
+        #[arg(long)]
+        token: Option<String>,
+    },
 }

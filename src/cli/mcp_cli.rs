@@ -180,20 +180,13 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         McpCommands::Enable { server } => {
             let manager = LeadingMcpManager::new(workspace)?;
             let cfg = manager.enable(&server)?;
-            print_json(&serde_json::json!({
-                "server": server,
-                "enabled": true,
-                "config": cfg
-            }))?;
+            print_json(&serde_json::json!({ "server": server, "enabled": true, "config": cfg}))?;
             Ok(false)
         }
         McpCommands::Disable { server } => {
             let manager = LeadingMcpManager::new(workspace)?;
             let removed = manager.disable(&server)?;
-            print_json(&serde_json::json!({
-                "server": server,
-                "removed": removed
-            }))?;
+            print_json(&serde_json::json!({ "server": server, "removed": removed}))?;
             Ok(false)
         }
         McpCommands::Configure { server, file } => {
@@ -211,5 +204,169 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             )?;
             Ok(false)
         }
+        McpCommands::Discover {
+            addr,
+            legacy,
+            token,
+        } => {
+            let mut s = open_host_cli_session(&addr, token, legacy)?;
+            let doc = s.discover().map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            print_json(&doc)?;
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Resources {
+            addr,
+            templates,
+            token,
+        } => {
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            let resources = s
+                .list_all_resources()
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            let out = if templates {
+                let tmpl = s
+                    .list_all_resource_templates()
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                serde_json::json!({ "resources": resources, "resourceTemplates": tmpl })
+            } else {
+                serde_json::json!({ "resources": resources })
+            };
+            print_json(&out)?;
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Read {
+            addr,
+            uri,
+            app,
+            token,
+        } => {
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            if app {
+                let info = s
+                    .inspect_app_resource(&uri)
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                print_json(
+                    &serde_json::json!({ "uri": info.uri, "mimeType": info.mime_type, "payloadBytes": info.payload_bytes, "csp": info.csp, "permissions": info.permissions, "domain": info.domain, "meta": info.meta,}),
+                )?;
+            } else {
+                let doc = s
+                    .read_resource(&uri)
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                print_json(&doc)?;
+            }
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Prompts { addr, token } => {
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            let prompts = s
+                .list_all_prompts()
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            print_json(&serde_json::json!({ "prompts": prompts }))?;
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Prompt {
+            addr,
+            name,
+            args,
+            token,
+        } => {
+            let parsed: serde_json::Value = serde_json::from_str(&args)
+                .map_err(|e| crate::anyhow::anyhow!("args must be valid JSON: {e}"))?;
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            let doc = s
+                .get_prompt(&name, Some(&parsed))
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            print_json(&doc)?;
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Complete {
+            addr,
+            kind,
+            target,
+            arg,
+            value,
+            token,
+        } => {
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            let doc = match kind.as_str() {
+                "prompt" | "ref/prompt" => s.complete_prompt(&target, &arg, &value, None),
+                "resource" | "ref/resource" => s.complete_resource(&target, &arg, &value, None),
+                other => {
+                    bail!("unsupported completion kind `{other}` (expected `prompt` or `resource`)")
+                }
+            }
+            .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            print_json(&doc)?;
+            let _ = s.close();
+            Ok(false)
+        }
+        McpCommands::Task {
+            addr,
+            op,
+            task_id,
+            responses,
+            token,
+        } => {
+            let mut s = open_host_cli_session(&addr, token, false)?;
+            match op.as_str() {
+                "get" => {
+                    let snap = s
+                        .get_task(&task_id)
+                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                    print_json(
+                        &serde_json::json!({ "taskId": snap.handle.task_id, "status": snap.handle.status.as_str(), "statusMessage": snap.handle.status_message, "result": snap.result, "error": snap.error, "inputRequests": snap.input_requests.iter().map(|e| serde_json::json!({ "key": e.key, "method": e.method, "params": e.params,})).collect::<Vec<_>>(),}),
+                    )?;
+                }
+                "update" => {
+                    let parsed: serde_json::Value = serde_json::from_str(&responses)
+                        .map_err(|e| crate::anyhow::anyhow!("responses must be valid JSON: {e}"))?;
+                    s.update_task(&task_id, &parsed)
+                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                    print_json(&serde_json::json!({ "taskId": task_id, "updated": true }))?;
+                }
+                "cancel" => {
+                    s.cancel_task(&task_id)
+                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+                    print_json(&serde_json::json!({ "taskId": task_id, "cancelled": true }))?;
+                }
+                other => {
+                    bail!("unsupported task op `{other}` (expected `get`, `update`, or `cancel`)")
+                }
+            }
+            let _ = s.close();
+            Ok(false)
+        }
+    }
+}
+
+fn open_host_cli_session(
+    addr: &str,
+    token: Option<String>,
+    force_legacy: bool,
+) -> Result<susi_wire_client::mcp::Session> {
+    use std::time::Duration;
+    use susi_wire_client::mcp::Session;
+    let clean = addr
+        .strip_prefix("http://")
+        .or_else(|| addr.strip_prefix("https://"))
+        .unwrap_or(addr)
+        .split('/')
+        .next()
+        .unwrap_or(addr);
+    let bearer = token.or_else(|| default_bearer(clean));
+    let timeout = Duration::from_secs(20);
+    if force_legacy {
+        return Session::open(clean, bearer.as_deref(), timeout)
+            .map_err(|e| crate::anyhow::anyhow!("{e}"));
+    }
+    match Session::open_2026_07_28(clean, bearer.as_deref(), timeout) {
+        Ok(s) => Ok(s),
+        Err(_) => Session::open(clean, bearer.as_deref(), timeout)
+            .map_err(|e| crate::anyhow::anyhow!("{e}")),
     }
 }

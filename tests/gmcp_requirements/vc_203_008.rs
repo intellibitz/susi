@@ -344,10 +344,7 @@ fn gmcp_req_203_008_02_production() {
     // Deterministic canonical serialization: equal values produce
     // byte-identical output across parses and key orders.
     let reordered: serde_json::Value = serde_json::from_str(
-        &serde_json::to_string(&serde_json::json!({
-            "type": "text", "text": "x",
-            "z-ext": 1, "a-ext": 2
-        }))
+        &serde_json::to_string(&serde_json::json!({ "type": "text", "text": "x", "z-ext": 1, "a-ext": 2}))
         .unwrap(),
     )
     .unwrap();
@@ -378,11 +375,7 @@ fn gmcp_req_203_008_02_production() {
     // ── The shipped wire path: the gate's boundary validation is what
     //    `mcp serve` runs on every inbound line ──────────────────────
     let mut session = StdioSession::spawn(root, &home);
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "bad-uri",
-        "method": "resources/read",
-        "params": {"uri": "not a uri at all"}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "bad-uri", "method": "resources/read", "params": {"uri": "not a uri at all"}}));
     let response = session
         .response_for(
             &serde_json::json!("bad-uri"),
@@ -400,10 +393,7 @@ fn gmcp_req_203_008_02_production() {
 
     // A malformed client response (sampling-style content) earns a
     // typed -32600 instead of the typed codec's silent drop.
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "bad-content",
-        "result": {"content": {"type": "image", "data": "!!!", "mimeType": "image/png"}}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "bad-content", "result": {"content": {"type": "image", "data": "!!!", "mimeType": "image/png"}}}));
     let response = session
         .response_for(
             &serde_json::json!("bad-content"),
@@ -420,10 +410,7 @@ fn gmcp_req_203_008_02_production() {
     );
 
     // Malformed roots[] answers are caught the same way.
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "bad-roots",
-        "result": {"roots": [{"uri": "relative/path"}]}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "bad-roots", "result": {"roots": [{"uri": "relative/path"}]}}));
     let response = session
         .response_for(
             &serde_json::json!("bad-roots"),
@@ -434,11 +421,7 @@ fn gmcp_req_203_008_02_production() {
 
     // A well-formed request still reaches the service — the boundary
     // rejects only malformed payloads (any non-gate answer counts).
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "ok-read",
-        "method": "resources/read",
-        "params": {"uri": "file:///workspace/ok.txt"}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "ok-read", "method": "resources/read", "params": {"uri": "file:///workspace/ok.txt"}}));
     let response = session
         .response_for(
             &serde_json::json!("ok-read"),
@@ -635,11 +618,7 @@ fn gmcp_req_203_008_03_integration() {
 
     // ── The served wire agrees: same corpus member, same verdict ────
     let mut session = StdioSession::spawn(root, &home);
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "intg-bad-uri",
-        "method": "resources/read",
-        "params": {"uri": "no uri"}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "intg-bad-uri", "method": "resources/read", "params": {"uri": "no uri"}}));
     let response = session
         .response_for(
             &serde_json::json!("intg-bad-uri"),
@@ -656,17 +635,7 @@ fn gmcp_req_203_008_03_integration() {
     // And the modern-era surface applies the same boundary — the
     // policy never depends on which era the session negotiated.
     let mut modern = StdioSession::spawn_modern(root, &home);
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "intg-modern-bad",
-        "method": "resources/read",
-        "params": {
-            "uri": "no uri",
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "intg-modern-bad", "method": "resources/read", "params": { "uri": "no uri", "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
     let response = modern
         .response_for(
             &serde_json::json!("intg-modern-bad"),
@@ -760,17 +729,7 @@ fn gmcp_req_203_008_04_adversarial() {
     // modern request missing its real `_meta` still earns -32602 even
     // when arguments smuggle the namespaced keys.
     let mut modern = StdioSession::spawn_modern(root, &home);
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "smuggle",
-        "method": "tools/call",
-        "params": {
-            "name": "x",
-            "arguments": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "smuggle", "method": "tools/call", "params": { "name": "x", "arguments": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
     let response = modern
         .response_for(
             &serde_json::json!("smuggle"),
@@ -833,10 +792,7 @@ fn gmcp_req_203_008_04_adversarial() {
     for _ in 0..80 {
         deep = serde_json::json!({"k": deep});
     }
-    let bomb = serde_json::json!({
-        "jsonrpc": "2.0", "id": "bomb",
-        "result": {"content": [{"type": "text", "text": "x", "_meta": {"deep": deep}}]}
-    });
+    let bomb = serde_json::json!({ "jsonrpc": "2.0", "id": "bomb", "result": {"content": [{"type": "text", "text": "x", "_meta": {"deep": deep}}]}});
     let rejection = http_envelope_rejection(serde_json::to_string(&bomb).unwrap().as_bytes())
         .expect("a nesting bomb must be rejected");
     assert_eq!(rejection["error"]["code"], -32600);
@@ -907,14 +863,7 @@ fn gmcp_req_203_008_04_adversarial() {
     // ── Over-validation resistance: free-form tool `arguments` are
     //    never judged as spec content — a tools/call carrying a
     //    content-shaped argument reaches the service, not the gate ───
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "args-not-content",
-        "method": "tools/call",
-        "params": {
-            "name": "definitely-not-a-real-tool",
-            "arguments": {"type": "image", "data": "%%%", "mimeType": "junk"}
-        }
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "args-not-content", "method": "tools/call", "params": { "name": "definitely-not-a-real-tool", "arguments": {"type": "image", "data": "%%%", "mimeType": "junk"}}}));
     let response = session
         .response_for(
             &serde_json::json!("args-not-content"),
@@ -932,10 +881,7 @@ fn gmcp_req_203_008_04_adversarial() {
 
     // ── Recovery: a rejection never corrupts the stream — the next
     //    well-formed request on the same session answers normally ────
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "after-reject",
-        "method": "resources/list", "params": {}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "after-reject", "method": "resources/list", "params": {}}));
     let response = session
         .response_for(
             &serde_json::json!("after-reject"),
@@ -1019,10 +965,7 @@ fn gmcp_req_203_008_05_interop() {
         );
         // The same block as a client response's content earns the gate's
         // typed -32600 carrying the canonical reason — one implementation.
-        let wire_doc = serde_json::json!({
-            "jsonrpc": "2.0", "id": 1,
-            "result": {"content": fixture["payload"].clone()}
-        });
+        let wire_doc = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": {"content": fixture["payload"].clone()}});
         let rejection =
             http_envelope_rejection(serde_json::to_string(&wire_doc).unwrap().as_bytes())
                 .unwrap_or_else(|| panic!("{file}: the HTTP gate must reject"));
@@ -1365,10 +1308,7 @@ fn gmcp_vc_203_008_mastery() {
             panic!("served content block must satisfy the canonical model: {e}")
         });
     }
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "m-uri",
-        "method": "resources/read", "params": {"uri": "no-scheme"}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "m-uri", "method": "resources/read", "params": {"uri": "no-scheme"}}));
     let response = session
         .response_for(
             &serde_json::json!("m-uri"),
@@ -1376,10 +1316,7 @@ fn gmcp_vc_203_008_mastery() {
         )
         .expect("malformed URI must earn a typed verdict");
     assert_eq!(response["error"]["code"], -32602, "{response}");
-    session.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "m-content",
-        "result": {"content": {"type": "audio", "data": "###", "mimeType": "audio/wav"}}
-    }));
+    session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "m-content", "result": {"content": {"type": "audio", "data": "###", "mimeType": "audio/wav"}}}));
     let response = session
         .response_for(
             &serde_json::json!("m-content"),
@@ -1414,13 +1351,7 @@ fn gmcp_vc_203_008_mastery() {
         ),
         (
             "resource_link",
-            serde_json::json!({"type":"resource_link","uri":"file:///r.pdf","name":"r",
-                "mimeType":"application/pdf",
-                "icons":[{"src":"https://i.example/x.png","mimeType":"image/png"}],
-                "annotations":{"audience":["user","assistant"],"priority":0.8,
-                               "lastModified":"2026-10-18T00:00:00Z"},
-                "_meta":{"vendor.example/k":"v"},
-                "ext.example/future":{"nested":[1,true]}}),
+            serde_json::json!({"type":"resource_link","uri":"file:///r.pdf","name":"r", "mimeType":"application/pdf", "icons":[{"src":"https://i.example/x.png","mimeType":"image/png"}], "annotations":{"audience":["user","assistant"],"priority":0.8, "lastModified":"2026-10-18T00:00:00Z"}, "_meta":{"vendor.example/k":"v"}, "ext.example/future":{"nested":[1,true]}}),
         ),
     ] {
         let parsed = CanonicalContentBlock::from_wire(&value)
@@ -1435,14 +1366,10 @@ fn gmcp_vc_203_008_mastery() {
     }
 
     // ── Canonical serialization is deterministic across key order ──
-    let a = CanonicalContentBlock::from_wire(&serde_json::json!({
-        "type":"text","text":"t","_meta":{"z":1,"a":2},"annotations":{"priority":0.5}
-    }))
+    let a = CanonicalContentBlock::from_wire(&serde_json::json!({ "type":"text","text":"t","_meta":{"z":1,"a":2},"annotations":{"priority":0.5}}))
     .unwrap()
     .canonical_json();
-    let b = CanonicalContentBlock::from_wire(&serde_json::json!({
-        "annotations":{"priority":0.5},"_meta":{"a":2,"z":1},"text":"t","type":"text"
-    }))
+    let b = CanonicalContentBlock::from_wire(&serde_json::json!({ "annotations":{"priority":0.5},"_meta":{"a":2,"z":1},"text":"t","type":"text"}))
     .unwrap()
     .canonical_json();
     assert_eq!(a, b, "canonical_json must be key-order independent");

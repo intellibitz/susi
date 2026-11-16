@@ -259,10 +259,7 @@ fn gmcp_req_203_003_02_production() {
     let mut modern = StdioSession::spawn_modern(root, &home);
     let discover = modern.request(
         "server/discover",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}),
     );
     assert_eq!(discover["resultType"], "complete");
     assert!(!discover["supportedVersions"].as_array().unwrap().is_empty());
@@ -279,25 +276,14 @@ fn gmcp_req_203_003_02_production() {
     // handshake established anything — is served on its own context.
     let tools = modern.request(
         "tools/list",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}),
     );
     assert!(tools["tools"].is_array(), "tools/list must answer: {tools}");
     // Version validation is per request — an unsupported declared
     // version earns -32022 even mid-session on the modern path.
     let rejected = modern
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "bad-version",
-                "method": "server/discover",
-                "params": {"_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "1999-01-01",
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "bad-version", "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "1999-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("unsupported version must be answered, not dropped");
@@ -312,20 +298,8 @@ fn gmcp_req_203_003_02_production() {
     // Concurrent requests stay independent: two in-flight requests with
     // different declared versions are correlated by id, never by any
     // shared negotiated state.
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "concurrent-a", "method": "server/discover",
-        "params": {"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}
-    }));
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "concurrent-b", "method": "tools/list",
-        "params": {"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2025-11-25",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "concurrent-a", "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "concurrent-b", "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": {}}}}));
     let a = modern
         .response_for(
             &serde_json::json!("concurrent-a"),
@@ -395,13 +369,7 @@ fn gmcp_req_203_003_03_integration() {
     let canonical = serde_json::to_value(service.discover_result()).unwrap();
     let mut modern = StdioSession::spawn_modern(root, &home);
     let discover_msg = |id: u64| {
-        serde_json::json!({
-            "jsonrpc": "2.0", "id": id, "method": "server/discover",
-            "params": {"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }}
-        })
+        serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}})
     };
     modern.send(&discover_msg(41));
     let first = modern
@@ -436,17 +404,11 @@ fn gmcp_req_203_003_03_integration() {
     //    modern `_meta.serverInfo` channel report the same server —
     //    identity is one canonical value, not per-era state. ──────────
     let mut legacy = StdioSession::spawn_raw(root, &home);
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
-                   "clientInfo": {"name": "gmcp-it", "version": "1.0"}}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-it", "version": "1.0"}}}));
     let init = legacy
         .response_for(&serde_json::json!(1), std::time::Duration::from_secs(300))
         .expect("initialize must be answered");
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/initialized"
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized"}));
     legacy.send(&discover_msg(43));
     let legacy_discover = legacy
         .response_for(&serde_json::json!(43), std::time::Duration::from_secs(300))
@@ -565,13 +527,7 @@ fn gmcp_req_203_003_04_adversarial() {
     let mut legacy = StdioSession::spawn(root, &home);
     let attack = legacy
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "era-attack", "method": "tools/list",
-                "params": {"_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                }}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "era-attack", "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("era-mismatched request must earn a typed answer, not a drop");
@@ -580,11 +536,7 @@ fn gmcp_req_203_003_04_adversarial() {
     // legacy session and reports the canonical identity.
     let discover_after = legacy.request(
         "server/discover",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientInfo": {"name": "susi-gmcp", "version": "99.0"},
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": {"name": "susi-gmcp", "version": "99.0"}, "io.modelcontextprotocol/clientCapabilities": {}}}),
     );
     let identity = &discover_after["_meta"]["io.modelcontextprotocol/serverInfo"];
     assert_eq!(identity["name"], "susi-gmcp");
@@ -597,10 +549,7 @@ fn gmcp_req_203_003_04_adversarial() {
     // poisoned modern era would emit).
     let ping = legacy
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "post-attack-ping", "method": "ping",
-                "params": {}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "post-attack-ping", "method": "ping", "params": {}}),
             std::time::Duration::from_secs(300),
         )
         .expect("a bare legacy request after the attack must be answered");
@@ -702,9 +651,7 @@ fn gmcp_req_203_003_05_interop() {
     )
     .unwrap();
     legacy.send(&cancelled["request"]);
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 910, "method": "ping", "params": {}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 910, "method": "ping", "params": {}}));
     let response = legacy
         .response_for(&serde_json::json!(910), std::time::Duration::from_secs(300))
         .expect("a notification must not stall the next request");
@@ -716,13 +663,7 @@ fn gmcp_req_203_003_05_interop() {
     let service = GmcpService::new(scratch.clone());
     let canonical = serde_json::to_value(service.discover_result()).unwrap();
     let discover_msg = |id: u64| {
-        serde_json::json!({
-            "jsonrpc": "2.0", "id": id, "method": "server/discover",
-            "params": {"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }}
-        })
+        serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}})
     };
     modern.send(&discover_msg(51));
     let wire = modern
@@ -769,12 +710,8 @@ fn gmcp_req_203_003_05_interop() {
     //    A bare legacy ping on the negotiated-legacy session and a
     //    `_meta`-missing modern request on the modern session each earn
     //    their own era's verdict while both sessions are live. ────────
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 911, "method": "ping", "params": {}
-    }));
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 54, "method": "ping", "params": {}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 911, "method": "ping", "params": {}}));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 54, "method": "ping", "params": {}}));
     let legacy_answer = legacy
         .response_for(&serde_json::json!(911), std::time::Duration::from_secs(300))
         .expect("the legacy session must answer a bare ping");
@@ -1063,15 +1000,7 @@ fn gmcp_vc_203_003_mastery() {
     //    modern `_meta` request is answered on a brand-new connection
     //    and carries `resultType` on the result column. ──────────────
     let mut raw = StdioSession::spawn_raw(root, &home);
-    raw.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "stateless",
-        "method": "tools/list",
-        "params": {"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}
-    }));
+    raw.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "stateless", "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
     let stateless = raw
         .response_for(
             &serde_json::json!("stateless"),
@@ -1093,26 +1022,18 @@ fn gmcp_vc_203_003_mastery() {
         ("no-meta", serde_json::json!({}), -32602_i64),
         (
             "bad-version",
-            serde_json::json!({"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "1900-01-01",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }}),
+            serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}),
             -32022_i64,
         ),
         (
             "no-caps",
-            serde_json::json!({"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28"
-            }}),
+            serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28"}}),
             -32602_i64,
         ),
     ] {
         let response = modern
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": id,
-                    "method": "tools/list", "params": params
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/list", "params": params}),
                 std::time::Duration::from_secs(300),
             )
             .unwrap_or_else(|| panic!("{id} must receive a typed error"));
@@ -1132,13 +1053,7 @@ fn gmcp_vc_203_003_mastery() {
     let service = GmcpService::new(scratch.clone());
     let canonical = serde_json::to_value(service.discover_result()).unwrap();
     let discover_msg = |id: u64| {
-        serde_json::json!({
-            "jsonrpc": "2.0", "id": id, "method": "server/discover",
-            "params": {"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }}
-        })
+        serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}})
     };
     modern.send(&discover_msg(71));
     let discover = modern
@@ -1165,12 +1080,7 @@ fn gmcp_vc_203_003_mastery() {
     //    traceparent travel in `_meta` — no ambient negotiated state. ─
     let handled = modern.request(
         "tools/list",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {},
-            "progressToken": "mastery-handle",
-            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "progressToken": "mastery-handle", "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}}),
     );
     assert_eq!(handled["resultType"], "complete");
 
@@ -1180,20 +1090,12 @@ fn gmcp_vc_203_003_mastery() {
     //    earns -32600 without poisoning the era, and each session keeps
     //    its own verdict afterwards. ─────────────────────────────────
     let mut legacy = StdioSession::spawn(root, &home);
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 81, "method": "tools/list",
-        "params": {"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 81, "method": "tools/list", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
     let confused = legacy
         .response_for(&serde_json::json!(81), std::time::Duration::from_secs(300))
         .expect("era-confused metadata must earn a typed verdict");
     assert_eq!(confused["error"]["code"], -32600, "{confused}");
-    legacy.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 82, "method": "ping", "params": {}
-    }));
+    legacy.send(&serde_json::json!({ "jsonrpc": "2.0", "id": 82, "method": "ping", "params": {}}));
     let still_legacy = legacy
         .response_for(&serde_json::json!(82), std::time::Duration::from_secs(300))
         .expect("the rejection must not poison the negotiated era");

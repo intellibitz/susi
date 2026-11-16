@@ -127,3 +127,244 @@ fn gmcp_req_203_017_01_contract() {
     }
     assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
 }
+
+/// GMCP-203-017-02: canonical multi-server `McpHost`, `Session`, `MacPolicy`-gated
+/// stdio spawn (`CLAIM-04`), and unified `susi mcp` CLI execute end-to-end across
+/// concurrent real servers (`HOST-001..HOST-018`).
+#[test]
+fn gmcp_req_203_017_02_production() {
+    use serde_json::{json, Value};
+    use std::collections::HashMap;
+    use std::io::BufReader;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use susi_core::mac_policy::{actions, MacPolicy, PrivacyMode};
+    use susi_gmcp::{
+        extensions::ExtensionStatus,
+        mcp::model::{ReadResourceResult, Resource},
+        sdk::examples::production_reference_server,
+        server::GmcpServer,
+    };
+    use susi_tools::{spawn_authorized_stdio_peer, McpServerConfig};
+    use susi_wire_client::{
+        host::{
+            probe_http_auth_challenge, CompletionQuery, DuplexStreams, HostPolicy, HttpEndpoint,
+            McpHost, RootEntry,
+        },
+        mcp::{
+            parse_www_authenticate, PersistedTaskHandleStore, TaskStatus, APPS_EXTENSION_ID,
+        },
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_home_lock, _env, home) = gmcp_http_home_guard("017-02-production");
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).expect("cfg_dir");
+
+    // 1. Spawn real GMCP HTTP reference server A (2026-07-28 stateless, Apps `ui://` resource + extensions).
+    let tok_a = "tok-alpha-017-02";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_a}\n")).expect("tok_a");
+    let base_a = home.join("srv-a");
+    std::fs::create_dir_all(base_a.join("ws")).expect("ws_a");
+    let (svc_a, _log_a) = production_reference_server(base_a.join("ws"), base_a.join("tasks")).expect("svc_a");
+    svc_a
+        .extensions()
+        .write()
+        .register(APPS_EXTENSION_ID, ExtensionStatus::Official, 1, serde_json::Map::new())
+        .expect("apps ext");
+    svc_a.register_resource(
+        Resource::new("ui://app/summary", "Summary Card").with_mime_type("text/html;profile=mcp-app"),
+        Arc::new(|req, _ctx| {
+            Box::pin(async move {
+                let result: ReadResourceResult = serde_json::from_value(json!({ "contents": [{ "uri": req.uri, "mimeType": "text/html;profile=mcp-app", "text": "<!doctype html><html><body>headless card</body></html>", "_meta": {"ui": {"csp": {"connectDomains": ["https://api.example.test"]}, "permissions": {"clipboardWrite": false}, "domain": "app.susi.local"}}}]}))
+                .expect("read res");
+                Ok(result.into())
+            })
+        }),
+    );
+    let lis_a = TcpListener::bind("127.0.0.1:0").expect("bind_a");
+    let addr_a = format!("127.0.0.1:{}", lis_a.local_addr().expect("addr_a").port());
+    let svc_a_http = svc_a.clone();
+    let _bg_a = std::thread::spawn(move || GmcpServer::serve_http_service(svc_a_http, vec![lis_a], None, false));
+    for _ in 0..50 {
+        if TcpStream::connect(&addr_a).is_ok() { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    // 2. Compile & spawn a real windowless stdio MCP peer via `spawn_authorized_stdio_peer` (`CLAIM-04`)
+    //    exercising live bidirectional `roots/list`, `sampling/createMessage`, `elicitation/create`, & progress.
+    let stdio_src = home.join("stdio_host_peer.rs");
+    let stdio_exe = home.join(format!("stdio_host_peer{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&stdio_src, r#"
+use std::io::{self, BufRead, Write};
+fn main() {
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    let mut roots_changed = 0u32;
+    while let Some(Ok(line)) = lines.next() {
+        if line.contains("\"notifications/roots/list_changed\"") { roots_changed += 1; continue; }
+        if !line.contains("\"id\"") { continue; }
+        let id: String = line.split("\"id\":").nth(1).unwrap().chars().take_while(|c| c.is_ascii_digit()).collect();
+        if line.contains("\"initialize\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{\"tools\":{{}},\"resources\":{{\"subscribe\":true}},\"prompts\":{{}},\"completions\":{{}}}},\"serverInfo\":{{\"name\":\"gamma-stdio\",\"version\":\"0.2.0\"}}}}}}");
+        } else if line.contains("\"tools/list\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"tools\":[{{\"name\":\"full_callbacks\",\"inputSchema\":{{\"type\":\"object\"}}}}]}}}}");
+        } else if line.contains("\"tools/call\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progressToken\":\"stale\",\"progress\":1}}}}");
+            println!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progressToken\":\"p-live\",\"progress\":50,\"total\":100}}}}");
+            println!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{{\"level\":\"info\",\"data\":\"cb-start\"}}}}");
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"roots/list\",\"params\":{{}}}}");
+            io::stdout().flush().unwrap();
+            let r1 = lines.next().unwrap().unwrap();
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":902,\"method\":\"sampling/createMessage\",\"params\":{{\"messages\":[{{\"role\":\"user\",\"content\":{{\"type\":\"text\",\"text\":\"hi\"}}}}],\"maxTokens\":32}}}}");
+            io::stdout().flush().unwrap();
+            let r2 = lines.next().unwrap().unwrap();
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":903,\"method\":\"elicitation/create\",\"params\":{{\"message\":\"confirm?\",\"requestedSchema\":{{\"type\":\"object\"}}}}}}");
+            io::stdout().flush().unwrap();
+            let r3 = lines.next().unwrap().unwrap();
+            let ok = r1.contains("file:///workspace/gamma") && r2.contains("sampled-reply") && r3.contains("accepted-gamma");
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":\"ok={ok};rc={roots_changed}\"}}],\"isError\":false}}}}");
+        } else if line.contains("\"resources/subscribe\"") || line.contains("\"resources/unsubscribe\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{}}}}");
+        }
+        io::stdout().flush().unwrap();
+    }
+}
+"#).expect("write stdio_src");
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let out = Command::new(rustc).args(["--edition", "2021"]).arg(&stdio_src).arg("-o").arg(&stdio_exe).output().expect("rustc");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let stdio_cfg = McpServerConfig {
+        command: stdio_exe.to_string_lossy().into_owned(),
+        args: vec![],
+        env: Some(HashMap::new()),
+        extra: HashMap::new(),
+    };
+    let deny_mac = MacPolicy::new([9u8; 32], PrivacyMode::LocalOnly, false);
+    assert!(spawn_authorized_stdio_peer(&stdio_cfg, &deny_mac).expect_err("must deny").contains(actions::PROCESS_EXEC));
+    let allow_mac = MacPolicy::new([9u8; 32], PrivacyMode::LocalOnly, false);
+    allow_mac.grant("susi", actions::PROCESS_EXEC, &stdio_cfg.command, None).expect("grant");
+    let mut child = spawn_authorized_stdio_peer(&stdio_cfg, &allow_mac).expect("authorized stdio spawn");
+    let child_out = BufReader::new(child.stdout.take().expect("stdout"));
+    let child_in = child.stdin.take().expect("stdin");
+
+    // 3. Connect concurrent `alpha-modern`, `gamma-stdio`, and isolated `beta-session` on one `McpHost`.
+    let mut host = McpHost::new();
+    let pol_a = HostPolicy::strict("susi-alpha", "1.0.0")
+        .with_principal("alice")
+        .with_roots(vec![RootEntry::new("file:///workspace/alpha", Some("alpha".into())).expect("root")])
+        .with_elicitation(|_p| Ok(json!({"action":"accept","content":{"approved":true,"decision":"approved-alpha"}})))
+        .with_tasks(true)
+        .with_apps(true);
+    host.connect_http_2026_07_28("alpha", HttpEndpoint { addr: &addr_a, bearer: Some(tok_a), timeout: Duration::from_secs(15) }, pol_a).expect("connect alpha");
+    host.attach_task_store("alpha", PersistedTaskHandleStore::open(home.join("alpha-tasks.json")).expect("store")).expect("attach store");
+
+    let pol_g = HostPolicy::strict("susi-gamma", "1.0.0")
+        .with_principal("carol")
+        .with_roots(vec![RootEntry::new("file:///workspace/gamma", Some("gamma".into())).expect("root")])
+        .with_sampling(|_p| Ok(json!({"role":"assistant","model":"susi-local","content":{"type":"text","text":"sampled-reply"}})))
+        .with_elicitation(|_p| Ok(json!({"action":"accept","content":{"note":"accepted-gamma"}})));
+    host.connect_duplex("gamma", DuplexStreams { reader: Box::new(child_out), writer: Box::new(child_in), on_close: Some(Box::new(move || { let _ = child.kill(); let _ = child.wait(); })) }, pol_g).expect("connect gamma");
+
+    // Exercise alpha primitives: discover, tools, MRTR, tasks, resources, SSE subscriptions, prompts, completions, Apps!
+    assert_eq!(host.discover("alpha").expect("disc")["serverInfo"]["name"], json!("sdk-production-ref"));
+    assert!(host.list_tools("alpha").expect("tools").iter().any(|t| t["name"] == "summarize_items"));
+    assert_eq!(host.call_tool("alpha", "summarize_items", &json!({"items":["a","b","c"],"scope":{"namespace":"prod"}}), None).expect("call")["structuredContent"]["count"], json!(3));
+    assert_eq!(host.call_tool_mrtr("alpha", "confirm_action", &json!({"operation":"cut-release"})).expect("mrtr")["structuredContent"]["status"], json!("confirmed"));
+    assert_eq!(host.call_tool_resolving_tasks("alpha", "approval_workflow", &json!({"ticket":"T-115"}), Some(Duration::from_secs(10))).expect("task")["structuredContent"]["decision"], json!("approved-alpha"));
+    let th = host.start_task_tool("alpha", "approval_workflow", &json!({"ticket":"T-CANCEL"})).expect("start task");
+    for _ in 0..30 {
+        if host.get_task("alpha", &th.task_id).expect("get").handle.status == TaskStatus::InputRequired { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    host.cancel_task("alpha", &th.task_id).expect("cancel task");
+    assert_eq!(host.get_task("alpha", &th.task_id).expect("get cancelled").handle.status, TaskStatus::Cancelled);
+    host.cancel_request("alpha", json!(999), Some("operator-abort")).expect("cancel req");
+
+    assert!(host.list_resources("alpha").expect("res").iter().any(|r| r["uri"] == "memo://welcome"));
+    assert!(host.list_resource_templates("alpha").expect("tmpl").iter().any(|t| t["uriTemplate"] == "memo://items/{id}"));
+    assert!(host.read_resource("alpha", "memo://items/77").expect("read")["contents"][0]["text"].as_str().expect("txt").contains("\"77\""));
+    let app_info = host.inspect_app("alpha", "ui://app/summary").expect("inspect app");
+    assert!(app_info.mime_type.as_deref() == Some("text/html;profile=mcp-app") && app_info.domain.as_deref() == Some("app.susi.local") && app_info.csp.is_some());
+    assert!(host.inspect_app("alpha", "memo://welcome").is_err());
+
+    let mut sub_stream = host.open_subscription_stream("alpha", &json!({"resourceSubscriptions":["memo://welcome"],"toolsListChanged":true})).expect("sub stream");
+    assert!(sub_stream.is_acknowledged());
+    svc_a.resource_updated("memo://welcome".to_string());
+    let upd = sub_stream.next_frame().expect("frame").expect("ok");
+    assert_eq!(upd["method"], json!("notifications/resources/updated"));
+    drop(sub_stream);
+
+    assert!(host.list_prompts("alpha").expect("prompts").iter().any(|p| p["name"] == "draft_brief"));
+    assert!(host.get_prompt("alpha", "draft_brief", Some(&json!({"topic":"host-02"}))).expect("prompt")["messages"][0]["content"]["text"].as_str().expect("pt").contains("host-02"));
+    assert!(host.complete("alpha", CompletionQuery { is_resource: false, target: "draft_brief", arg_name: "topic", arg_value: "se", context_args: None }).expect("comp")["completion"]["values"].as_array().expect("cv").contains(&json!("security")));
+
+    // Exercise Unified `susi mcp` CLI parity against live `addr_a` BEFORE rotating host token for `beta`!
+    let run_cli = |args: &[&str]| -> Value {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+        let out = isolate_home(&mut cmd, &home).args(args).output().expect("susi cli");
+        assert!(out.status.success(), "cli {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).expect("cli json")
+    };
+    assert_eq!(run_cli(&["mcp", "discover", &addr_a, "--token", tok_a])["serverInfo"]["name"], json!("sdk-production-ref"));
+    assert!(!run_cli(&["mcp", "resources", &addr_a, "--templates", "--token", tok_a])["resourceTemplates"].as_array().expect("rt").is_empty());
+    assert_eq!(run_cli(&["mcp", "read", &addr_a, "ui://app/summary", "--app", "--token", tok_a])["domain"], json!("app.susi.local"));
+    assert!(!run_cli(&["mcp", "prompts", &addr_a, "--token", tok_a])["prompts"].as_array().expect("pl").is_empty());
+    assert!(run_cli(&["mcp", "prompt", &addr_a, "draft_brief", "{\"topic\":\"cli\"}", "--token", tok_a])["messages"][0]["content"]["text"].as_str().expect("t").contains("cli"));
+    assert!(run_cli(&["mcp", "complete", &addr_a, "prompt", "draft_brief", "topic", "av", "--token", tok_a])["completion"]["values"].as_array().expect("v").contains(&json!("availability")));
+    let cli_th = host.start_task_tool("alpha", "approval_workflow", &json!({"ticket":"T-CLI"})).expect("cli task");
+    for _ in 0..30 {
+        if run_cli(&["mcp", "task", &addr_a, "get", &cli_th.task_id, "--token", tok_a])["status"] == "input_required" { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(run_cli(&["mcp", "task", &addr_a, "update", &cli_th.task_id, "{\"approve\":{\"decision\":\"cli-ok\"}}", "--token", tok_a])["updated"], json!(true));
+    for _ in 0..30 {
+        let snap = run_cli(&["mcp", "task", &addr_a, "get", &cli_th.task_id, "--token", tok_a]);
+        if snap["status"] == "completed" {
+            assert_eq!(snap["result"]["structuredContent"]["decision"], json!("cli-ok"));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    // Exercise `gamma` bidirectional stdio MRTR (`roots/list` + `sampling` + `elicitation` + correlated progress).
+    host.subscribe_resource("gamma", "memo://stdio").expect("sub gamma");
+    host.update_roots("gamma", vec![RootEntry::new("file:///workspace/gamma", Some("gamma-v2".into())).expect("r")]).expect("update roots");
+    let g_res = host.call_tool("gamma", "full_callbacks", &json!({}), Some(&json!("p-live"))).expect("gamma call");
+    assert_eq!(g_res["content"][0]["text"], json!("ok=true;rc=1"));
+    let g_notes = host.drain_notifications("gamma").expect("drain gamma");
+    assert!(g_notes.iter().any(|n| n["method"] == "notifications/progress" && n["params"]["progressToken"] == "p-live"));
+    assert!(!g_notes.iter().any(|n| n["params"]["progressToken"] == "stale"));
+    host.unsubscribe_resource("gamma", "memo://stdio").expect("unsub gamma");
+
+    // Spawn isolated stateful 2025-11-25 server `beta` (zero elicitation capability -> `confirm_action` fails closed!).
+    let tok_b = "tok-beta-017-02";
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_b}\n")).expect("tok_b");
+    let base_b = home.join("srv-b");
+    std::fs::create_dir_all(base_b.join("ws")).expect("ws_b");
+    let (svc_b, _) = production_reference_server(base_b.join("ws"), base_b.join("tasks")).expect("svc_b");
+    let lis_b = TcpListener::bind("127.0.0.1:0").expect("bind_b");
+    let addr_b = format!("127.0.0.1:{}", lis_b.local_addr().expect("addr_b").port());
+    let _bg_b = std::thread::spawn(move || GmcpServer::serve_http_service(svc_b, vec![lis_b], None, false));
+    for _ in 0..50 {
+        if TcpStream::connect(&addr_b).is_ok() { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(probe_http_auth_challenge(&addr_b, Some(tok_a), Duration::from_secs(5)).is_ok());
+    let ch = parse_www_authenticate(401, r#"Bearer realm="susi", resource_metadata="https://mcp.example/.well-known/oauth-protected-resource", scope="mcp:tools", error="invalid_token""#).expect("www-auth");
+    assert!(ch.scheme == "Bearer" && ch.scope.as_deref() == Some("mcp:tools") && ch.error.as_deref() == Some("invalid_token"));
+
+    let pol_b = HostPolicy::strict("susi-beta", "1.0.0").with_principal("bob");
+    host.connect_http_session("beta", HttpEndpoint { addr: &addr_b, bearer: Some(tok_b), timeout: Duration::from_secs(10) }, pol_b).expect("connect beta");
+    assert_eq!(host.snapshot()["serverCount"], json!(3));
+    assert!(host.call_tool("beta", "confirm_action", &json!({"operation":"blocked"}), None).is_err());
+    host.subscribe_resource("beta", "memo://welcome").expect("sub beta");
+    host.unsubscribe_resource("beta", "memo://welcome").expect("unsub beta");
+
+    for id in ["beta", "gamma", "alpha"] {
+        host.disconnect(id).expect("disconnect");
+    }
+    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+}

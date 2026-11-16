@@ -37,13 +37,7 @@ fn gmcp_req_203_014_04_adversarial() {
     susi_daemon::composition::wire_mcp_serve_substrate(&home.join(".susi"));
 
     let tasks_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": { "io.modelcontextprotocol/tasks": {} }
-            }
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}}}})
     };
     let plain_meta = |req_id: &str| -> Value {
         let mut meta = adapter_modern_meta()["_meta"].clone();
@@ -1081,12 +1075,7 @@ fn gmcp_req_203_014_04_adversarial() {
         (code, resp)
     };
 
-    let sample_get_body = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tasks/get",
-        "params": {"taskId": "tid-http-1", "_meta": tasks_meta("h1")}
-    })
+    let sample_get_body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tasks/get", "params": {"taskId": "tid-http-1", "_meta": tasks_meta("h1")}})
     .to_string();
     let auth_hdr = format!("Bearer {tok_alice}");
 
@@ -1138,12 +1127,7 @@ fn gmcp_req_203_014_04_adversarial() {
     );
 
     // Oversized HTTP task payload (> 4096 bytes) rejected with `413 Payload Too Large` (`T7`).
-    let big_http = json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tasks/get",
-        "params": {"taskId": "x".repeat(5000), "_meta": tasks_meta("h2")}
-    })
+    let big_http = json!({ "jsonrpc": "2.0", "id": 2, "method": "tasks/get", "params": {"taskId": "x".repeat(5000), "_meta": tasks_meta("h2")}})
     .to_string();
     assert_eq!(
         raw_http(
@@ -1285,12 +1269,7 @@ fn gmcp_req_203_014_04_adversarial() {
     let mut spoof_meta = tasks_meta("spoof-1");
     spoof_meta["principal"] = json!(alice_p.as_str());
     spoof_meta["owner"] = json!(alice_p.as_str());
-    let spoof_body = json!({
-        "jsonrpc": "2.0",
-        "id": 99,
-        "method": "tasks/get",
-        "params": {"taskId": alice_handle.task_id, "_meta": spoof_meta}
-    })
+    let spoof_body = json!({ "jsonrpc": "2.0", "id": 99, "method": "tasks/get", "params": {"taskId": alice_handle.task_id, "_meta": spoof_meta}})
     .to_string();
     let (_, spoof_resp) = raw_http(
         &[

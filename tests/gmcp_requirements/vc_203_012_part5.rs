@@ -128,38 +128,17 @@ fn gmcp_req_203_012_06_operations() {
     let embedded_discover = emb_disc["result"].clone();
     assert_discover_shape(&embedded_discover, "embedded");
 
-    embedded.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "ops-emb-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "toolsListChanged": true,
-                "promptsListChanged": true,
-                "resourcesListChanged": true,
-                "resourceSubscriptions": ["susi://tools"]
-            },
-            "_meta": modern_meta("ops-emb-sub")
-        }
-    }));
+    embedded.send(&json!({ "jsonrpc": "2.0", "id": "ops-emb-sub", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "promptsListChanged": true, "resourcesListChanged": true, "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("ops-emb-sub")}}));
     let emb_ack = embedded.take("embedded subscription ack", |msg| {
         msg["method"] == "notifications/subscriptions/acknowledged"
             && msg["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "ops-emb-sub"
     });
     assert_eq!(emb_ack["params"]["notifications"]["toolsListChanged"], true);
-    embedded.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "ops-emb-sub", "reason": "ops cleanup"}
-    }));
+    embedded.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "ops-emb-sub", "reason": "ops cleanup"}}));
     let emb_tool = embedded.call(
         "ops-emb-verify",
         "tools/call",
-        json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta("ops-emb-verify")
-        }),
+        json!({ "name": "ledger_verify", "arguments": {}, "_meta": modern_meta("ops-emb-verify")}),
     );
     assert_eq!(call_tool_report(&emb_tool["result"]), report);
     drop(embedded);
@@ -184,12 +163,7 @@ fn gmcp_req_203_012_06_operations() {
     let mut served = StdioSession::spawn_raw(root, &op_home);
     let served_disc = served
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops-stdio-disc",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops-stdio-disc", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(120),
         )
         .expect("served stdio server/discover must answer");
@@ -202,16 +176,7 @@ fn gmcp_req_203_012_06_operations() {
     // invalid logLevel (-32602), and legacy logging/setLevel fails (-32601).
     let quiet_call = served
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops-stdio-quiet",
-                "method": "tools/call",
-                "params": {
-                    "name": "ledger_verify",
-                    "arguments": {},
-                    "_meta": modern_meta("ops-stdio-quiet")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops-stdio-quiet", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta("ops-stdio-quiet")}}),
             Duration::from_secs(30),
         )
         .expect("quiet ledger_verify must answer");
@@ -229,16 +194,7 @@ fn gmcp_req_203_012_06_operations() {
     bad_log_meta["io.modelcontextprotocol/logLevel"] = json!("verbose");
     let bad_log_resp = served
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops-stdio-badlog",
-                "method": "tools/call",
-                "params": {
-                    "name": "ledger_verify",
-                    "arguments": {},
-                    "_meta": bad_log_meta
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops-stdio-badlog", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": bad_log_meta}}),
             Duration::from_secs(15),
         )
         .expect("bad logLevel must reply");
@@ -246,26 +202,13 @@ fn gmcp_req_203_012_06_operations() {
 
     let leg_set_level = served
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops-stdio-setlevel",
-                "method": "logging/setLevel",
-                "params": {"level": "info", "_meta": modern_meta("ops-stdio-setlevel")}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops-stdio-setlevel", "method": "logging/setLevel", "params": {"level": "info", "_meta": modern_meta("ops-stdio-setlevel")}}),
             Duration::from_secs(15),
         )
         .expect("legacy logging/setLevel on modern session must reply");
     assert_eq!(leg_set_level["error"]["code"], -32601, "{leg_set_level}");
 
-    served.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "ops-stdio-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"resourceSubscriptions": ["susi://tools"]},
-            "_meta": modern_meta("ops-stdio-sub")
-        }
-    }));
+    served.send(&json!({ "jsonrpc": "2.0", "id": "ops-stdio-sub", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("ops-stdio-sub")}}));
     let sub_deadline = Instant::now() + Duration::from_secs(15);
     let mut stdio_ack_seen = false;
     while Instant::now() < sub_deadline && !stdio_ack_seen {
@@ -279,11 +222,7 @@ fn gmcp_req_203_012_06_operations() {
         }
     }
     assert!(stdio_ack_seen, "stdio subscriptions/listen must emit ack");
-    served.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "ops-stdio-sub", "reason": "ops done"}
-    }));
+    served.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "ops-stdio-sub", "reason": "ops done"}}));
     drop(served);
 
     // Streamable HTTP `/mcp`: W3C traceparent, Bearer auth, server/discover parity,
@@ -351,12 +290,7 @@ fn gmcp_req_203_012_06_operations() {
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
             ),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops-http-disc",
-            "method": "server/discover",
-            "params": {"_meta": modern_meta("ops-http-disc")}
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops-http-disc", "method": "server/discover", "params": {"_meta": modern_meta("ops-http-disc")}}),
     );
     assert!(
         http_disc_st.starts_with("HTTP/1.1 200"),
@@ -383,16 +317,7 @@ fn gmcp_req_203_012_06_operations() {
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
             ),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops-http-verify",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": http_info_meta
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops-http-verify", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": http_info_meta}}),
     );
     assert!(
         http_call_st.starts_with("HTTP/1.1 200"),
@@ -419,12 +344,7 @@ fn gmcp_req_203_012_06_operations() {
             ("MCP-Protocol-Version", "2026-07-28"),
             ("Mcp-Method", "tools/list"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops-http-mismatch",
-            "method": "server/discover",
-            "params": {"_meta": modern_meta("ops-http-mismatch")}
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops-http-mismatch", "method": "server/discover", "params": {"_meta": modern_meta("ops-http-mismatch")}}),
     );
     assert!(
         hdr_mismatch_st.starts_with("HTTP/1.1 400"),
@@ -439,12 +359,7 @@ fn gmcp_req_203_012_06_operations() {
             ("MCP-Protocol-Version", "2024-01-01"),
             ("Mcp-Method", "server/discover"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops-http-badver",
-            "method": "server/discover",
-            "params": {"_meta": bad_ver_meta}
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops-http-badver", "method": "server/discover", "params": {"_meta": bad_ver_meta}}),
     );
     assert!(
         bad_ver_st.starts_with("HTTP/1.1 400"),
@@ -858,11 +773,7 @@ fn gmcp_vc_203_012_mastery() {
     let emb_tool = embedded.call(
         "m-emb-verify",
         "tools/call",
-        json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta("m-emb-verify")
-        }),
+        json!({ "name": "ledger_verify", "arguments": {}, "_meta": modern_meta("m-emb-verify")}),
     );
     assert_eq!(call_tool_report(&emb_tool["result"]), cli);
     drop(embedded);
@@ -897,11 +808,7 @@ fn gmcp_vc_203_012_mastery() {
         let sock_tool = socket.call(
             "m-sock-verify",
             "tools/call",
-            json!({
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": modern_meta("m-sock-verify")
-            }),
+            json!({ "name": "ledger_verify", "arguments": {}, "_meta": modern_meta("m-sock-verify")}),
         );
         assert_eq!(call_tool_report(&sock_tool["result"]), cli);
         drop(socket);
@@ -913,12 +820,7 @@ fn gmcp_vc_203_012_mastery() {
     let mut modern_stdio = StdioSession::spawn_raw(root, &home);
     let stdio_disc = modern_stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-disc",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m-stdio-disc", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(120),
         )
         .expect("stdio server/discover must reply");
@@ -927,15 +829,7 @@ fn gmcp_vc_203_012_mastery() {
     let too_many_uris: Vec<String> = (0..257).map(|i| format!("susi://m/{i}")).collect();
     let over_uri = modern_stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-overuri",
-                "method": "subscriptions/listen",
-                "params": {
-                    "notifications": {"resourceSubscriptions": too_many_uris},
-                    "_meta": modern_meta("m-stdio-overuri")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m-stdio-overuri", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": too_many_uris}, "_meta": modern_meta("m-stdio-overuri")}}),
             Duration::from_secs(15),
         )
         .expect(">256 URI subscription must reject");
@@ -943,12 +837,7 @@ fn gmcp_vc_203_012_mastery() {
 
     let mod_set_lvl = modern_stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-setlvl",
-                "method": "logging/setLevel",
-                "params": {"level": "info", "_meta": modern_meta("m-stdio-setlvl")}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m-stdio-setlvl", "method": "logging/setLevel", "params": {"level": "info", "_meta": modern_meta("m-stdio-setlvl")}}),
             Duration::from_secs(15),
         )
         .expect("modern logging/setLevel must reject");
@@ -959,16 +848,7 @@ fn gmcp_vc_203_012_mastery() {
     prog_meta["progressToken"] = json!("m-tok-1");
     let stdio_call = modern_stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-prog",
-                "method": "tools/call",
-                "params": {
-                    "name": "ledger_verify",
-                    "arguments": {},
-                    "_meta": prog_meta
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m-stdio-prog", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": prog_meta}}),
             Duration::from_secs(30),
         )
         .expect("stdio tools/call must reply");
@@ -1060,22 +940,7 @@ fn gmcp_vc_203_012_mastery() {
             ("Mcp-Method", "tools/call"),
             ("Mcp-Name", "ledger_verify"),
         ],
-        json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-call",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities": {},
-                    "io.modelcontextprotocol/requestId": "m-http-call",
-                    "io.modelcontextprotocol/logLevel": "info",
-                    "progressToken": "m-http-prog"
-                }
-            }
-        }),
+        json!({ "jsonrpc": "2.0", "id": "m-http-call", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/requestId": "m-http-call", "io.modelcontextprotocol/logLevel": "info", "progressToken": "m-http-prog"}}}),
     );
     assert!(st_call.starts_with("HTTP/1.1 200"), "{st_call} {raw_call}");
     let call_res = frames_call
@@ -1096,12 +961,7 @@ fn gmcp_vc_203_012_mastery() {
             ("MCP-Protocol-Version", "2026-07-28"),
             ("Mcp-Method", "tools/list"),
         ],
-        json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-mm",
-            "method": "server/discover",
-            "params": {"_meta": modern_meta("m-http-mm")}
-        }),
+        json!({ "jsonrpc": "2.0", "id": "m-http-mm", "method": "server/discover", "params": {"_meta": modern_meta("m-http-mm")}}),
     );
     assert!(st_mm.starts_with("HTTP/1.1 400"), "{st_mm} {raw_mm}");
     assert_eq!(frames_mm[0]["error"]["code"], -32020);
@@ -1113,12 +973,7 @@ fn gmcp_vc_203_012_mastery() {
             ("MCP-Protocol-Version", "2024-01-01"),
             ("Mcp-Method", "server/discover"),
         ],
-        json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-badver",
-            "method": "server/discover",
-            "params": {"_meta": bad_ver_meta}
-        }),
+        json!({ "jsonrpc": "2.0", "id": "m-http-badver", "method": "server/discover", "params": {"_meta": bad_ver_meta}}),
     );
     assert!(st_bv.starts_with("HTTP/1.1 400"), "{st_bv} {raw_bv}");
     assert_eq!(frames_bv[0]["error"]["code"], -32022);
@@ -1176,15 +1031,7 @@ fn gmcp_vc_203_012_mastery() {
     };
     let custom_disc = custom_client.call("m-cust-disc", "server/discover", adapter_modern_meta());
     assert!(custom_disc["result"]["capabilities"].is_object());
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "m-dyn-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"toolsListChanged": true},
-            "_meta": modern_meta("m-dyn-sub")
-        }
-    }));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "id": "m-dyn-sub", "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta("m-dyn-sub")}}));
     let ack = custom_client.take("m-dyn-sub ack", |v| {
         v["method"] == "notifications/subscriptions/acknowledged"
             && v["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "m-dyn-sub"
@@ -1211,21 +1058,13 @@ fn gmcp_vc_203_012_mastery() {
     });
     assert_eq!(changed["method"], "notifications/tools/list_changed");
 
-    custom_client.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "m-dyn-sub", "reason": "mastery complete"}
-    }));
+    custom_client.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "m-dyn-sub", "reason": "mastery complete"}}));
     let post_cancel = custom_client.call("m-post-cancel", "server/discover", adapter_modern_meta());
     assert!(post_cancel["result"]["capabilities"].is_object());
     let custom_probe = custom_client.call(
         "m-cust-probe",
         "tools/call",
-        json!({
-            "name": "mastery_dynamic_probe",
-            "arguments": {},
-            "_meta": modern_meta("m-cust-probe")
-        }),
+        json!({ "name": "mastery_dynamic_probe", "arguments": {}, "_meta": modern_meta("m-cust-probe")}),
     );
     assert_eq!(custom_probe["result"]["content"][0]["text"], "ok");
     drop(custom_client);

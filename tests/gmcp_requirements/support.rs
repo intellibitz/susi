@@ -468,18 +468,9 @@ fn gmcp_mastery_records_are_retained_and_current() {
 
 /// A record line for the `newest_records` tests.
 fn evidence_line(requirement: &str, at: u64, who: &str, supersedes: Option<(u64, &str)>) -> String {
-    let mut record = serde_json::json!({
-        "requirement": requirement,
-        "recorded_unix": at,
-        "identity": who,
-        "artifact_sha256": format!("h{at}"),
-    });
+    let mut record = serde_json::json!({ "requirement": requirement, "recorded_unix": at, "identity": who, "artifact_sha256": format!("h{at}"),});
     if let Some((at, who)) = supersedes {
-        record["supersedes"] = serde_json::json!({
-            "recorded_unix": at,
-            "identity": who,
-            "artifact_sha256": format!("h{at}"),
-        });
+        record["supersedes"] = serde_json::json!({ "recorded_unix": at, "identity": who, "artifact_sha256": format!("h{at}"),});
     }
     record.to_string()
 }
@@ -692,15 +683,7 @@ impl StdioSession {
     /// replays never race the server's cold start.
     fn spawn_modern(root: &Path, home: &Path) -> Self {
         let mut session = Self::spawn_raw(root, home);
-        session.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "modern-handshake",
-            "method": "server/discover",
-            "params": {"_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }}
-        }));
+        session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "modern-handshake", "method": "server/discover", "params": {"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}}));
         session
             .response_for(
                 &serde_json::json!("modern-handshake"),
@@ -753,12 +736,7 @@ impl StdioSession {
     fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
         let id = self.next_id;
         self.next_id += 1;
-        self.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params
-        }));
+        self.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params}));
         let response = self
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
             .expect("served endpoint must answer within the bound");

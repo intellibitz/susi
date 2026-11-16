@@ -477,10 +477,7 @@ fn gmcp_req_203_001_05_interop() {
     // artifact, not a protocol verdict.
     let _ = wire_modern.request(
         "tools/list",
-        serde_json::json!({"_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }}),
+        serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}}),
     );
 
     // ── Property invariants ─────────────────────────────────────────────

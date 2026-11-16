@@ -99,12 +99,7 @@ fn gmcp_req_203_020_01_contract() {
     let _ = std::fs::remove_dir_all(&scratch);
 
     assert_eq!((HOST_PACK_API_MAJOR, KNOWN_PERMISSIONS), (1, &["filesystem.read", "filesystem.write", "network.egress", "process.exec"][..]));
-    let valid_manifest: ExtensionManifest = serde_json::from_value(serde_json::json!({
-        "id": "sdk-sample-pack", "name": "SDK Sample Pack", "version": "0.1.0", "apiVersion": "1.0",
-        "capabilities": ["mcp.tools.sample"], "requires": ["gmcp.server.v1"], "optional": ["gmcp.tasks.v1"],
-        "permissions": ["filesystem.read"], "files": { "tools": "catalog/tools.json" },
-        "checksums": { "tools": format!("sha256:{}", "a".repeat(64)) }, "x-vendor-metadata": {"tier": "contract-fixture"}
-    })).expect("manifest");
+    let valid_manifest: ExtensionManifest = serde_json::from_value(serde_json::json!({ "id": "sdk-sample-pack", "name": "SDK Sample Pack", "version": "0.1.0", "apiVersion": "1.0", "capabilities": ["mcp.tools.sample"], "requires": ["gmcp.server.v1"], "optional": ["gmcp.tasks.v1"], "permissions": ["filesystem.read"], "files": { "tools": "catalog/tools.json"}, "checksums": { "tools": format!("sha256:{}", "a".repeat(64))}, "x-vendor-metadata": {"tier": "contract-fixture"}})).expect("manifest");
     validate_manifest(&valid_manifest).expect("valid manifest");
     assert_eq!(valid_manifest.extra.get("x-vendor-metadata"), Some(&serde_json::json!({"tier": "contract-fixture"})));
 
@@ -995,11 +990,7 @@ fn gmcp_req_203_020_05_interop() {
                     let e_ans = tc.request_input("elicit_step", e_req).await?;
                     let r_req = mrtr_roots_list().map_err(TaskExit::Error)?;
                     let r_ans = tc.request_input("roots_step", r_req).await?;
-                    Ok(CallToolResult::structured(json!({
-                        "sampled": s_ans["content"]["text"],
-                        "approved": e_ans["go"],
-                        "rootCount": r_ans["roots"].as_array().map_or(0, Vec::len)
-                    })))
+                    Ok(CallToolResult::structured(json!({ "sampled": s_ans["content"]["text"], "approved": e_ans["go"], "rootCount": r_ans["roots"].as_array().map_or(0, Vec::len)})))
                 })
             }),
         )
@@ -1244,10 +1235,7 @@ fn gmcp_req_203_020_05_interop() {
     }
     let ext_root = cfg_dir.join("extensions");
     std::fs::create_dir_all(&ext_root).expect("ext root");
-    std::fs::write(ext_root.join("state.json"), serde_json::to_vec_pretty(&json!({
-        "active": "default",
-        "x-forward-state": { "epoch": 7, "flags": ["a", "b"] }
-    })).expect("j")).expect("write state");
+    std::fs::write(ext_root.join("state.json"), serde_json::to_vec_pretty(&json!({ "active": "default", "x-forward-state": { "epoch": 7, "flags": ["a", "b"]}})).expect("j")).expect("write state");
     create_pack("m35-state-probe").expect("create probe");
     load_pack("m35-state-probe").expect("load probe");
     unload_pack("m35-state-probe").expect("unload probe");

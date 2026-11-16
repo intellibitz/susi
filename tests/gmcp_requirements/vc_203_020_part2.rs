@@ -262,12 +262,7 @@ fn gmcp_req_203_020_06_operations() {
     let mut stdio = StdioSession::spawn_raw(root, &home);
     let stdio_disc = stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops020-stdio",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops020-stdio", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(60),
         )
         .expect("stdio server/discover");
@@ -373,10 +368,7 @@ fn gmcp_req_203_020_06_operations() {
         Tool::new_with_raw(
             "remote_ref_tool",
             None,
-            serde_json::from_value::<susi_gmcp::mcp::model::JsonObject>(json!({
-                "type": "object",
-                "properties": { "x": { "$ref": "https://evil.example/schema.json" } }
-            }))
+            serde_json::from_value::<susi_gmcp::mcp::model::JsonObject>(json!({ "type": "object", "properties": { "x": { "$ref": "https://evil.example/schema.json"}}}))
             .unwrap(),
         ),
         Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) })),
@@ -438,12 +430,7 @@ fn gmcp_req_203_020_06_operations() {
             "oversized resource must fail closed, never truncate: {over_res}"
         );
         let over_line = h
-            .request_raw(json!({
-                "jsonrpc": "2.0",
-                "id": null,
-                "method": "ping",
-                "params": { "pad": "x".repeat(700), "_meta": adapter_modern_meta()["_meta"] }
-            }))
+            .request_raw(json!({ "jsonrpc": "2.0", "id": null, "method": "ping", "params": { "pad": "x".repeat(700), "_meta": adapter_modern_meta()["_meta"]}}))
             .await
             .unwrap();
         assert_eq!(over_line["error"]["code"], json!(-32600), "{over_line}");
@@ -571,15 +558,7 @@ fn gmcp_req_203_020_06_operations() {
     let rule_sha = susi_paths::hex::encode(Sha256::digest(rule_bytes));
     std::fs::write(
         managed_dir.join("manifest.json"),
-        json!({
-            "id": "ops-managed-pack",
-            "name": "Ops Managed Pack",
-            "version": "1.0.0",
-            "apiVersion": "1",
-            "permissions": ["filesystem.read"],
-            "files": {"rules": "rules.json"},
-            "checksums": {"rules": format!("sha256:{rule_sha}")}
-        })
+        json!({ "id": "ops-managed-pack", "name": "Ops Managed Pack", "version": "1.0.0", "apiVersion": "1", "permissions": ["filesystem.read"], "files": {"rules": "rules.json"}, "checksums": {"rules": format!("sha256:{rule_sha}")}})
         .to_string(),
     )
     .unwrap();

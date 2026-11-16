@@ -122,18 +122,7 @@ fn gmcp_req_203_013_03_integration() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {
-                        "sampling": {},
-                        "elicitation": {"form": {}},
-                        "roots": {"listChanged": true}
-                    },
-                    "clientInfo": {"name": "mrtr-it", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "sampling": {}, "elicitation": {"form": {}}, "roots": {"listChanged": true}}, "clientInfo": {"name": "mrtr-it", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -145,23 +134,11 @@ fn gmcp_req_203_013_03_integration() {
 
     // The roots-change notification is forwarded (no answer expected) and
     // the session continues to serve afterwards.
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/roots/list_changed"
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/roots/list_changed"}));
 
     // Well-formed results for server→client requests are accepted.
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "roots-ok",
-        "result": {"roots": [{"uri": "file:///tmp", "name": "tmp"}]}
-    }));
-    wire.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "sampling-ok",
-        "result": {
-            "role": "assistant",
-            "content": {"type": "text", "text": "hello"},
-            "model": "test-model"
-        }
-    }));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "roots-ok", "result": {"roots": [{"uri": "file:///tmp", "name": "tmp"}]}}));
+    wire.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "sampling-ok", "result": { "role": "assistant", "content": {"type": "text", "text": "hello"}, "model": "test-model"}}));
 
     // Malformed results for the same three interaction families fail typed.
     for (id, result) in [
@@ -195,10 +172,7 @@ fn gmcp_req_203_013_03_integration() {
     // gate forwards it rather than rejecting it (no answer is expected for
     // a response id the service never issued).
     let forwarded = wire.request_verbatim(
-        &serde_json::json!({
-            "jsonrpc": "2.0", "id": "elicitation-form",
-            "result": {"action": "accept", "content": {"name": "Ada"}}
-        }),
+        &serde_json::json!({ "jsonrpc": "2.0", "id": "elicitation-form", "result": {"action": "accept", "content": {"name": "Ada"}}}),
         std::time::Duration::from_secs(3),
     );
     assert!(
@@ -218,14 +192,7 @@ fn gmcp_req_203_013_03_integration() {
     // content (the service answers, whatever the tool's own verdict).
     let mrtr = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "mrtr", "method": "tools/call",
-                "params": {
-                    "name": "definitely_not_a_tool",
-                    "arguments": {},
-                    "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "mrtr", "method": "tools/call", "params": { "name": "definitely_not_a_tool", "arguments": {}, "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}}}),
             std::time::Duration::from_secs(120),
         )
         .expect("an MRTR-shaped request must earn a typed answer");
@@ -280,18 +247,7 @@ fn gmcp_req_203_013_04_adversarial() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {
-                        "sampling": {},
-                        "elicitation": {"form": {}},
-                        "roots": {"listChanged": true}
-                    },
-                    "clientInfo": {"name": "mrtr-adv", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "sampling": {}, "elicitation": {"form": {}}, "roots": {"listChanged": true}}, "clientInfo": {"name": "mrtr-adv", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -338,10 +294,7 @@ fn gmcp_req_203_013_04_adversarial() {
     for round in 0..3 {
         for handle in ["handle-of-another-principal", "replayed-input-request"] {
             let answer = wire.request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": handle,
-                    "result": {"action": "accept", "content": {"name": "mallory"}}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": handle, "result": {"action": "accept", "content": {"name": "mallory"}}}),
                 std::time::Duration::from_secs(2),
             );
             assert!(
@@ -353,10 +306,7 @@ fn gmcp_req_203_013_04_adversarial() {
 
     // Cancellation race: cancelling an unknown request, twice, is tolerated.
     for _ in 0..2 {
-        wire.send(&serde_json::json!({
-            "jsonrpc": "2.0", "method": "notifications/cancelled",
-            "params": {"requestId": "never-issued", "reason": "race"}
-        }));
+        wire.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "never-issued", "reason": "race"}}));
     }
 
     // Retry with forged inputResponses: typed, deterministic on replay,
@@ -365,15 +315,7 @@ fn gmcp_req_203_013_04_adversarial() {
     for attempt in 0..2 {
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call",
-                    "params": {
-                        "name": "definitely_not_a_tool",
-                        "arguments": {},
-                        "requestState": "forged-state",
-                        "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
-                    }
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call", "params": { "name": "definitely_not_a_tool", "arguments": {}, "requestState": "forged-state", "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}}}),
                 std::time::Duration::from_secs(120),
             )
             .expect("a retry with inputResponses must earn a typed answer");
@@ -395,13 +337,7 @@ fn gmcp_req_203_013_04_adversarial() {
     // Bounded resources: an oversized payload gets a bounded typed answer.
     let big = "x".repeat(256 * 1024);
     let oversized = wire.request_verbatim(
-        &serde_json::json!({
-            "jsonrpc": "2.0", "id": "big", "method": "tools/call",
-            "params": {
-                "name": "definitely_not_a_tool", "arguments": {},
-                "inputResponses": {"answer": {"action": "accept", "content": {"blob": big}}}
-            }
-        }),
+        &serde_json::json!({ "jsonrpc": "2.0", "id": "big", "method": "tools/call", "params": { "name": "definitely_not_a_tool", "arguments": {}, "inputResponses": {"answer": {"action": "accept", "content": {"blob": big}}}}}),
         std::time::Duration::from_secs(180),
     );
     assert!(
@@ -439,18 +375,7 @@ fn gmcp_req_203_013_05_interop() {
         let mut wire = StdioSession::spawn_raw(root, &home);
         let initialize = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2025-11-25",
-                        "capabilities": {
-                            "sampling": {},
-                            "elicitation": {"form": {}},
-                            "roots": {"listChanged": true}
-                        },
-                        "clientInfo": {"name": format!("mrtr-interop-{role}"), "version": "1"}
-                    }
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "sampling": {}, "elicitation": {"form": {}}, "roots": {"listChanged": true}}, "clientInfo": {"name": format!("mrtr-interop-{role}"), "version": "1"}}}),
                 std::time::Duration::from_secs(300),
             )
             .expect("initialize must be answered");
@@ -487,11 +412,7 @@ fn gmcp_req_203_013_05_interop() {
                 ),
                 "{id}: corrupt result must be rejected typed: {answer}"
             );
-            transcript.push(serde_json::json!({
-                "id": id,
-                "code": answer["error"]["code"],
-                "reason": answer["error"]["data"]["reason"],
-            }));
+            transcript.push(serde_json::json!({ "id": id, "code": answer["error"]["code"], "reason": answer["error"]["data"]["reason"]}));
         }
 
         // Retry with inputResponses (property: deterministic, never success,
@@ -501,15 +422,7 @@ fn gmcp_req_203_013_05_interop() {
             let started = std::time::Instant::now();
             let answer = wire
                 .request_verbatim(
-                    &serde_json::json!({
-                        "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call",
-                        "params": {
-                            "name": "definitely_not_a_tool",
-                            "arguments": {},
-                            "requestState": "forged-state",
-                            "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
-                        }
-                    }),
+                    &serde_json::json!({ "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call", "params": { "name": "definitely_not_a_tool", "arguments": {}, "requestState": "forged-state", "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}}}),
                     std::time::Duration::from_secs(120),
                 )
                 .expect("a retry with inputResponses must earn a typed answer");
@@ -563,18 +476,7 @@ fn gmcp_req_203_013_06_operations() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {
-                        "sampling": {},
-                        "elicitation": {"form": {}},
-                        "roots": {"listChanged": true}
-                    },
-                    "clientInfo": {"name": "mrtr-ops", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "sampling": {}, "elicitation": {"form": {}}, "roots": {"listChanged": true}}, "clientInfo": {"name": "mrtr-ops", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -602,15 +504,7 @@ fn gmcp_req_203_013_06_operations() {
         let started = std::time::Instant::now();
         let answer = wire
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("ops-retry-{attempt}"), "method": "tools/call",
-                    "params": {
-                        "name": "definitely_not_a_tool",
-                        "arguments": {},
-                        "requestState": "forged-state-owned-by-another-principal",
-                        "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
-                    }
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("ops-retry-{attempt}"), "method": "tools/call", "params": { "name": "definitely_not_a_tool", "arguments": {}, "requestState": "forged-state-owned-by-another-principal", "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}}}),
                 std::time::Duration::from_secs(120),
             )
             .expect("a forged retry must earn a typed answer");
@@ -629,10 +523,7 @@ fn gmcp_req_203_013_06_operations() {
     // Corrupt unsolicited client results are rejected typed, not ignored.
     let corrupt = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "ops-corrupt",
-                "result": {"roots": [{"uri": "relative/path"}]}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "ops-corrupt", "result": {"roots": [{"uri": "relative/path"}]}}),
             std::time::Duration::from_secs(300),
         )
         .expect("a corrupt client result must earn a typed answer");
@@ -667,14 +558,7 @@ fn gmcp_req_203_013_06_operations() {
     }
     let lock = std::fs::read(root.join("Cargo.lock")).expect("Cargo.lock must be present");
     let source = read_all_gmcp_requirements_sources(root).into_bytes();
-    let evidence = serde_json::json!({
-        "requirement": "GMCP-203-013-06",
-        "protocolVersion": "2025-11-25",
-        "verdicts": verdicts,
-        "corruptResultCode": corrupt["error"]["code"],
-        "lockFingerprint": fingerprint(&lock),
-        "sourceFingerprint": fingerprint(&source),
-    });
+    let evidence = serde_json::json!({ "requirement": "GMCP-203-013-06", "protocolVersion": "2025-11-25", "verdicts": verdicts, "corruptResultCode": corrupt["error"]["code"], "lockFingerprint": fingerprint(&lock), "sourceFingerprint": fingerprint(&source)});
     let rendered = serde_json::to_string_pretty(&evidence).unwrap();
     assert!(rendered.len() < 4096, "evidence must stay bounded");
     let artifact = scratch.join("gmcp-203-013-06.evidence.json");
@@ -730,10 +614,7 @@ fn gmcp_req_203_013_06_operations_latency() {
         let asked = std::time::Instant::now();
         let bare = modern
             .request_verbatim(
-                &serde_json::json!({
-                    "jsonrpc": "2.0", "id": format!("bare-{attempt}"),
-                    "method": "tools/list", "params": {}
-                }),
+                &serde_json::json!({ "jsonrpc": "2.0", "id": format!("bare-{attempt}"), "method": "tools/list", "params": {}}),
                 std::time::Duration::from_secs(60),
             )
             .expect("a request missing its _meta must earn a typed answer");
@@ -856,18 +737,7 @@ fn gmcp_vc_203_013_mastery() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let initialize = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "init", "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {
-                        "sampling": {},
-                        "elicitation": {"form": {}},
-                        "roots": {"listChanged": true}
-                    },
-                    "clientInfo": {"name": "mrtr-ops-mastery", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "sampling": {}, "elicitation": {"form": {}}, "roots": {"listChanged": true}}, "clientInfo": {"name": "mrtr-ops-mastery", "version": "1"}}}),
             std::time::Duration::from_secs(300),
         )
         .expect("initialize must be answered");
@@ -879,10 +749,7 @@ fn gmcp_vc_203_013_mastery() {
 
     let corrupt = wire
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0", "id": "ops-corrupt",
-                "result": {"roots": [{"uri": "relative/path"}]}
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "ops-corrupt", "result": {"roots": [{"uri": "relative/path"}]}}),
             std::time::Duration::from_secs(300),
         )
         .expect("a corrupt client result must earn a typed answer");

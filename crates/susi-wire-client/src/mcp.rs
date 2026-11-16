@@ -33,9 +33,17 @@ pub const PROTOCOL_VERSION_2026_07_28: &str = "2026-07-28";
 /// Extension identifier for Official MCP Tasks.
 pub const TASKS_EXTENSION_ID: &str = "io.modelcontextprotocol/tasks";
 
+/// Extension identifier for Official MCP Apps (`ext-apps@2026-01-26`).
+pub const APPS_EXTENSION_ID: &str = "io.modelcontextprotocol/apps";
+
+/// Maximum cursor pages walked by bounded list pagination (`tools/list`,
+/// `resources/list`, `resources/templates/list`, `prompts/list`).
+pub const MAX_PAGINATION_PAGES: usize = 50;
+
 const META_PROTOCOL_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const META_CLIENT_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";
 const MAX_IDEMPOTENT_RETRIES: usize = 3;
+const MAX_MRTR_ROUNDS: usize = 8;
 
 /// Revisions whose `initialize` and `tools/call` shapes this client speaks.
 const SUPPORTED_VERSIONS: [&str; 3] = [PROTOCOL_VERSION, "2025-06-18", "2025-03-26"];
@@ -79,6 +87,167 @@ impl From<io::Error> for WireError {
     }
 }
 
+/// Callback invoked when a server sends an interleaved JSON-RPC request (`HOST-007`).
+pub type ServerRequestHandler<'a> = dyn FnMut(&str, &Value) -> Result<Value, WireError> + 'a;
+
+/// Per-call capabilities, progress correlation, and callbacks for [`Session::request_host`].
+pub struct HostCall<'a> {
+    /// Client capabilities advertised on `2026-07-28` `_meta`.
+    pub client_capabilities: &'a Value,
+    /// Optional `_meta.progressToken` correlated on `notifications/progress`.
+    pub progress_token: Option<&'a Value>,
+    /// Receiver for server `notifications/*` frames.
+    pub on_notification: &'a mut dyn FnMut(&Value),
+    /// Dispatcher for server-to-client MRTR JSON-RPC requests.
+    pub on_server_request: &'a mut ServerRequestHandler<'a>,
+}
+
+/// Structured HTTP `401` / `403` `WWW-Authenticate` challenge metadata (`HOST-010`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthChallenge {
+    /// HTTP status code (`401` or `403`).
+    pub status: u16,
+    /// Authentication scheme (typically `"Bearer"`).
+    pub scheme: String,
+    /// Optional `realm` parameter.
+    pub realm: Option<String>,
+    /// Optional RFC 9728 `resource_metadata` discovery URL.
+    pub resource_metadata: Option<String>,
+    /// Optional space-delimited `scope` requirement.
+    pub scope: Option<String>,
+    /// Optional OAuth 2.1 `error` code (e.g. `"invalid_token"`, `"insufficient_scope"`).
+    pub error: Option<String>,
+    /// Optional OAuth 2.1 `error_description`.
+    pub error_description: Option<String>,
+}
+
+/// Headless inspection summary of an MCP Apps `ui://` resource (`HOST-009`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppResourceSummary {
+    /// Canonical `ui://` URI read from the server.
+    pub uri: String,
+    /// Declared resource MIME type advertised by the server.
+    pub mime_type: Option<String>,
+    /// Payload size in bytes (never rendered or executed inside headless Core).
+    pub payload_bytes: usize,
+    /// Optional Content-Security-Policy descriptor from `_meta`.
+    pub csp: Option<Value>,
+    /// Optional sandbox / capability permissions descriptor from `_meta`.
+    pub permissions: Option<Value>,
+    /// Optional app origin/domain hint from `_meta`.
+    pub domain: Option<String>,
+    /// Full preserved `_meta` object on the resource content item.
+    pub meta: Value,
+}
+
+/// Live SSE subscription stream opened via `2026-07-28` `subscriptions/listen` (`HOST-005`).
+pub struct SubscriptionStream {
+    reader: crate::sse::SseReader<BufReader<http::Body>>,
+    acknowledged: bool,
+}
+
+impl fmt::Debug for SubscriptionStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SubscriptionStream")
+            .field("acknowledged", &self.acknowledged)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SubscriptionStream {
+    /// Whether `notifications/subscriptions/acknowledged` has been observed.
+    #[must_use]
+    pub fn is_acknowledged(&self) -> bool {
+        self.acknowledged
+    }
+
+    /// Read the next JSON-RPC frame from the SSE subscription stream.
+    pub fn next_frame(&mut self) -> Option<Result<Value, WireError>> {
+        loop {
+            let ev = match self.reader.next()? {
+                Ok(e) => e,
+                Err(e) => return Some(Err(WireError::Io(e.to_string()))),
+            };
+            let Ok(msg) = serde_json::from_str::<Value>(&ev.data) else {
+                continue;
+            };
+            if msg.get("method").and_then(Value::as_str)
+                == Some("notifications/subscriptions/acknowledged")
+            {
+                self.acknowledged = true;
+            }
+            return Some(Ok(msg));
+        }
+    }
+}
+
+/// Parse an HTTP `WWW-Authenticate` header from a `401` or `403` response.
+#[must_use]
+pub fn parse_www_authenticate(status: u16, header_value: &str) -> Option<AuthChallenge> {
+    let trimmed = header_value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (scheme, rest) = match trimmed.split_once(char::is_whitespace) {
+        Some((s, r)) => (s.trim(), r.trim()),
+        None => (trimmed, ""),
+    };
+    let mut challenge = AuthChallenge {
+        status,
+        scheme: scheme.to_string(),
+        realm: None,
+        resource_metadata: None,
+        scope: None,
+        error: None,
+        error_description: None,
+    };
+    let mut rem = rest;
+    while !rem.is_empty() {
+        rem = rem.trim_start_matches([',', ' ', '\t']);
+        if rem.is_empty() {
+            break;
+        }
+        let Some((raw_key, after_eq)) = rem.split_once('=') else {
+            break;
+        };
+        let key = raw_key.trim().to_ascii_lowercase();
+        let after_eq = after_eq.trim_start();
+        let (val, next_rem) = if let Some(quoted) = after_eq.strip_prefix('"') {
+            let mut out = String::new();
+            let mut chars = quoted.char_indices();
+            let mut end_idx = quoted.len();
+            while let Some((idx, ch)) = chars.next() {
+                if ch == '\\' {
+                    if let Some((_, esc)) = chars.next() {
+                        out.push(esc);
+                    }
+                } else if ch == '"' {
+                    end_idx = idx + 1;
+                    break;
+                } else {
+                    out.push(ch);
+                }
+            }
+            (out, &quoted[end_idx..])
+        } else {
+            match after_eq.find([',', ' ', '\t']) {
+                Some(idx) => (after_eq[..idx].to_string(), &after_eq[idx..]),
+                None => (after_eq.to_string(), ""),
+            }
+        };
+        match key.as_str() {
+            "realm" => challenge.realm = Some(val),
+            "resource_metadata" => challenge.resource_metadata = Some(val),
+            "scope" => challenge.scope = Some(val),
+            "error" => challenge.error = Some(val),
+            "error_description" => challenge.error_description = Some(val),
+            _ => {}
+        }
+        rem = next_rem;
+    }
+    Some(challenge)
+}
+
 /// An initialized MCP session. Dropping it sends a best-effort `DELETE`;
 /// [`Session::close`] does the same and reports the outcome.
 #[derive(Debug)]
@@ -88,7 +257,10 @@ pub struct Session {
     bearer: Option<String>,
     id: String,
     version: String,
+    server_info: Value,
     server_capabilities: Value,
+    subscribed_uris: BTreeSet<String>,
+    last_challenge: std::sync::Mutex<Option<AuthChallenge>>,
     timeout: Duration,
     next_id: u64,
     open: bool,
@@ -113,9 +285,32 @@ impl Session {
         capabilities: &Value,
         timeout: Duration,
     ) -> Result<Self, WireError> {
+        Self::open_with_client_info(
+            addr,
+            bearer,
+            capabilities,
+            ("susi", env!("CARGO_PKG_VERSION")),
+            timeout,
+        )
+    }
+
+    /// Connect to `addr` (`host:port`) with explicit `clientInfo` (`name`, `version`)
+    /// and `capabilities`, isolating client identity per server (`HOST-012`).
+    pub fn open_with_client_info(
+        addr: &str,
+        bearer: Option<&str>,
+        capabilities: &Value,
+        client_info: (&str, &str),
+        timeout: Duration,
+    ) -> Result<Self, WireError> {
         if !capabilities.is_object() {
             return Err(WireError::Protocol(
                 "client capabilities must be a JSON object".into(),
+            ));
+        }
+        if client_info.0.trim().is_empty() || client_info.1.trim().is_empty() {
+            return Err(WireError::Protocol(
+                "clientInfo name and version must be non-empty".into(),
             ));
         }
         let (host, port) = split_addr(addr)?;
@@ -126,21 +321,15 @@ impl Session {
             bearer: bearer.map(str::to_string),
             id: String::new(),
             version: String::new(),
+            server_info: json!({}),
             server_capabilities: json!({}),
+            subscribed_uris: BTreeSet::new(),
+            last_challenge: std::sync::Mutex::new(None),
             timeout,
             next_id: 1,
             open: false,
         };
-        let init = session.post(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": capabilities,
-                "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
-            }
-        }))?;
+        let init = session.post(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": PROTOCOL_VERSION, "capabilities": capabilities, "clientInfo": {"name": client_info.0, "version": client_info.1}}}))?;
         session.next_id = 2;
         session.id = init
             .header("mcp-session-id")
@@ -150,6 +339,10 @@ impl Session {
         session.open = true;
         let result = read_result(init, 1, &mut |_| {})?;
         session.version = negotiated_version(&result)?;
+        session.server_info = result
+            .get("serverInfo")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         session.server_capabilities = result
             .get("capabilities")
             .cloned()
@@ -177,7 +370,10 @@ impl Session {
             bearer: bearer.map(str::to_string),
             id: String::new(),
             version: PROTOCOL_VERSION_2026_07_28.to_string(),
+            server_info: json!({}),
             server_capabilities: json!({}),
+            subscribed_uris: BTreeSet::new(),
+            last_challenge: std::sync::Mutex::new(None),
             timeout,
             next_id: 1,
             open: false,
@@ -198,6 +394,7 @@ impl Session {
                 )));
             }
         }
+        session.server_info = extract_server_info(&discover);
         session.server_capabilities = discover
             .get("capabilities")
             .cloned()
@@ -205,10 +402,22 @@ impl Session {
         Ok(session)
     }
 
+    /// Server `Mcp-Session-Id` (`""` on stateless `2026-07-28` sessions).
+    #[must_use]
+    pub fn session_id(&self) -> &str {
+        &self.id
+    }
+
     /// The protocol revision the server chose.
     #[must_use]
     pub fn protocol_version(&self) -> &str {
         &self.version
+    }
+
+    /// Server `Implementation` metadata (`name`, `version`, optional `title`) from handshake.
+    #[must_use]
+    pub fn server_info(&self) -> &Value {
+        &self.server_info
     }
 
     /// The server capability object returned by `initialize` or `server/discover`.
@@ -231,6 +440,29 @@ impl Session {
     pub fn supports_server_tasks(&self) -> bool {
         self.server_extensions()
             .is_some_and(|exts| exts.contains_key(TASKS_EXTENSION_ID))
+    }
+
+    /// Whether the server advertised the official MCP Apps extension (`apps` or `ui`).
+    #[must_use]
+    pub fn supports_server_apps(&self) -> bool {
+        self.server_extensions().is_some_and(|exts| {
+            exts.contains_key(APPS_EXTENSION_ID) || exts.contains_key("io.modelcontextprotocol/ui")
+        })
+    }
+
+    /// Resource URIs currently subscribed on this session.
+    #[must_use]
+    pub fn subscribed_resources(&self) -> &BTreeSet<String> {
+        &self.subscribed_uris
+    }
+
+    /// Most recent `WWW-Authenticate` challenge observed on HTTP `401` / `403`, if any.
+    #[must_use]
+    pub fn last_auth_challenge(&self) -> Option<AuthChallenge> {
+        self.last_challenge
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Change the receive window for later requests.
@@ -399,10 +631,7 @@ impl Session {
                 "tasks/update inputResponses must be a JSON object".into(),
             ));
         }
-        let params = json!({
-            "taskId": task_id,
-            "inputResponses": input_responses,
-        });
+        let params = json!({ "taskId": task_id, "inputResponses": input_responses,});
         let caps = client_capabilities_with_tasks();
         let value = self.request_with_capabilities("tasks/update", &params, &caps, &mut |_| {})?;
         ensure_task_ack(&value, &self.version, "tasks/update")
@@ -559,12 +788,8 @@ impl Session {
         };
         let id = self.next_id;
         self.next_id += 1;
-        let response = self.post(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params
-        }))?;
+        let response =
+            self.post(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
         let result = read_result(response, id, on_notification)?;
         if method != "tools/call"
             && result.get("resultType").and_then(Value::as_str) == Some("task")
@@ -574,6 +799,466 @@ impl Session {
             )));
         }
         Ok(result)
+    }
+
+    /// Execute a host-mode JSON-RPC request that delivers every `notifications/*`
+    /// frame (correlating `notifications/progress` to `progress_token` when set)
+    /// and dispatches live server-to-client MRTR requests (`roots/list`,
+    /// `sampling/createMessage`, `elicitation/create`) via `call.on_server_request`.
+    pub fn request_host(
+        &mut self,
+        method: &str,
+        params: &Value,
+        call: HostCall<'_>,
+    ) -> Result<Value, WireError> {
+        if !call.client_capabilities.is_object() {
+            return Err(WireError::Protocol(
+                "client capabilities must be a JSON object".into(),
+            ));
+        }
+        let mut req_params = params.clone();
+        if let Some(tok) = call.progress_token {
+            if let Some(obj) = req_params.as_object_mut() {
+                match obj.get_mut("_meta") {
+                    Some(Value::Object(m)) => {
+                        m.insert("progressToken".into(), tok.clone());
+                    }
+                    _ => {
+                        obj.insert("_meta".into(), json!({ "progressToken": tok }));
+                    }
+                }
+            }
+        }
+        let params = if self.version == PROTOCOL_VERSION_2026_07_28 {
+            with_modern_meta(&req_params, &self.version, call.client_capabilities)?
+        } else {
+            req_params
+        };
+        let id = self.next_id;
+        self.next_id += 1;
+        let response =
+            self.post(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
+        let streaming = response
+            .header("content-type")
+            .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("text/event-stream"));
+        let result = if streaming {
+            self.read_host_sse(BufReader::new(response.body), id, call)?
+        } else {
+            let mut bytes = Vec::new();
+            BufReader::new(response.body.take(MAX_RESPONSE_BYTES + 1)).read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > MAX_RESPONSE_BYTES {
+                return Err(WireError::Protocol(format!(
+                    "response exceeds {MAX_RESPONSE_BYTES} bytes"
+                )));
+            }
+            match serde_json::from_slice::<Value>(&bytes) {
+                Ok(message) => match classify(&message, id) {
+                    Frame::Answer(res) => res?,
+                    Frame::Notification | Frame::Other => {
+                        return Err(WireError::Protocol(
+                            "JSON response does not answer the request id".into(),
+                        ))
+                    }
+                },
+                Err(_) => self.read_host_sse(&bytes[..], id, call)?,
+            }
+        };
+        if method != "tools/call"
+            && result.get("resultType").and_then(Value::as_str) == Some("task")
+        {
+            return Err(WireError::Protocol(format!(
+                "server returned unexpected CreateTaskResult for non-tool method {method}"
+            )));
+        }
+        Ok(result)
+    }
+
+    fn read_host_sse<R: io::BufRead>(
+        &self,
+        reader: R,
+        id: u64,
+        call: HostCall<'_>,
+    ) -> Result<Value, WireError> {
+        let HostCall {
+            progress_token,
+            on_notification,
+            on_server_request,
+            ..
+        } = call;
+        for event in crate::sse::SseReader::new(reader) {
+            let event = event?;
+            let Ok(message) = serde_json::from_str::<Value>(&event.data) else {
+                continue;
+            };
+            if let Some(srv_method) = message.get("method").and_then(Value::as_str) {
+                if let Some(srv_id) = message.get("id") {
+                    if !srv_id.is_null() {
+                        let srv_params =
+                            message.get("params").cloned().unwrap_or_else(|| json!({}));
+                        let reply = match on_server_request(srv_method, &srv_params) {
+                            Ok(res) => json!({"jsonrpc": "2.0", "id": srv_id, "result": res}),
+                            Err(WireError::Rpc(code, msg)) => {
+                                json!({ "jsonrpc": "2.0", "id": srv_id, "error": {"code": code, "message": msg}})
+                            }
+                            Err(other) => {
+                                json!({ "jsonrpc": "2.0", "id": srv_id, "error": {"code": -32603, "message": other.to_string()}})
+                            }
+                        };
+                        let _ = self.post(&reply)?;
+                        continue;
+                    }
+                } else if srv_method.starts_with("notifications/") {
+                    if srv_method == "notifications/progress" {
+                        let tok = message.get("params").and_then(|p| p.get("progressToken"));
+                        if let Some(expected_tok) = progress_token {
+                            if tok != Some(expected_tok) {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                    on_notification(&message);
+                    continue;
+                }
+            }
+            if let Frame::Answer(result) = classify(&message, id) {
+                return result;
+            }
+        }
+        Err(WireError::Protocol(
+            "no matching response frame in SSE stream".into(),
+        ))
+    }
+
+    /// Return canonical capability discovery document (`server/discover` on `2026-07-28`,
+    /// or retained `initialize` snapshot on stateful sessions).
+    pub fn discover(&mut self) -> Result<Value, WireError> {
+        if self.version == PROTOCOL_VERSION_2026_07_28 {
+            let mut doc = self.request_with_capabilities(
+                "server/discover",
+                &json!({}),
+                &json!({}),
+                &mut |_| {},
+            )?;
+            let info = extract_server_info(&doc);
+            self.server_info = info.clone();
+            self.server_capabilities = doc
+                .get("capabilities")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            if let Some(obj) = doc.as_object_mut() {
+                if !obj.contains_key("serverInfo") {
+                    obj.insert("serverInfo".to_string(), info);
+                }
+            }
+            Ok(doc)
+        } else {
+            Ok(
+                json!({ "protocolVersion": self.version, "serverInfo": self.server_info, "capabilities": self.server_capabilities,}),
+            )
+        }
+    }
+
+    fn list_paginated(&mut self, method: &str, array_key: &str) -> Result<Vec<Value>, WireError> {
+        let mut params = json!({});
+        let mut items = Vec::new();
+        let mut seen_cursors = BTreeSet::new();
+        for _ in 0..MAX_PAGINATION_PAGES {
+            let result = self.request(method, &params, &mut |_| {})?;
+            let page = result
+                .get(array_key)
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    WireError::Protocol(format!("{method} response missing `{array_key}` array"))
+                })?;
+            items.extend(page.iter().cloned());
+            let cursor = result
+                .get("nextCursor")
+                .or_else(|| result.get("next_cursor"))
+                .and_then(Value::as_str)
+                .filter(|c| !c.is_empty());
+            match cursor {
+                Some(c) => {
+                    if !seen_cursors.insert(c.to_string()) {
+                        return Err(WireError::Protocol(format!(
+                            "{method} repeated pagination cursor {c:?}"
+                        )));
+                    }
+                    params = json!({ "cursor": c });
+                }
+                None => return Ok(items),
+            }
+        }
+        Err(WireError::Protocol(format!(
+            "{method} exceeded {MAX_PAGINATION_PAGES} pagination pages"
+        )))
+    }
+
+    /// List all tools across cursor pages (`HOST-004`).
+    pub fn list_all_tools(&mut self) -> Result<Vec<Value>, WireError> {
+        self.list_paginated("tools/list", "tools")
+    }
+
+    /// List all static resources across cursor pages (`HOST-005`).
+    pub fn list_all_resources(&mut self) -> Result<Vec<Value>, WireError> {
+        self.list_paginated("resources/list", "resources")
+    }
+
+    /// List all RFC 6570 resource URI templates across cursor pages (`HOST-005`).
+    pub fn list_all_resource_templates(&mut self) -> Result<Vec<Value>, WireError> {
+        self.list_paginated("resources/templates/list", "resourceTemplates")
+    }
+
+    /// Read a resource by URI (`resources/read`, `HOST-005`).
+    pub fn read_resource(&mut self, uri: &str) -> Result<Value, WireError> {
+        if uri.trim().is_empty() {
+            return Err(WireError::Protocol("resource URI must be non-empty".into()));
+        }
+        self.request("resources/read", &json!({ "uri": uri }), &mut |_| {})
+    }
+
+    /// Subscribe to resource updates (`resources/subscribe` on `2025-11-25`..`2025-03-26`,
+    /// or tracked URI set for `subscriptions/listen` on `2026-07-28`, `HOST-005`).
+    pub fn subscribe_resource(&mut self, uri: &str) -> Result<(), WireError> {
+        if uri.trim().is_empty() {
+            return Err(WireError::Protocol("resource URI must be non-empty".into()));
+        }
+        if self.version != PROTOCOL_VERSION_2026_07_28 {
+            let _ = self.request("resources/subscribe", &json!({ "uri": uri }), &mut |_| {})?;
+        }
+        self.subscribed_uris.insert(uri.to_string());
+        Ok(())
+    }
+
+    /// Unsubscribe from resource updates (`resources/unsubscribe`, `HOST-005`).
+    pub fn unsubscribe_resource(&mut self, uri: &str) -> Result<(), WireError> {
+        if self.version != PROTOCOL_VERSION_2026_07_28 {
+            let _ = self.request("resources/unsubscribe", &json!({ "uri": uri }), &mut |_| {})?;
+        }
+        self.subscribed_uris.remove(uri);
+        Ok(())
+    }
+
+    /// Open a live `2026-07-28` SSE `subscriptions/listen` stream (`HOST-005`).
+    pub fn open_subscription_stream(
+        &mut self,
+        notifications_filter: &Value,
+        client_capabilities: &Value,
+    ) -> Result<SubscriptionStream, WireError> {
+        if !notifications_filter.is_object() {
+            return Err(WireError::Protocol(
+                "subscriptions/listen notifications filter must be a JSON object".into(),
+            ));
+        }
+        let raw_params = json!({ "notifications": notifications_filter });
+        let params = if self.version == PROTOCOL_VERSION_2026_07_28 {
+            with_modern_meta(&raw_params, &self.version, client_capabilities)?
+        } else {
+            raw_params
+        };
+        let id = self.next_id;
+        self.next_id += 1;
+        let response = self.post(&json!({ "jsonrpc": "2.0", "id": id, "method": "subscriptions/listen", "params": params}))?;
+        let streaming = response
+            .header("content-type")
+            .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("text/event-stream"));
+        if !streaming {
+            let result = read_result(response, id, &mut |_| {})?;
+            return Err(WireError::Protocol(format!(
+                "expected text/event-stream for subscriptions/listen, got JSON {result}"
+            )));
+        }
+        let mut stream = SubscriptionStream {
+            reader: crate::sse::SseReader::new(BufReader::new(response.body)),
+            acknowledged: false,
+        };
+        match stream.next_frame() {
+            Some(Ok(frame)) => {
+                if let Some(err) = frame.get("error") {
+                    let code = err.get("code").and_then(Value::as_i64).unwrap_or(-32603);
+                    let msg = err
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("subscriptions/listen rejected")
+                        .to_string();
+                    return Err(WireError::Rpc(code, msg));
+                }
+                if !stream.acknowledged {
+                    return Err(WireError::Protocol(format!(
+                        "subscriptions/listen first frame was not acknowledged: {frame}"
+                    )));
+                }
+                Ok(stream)
+            }
+            Some(Err(e)) => Err(e),
+            None => Err(WireError::Protocol(
+                "subscriptions/listen stream closed before acknowledgement".into(),
+            )),
+        }
+    }
+
+    /// List all prompts across cursor pages (`HOST-006`).
+    pub fn list_all_prompts(&mut self) -> Result<Vec<Value>, WireError> {
+        self.list_paginated("prompts/list", "prompts")
+    }
+
+    /// Materialize a named prompt (`prompts/get`, `HOST-006`).
+    pub fn get_prompt(
+        &mut self,
+        name: &str,
+        arguments: Option<&Value>,
+    ) -> Result<Value, WireError> {
+        if name.trim().is_empty() {
+            return Err(WireError::Protocol("prompt name must be non-empty".into()));
+        }
+        let params = match arguments {
+            Some(args) => json!({ "name": name, "arguments": args }),
+            None => json!({ "name": name }),
+        };
+        self.request("prompts/get", &params, &mut |_| {})
+    }
+
+    /// Complete an argument on a prompt (`completion/complete`, `ref/prompt`, `HOST-006`).
+    pub fn complete_prompt(
+        &mut self,
+        prompt_name: &str,
+        arg_name: &str,
+        arg_value: &str,
+        context_args: Option<&Value>,
+    ) -> Result<Value, WireError> {
+        let mut params = json!({ "ref": { "type": "ref/prompt", "name": prompt_name}, "argument": { "name": arg_name, "value": arg_value}});
+        if let Some(ctx) = context_args {
+            params["context"] = json!({ "arguments": ctx });
+        }
+        self.request("completion/complete", &params, &mut |_| {})
+    }
+
+    /// Complete an argument on a resource URI template (`completion/complete`, `ref/resource`, `HOST-006`).
+    pub fn complete_resource(
+        &mut self,
+        template_uri: &str,
+        arg_name: &str,
+        arg_value: &str,
+        context_args: Option<&Value>,
+    ) -> Result<Value, WireError> {
+        let mut params = json!({ "ref": { "type": "ref/resource", "uri": template_uri}, "argument": { "name": arg_name, "value": arg_value}});
+        if let Some(ctx) = context_args {
+            params["context"] = json!({ "arguments": ctx });
+        }
+        self.request("completion/complete", &params, &mut |_| {})
+    }
+
+    /// Headlessly inspect an MCP Apps `ui://` resource (`HOST-009`).
+    pub fn inspect_app_resource(&mut self, uri: &str) -> Result<AppResourceSummary, WireError> {
+        if !uri.starts_with("ui://") {
+            return Err(WireError::Protocol(format!(
+                "MCP Apps resource URI must use `ui://` scheme, got {uri:?}"
+            )));
+        }
+        let read = self.read_resource(uri)?;
+        parse_app_resource_summary(uri, &read)
+    }
+
+    /// Invoke `tools/call` resolving `2026-07-28` inline MRTR turn-arounds
+    /// (`resultType: "input_required"` -> `requestState` + `inputResponses`) with
+    /// per-call key deduplication and fail-closed `CreateTaskResult` rejection (`HOST-007`).
+    pub fn call_tool_with_mrtr<F>(
+        &mut self,
+        name: &str,
+        args: &Value,
+        client_capabilities: &Value,
+        mut on_input_requests: F,
+    ) -> Result<Value, WireError>
+    where
+        F: FnMut(&[InputRequestEntry]) -> Result<Value, WireError>,
+    {
+        let mut request_state: Option<Value> = None;
+        let mut input_responses: Option<Value> = None;
+        let mut answered = BTreeSet::new();
+        for _ in 0..MAX_MRTR_ROUNDS {
+            let mut params = json!({ "name": name, "arguments": args });
+            if let Some(st) = request_state.take() {
+                params["requestState"] = st;
+            }
+            if let Some(ir) = input_responses.take() {
+                params["inputResponses"] = ir;
+            }
+            let res = self.request_with_capabilities(
+                "tools/call",
+                &params,
+                client_capabilities,
+                &mut |_| {},
+            )?;
+            match res.get("resultType").and_then(Value::as_str) {
+                Some("task") => {
+                    return Err(WireError::Protocol(
+                        "server returned unexpected CreateTaskResult during synchronous MRTR call"
+                            .into(),
+                    ))
+                }
+                Some("input_required") => {
+                    let entries = parse_input_requests(res.get("inputRequests"))?;
+                    if entries.is_empty() {
+                        return Err(WireError::Protocol(
+                            "input_required tool result carried no inputRequests".into(),
+                        ));
+                    }
+                    for e in &entries {
+                        if answered.contains(&e.key) {
+                            return Err(WireError::Protocol(format!(
+                                "server reused answered MRTR key {:?}",
+                                e.key
+                            )));
+                        }
+                    }
+                    let responses = on_input_requests(&entries)?;
+                    let Some(obj) = responses.as_object() else {
+                        return Err(WireError::Protocol(
+                            "MRTR callback must return a JSON object".into(),
+                        ));
+                    };
+                    let pending: BTreeSet<&str> = entries.iter().map(|e| e.key.as_str()).collect();
+                    for k in obj.keys() {
+                        if !pending.contains(k.as_str()) {
+                            return Err(WireError::Protocol(format!(
+                                "MRTR response key {k:?} was not pending"
+                            )));
+                        }
+                        answered.insert(k.clone());
+                    }
+                    request_state = res.get("requestState").cloned();
+                    input_responses = Some(responses);
+                }
+                _ => return Ok(res),
+            }
+        }
+        Err(WireError::Protocol(format!(
+            "exceeded {MAX_MRTR_ROUNDS} MRTR turn-around rounds for tool {name}"
+        )))
+    }
+
+    /// Emit cooperative `notifications/cancelled` for an in-flight JSON-RPC `request_id` (`HOST-011`).
+    pub fn notify_cancelled(
+        &mut self,
+        request_id: Value,
+        reason: Option<&str>,
+    ) -> Result<(), WireError> {
+        let params = match reason {
+            Some(r) => json!({ "requestId": request_id, "reason": r }),
+            None => json!({ "requestId": request_id }),
+        };
+        let _ = self.post(
+            &json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": params}),
+        )?;
+        Ok(())
+    }
+
+    /// Emit `notifications/roots/list_changed` on this session (`HOST-007`).
+    pub fn notify_roots_list_changed(&mut self) -> Result<(), WireError> {
+        let _ =
+            self.post(&json!({ "jsonrpc": "2.0", "method": "notifications/roots/list_changed"}))?;
+        Ok(())
     }
 
     /// Release the session with `DELETE`. A 405 (the server does not let
@@ -668,6 +1353,15 @@ impl Session {
         )
         .map_err(WireError::Io)?;
         if !(200..300).contains(&response.status) {
+            if matches!(response.status, 401 | 403) {
+                let ch = response
+                    .header("www-authenticate")
+                    .and_then(|v| parse_www_authenticate(response.status, v));
+                *self
+                    .last_challenge
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = ch;
+            }
             let mut head = Vec::new();
             let _ = (&mut response.body).take(4096).read_to_end(&mut head);
             if matches!(response.status, 400 | 404) {
@@ -857,17 +1551,7 @@ impl PersistedTaskHandle {
     }
 
     fn to_json(&self) -> Value {
-        json!({
-            "addr": self.addr,
-            "taskId": self.task_id,
-            "protocolVersion": self.protocol_version,
-            "status": self.status.as_str(),
-            "statusMessage": self.status_message,
-            "createdAt": self.created_at,
-            "lastUpdatedAt": self.last_updated_at,
-            "ttlMs": self.ttl_ms,
-            "pollIntervalMs": self.poll_interval_ms,
-        })
+        json!({ "addr": self.addr, "taskId": self.task_id, "protocolVersion": self.protocol_version, "status": self.status.as_str(), "statusMessage": self.status_message, "createdAt": self.created_at, "lastUpdatedAt": self.last_updated_at, "ttlMs": self.ttl_ms, "pollIntervalMs": self.poll_interval_ms,})
     }
 
     fn from_json(value: &Value) -> Result<Self, WireError> {
@@ -1004,10 +1688,7 @@ impl PersistedTaskHandleStore {
         if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent).map_err(|e| WireError::Io(e.to_string()))?;
         }
-        let payload = serde_json::to_vec_pretty(&json!({
-            "version": 1,
-            "handles": self.handles.iter().map(PersistedTaskHandle::to_json).collect::<Vec<_>>(),
-        }))
+        let payload = serde_json::to_vec_pretty(&json!({ "version": 1, "handles": self.handles.iter().map(PersistedTaskHandle::to_json).collect::<Vec<_>>(),}))
         .map_err(|e| WireError::Protocol(e.to_string()))?;
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1398,781 +2079,58 @@ fn excerpt(body: &[u8]) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
-
-    fn sse(body: &str, id: u64) -> (Result<Value, WireError>, Vec<Value>) {
-        let mut seen = Vec::new();
-        let result = sse_result(body.as_bytes(), id, &mut |n| seen.push(n.clone()));
-        (result, seen)
-    }
-
-    #[test]
-    fn sse_picks_matching_id_skips_control_frames_and_relays_progress() {
-        let body = "data: \nid: 0\nretry: 3000\n\n\
-                    data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{\"progress\":0.5}}\n\n\
-                    data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"data\":\"hi\"}}\n\n\
-                    data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n\
-                    data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\n\n";
-        let (result, seen) = sse(body, 2);
-        assert_eq!(
-            result
-                .unwrap()
-                .pointer("/content/0/text")
-                .and_then(Value::as_str),
-            Some("ok")
-        );
-        let methods: Vec<_> = seen.iter().map(|n| n["method"].clone()).collect();
-        assert_eq!(
-            methods,
-            vec![
-                json!("notifications/progress"),
-                json!("notifications/message")
-            ]
-        );
-    }
-
-    #[test]
-    fn sse_surfaces_rpc_errors() {
-        let body = "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}";
-        match sse(body, 2).0 {
-            Err(WireError::Rpc(code, message)) => {
-                assert_eq!(code, -32602);
-                assert_eq!(message, "Unknown tool");
-            }
-            other => panic!("expected an rpc error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn sse_misses_when_no_frame_matches() {
-        let (result, _) = sse("data: {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{}}", 2);
-        assert!(matches!(result, Err(WireError::Protocol(_))));
-    }
-
-    #[test]
-    fn sse_joins_multiline_data_fields() {
-        let body = "data: {\"jsonrpc\":\"2.0\",\ndata: \"id\":2,\"result\":{\"ok\":true}}\n\n";
-        assert_eq!(sse(body, 2).0.unwrap(), json!({"ok": true}));
-    }
-
-    #[test]
-    fn server_requests_sharing_an_id_are_not_responses() {
-        let body = "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"elicitation/create\"}\n\n\
-                    data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\n\n";
-        let (result, seen) = sse(body, 2);
-        assert_eq!(result.unwrap(), json!({}));
-        assert!(seen.is_empty());
-    }
-
-    #[test]
-    fn json_bodies_are_matched_and_sniffed() {
-        let read = |raw: &'static [u8]| {
-            read_result(http::read_response(raw, "POST").unwrap(), 2, &mut |_| {})
-        };
-        let json_reply =
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}";
-        assert_eq!(read(json_reply).unwrap(), json!({"tools": []}));
-        let other_id =
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{}}";
-        assert!(read(other_id).is_err());
-        // No event-stream content type, but the body is SSE: sniffed.
-        let sniffed =
-            b"HTTP/1.1 200 OK\r\n\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"x\":1}}\n\n";
-        assert_eq!(read(sniffed).unwrap(), json!({"x": 1}));
-    }
-
-    #[test]
-    fn negotiation_accepts_only_spoken_versions() {
-        assert_eq!(
-            negotiated_version(&json!({"protocolVersion": "2025-06-18"})).unwrap(),
-            "2025-06-18"
-        );
-        assert!(negotiated_version(&json!({"protocolVersion": "1999-01-01"})).is_err());
-        assert!(negotiated_version(&json!({})).is_err());
-    }
-
-    #[test]
-    fn addresses_split_into_host_and_port() {
-        assert_eq!(
-            split_addr("127.0.0.1:9093").unwrap(),
-            ("127.0.0.1".into(), 9093)
-        );
-        assert_eq!(split_addr("[::1]:9093").unwrap(), ("::1".into(), 9093));
-        assert!(split_addr("127.0.0.1").is_err());
-        assert!(split_addr(":9093").is_err());
-        assert!(split_addr("host:port").is_err());
-    }
-
-    #[test]
-    fn only_loopback_addresses_are_accepted() {
-        assert!(ensure_loopback("127.0.0.1", 9093).is_ok());
-        assert!(ensure_loopback("::1", 9093).is_ok());
-        for remote in ["192.0.2.1", "10.0.0.1", "0.0.0.0"] {
-            let err = ensure_loopback(remote, 9093).unwrap_err();
-            assert!(err.to_string().contains("not a loopback"), "{err}");
-        }
-        // Refused before any connection: nothing listens on TEST-NET-1.
-        let err = Session::open("192.0.2.1:9093", Some("tok"), Duration::from_secs(5)).unwrap_err();
-        assert!(matches!(err, WireError::Protocol(_)), "{err}");
-    }
-
-    /// The release reads only the status: a huge error body costs a short
-    /// excerpt, not the whole body.
-    #[test]
-    fn release_reads_only_a_short_excerpt_of_the_reply() {
-        let huge: &'static str = Box::leak(
-            format!(
-                "HTTP/1.1 500 Oops\r\nContent-Length: 4000000\r\n\r\n{}",
-                "x".repeat(4_000_000)
-            )
-            .into_boxed_str(),
-        );
-        let (addr, _, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nMcp-Session-Id: s-3\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\"}}",
-            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
-            huge,
-        ]);
-        let session = Session::open(&addr, None, Duration::from_secs(5)).unwrap();
-        match session.close() {
-            Err(WireError::Http(500, body)) => assert!(body.len() <= 204, "{}", body.len()),
-            other => panic!("expected HTTP 500, got {other:?}"),
-        }
-        drop(server);
-    }
-
-    #[test]
-    fn errors_display_their_cause() {
-        assert_eq!(WireError::Http(401, String::new()).to_string(), "HTTP 401");
-        assert_eq!(
-            WireError::Http(404, "not found".into()).to_string(),
-            "HTTP 404: not found"
-        );
-        assert_eq!(
-            WireError::Rpc(-32602, "Unknown tool".into()).to_string(),
-            "rpc error -32602: Unknown tool"
-        );
-    }
-
-    /// One recorded request: method, headers (lower-cased names), body.
-    type Seen = Arc<Mutex<Vec<(String, Vec<(String, String)>, String)>>>;
-
-    /// A scripted Streamable HTTP server: answers each connection with the
-    /// next canned reply and records what the client sent.
-    fn scripted(replies: Vec<&'static str>) -> (String, Seen, std::thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap().to_string();
-        let seen: Seen = Arc::default();
-        let log = seen.clone();
-        let handle = std::thread::spawn(move || {
-            for reply in replies {
-                let (stream, _) = listener.accept().unwrap();
-                let mut reader = BufReader::new(stream);
-                let mut head = Vec::new();
-                loop {
-                    let mut line = String::new();
-                    io::BufRead::read_line(&mut reader, &mut line).unwrap();
-                    let line = line.trim_end().to_string();
-                    if line.is_empty() {
-                        break;
-                    }
-                    head.push(line);
-                }
-                let method = head[0].split(' ').next().unwrap().to_string();
-                let headers: Vec<(String, String)> = head[1..]
-                    .iter()
-                    .filter_map(|l| l.split_once(':'))
-                    .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
-                    .collect();
-                let length = headers
-                    .iter()
-                    .find(|(k, _)| k == "content-length")
-                    .map_or(0, |(_, v)| v.parse().unwrap());
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                log.lock()
-                    .unwrap()
-                    .push((method, headers, String::from_utf8(body).unwrap()));
-                let mut stream = reader.into_inner();
-                stream.write_all(reply.as_bytes()).unwrap();
-            }
-        });
-        (addr, seen, handle)
-    }
-
-    #[test]
-    fn session_handshakes_calls_with_progress_and_releases() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nMcp-Session-Id: s-1\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}",
-            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n\
-             47\r\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n\r\n\
-             31\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"a\":1}}\n\n\r\n0\r\n\r\n",
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
-        ]);
-        let mut session = Session::open(&addr, Some("tok"), Duration::from_secs(5)).unwrap();
-        assert_eq!(session.protocol_version(), "2025-06-18");
-        let mut progress = 0;
-        let result = session
-            .call_tool("echo", &json!({"x": 1}), Some(json!("p1")), &mut |_| {
-                progress += 1
-            })
-            .unwrap();
-        assert_eq!(result, json!({"a": 1}));
-        assert_eq!(progress, 1);
-        session.close().unwrap();
-        server.join().unwrap();
-
-        let seen = seen.lock().unwrap();
-        let methods: Vec<&str> = seen.iter().map(|(m, _, _)| m.as_str()).collect();
-        assert_eq!(methods, ["POST", "POST", "POST", "DELETE"]);
-        let header = |i: usize, name: &str| {
-            seen[i]
-                .1
-                .iter()
-                .find(|(k, _)| k == name)
-                .map(|(_, v)| v.clone())
-        };
-        assert_eq!(header(0, "authorization").as_deref(), Some("Bearer tok"));
-        assert_eq!(header(0, "mcp-session-id"), None);
-        for i in 1..4 {
-            assert_eq!(header(i, "mcp-session-id").as_deref(), Some("s-1"));
-            assert_eq!(
-                header(i, "mcp-protocol-version").as_deref(),
-                Some("2025-06-18")
-            );
-        }
-        let call: Value = serde_json::from_str(&seen[2].2).unwrap();
-        assert_eq!(call["method"], "tools/call");
-        assert_eq!(call["params"]["name"], "echo");
-        assert_eq!(call["params"]["_meta"]["progressToken"], "p1");
-    }
-
-    #[test]
-    fn unsupported_version_fails_and_still_releases_the_session() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nMcp-Session-Id: s-2\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"1999-01-01\"}}",
-            "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n",
-        ]);
-        let err = Session::open(&addr, None, Duration::from_secs(5)).unwrap_err();
-        assert!(err.to_string().contains("unsupported"), "{err}");
-        server.join().unwrap();
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen.last().map(|(m, _, _)| m.as_str()), Some("DELETE"));
-        assert!(seen[0].1.iter().all(|(k, _)| k != "authorization"));
-    }
-
-    #[test]
-    fn http_errors_carry_status_and_body() {
-        let (addr, _, server) = scripted(vec![
-            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nbad token\r\n\r\n",
-        ]);
-        match Session::open(&addr, Some("wrong"), Duration::from_secs(5)) {
-            Err(WireError::Http(401, body)) => assert_eq!(body, "bad token"),
-            other => panic!("expected HTTP 401, got {other:?}"),
-        }
-        server.join().unwrap();
-    }
-
-    /// A server that keeps the stream alive with comments but never answers
-    /// is cut off at the call's total budget, not kept open by each byte.
-    #[test]
-    fn keep_alive_comments_do_not_extend_the_budget() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap().to_string();
-        std::thread::spawn(move || {
-            let Ok((mut stream, _)) = listener.accept() else {
-                return;
-            };
-            let _ = stream.write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nMcp-Session-Id: s\r\n\r\n",
-            );
-            for _ in 0..100 {
-                if stream.write_all(b": keep-alive\n\n").is_err() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(25));
-            }
-        });
-        let started = std::time::Instant::now();
-        let err = Session::open(&addr, None, Duration::from_millis(120)).unwrap_err();
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "{:?}",
-            started.elapsed()
-        );
-        assert!(err.to_string().contains("time budget"), "{err}");
-    }
-
-    /// A peer that accepts and never answers costs the caller's short
-    /// budget, not the 20-second handshake default.
-    #[test]
-    fn a_short_budget_bounds_the_handshake_too() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap().to_string();
-        std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut sink = Vec::new();
-                let _ = stream.read_to_end(&mut sink);
-            }
-        });
-        let started = std::time::Instant::now();
-        assert!(call_tool(&addr, "runtime_models_list", &json!({}), None, 1).is_err());
-        assert!(
-            started.elapsed() < DEFAULT_TIMEOUT,
-            "{:?}",
-            started.elapsed()
-        );
-    }
-
-    #[test]
-    fn open_with_capabilities_exchanges_and_retains_server_extensions() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nMcp-Session-Id: ext-1\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{\"list\":{}},\"vendor.example/custom\":{\"version\":2}}}}}",
-            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
-        ]);
-        let client_caps = json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {},
-                "vendor.example/client-only": {"enabled": true}
-            }
-        });
-        let session =
-            Session::open_with_capabilities(&addr, None, &client_caps, Duration::from_secs(5))
-                .unwrap();
-        let exts = session
-            .server_extensions()
-            .expect("server extensions must be retained");
-        assert!(exts.contains_key("io.modelcontextprotocol/tasks"));
-        assert_eq!(exts["vendor.example/custom"]["version"], 2);
-        assert!(session.server_capabilities().get("extensions").is_some());
-        session.close().unwrap();
-        server.join().unwrap();
-
-        let seen = seen.lock().unwrap();
-        let init: Value = serde_json::from_str(&seen[0].2).unwrap();
-        assert_eq!(init["params"]["capabilities"], client_caps);
-        assert!(Session::open_with_capabilities(
-            &addr,
-            None,
-            &json!("not-an-object"),
-            Duration::from_secs(1),
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn open_2026_07_28_discovers_statelessly_and_detects_tasks_extension() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\",\"2025-11-25\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}},\"ttlMs\":1000,\"cacheScope\":\"public\"}}",
-        ]);
-        let session =
-            Session::open_2026_07_28(&addr, Some("tok-1"), Duration::from_secs(5)).unwrap();
-        assert_eq!(session.protocol_version(), PROTOCOL_VERSION_2026_07_28);
-        assert!(session.supports_server_tasks());
-        drop(session); // Must not issue DELETE /mcp when stateless.
-        server.join().unwrap();
-
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].0, "POST");
-        let hdrs = &seen[0].1;
-        assert!(hdrs
-            .iter()
-            .any(|(k, v)| k == "mcp-protocol-version" && v == "2026-07-28"));
-        assert!(hdrs
-            .iter()
-            .any(|(k, v)| k == "mcp-method" && v == "server/discover"));
-        assert!(!hdrs.iter().any(|(k, _)| k == "mcp-session-id"));
-        let req: Value = serde_json::from_str(&seen[0].2).unwrap();
-        assert_eq!(req["method"], "server/discover");
-        assert_eq!(
-            req["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"],
-            "2026-07-28"
-        );
-        assert_eq!(
-            req["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"],
-            json!({})
-        );
-    }
-
-    #[test]
-    fn open_2026_07_28_rejects_missing_version_advertisement() {
-        let (addr, _seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2025-11-25\"],\"capabilities\":{}}}",
-        ]);
-        let err = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap_err();
-        assert!(matches!(err, WireError::Protocol(_)), "{err}");
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn call_tool_with_tasks_gates_capability_and_rejects_unexpected_task_result() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"task\",\"taskId\":\"task-abc\",\"status\":\"working\",\"createdAt\":\"2026-11-15T00:00:00Z\",\"lastUpdatedAt\":\"2026-11-15T00:00:00Z\",\"ttlMs\":5000,\"pollIntervalMs\":50}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"task\",\"taskId\":\"task-forged\",\"status\":\"working\",\"createdAt\":\"2026-11-15T00:00:00Z\",\"lastUpdatedAt\":\"2026-11-15T00:00:00Z\"}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"task\",\"taskId\":\"task-list\",\"status\":\"working\",\"createdAt\":\"2026-11-15T00:00:00Z\",\"lastUpdatedAt\":\"2026-11-15T00:00:00Z\"}}",
-        ]);
-        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-
-        let outcome = session
-            .call_tool_with_tasks("mission_run", &json!({"x": 1}), true, &mut |_| {})
-            .unwrap();
-        assert!(matches!(outcome, CallToolOutcome::Task(ref h) if h.task_id == "task-abc"));
-
-        // Follow-up without opt-in must omit tasks capability and reject forged CreateTaskResult.
-        let forged_err = session
-            .call_tool_with_tasks("mission_run", &json!({"x": 2}), false, &mut |_| {})
-            .unwrap_err();
-        assert!(matches!(forged_err, WireError::Protocol(_)), "{forged_err}");
-
-        // Non-tools/call returning CreateTaskResult must also fail closed.
-        let list_err = session
-            .request("tools/list", &json!({}), &mut |_| {})
-            .unwrap_err();
-        assert!(matches!(list_err, WireError::Protocol(_)), "{list_err}");
-        server.join().unwrap();
-
-        let seen = seen.lock().unwrap();
-        let req2: Value = serde_json::from_str(&seen[1].2).unwrap();
-        let req3: Value = serde_json::from_str(&seen[2].2).unwrap();
-        assert!(
-            req2["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"]["extensions"]
-                .get(TASKS_EXTENSION_ID)
-                .is_some()
-        );
-        assert!(seen[1]
-            .1
-            .iter()
-            .any(|(k, v)| k == "mcp-method" && v == "tools/call"));
-        assert!(seen[1]
-            .1
-            .iter()
-            .any(|(k, v)| k == "mcp-name" && v == "mission_run"));
-        assert_eq!(
-            req3["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"],
-            json!({})
-        );
-    }
-
-    #[test]
-    fn task_rpcs_inject_mcp_name_and_retry_only_idempotent_transient_failures() {
-        let (addr, seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\n\r\nbusy",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-9\",\"status\":\"working\",\"createdAt\":\"2026-11-15T00:00:00Z\",\"lastUpdatedAt\":\"2026-11-15T00:00:01Z\"}}",
-            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\n\r\nbusy",
-            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\n\r\nbusy",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"resultType\":\"complete\"}}",
-            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32021,\"message\":\"Missing required client capability\"}}",
-        ]);
-        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-        let snap = session.get_task("t-9").unwrap();
-        assert_eq!(snap.handle.status, TaskStatus::Working);
-
-        // tasks/update must NOT retry on transient 503.
-        let update_err = session
-            .update_task("t-9", &json!({"req-1": {"ok": true}}))
-            .unwrap_err();
-        assert!(
-            matches!(update_err, WireError::Http(503, _)),
-            "{update_err}"
-        );
-
-        // tasks/cancel IS idempotent and retries 503 -> 200.
-        session.cancel_task("t-9").unwrap();
-
-        // 400 JSON-RPC error (-32021) parses into WireError::Rpc without retrying.
-        let rpc_err = session.get_task("t-9").unwrap_err();
-        assert!(matches!(rpc_err, WireError::Rpc(-32021, _)), "{rpc_err}");
-        server.join().unwrap();
-
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 7);
-        for entry in &seen[1..] {
-            assert!(
-                entry.1.iter().any(|(k, v)| k == "mcp-name" && v == "t-9"),
-                "expected Mcp-Name: t-9 in {:?}",
-                entry.1
-            );
-        }
-    }
-
-    #[test]
-    fn poll_task_until_done_handles_mrtr_honors_poll_interval_and_rejects_reuse_or_ttl() {
-        // Multi-round-trip flow: working -> input_required (roots/list) -> completed
-        let (addr, _seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-mrtr\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":15}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-mrtr\",\"status\":\"input_required\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"pollIntervalMs\":15,\"inputRequests\":{\"k-roots\":{\"method\":\"roots/list\"}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\"}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-mrtr\",\"status\":\"completed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t2\",\"ttlMs\":5000,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}],\"isError\":false}}}",
-        ]);
-        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-        let handle = TaskHandle {
-            task_id: "t-mrtr".into(),
-            status: TaskStatus::Working,
-            status_message: None,
-            created_at: "t0".into(),
-            last_updated_at: "t0".into(),
-            ttl_ms: Some(5000),
-            poll_interval_ms: Some(15),
-        };
-        let done = session
-            .poll_task_until_done(&handle, Some(Duration::from_secs(5)), |reqs| {
-                assert_eq!(reqs.len(), 1);
-                assert_eq!(reqs[0].method, "roots/list");
-                Ok(json!({ &reqs[0].key: {"roots": []} }))
-            })
-            .unwrap();
-        assert_eq!(done.handle.status, TaskStatus::Completed);
-        assert_eq!(done.result.unwrap()["content"][0]["text"], "done");
-        server.join().unwrap();
-
-        // Reuse of already-answered inputRequests key fails closed.
-        let (addr2, _seen2, server2) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-dup\",\"status\":\"input_required\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"pollIntervalMs\":5,\"inputRequests\":{\"k-same\":{\"method\":\"elicitation/create\",\"params\":{\"message\":\"ok\"}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"complete\"}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-dup\",\"status\":\"input_required\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t2\",\"pollIntervalMs\":5,\"inputRequests\":{\"k-same\":{\"method\":\"elicitation/create\",\"params\":{\"message\":\"again\"}}}}}",
-        ]);
-        let mut session2 = Session::open_2026_07_28(&addr2, None, Duration::from_secs(5)).unwrap();
-        let reuse_err = session2
-            .poll_task_until_done(
-                &TaskHandle {
-                    task_id: "t-dup".into(),
-                    ..handle.clone()
-                },
-                None,
-                |reqs| Ok(json!({ &reqs[0].key: {"action": "accept"} })),
-            )
-            .unwrap_err();
-        assert!(matches!(reuse_err, WireError::Protocol(_)), "{reuse_err}");
-        server2.join().unwrap();
-
-        // Disallowed MRTR method is rejected.
-        let bad_snap = json!({
-            "resultType": "complete",
-            "taskId": "t-bad",
-            "status": "input_required",
-            "createdAt": "t0",
-            "lastUpdatedAt": "t1",
-            "inputRequests": { "evil": { "method": "tools/call", "params": {} } }
-        });
-        assert!(TaskSnapshot::from_get_result(&bad_snap).is_err());
-
-        // ttlMs deadline stops infinite working loops before sleeping past ttlMs.
-        let (addr3, _seen3, server3) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-ttl\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":20,\"pollIntervalMs\":500}}",
-        ]);
-        let mut session3 = Session::open_2026_07_28(&addr3, None, Duration::from_secs(5)).unwrap();
-        let ttl_err = session3
-            .poll_task_until_done(
-                &TaskHandle {
-                    task_id: "t-ttl".into(),
-                    ttl_ms: Some(20),
-                    poll_interval_ms: Some(500),
-                    ..handle
-                },
-                None,
-                |_| Ok(json!({})),
-            )
-            .unwrap_err();
-        assert!(matches!(ttl_err, WireError::Protocol(_)), "{ttl_err}");
-        server3.join().unwrap();
-    }
-
-    #[test]
-    fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption() {
-        let dir = std::env::temp_dir().join(format!(
-            "susi_wire_client_tasks_{}_{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        let path = dir.join("handles.json");
-        let mut store = PersistedTaskHandleStore::open(&path).unwrap();
-        assert!(store.list().is_empty());
-
-        let handle = TaskHandle {
-            task_id: "task-persist-1".into(),
-            status: TaskStatus::Working,
-            status_message: Some("running".into()),
-            created_at: "2026-11-15T00:00:00Z".into(),
-            last_updated_at: "2026-11-15T00:00:00Z".into(),
-            ttl_ms: Some(60_000),
-            poll_interval_ms: Some(250),
-        };
-        store
-            .save(PersistedTaskHandle::from_handle(
-                "127.0.0.1:8080",
-                PROTOCOL_VERSION_2026_07_28,
-                &handle,
-            ))
-            .unwrap();
-        drop(store);
-
-        let mut reopened = PersistedTaskHandleStore::open(&path).unwrap();
-        let entry = reopened.get("task-persist-1").unwrap();
-        assert_eq!(entry.addr, "127.0.0.1:8080");
-        assert_eq!(entry.status, TaskStatus::Working);
-
-        let snap = TaskSnapshot::from_get_result(&json!({
-            "resultType": "complete",
-            "taskId": "task-persist-1",
-            "status": "completed",
-            "statusMessage": "done",
-            "createdAt": "2026-11-15T00:00:00Z",
-            "lastUpdatedAt": "2026-11-15T00:00:05Z",
-            "ttlMs": 60_000,
-            "result": {"ok": true}
-        }))
-        .unwrap();
-        assert!(reopened.update_from_snapshot(&snap).unwrap());
-        assert_eq!(
-            PersistedTaskHandleStore::open(&path)
-                .unwrap()
-                .get("task-persist-1")
-                .unwrap()
-                .status,
-            TaskStatus::Completed
-        );
-        assert!(reopened.remove("task-persist-1").unwrap());
-        assert!(PersistedTaskHandleStore::open(&path)
-            .unwrap()
-            .list()
-            .is_empty());
-
-        // Corrupt JSON must fail closed instead of wiping store.
-        fs::write(&path, b"{broken json").unwrap();
-        assert!(matches!(
-            PersistedTaskHandleStore::open(&path),
-            Err(WireError::Protocol(_))
-        ));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelled() {
-        let (addr, _seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            // 1. Direct synchronous CallToolResult
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"content\":[{\"type\":\"text\",\"text\":\"sync-direct\"}],\"isError\":false}}",
-            // 2. CreateTaskResult -> Completed with isError: true (must return Ok(CallToolResult))
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-tool-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-tool-err\",\"status\":\"completed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"tool-fault\"}],\"isError\":true}}}",
-            // 3. CreateTaskResult -> Failed (must surface structured WireError::Rpc)
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-rpc-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-rpc-err\",\"status\":\"failed\",\"statusMessage\":\"rpc crashed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"error\":{\"code\":-32603,\"message\":\"downstream crash\"}}}",
-            // 4. CreateTaskResult -> Cancelled (must surface WireError::Protocol)
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-cancel\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-cancel\",\"status\":\"cancelled\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000}}",
-        ]);
-        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-        let direct = session
-            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
-            .unwrap();
-        assert_eq!(direct["content"][0]["text"], "sync-direct");
-
-        let tool_err = session
-            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
-            .unwrap();
-        assert_eq!(tool_err["isError"], json!(true));
-        assert_eq!(tool_err["content"][0]["text"], "tool-fault");
-
-        let rpc_err = session
-            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
-            .unwrap_err();
-        assert!(
-            matches!(&rpc_err, WireError::Rpc(-32603, msg) if msg == "downstream crash"),
-            "{rpc_err:?}"
-        );
-
-        let cancel_err = session
-            .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
-            .unwrap_err();
-        assert!(
-            matches!(&cancel_err, WireError::Protocol(msg) if msg.contains("cancelled")),
-            "{cancel_err:?}"
-        );
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn task_ack_and_task_id_validation_reject_forged_result_types_and_control_chars() {
-        let (addr, _seen, server) = scripted(vec![
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}",
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
-             {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"input_required\"}}",
-        ]);
-        let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-        for bad_id in ["", "bad\r\nEvil: 1", "bad\u{0000}id"] {
-            assert!(matches!(
-                session.get_task(bad_id),
-                Err(WireError::Protocol(_))
-            ));
-            assert!(matches!(
-                session.update_task(bad_id, &json!({})),
-                Err(WireError::Protocol(_))
-            ));
-            assert!(matches!(
-                session.cancel_task(bad_id),
-                Err(WireError::Protocol(_))
-            ));
-        }
-        assert!(matches!(
-            session.update_task("valid-id", &json!({})),
-            Err(WireError::Protocol(_))
-        ));
-        assert!(matches!(
-            session.cancel_task("valid-id"),
-            Err(WireError::Protocol(_))
-        ));
-        server.join().unwrap();
-    }
+pub(crate) fn parse_app_resource_summary(
+    uri: &str,
+    read: &Value,
+) -> Result<AppResourceSummary, WireError> {
+    let first = read
+        .get("contents")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+        .ok_or_else(|| {
+            WireError::Protocol(format!("resources/read for {uri} returned empty contents"))
+        })?;
+    let payload_bytes = first.get("text").and_then(Value::as_str).map_or_else(
+        || {
+            first
+                .get("blob")
+                .and_then(Value::as_str)
+                .map_or(0, str::len)
+        },
+        str::len,
+    );
+    let meta = first.get("_meta").cloned().unwrap_or_else(|| json!({}));
+    let ui_meta = meta.get("ui").unwrap_or(&meta);
+    Ok(AppResourceSummary {
+        uri: uri.to_string(),
+        mime_type: first
+            .get("mimeType")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        payload_bytes,
+        csp: ui_meta.get("csp").cloned(),
+        permissions: ui_meta
+            .get("permissions")
+            .or_else(|| ui_meta.get("sandbox"))
+            .cloned(),
+        domain: ui_meta
+            .get("domain")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        meta,
+    })
 }
+
+fn extract_server_info(doc: &Value) -> Value {
+    doc.get("serverInfo")
+        .or_else(|| {
+            doc.get("_meta")
+                .and_then(|meta| meta.get("io.modelcontextprotocol/serverInfo"))
+        })
+        .cloned()
+        .unwrap_or_else(|| json!({}))
+}
+
+#[cfg(test)]
+#[path = "tests/mcp.rs"]
+mod tests;

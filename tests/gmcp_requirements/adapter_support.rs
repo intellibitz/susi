@@ -46,9 +46,7 @@ impl AdapterClient {
     }
 
     fn call(&mut self, id: &str, method: &str, params: serde_json::Value) -> serde_json::Value {
-        self.send(&serde_json::json!({
-            "jsonrpc": "2.0", "id": id, "method": method, "params": params
-        }));
+        self.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params}));
         self.answer(id)
     }
 
@@ -69,11 +67,7 @@ fn transport_adapter_script(client: &mut AdapterClient) -> Vec<(&'static str, se
     let initialize = client.call(
         "init",
         "initialize",
-        serde_json::json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "gmcp-007-03", "version": "1"}
-        }),
+        serde_json::json!({ "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-007-03", "version": "1"}}),
     );
     assert!(
         initialize["result"]["capabilities"].is_object(),
@@ -126,17 +120,12 @@ fn transport_adapter_script(client: &mut AdapterClient) -> Vec<(&'static str, se
 
     // Cancellation: cancelling a request that is not in flight changes
     // nothing, and the session keeps serving.
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/cancelled",
-        "params": {"requestId": "never-sent", "reason": "adapter equivalence"}
-    }));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "never-sent", "reason": "adapter equivalence"}}));
 
     // Ordering: pipelined requests are each answered exactly once, and a
     // request sent after them is still answered.
     for n in 0..8 {
-        client.send(&serde_json::json!({
-            "jsonrpc": "2.0", "id": format!("pipe-{n}"), "method": "ping", "params": {}
-        }));
+        client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": format!("pipe-{n}"), "method": "ping", "params": {}}));
     }
     let mut answered = Vec::new();
     for n in 0..8 {
@@ -320,10 +309,7 @@ fn adapter_session_ended(
 
 /// An oversized line is refused once and the session keeps serving.
 fn adapter_limit_step(client: &mut AdapterClient) -> serde_json::Value {
-    let mut line = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "big", "method": "ping",
-        "params": {"pad": "x".repeat(ADAPTER_LIMIT + 1024)}
-    }))
+    let mut line = serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": "big", "method": "ping", "params": {"pad": "x".repeat(ADAPTER_LIMIT + 1024)}}))
     .unwrap();
     line.push(b'\n');
     (client.write)(&line);
@@ -344,9 +330,7 @@ fn transport_adapter_attacks(client: &mut AdapterClient) -> Vec<(&'static str, s
     let code = |value: &serde_json::Value| value["error"]["code"].clone();
 
     // A request before the handshake is not served.
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "early", "method": "tools/list", "params": {}
-    }));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "early", "method": "tools/list", "params": {}}));
     let early = client.take("pre-handshake verdict", |value| {
         value["error"].is_object() && (value["id"] == "early" || value["id"].is_null())
     });
@@ -359,11 +343,7 @@ fn transport_adapter_attacks(client: &mut AdapterClient) -> Vec<(&'static str, s
     let initialize = client.call(
         "init",
         "initialize",
-        serde_json::json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "gmcp-007-04", "version": "1"}
-        }),
+        serde_json::json!({ "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "gmcp-007-04", "version": "1"}}),
     );
     let capabilities = &initialize["result"]["capabilities"];
     assert!(
@@ -475,14 +455,9 @@ fn transport_adapter_attacks(client: &mut AdapterClient) -> Vec<(&'static str, s
     transcript.push(("replayed id", first["result"].clone()));
 
     // A forged response to a request the server never made is ignored.
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "forged-server-request", "result": {"roots": []}
-    }));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "forged-server-request", "result": {"roots": []}}));
     // Cancelling another party's request id changes nothing.
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/cancelled",
-        "params": {"requestId": "someone-elses", "reason": "spoofed"}
-    }));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "someone-elses", "reason": "spoofed"}}));
     let alive = client.call("after-forgery", "ping", serde_json::json!({}));
     assert_eq!(
         alive["result"],
@@ -493,13 +468,8 @@ fn transport_adapter_attacks(client: &mut AdapterClient) -> Vec<(&'static str, s
 
     // A call that is cancelled while it runs: the session answers the next
     // request whatever became of the cancelled one.
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": "doomed", "method": "tools/list", "params": {}
-    }));
-    client.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/cancelled",
-        "params": {"requestId": "doomed", "reason": "client gave up"}
-    }));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "doomed", "method": "tools/list", "params": {}}));
+    client.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "doomed", "reason": "client gave up"}}));
     let alive = client.call("after-cancel", "ping", serde_json::json!({}));
     assert_eq!(
         alive["result"],
@@ -524,11 +494,7 @@ fn adapter_handshake(client: &mut AdapterClient, name: &str) {
     let initialize = client.call(
         "init",
         "initialize",
-        serde_json::json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": name, "version": "1"}
-        }),
+        serde_json::json!({ "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": name, "version": "1"}}),
     );
     assert!(
         initialize["result"]["capabilities"].is_object(),
@@ -609,10 +575,7 @@ fn adapter_wire_fixtures(root: &Path) -> Vec<WireFixture> {
 
 /// The `_meta` every request of a modern-era session carries.
 fn adapter_modern_meta() -> serde_json::Value {
-    serde_json::json!({"_meta": {
-        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-        "io.modelcontextprotocol/clientCapabilities": {}
-    }})
+    serde_json::json!({"_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}}})
 }
 
 /// Replay, on one session of the given era, every wire fixture whose
@@ -732,9 +695,7 @@ fn adapter_property_run(
                 "ping"
             };
             bytes.extend_from_slice(
-                &serde_json::to_vec(&serde_json::json!({
-                    "jsonrpc": "2.0", "id": id, "method": method, "params": {}
-                }))
+                &serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {}}))
                 .unwrap(),
             );
             bytes.push(b'\n');

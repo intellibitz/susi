@@ -139,14 +139,7 @@ fn gmcp_vc_203_011_mastery() {
     let rendered = embedded.call(
         "mastery-get",
         "prompts/get",
-        serde_json::json!({
-            "name": "use_tool",
-            "arguments": {
-                "name": "ledger_verify",
-                "goal": injected_args
-            },
-            "_meta": adapter_modern_meta()["_meta"]
-        }),
+        serde_json::json!({ "name": "use_tool", "arguments": { "name": "ledger_verify", "goal": injected_args}, "_meta": adapter_modern_meta()["_meta"]}),
     );
     assert_eq!(rendered["result"]["resultType"], "complete");
     let rendered_messages = rendered["result"]["messages"]
@@ -170,11 +163,7 @@ fn gmcp_vc_203_011_mastery() {
     let comp = embedded.call(
         "mastery-comp",
         "completion/complete",
-        serde_json::json!({
-            "ref": {"type": "ref/prompt", "name": "use_tool"},
-            "argument": {"name": "name", "value": "ledger"},
-            "_meta": adapter_modern_meta()["_meta"]
-        }),
+        serde_json::json!({ "ref": {"type": "ref/prompt", "name": "use_tool"}, "argument": {"name": "name", "value": "ledger"}, "_meta": adapter_modern_meta()["_meta"]}),
     );
     assert_eq!(comp["result"]["resultType"], "complete");
     let comp_values = comp["result"]["completion"]["values"]
@@ -192,37 +181,22 @@ fn gmcp_vc_203_011_mastery() {
         (
             "m-err-unknown-prompt",
             "prompts/get",
-            serde_json::json!({
-                "name": "no_such_prompt",
-                "_meta": adapter_modern_meta()["_meta"]
-            }),
+            serde_json::json!({ "name": "no_such_prompt", "_meta": adapter_modern_meta()["_meta"]}),
         ),
         (
             "m-err-missing-arg",
             "prompts/get",
-            serde_json::json!({
-                "name": "use_tool",
-                "arguments": {"name": "ledger_verify"},
-                "_meta": adapter_modern_meta()["_meta"]
-            }),
+            serde_json::json!({ "name": "use_tool", "arguments": {"name": "ledger_verify"}, "_meta": adapter_modern_meta()["_meta"]}),
         ),
         (
             "m-err-unknown-ref",
             "completion/complete",
-            serde_json::json!({
-                "ref": {"type": "ref/prompt", "name": "no_such_prompt"},
-                "argument": {"name": "name", "value": ""},
-                "_meta": adapter_modern_meta()["_meta"]
-            }),
+            serde_json::json!({ "ref": {"type": "ref/prompt", "name": "no_such_prompt"}, "argument": {"name": "name", "value": ""}, "_meta": adapter_modern_meta()["_meta"]}),
         ),
         (
             "m-err-bad-uri",
             "completion/complete",
-            serde_json::json!({
-                "ref": {"type": "ref/resource", "uri": "not a uri"},
-                "argument": {"name": "name", "value": "x"},
-                "_meta": adapter_modern_meta()["_meta"]
-            }),
+            serde_json::json!({ "ref": {"type": "ref/resource", "uri": "not a uri"}, "argument": {"name": "name", "value": "x"}, "_meta": adapter_modern_meta()["_meta"]}),
         ),
         ("m-err-no-meta", "prompts/list", serde_json::json!({})),
     ] {
@@ -260,28 +234,14 @@ fn gmcp_vc_203_011_mastery() {
     let mut legacy_stdio = StdioSession::spawn_raw(root, &op_home);
     let legacy_init = legacy_stdio
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "m-legacy-init",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "mastery-legacy", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "m-legacy-init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mastery-legacy", "version": "1"}}}),
             Duration::from_secs(120),
         )
         .expect("legacy stdio initialize must reply");
     assert!(legacy_init.get("result").is_some());
     legacy_stdio
         .send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-    let injected_meta_line = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "m-legacy-era-mismatch",
-        "method": "prompts/list",
-        "params": adapter_modern_meta()
-    });
+    let injected_meta_line = serde_json::json!({ "jsonrpc": "2.0", "id": "m-legacy-era-mismatch", "method": "prompts/list", "params": adapter_modern_meta()});
     let mut gate = EraState::default();
     let _ = classify_line(
         br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"g","version":"1"}}}"#,
@@ -300,28 +260,14 @@ fn gmcp_vc_203_011_mastery() {
     let mut modern_stdio = StdioSession::spawn_raw(root, &op_home);
     let stdio_discover = modern_stdio
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-discover",
-                "method": "server/discover",
-                "params": adapter_modern_meta(),
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "m-stdio-discover", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(120),
         )
         .expect("modern stdio discover");
     assert_eq!(stdio_discover["result"], embedded_discover["result"]);
     let _ = modern_stdio
         .request_verbatim(
-            &serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "m-stdio-init",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2026-07-28",
-                    "capabilities": {},
-                    "clientInfo": {"name": "mastery-modern", "version": "1"}
-                }
-            }),
+            &serde_json::json!({ "jsonrpc": "2.0", "id": "m-stdio-init", "method": "initialize", "params": { "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "mastery-modern", "version": "1"}}}),
             Duration::from_secs(120),
         )
         .expect("modern stdio init");
@@ -395,12 +341,7 @@ fn gmcp_vc_203_011_mastery() {
             ("MCP-Protocol-Version", "2026-07-28"),
             ("Mcp-Method", "prompts/list"),
         ],
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-list",
-            "method": "prompts/list",
-            "params": adapter_modern_meta()
-        }),
+        serde_json::json!({ "jsonrpc": "2.0", "id": "m-http-list", "method": "prompts/list", "params": adapter_modern_meta()}),
     );
     assert!(
         st_list.starts_with("HTTP/1.1 200"),
@@ -420,16 +361,7 @@ fn gmcp_vc_203_011_mastery() {
             ("Mcp-Method", "prompts/get"),
             ("Mcp-Name", "=?base64?dXNlX3Rvb2w=?="),
         ],
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-b64",
-            "method": "prompts/get",
-            "params": {
-                "name": "use_tool",
-                "arguments": {"name": "ledger_verify", "goal": "{}"},
-                "_meta": adapter_modern_meta()["_meta"]
-            }
-        }),
+        serde_json::json!({ "jsonrpc": "2.0", "id": "m-http-b64", "method": "prompts/get", "params": { "name": "use_tool", "arguments": {"name": "ledger_verify", "goal": "{}"}, "_meta": adapter_modern_meta()["_meta"]}}),
     );
     assert!(
         st_b64.starts_with("HTTP/1.1 200"),
@@ -443,16 +375,7 @@ fn gmcp_vc_203_011_mastery() {
             ("Mcp-Method", "prompts/get"),
             ("Mcp-Name", "wrong_prompt"),
         ],
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "m-http-mismatch",
-            "method": "prompts/get",
-            "params": {
-                "name": "use_tool",
-                "arguments": {"name": "ledger_verify", "goal": "{}"},
-                "_meta": adapter_modern_meta()["_meta"]
-            }
-        }),
+        serde_json::json!({ "jsonrpc": "2.0", "id": "m-http-mismatch", "method": "prompts/get", "params": { "name": "use_tool", "arguments": {"name": "ledger_verify", "goal": "{}"}, "_meta": adapter_modern_meta()["_meta"]}}),
     );
     assert!(
         st_mismatch.starts_with("HTTP/1.1 400"),

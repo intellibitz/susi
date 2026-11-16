@@ -18,5 +18,35 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "in_progress",
+  "base_commit": "eeb824383817bb4d0a270fb96644536d3ef4f4b0",
+  "limitations": [
+    "Production stage (`GMCP-203-017-02`) ships the canonical multi-server `susi_wire_client::host::McpHost` and extended `susi_wire_client::mcp::Session` (`HOST-001..HOST-018`), `susi_tools::spawn_authorized_stdio_peer` (`CLAIM-04`), and unified `susi mcp` CLI subcommands (`discover`, `resources`, `read [--app]`, `prompts`, `prompt`, `complete`, `task`); integration, adversarial, interop, operations, and `.M` mastery ship across `T-CODEXGMCPROADMAP-116..120`.",
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, Core ships headless MCP host protocol plumbing and `ui://` metadata inspection while interactive Apps rendering lives in Susi Commercial Apps, and `.agents/gmcp/evidence/VC-203-017.jsonl` plus `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "extend",
+    "searched": [
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-tools/src/mcp_budget.rs",
+      "crates/susi-cli-defs/src/mcp.rs",
+      "src/cli/mcp_cli.rs",
+      "docs/gmcp/contract-203-017.md"
+    ],
+    "target": "crates/susi-wire-client/src/host.rs",
+    "why": "Extended `susi-wire-client` (`Session` + `host::McpHost`), `susi_tools::mcp_budget::spawn_authorized_stdio_peer`, and `susi mcp` CLI definitions/handlers on top of existing thin-client framing, `MacPolicy` transport authorization, and `PersistedTaskHandleStore` without adding workspace or third-party dependencies."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "crates/susi-cli-defs/src/mcp.rs",
+    "crates/susi-tools/src",
+    "crates/susi-wire-client/src",
+    "src/cli/catalogs.rs",
+    "src/cli/mcp_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "tests/gmcp_requirements"
+  ]
 }
