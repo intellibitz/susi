@@ -711,10 +711,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when the close is refused (for example, no live claim).
     pub fn close(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
-        let claim = local_claim(worktree)?;
-        for scope in task_scopes(id) {
-            claim.require_scope(&scope)?;
-        }
+        validate_task_id(id)?;
         let open = worktree.join(format!(".agents/tasks/{id}.json"));
         let done = worktree.join(format!(".agents/tasks/done/{id}.json"));
         let locks = common_dir(worktree)
@@ -722,10 +719,50 @@ impl<R: CommandRunner> SusiTarget<R> {
             .join("susi-local-workflow/task-closures");
         let _guard = susi_config::file_lock::FileLock::acquire(&locks, id)
             .ok_or_else(|| EaiError::process("native task closure is busy; retry"))?;
+        let (claim, mut record) = self.owned_task(worktree, id)?;
+        let original = record.clone();
+        let scopes = serde_json::json!(claim.scopes);
+        let argv = self.acceptance_argv(worktree, id)?;
+        let accepted = self.run_acceptance(worktree, id, &argv)?;
+        record["accept"] = serde_json::json!({"cmd": argv});
+        record["scopes"] = scopes;
+        record["native_worker"] = Value::String(claim.name);
+        record["status"] = Value::String("verified".into());
+        record["integration"] = Value::String("pending_native_receipt".into());
+        // Native provenance compares this active proof through acceptance.
+        // The receiver archives it locally only after the accepted tree lands.
+        let bytes = serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?;
+        if done.exists() {
+            check_task_path(worktree, &done)?;
+            let existing: Value = serde_json::from_slice(
+                &std::fs::read(&done).map_err(|e| EaiError::io(e.to_string()))?,
+            )
+            .map_err(|e| EaiError::config(e.to_string()))?;
+            let expected = if open.exists() { &record } else { &original };
+            if existing != *expected {
+                return Err(EaiError::process(
+                    "existing done record conflicts with native task proof",
+                ));
+            }
+        }
+        susi_config::atomic_write_bytes(&open, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
+        if done.exists() {
+            std::fs::remove_file(&done).map_err(|e| EaiError::io(e.to_string()))?;
+        }
+        Ok(accepted)
+    }
+
+    fn owned_task(&self, worktree: &Path, id: &str) -> EaiResult<(LocalClaim, Value)> {
+        let claim = local_claim(worktree)?;
+        for scope in task_scopes(id) {
+            claim.require_scope(&scope)?;
+        }
+        let open = worktree.join(format!(".agents/tasks/{id}.json"));
+        let done = worktree.join(format!(".agents/tasks/done/{id}.json"));
         let path = task_file(worktree, id)?;
         check_task_path(worktree, &open)?;
         check_task_path(worktree, &done)?;
-        let mut record: Value =
+        let record: Value =
             serde_json::from_slice(&std::fs::read(&path).map_err(|e| EaiError::io(e.to_string()))?)
                 .map_err(|e| EaiError::config(e.to_string()))?;
         if record["id"] != id
@@ -748,31 +785,16 @@ impl<R: CommandRunner> SusiTarget<R> {
                 "task scopes no longer match its native reservation",
             ));
         }
-        let argv = self.acceptance_argv(worktree, id)?;
-        let accepted = self.run_acceptance(worktree, id, &argv)?;
-        record["accept"] = serde_json::json!({"cmd": argv});
-        record["scopes"] = scopes;
-        record["native_worker"] = Value::String(claim.name);
-        record["status"] = Value::String("verified".into());
-        record["integration"] = Value::String("pending_native_receipt".into());
-        // Native provenance resolves the worker-bound task in the source tree
-        // and compares the same blob in the integrated tree. The queue separately
-        // consumes the done marker. Preserve both through acceptance and retries.
-        let bytes = serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?;
-        if done.exists() && path != done {
-            let existing: Value = serde_json::from_slice(
-                &std::fs::read(&done).map_err(|e| EaiError::io(e.to_string()))?,
-            )
-            .map_err(|e| EaiError::config(e.to_string()))?;
-            if existing != record {
-                return Err(EaiError::process(
-                    "existing done record conflicts with native task proof",
-                ));
-            }
-        }
-        susi_config::atomic_write_bytes(&done, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
-        susi_config::atomic_write_bytes(&open, &bytes).map_err(|e| EaiError::io(e.to_string()))?;
-        Ok(accepted)
+        Ok((claim, record))
+    }
+
+    pub(crate) fn pending_native_task(&self, worktree: &Path, id: &str) -> bool {
+        self.owned_task(worktree, id).is_ok_and(|(claim, record)| {
+            record["status"] == "verified"
+                && record["native_worker"] == claim.name
+                && record["scopes"] == serde_json::json!(claim.scopes)
+                && self.acceptance_argv(worktree, id).is_ok()
+        })
     }
 
     /// Whether a task record claimed at `recorded` still belongs to a claim
