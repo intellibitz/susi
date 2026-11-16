@@ -15,6 +15,11 @@
   },
   "created_by": "CLAUDETESTBUDGET",
   "created_unix": 1794816592,
+  "closed": {
+    "at_unix": 1794816711,
+    "commit": "40eb73a4f6000bd6d4472f9b1af52b0cfddf0a76",
+    "by": "CLAUDETESTBUDGET"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "tests/lean_core_ceilings.rs (the category budgets and how they are measured) and the ceiling history in docs/lean-core.md, including the earlier CEO-decided raise of this budget (T-CLAUDE-411, 127,000 -> 129,000). The existing constant and decision log are changed in place; nothing new is built."
