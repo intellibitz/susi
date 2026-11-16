@@ -1,0 +1,14 @@
+{
+  "branch": "claude-vision-tidy",
+  "scopes": [
+    "AGENTS.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/architecture_tests.rs",
+    ".agents/visions",
+    ".agents/tasks/T-CODEXCORE100K-1.json"
+  ],
+  "task": "T-AGENTCLAUDEVISIONTIDY-1",
+  "agent": "AGENTCLAUDEVISIONTIDY",
+  "claimed_unix": 1794844267,
+  "lease_until_unix": 1794847867
+}
