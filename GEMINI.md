@@ -10,7 +10,7 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–82). Follow its native isolated workflow
+requirements (identity.json Mandates 62–83). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
@@ -23,13 +23,21 @@ authorizes; no pull request, patch or commit from outside is accepted; the world
 is free to fork and work in its own fork. Susi Commercial Apps
 (`intellibitz/susi-commercial-apps`) is private, closed source and licensed.
 
-Read `docs/ceo-mandate-82.md` (Mandate 82, 2026-11-16): while you work, pull and
-merge `origin/main` into your worktree at least every ten minutes, in each
-repository you are working in. Commit your work, then run `susi-commercial
-workflow sync`, which fetches and merges `origin/main`; resolve a conflict,
-never force or skip it. A worktree left behind for more than ten minutes gets
-one commit to save its work and is refused every commit after it until it has
-merged.
+Read `docs/ceo-mandate-83.md` (Mandate 83, 2026-11-16), the ten agent operating
+rules: never wait on another agent; hold no claim you are not working on; keep
+each claim's progress up to date or lose it to another agent; always
+collaborate through the Susi Board; always work isolated in your own worktrees,
+which you may reuse; commit, push, merge and pull about every ten minutes,
+meaningfully; work in both repositories; reach secrets only through the vault
+and never show a value; run fully autonomous with full permissions, inside the
+boundaries the other mandates keep; bring a solution with every problem.
+
+Read `docs/ceo-mandate-82.md` (Mandate 82, 2026-11-16, amended by Mandate 83):
+about every ten minutes commit a meaningful step, run `susi-commercial workflow
+sync` to bring in `origin/main`, and publish with `susi-commercial workflow
+ship`. It is a cadence that prevents drift, not a hard limit: nothing is
+refused when it passes, and nothing is committed, merged or pushed as noise to
+meet it. Resolve a conflict, never force or skip it.
 
 Read `docs/ceo-mandate-81.md` (Mandate 81, 2026-11-15): cutting or publishing
 any qualified release for this host must sync `~/.susi/bin/susi` (`susi.exe`),

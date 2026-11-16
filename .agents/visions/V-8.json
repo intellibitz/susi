@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-8",
+  "statement": "create,edit or add to mandate - 1. agents cannot wait on other agents 2. agents cannot hold a claim and not be working on it 3. agents must keep updating progress on a claim, or the claim can be claimed by other agents 4. agents always collaborating with each other 5. agents always isoloated, work on their own isolated worktrees and can reuse their own worktrees 6. agents committing pushing merging and pulling every 10 minutes - not a hard limit but to prevent drifts must do so in meaningful ways 7. agents must be able to work on both susi core and susi commercial apps 8. agents must access secrets in a safe and secure ways 9. agents always full autonomous and full permissions mode on 10. agents being proactive in providing solutions to problems.",
+  "set_by": "ceo",
+  "recorded_by": "CLAUDEMANDATE83",
+  "set_unix": 1794825408
+}

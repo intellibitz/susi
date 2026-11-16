@@ -1,0 +1,98 @@
+{
+  "id": "T-CODEX100KSETTINGS-1",
+  "title": "Consolidate the exact settings registry declarations",
+  "goal": "Vision: V-6. Reduce repeated SettingEntry construction while preserving the exported constant type, every ordered key and derivation, documentation and all existing tests and assertions.",
+  "status": "completed",
+  "size": "s",
+  "created_by": "CODEX100KSETTINGS",
+  "created_unix": 1794825704,
+  "base_commit": "606f74c4e3d279d872e84b32123ef93e52cd7b9c",
+  "scopes": [
+    "crates/susi-config/src/setting_registry.rs",
+    ".agents/tasks/T-CODEX100KSETTINGS-1.json"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "setting_registry::tests"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing SettingEntry, SettingDerivation and SETTING_REGISTRY declarations; local declaration macros in gmcp_bootstrap and MCP model; existing settings registry regression tests.",
+    "reason": "Reuse the current typed declarations through a private declarative macro. No external source, dependency or package edge is needed."
+  },
+  "coordination": "Scoped by parent CODEXCORE100KIMPLEMENTATION. Parent owns integration and publication; worker may create labelled scoped local commits for the ten-minute merge cadence. No external Board posts.",
+  "execution_environment": {
+    "worktree": "/workspace/codex/susi-core-100k-settings",
+    "target": "/workspace/codex/susi-core-100k-settings-target",
+    "SUSI_HOME": "/workspace/codex/susi-core-100k-settings-state/home",
+    "cargo_jobs": 2
+  },
+  "synced_origin_main": {
+    "commit": "606f74c4e3d279d872e84b32123ef93e52cd7b9c",
+    "at_unix": 1794825851,
+    "method": "git fetch origin main && git merge --no-edit origin/main; already up to date"
+  },
+  "results": {
+    "schema": "susi.settings-registry-parity/v1",
+    "base_commit": "606f74c4e3d279d872e84b32123ef93e52cd7b9c",
+    "file": "crates/susi-config/src/setting_registry.rs",
+    "before_lines": 430,
+    "after_lines": 248,
+    "ordered_entries": 65,
+    "ordered_metadata_sha256": "c591c00c45ecebad374e73c6e47a903976d95156583c7e314a4bcb01abd5003e",
+    "source_after_sha256": "41b74895e70c12e8f4ea754ad6e771a3359985805700dd1ea1526e4a861b1112",
+    "unchanged_test_module": true,
+    "existing_test_functions": 5,
+    "independent_review": "Separate agent inverse-expanded the exact macro scaffold and recovered the whole baseline source byte-for-byte, preserving public constant type, documentation, deprecation comment and every test assertion.",
+    "dependencies_changed": false,
+    "net_runtime_physical_line_reduction_including_macro_and_unchanged_tests": 182,
+    "tests_removed_or_changed": 0
+  },
+  "validation": [
+    {
+      "command": "cargo test --offline --locked -p susi-config --lib setting_registry::tests",
+      "passed": 5,
+      "failed": 0,
+      "filtered": 389,
+      "log": "/workspace/codex/susi-core-100k-settings-state/logs/settings-tests.log"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings",
+      "result": "passed",
+      "log": "/workspace/codex/susi-core-100k-settings-state/logs/settings-clippy.log"
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "limitations": [
+    "Scoped Linux development checks, not release qualification.",
+    "The complete socket under-100k goal remains open. No test or runtime code was moved or excluded."
+  ],
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-settings.json",
+  "closed": {
+    "at_unix": 1794826249,
+    "commit": "9498695674cc31bb83e9d3f7ea4fc59156dab375",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "2aa1bfaaf9f54e408b6d051a6b52006e0a8dfdae",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-settings.json"
+  }
+}

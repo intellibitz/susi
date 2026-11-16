@@ -1,0 +1,52 @@
+{
+  "id": "T-CLAUDEMANDATE83-1",
+  "title": "Mandate 83: the ten agent operating rules; Mandate 82 becomes a cadence",
+  "goal": "Vision: V-8. CEO directive 2026-11-16, ten rules for every agent. Record them as CEO Mandate 83 (constitution entry, docs/ceo-mandate-83.md, AGENTS.md section and table row, CLAUDE.md and GEMINI.md, README list, self-build contract), rewrite Mandate 82 to the CEO's amended wording (commit, push, merge and pull about every ten minutes, a cadence and not a hard limit, meaningfully), amend Mandate 76 (asking never means waiting; a claim past its lease is open), and guard all of it with the governance tests. The tool changes are in intellibitz/susi-commercial-apps (its T-CLAUDEMANDATE83-1).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "agent_bootstrap",
+      "--test",
+      "three_pillars_governance"
+    ]
+  },
+  "created_by": "CLAUDEMANDATE83",
+  "created_unix": 1794825408,
+  "closed": {
+    "at_unix": 1794825607,
+    "commit": "7d9b51fe69f99b060e0fdc104cd6b47d55a2bf5d",
+    "by": "CLAUDEMANDATE83"
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "What core already says for each of the ten rules: Mandates 49, 62, 65, 72 to 82, AGENTS.md (isolation, board, credentials through susi keys vault), the self-build contract (crates/susi-core/src/self_build.rs), the harness launch profiles (crates/susi-harness/src/adaptive.rs: full-permission engine flags by default, a governed profile beside them) and the governance guards (tests/architecture_tests.rs, tests/agent_bootstrap.rs). The mandate points to the mandate that carries each rule and adds only what is new; the workflow tool that makes rules 3, 6 and 7 real is changed in intellibitz/susi-commercial-apps (its T-CLAUDEMANDATE83-1). No new code path, dependency or harvest in core."
+  },
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/visions/V-8.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "crates/susi-core/src/self_build.rs",
+    "docs/ceo-mandate-74.md",
+    "docs/ceo-mandate-76.md",
+    "docs/ceo-mandate-82.md",
+    "docs/ceo-mandate-83.md",
+    "tests/agent_bootstrap.rs",
+    "tests/architecture_tests.rs"
+  ],
+  "limitations": [
+    "Core carries the rules, their documents, the self-build contract clauses and the governance tests. Claim leases, the ten-minute measurement and board access are in the workflow tool in intellibitz/susi-commercial-apps.",
+    "Rules 1, 2, 4 and 10 are conduct the tool cannot see. The one-hour claim lease is the implementing agent's choice of number; the CEO named none.",
+    "Rule 9 records how agents are run. Nothing in core's harness was changed: its default engine commands already use each tool's full-permission flag and its governed profile is untouched.",
+    "Main is unqualified development, not a release."
+  ]
+}

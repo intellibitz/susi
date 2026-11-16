@@ -1,8 +1,11 @@
-//! 5th Open-Core Pillar: Agent Client Protocol (`susi acp`) stdio server and discovery.
+//! Agent Client Protocol (`susi acp`) stdio interoperability and legacy discovery.
 //!
 //! `susi acp` / `susi acp serve` speaks newline-delimited JSON-RPC 2.0 over
-//! stdin/stdout (`AcpStdioTransport`) with zero boot/banner output on stdout
-//! and lazy substrate composition on the first `session/prompt` turn so the
+//! stdin/stdout (`AcpStdioTransport`) with zero boot/banner output on stdout.
+//! Integer initialization selects staged official v1; legacy Susi ACP callers
+//! keep their existing dialect. Supplied MCP servers remain unsupported in v1.
+//! Agent Communication Protocol is a separate protocol. Lazy substrate composition
+//! runs on the first `session/prompt` turn so the
 //! initial protocol handshake completes in a few milliseconds.
 
 use crate::anyhow::Result;
@@ -72,10 +75,10 @@ fn serve_stdio(workspace: &Path) -> Result<()> {
     );
     let stdin = io::stdin();
     let stdout = io::stdout();
-    match AcpStdioTransport::serve_reader_writer(
+    match AcpStdioTransport::serve_negotiated_reader_writer(
         &engine,
         io::BufReader::new(stdin.lock()),
-        stdout.lock(),
+        stdout,
     ) {
         Ok(_) => Ok(()),
         Err(err) if err.kind() == io::ErrorKind::BrokenPipe => Ok(()),

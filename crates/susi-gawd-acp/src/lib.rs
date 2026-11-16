@@ -9,9 +9,11 @@
         clippy::wildcard_enum_match_arm
     )
 )]
-//! Agent Client Protocol / Agent Communication Protocol (ACP) open-socket pillar.
+//! Agent Client Protocol interoperability and the legacy Susi ACP extension.
 //!
-//! `susi_gawd::acp` provides GAWD's Apache-2.0 standard ACP surface over
+//! The negotiated stdio transport adds staged official Agent Client Protocol v1
+//! interoperability; mandatory MCP server bridging remains outstanding. The
+//! existing engine and transports preserve the legacy Susi ACP wire dialect over
 //! both HTTP/1.1 (`GET /.well-known/acp.json`, `POST /acp`, `POST /acp/stream`)
 //! and newline-delimited JSON-RPC 2.0 over stdio (`AcpStdioTransport`), with:
 //! - protocol version negotiation (`initialize` / `acp/initialize`),
@@ -25,6 +27,8 @@
 //! - Mandatory Access Control (`MacPolicy`) capability & privacy admission
 //!   before session creation or prompt execution, and
 //! - zero third-party HTTP/RPC dependencies (`std::net` + `plain_http`).
+//!
+//! Agent Communication Protocol (IBM/BeeAI) is a separate REST protocol.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -36,11 +40,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_config::mac_policy::{self, MacPolicy};
 use susi_config::plain_http;
+mod stdio_v1;
 /// Discovery schema identifier for `GET /.well-known/acp.json`.
 pub const ACP_DISCOVERY_SCHEMA: &str = "susi-acp-discovery/v1";
-/// Canonical ACP wire protocol version.
+/// Legacy Susi ACP wire dialect version; official ACP uses an integer version.
 pub const ACP_PROTOCOL_VERSION: &str = "2026-11-11";
-/// Backwards-compatible ACP protocol alias accepted during `initialize`.
+/// Backwards-compatible legacy Susi ACP alias accepted during `initialize`.
 pub const ACP_PROTOCOL_VERSION_V1: &str = "1.0";
 /// Public discovery path mounted alongside A2A on port `9094 + port_offset`.
 pub const WELL_KNOWN_ACP_PATH: &str = "/.well-known/acp.json";
@@ -468,15 +473,19 @@ impl AcpAdmissionPolicy {
         if trimmed.is_empty() {
             return Ok(None);
         }
-        if trimmed.chars().any(char::is_control)
-            || trimmed.replace('\\', "/").split('/').any(|seg| seg == "..")
+        Self::validate_workspace_path(trimmed)?;
+        Ok(Some(trimmed.to_owned()))
+    }
+    fn validate_workspace_path(path: &str) -> Result<(), RpcErr> {
+        if path.chars().any(char::is_control)
+            || path.replace('\\', "/").split('/').any(|seg| seg == "..")
         {
             return Err((
                 ACP_ERR_CAPABILITY_REFUSED,
-                format!("workspace path rejected by confinement guard: {trimmed}"),
+                format!("workspace path rejected by confinement guard: {path}"),
             ));
         }
-        Ok(Some(trimmed.to_owned()))
+        Ok(())
     }
     fn check_capabilities(
         &self,
@@ -889,6 +898,9 @@ impl AcpEngine {
         let workspace = AcpAdmissionPolicy::validate_workspace(
             params.get("workspace").and_then(Value::as_str),
         )?;
+        self.create_session(params, workspace)
+    }
+    fn create_session(&self, params: &Value, workspace: Option<String>) -> Result<Value, RpcErr> {
         let requested_caps = extract_string_list(params.get("capabilities"))?;
         let resource = workspace.as_deref().unwrap_or("*");
         let admitted_capabilities = self

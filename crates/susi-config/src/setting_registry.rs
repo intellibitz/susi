@@ -26,272 +26,90 @@ pub struct SettingEntry {
     pub derivation: SettingDerivation,
 }
 
-/// Complete registry for every top-level key in `config.default.json`.
-pub const SETTING_REGISTRY: &[SettingEntry] = &[
-    SettingEntry {
-        key: "a2a_http_port",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "admin_command_routing",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "agent_rank_threshold",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "agent_routing",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "allow_origin",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "alpha_weights_filename",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "alpha_weights_url",
-        derivation: SettingDerivation::Constant,
-    },
+macro_rules! setting_registry {
+    ($($key:literal => $derivation:ident),+ $(,)?) => {
+        /// Complete registry for every top-level key in `config.default.json`.
+        pub const SETTING_REGISTRY: &[SettingEntry] = &[
+            $(
+                SettingEntry {
+                    key: $key,
+                    derivation: SettingDerivation::$derivation,
+                },
+            )+
+        ];
+    };
+}
+
+setting_registry! {
+    "a2a_http_port" => Constant,
+    "admin_command_routing" => Constant,
+    "agent_rank_threshold" => Constant,
+    "agent_routing" => Constant,
+    "allow_origin" => Constant,
+    "alpha_weights_filename" => Constant,
+    "alpha_weights_url" => Constant,
     // Deprecated, no effect: core never downloads a model by itself (CEO
     // decision 2026-11-04). Kept, defaulting to `false`, so existing host
     // `config.json` files still load.
-    SettingEntry {
-        key: "auto_download_models",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "axiomatic_risk_patterns",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "bind_address",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "bootstrap_mcp_servers",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "capability_rediscovery_secs",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "cloud_scout_timeout_secs",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "crates_io_api_url",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "default_engine",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "default_fallback_model",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "default_model",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "discoverable_assets",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "eos_token_ids",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "execution_lease_secs",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "external_peer_agents",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "external_peer_agents_note",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "gemi_max_concurrent_requests",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "gemi_port",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "gmcp_http_port",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "gmcp_port",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "governance",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "hf_base_url",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "home_scan_root_exclude_dirs",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "inference_endpoints",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "inference_routing",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "intent_classify",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "kv_cache_capacity_tokens",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "local_scan_paths",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "max_concurrent_agents",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "max_generation_tokens",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "max_rpc_body_bytes",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "max_stdin_size_bytes",
-        derivation: SettingDerivation::Hardware,
-    },
-    SettingEntry {
-        key: "memory_experience_heuristics",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "model_discovery_exclude_dirs",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "model_file_extensions",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "model_file_min_bytes",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "model_idle_timeout_secs",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "model_ladder",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "model_lifecycle",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "model_provisioning_wait_secs",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "model_scan_exclude_dirs",
-        derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "model_scoring_heuristics",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "openrouter_app_title",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "openrouter_http_referer",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "port_offset",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "privacy",
-        derivation: SettingDerivation::Consent,
-    },
-    SettingEntry {
-        key: "qdrant_url",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "rate_limit_per_minute",
-        derivation: SettingDerivation::Measurement,
-    },
-    SettingEntry {
-        key: "reflex_training_threshold",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "repeat_last_n",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "repeat_penalty",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "sandbox_image",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "speculative_decoding_enabled",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "speculative_draft_tokens",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "tls_cert_path",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "tls_key_path",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "tokenizer_filename",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "trust_level",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
-        key: "udp_discovery_port",
-        derivation: SettingDerivation::Constant,
-    },
-];
+    "auto_download_models" => Constant,
+    "axiomatic_risk_patterns" => Constant,
+    "bind_address" => Constant,
+    "bootstrap_mcp_servers" => Detection,
+    "capability_rediscovery_secs" => Measurement,
+    "cloud_scout_timeout_secs" => Measurement,
+    "crates_io_api_url" => Constant,
+    "default_engine" => Constant,
+    "default_fallback_model" => Constant,
+    "default_model" => Constant,
+    "discoverable_assets" => Detection,
+    "eos_token_ids" => Constant,
+    "execution_lease_secs" => Measurement,
+    "external_peer_agents" => Constant,
+    "external_peer_agents_note" => Constant,
+    "gemi_max_concurrent_requests" => Hardware,
+    "gemi_port" => Constant,
+    "gmcp_http_port" => Constant,
+    "gmcp_port" => Constant,
+    "governance" => Constant,
+    "hf_base_url" => Constant,
+    "home_scan_root_exclude_dirs" => Detection,
+    "inference_endpoints" => Constant,
+    "inference_routing" => Constant,
+    "intent_classify" => Constant,
+    "kv_cache_capacity_tokens" => Hardware,
+    "local_scan_paths" => Detection,
+    "max_concurrent_agents" => Hardware,
+    "max_generation_tokens" => Hardware,
+    "max_rpc_body_bytes" => Hardware,
+    "max_stdin_size_bytes" => Hardware,
+    "memory_experience_heuristics" => Constant,
+    "model_discovery_exclude_dirs" => Detection,
+    "model_file_extensions" => Detection,
+    "model_file_min_bytes" => Detection,
+    "model_idle_timeout_secs" => Measurement,
+    "model_ladder" => Constant,
+    "model_lifecycle" => Constant,
+    "model_provisioning_wait_secs" => Measurement,
+    "model_scan_exclude_dirs" => Detection,
+    "model_scoring_heuristics" => Constant,
+    "openrouter_app_title" => Constant,
+    "openrouter_http_referer" => Constant,
+    "port_offset" => Constant,
+    "privacy" => Consent,
+    "qdrant_url" => Constant,
+    "rate_limit_per_minute" => Measurement,
+    "reflex_training_threshold" => Constant,
+    "repeat_last_n" => Constant,
+    "repeat_penalty" => Constant,
+    "sandbox_image" => Constant,
+    "speculative_decoding_enabled" => Constant,
+    "speculative_draft_tokens" => Constant,
+    "tls_cert_path" => Constant,
+    "tls_key_path" => Constant,
+    "tokenizer_filename" => Constant,
+    "trust_level" => Constant,
+    "udp_discovery_port" => Constant,
+}
 
 #[must_use]
 pub fn registry_keys() -> Vec<&'static str> {

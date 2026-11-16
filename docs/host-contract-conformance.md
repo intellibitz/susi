@@ -32,12 +32,28 @@ released on 2026-11-14. Its `schema/v1/meta.json` specifies integer version 1;
 At Susi `a30aca710`, known differences include the initialize response,
 `cwd`/`mcpServers` session creation, camelCase result fields,
 `session/update` notifications, and processing cancellation while a stdio
-prompt is running. Official v1 also requires support for client-supplied
-stdio MCP servers; an adapter that ignores or rejects every supplied server
-cannot establish that requirement. Existing Susi interfaces must remain
-compatible while these gaps are repaired. Validate method-specific named
-schema definitions and behavior; the generic JSON-RPC envelope alone does
-not validate a method's parameters.
+prompt is running. The staged `susi acp serve` adapter now selects v1 when
+`initialize.protocolVersion` is an integer. It supports absolute `cwd`, empty
+`mcpServers`, camelCase responses, text/resource-link prompts, message updates,
+and cooperative cancellation while reading continues. Existing string-version
+stdio clients, HTTP serialization and the original transport API retain their
+legacy behavior.
+
+Official v1 also requires support for client-supplied stdio MCP servers.
+The staged adapter explicitly refuses nonempty `mcpServers`; this requirement
+remains unmet. Resource links are passed to the text executor as references,
+without fetching their URIs. Required input fields and supported content are
+checked, but optional client metadata is not fully schema-validated.
+Method-specific named-schema checks validate sampled actual wire values;
+the generic JSON-RPC envelope alone does not validate a method's parameters.
+
+Focused transport tests cover cancellation, disconnects, bounded input frames,
+exact workspace/session identities, and preservation of final text after empty
+or partial streaming. Output closure signals active turns without waiting on
+output locks. Generic blocking I/O and an executor that ignores cancellation
+can still delay shutdown; these tests do not establish bounded total shutdown.
+Neither this adapter nor the legacy `acp.*` host checks establish complete ACP
+v1 compliance.
 
 ## Checks
 
