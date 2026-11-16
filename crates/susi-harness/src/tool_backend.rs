@@ -14,42 +14,33 @@ enum Channel {
     Http(HttpSocketTransport),
 }
 
+impl Channel {
+    fn peer(&mut self) -> &mut dyn Transport {
+        match self {
+            Self::Stdio(peer) => peer,
+            Self::Http(peer) => peer,
+        }
+    }
+}
+
 impl Transport for Channel {
     fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
-        match self {
-            Self::Stdio(peer) => peer.exchange(request),
-            Self::Http(peer) => peer.exchange(request),
-        }
+        self.peer().exchange(request)
     }
     fn notify(&mut self, request: &Value) -> EaiResult<()> {
-        match self {
-            Self::Stdio(peer) => peer.notify(request),
-            Self::Http(peer) => peer.notify(request),
-        }
+        self.peer().notify(request)
     }
     fn set_protocol_version(&mut self, version: &str) {
-        match self {
-            Self::Stdio(peer) => peer.set_protocol_version(version),
-            Self::Http(peer) => peer.set_protocol_version(version),
-        }
+        self.peer().set_protocol_version(version)
     }
     fn set_timeout(&mut self, timeout: Duration) {
-        match self {
-            Self::Stdio(peer) => peer.set_timeout(timeout),
-            Self::Http(peer) => peer.set_timeout(timeout),
-        }
+        self.peer().set_timeout(timeout)
     }
     fn set_call_timeout(&mut self, timeout: Option<Duration>) {
-        match self {
-            Self::Stdio(peer) => peer.set_call_timeout(timeout),
-            Self::Http(peer) => peer.set_call_timeout(timeout),
-        }
+        self.peer().set_call_timeout(timeout)
     }
     fn close(&mut self) -> EaiResult<()> {
-        match self {
-            Self::Stdio(peer) => peer.close(),
-            Self::Http(peer) => peer.close(),
-        }
+        self.peer().close()
     }
 }
 
@@ -57,11 +48,6 @@ fn connect(server: &McpServerConfig, cwd: Option<&Path>) -> EaiResult<McpClient<
     let policy = MacPolicy::global();
     mcp::authorize_mcp_transport(server, policy).map_err(EaiError::config)?;
     let channel = if server.http_scope().map_err(EaiError::config)?.is_some() {
-        if cwd.is_some() {
-            return Err(EaiError::config(
-                "a process working directory requires a stdio MCP provider",
-            ));
-        }
         Channel::Http(
             HttpSocketTransport::new(&server.command)
                 .with_headers(mcp::validate_http_headers(server).map_err(EaiError::config)?)?
@@ -83,17 +69,32 @@ fn connect(server: &McpServerConfig, cwd: Option<&Path>) -> EaiResult<McpClient<
 
 /// Call a uniquely advertised tool once. No failed mutation is retried.
 pub(crate) fn call_result(name: &str, arguments: &Value, cwd: Option<&Path>) -> EaiResult<Value> {
-    call_with_revision(name, arguments, cwd).map(|(result, _)| result)
+    try_call_result(name, arguments, cwd)?.ok_or_else(|| no_provider(name, 0))
+}
+
+/// A healthy registry with no matching declaration permits a standalone capability.
+pub(crate) fn try_call_result(
+    name: &str,
+    arguments: &Value,
+    cwd: Option<&Path>,
+) -> EaiResult<Option<Value>> {
+    Ok(call_with_revision(name, arguments, cwd)?.map(|(result, _)| result))
+}
+
+pub(crate) fn no_provider(name: &str, unavailable: usize) -> EaiError {
+    EaiError::config(format!(
+        "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
+    ))
 }
 
 fn call_with_revision(
     name: &str,
     arguments: &Value,
     cwd: Option<&Path>,
-) -> EaiResult<(Value, Option<String>)> {
+) -> EaiResult<Option<(Value, Option<String>)>> {
     #[cfg(test)]
     if let Some(result) = fixture::dispatch(name, arguments, cwd) {
-        return result;
+        return result.map(Some);
     }
     if name.is_empty() || !arguments.is_object() {
         return Err(EaiError::config(
@@ -120,32 +121,33 @@ fn call_with_revision(
                 continue;
             }
         };
-        let matches = tools.iter().filter(|tool| tool.name == name).count();
-        if matches > 1 || (matches == 1 && selected.is_some()) {
+        let mut matches = tools.iter().filter(|tool| tool.name == name);
+        let Some(tool) = matches.next() else { continue };
+        if matches!(client.transport(), Channel::Http(_)) && cwd.is_some() {
+            unavailable += 1;
+            continue;
+        }
+        if matches.next().is_some() || selected.is_some() {
             return Err(EaiError::config(format!(
                 "MCP tool '{name}' has ambiguous providers"
             )));
         }
-        if matches == 1 {
-            let schema = tools
-                .iter()
-                .find(|tool| tool.name == name)
-                .map(|tool| tool.schema.clone());
-            let upload = tools.iter().any(|tool| tool.name == UPLOAD_TOOL);
-            selected = Some((client, schema.unwrap_or(Value::Null), upload));
-        }
+        let upload = tools.iter().any(|tool| tool.name == UPLOAD_TOOL);
+        selected = Some((client, tool.schema.clone(), upload));
     }
-    let (mut client, schema, upload) = selected.ok_or_else(|| {
-        EaiError::config(format!(
-            "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
-        ))
-    })?;
+    let Some((mut client, schema, upload)) = selected else {
+        return if unavailable == 0 {
+            Ok(None)
+        } else {
+            Err(no_provider(name, unavailable))
+        };
+    };
     client.set_timeout(Duration::from_secs(60));
     let result = transfer_call(&mut client, name, arguments, &schema, upload);
     let revision = client.negotiated_protocol_version().map(str::to_owned);
     // Closing is cleanup, never a reason to replay a completed tool call.
     let _ = client.close();
-    result.map(|result| (result, revision))
+    result.map(|result| Some((result, revision)))
 }
 
 const UPLOAD_TOOL: &str = "susi_resource_upload";
@@ -396,13 +398,20 @@ fn json_result(result: Value, revision: Option<&str>) -> EaiResult<Value> {
 
 /// Read structured content from a registered, authorized standard MCP tool.
 pub(crate) fn call_json(name: &str, arguments: &Value) -> EaiResult<Value> {
-    let (result, revision) = call_with_revision(name, arguments, None)?;
+    let (result, revision) =
+        call_with_revision(name, arguments, None)?.ok_or_else(|| no_provider(name, 0))?;
     json_result(result, revision.as_deref())
 }
 
 /// Return one native text block without changing empty or JSON-looking text.
-pub(crate) fn call_text_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResult<String> {
-    let result = call_result(name, arguments, Some(cwd))?;
+pub(crate) fn try_call_text_in(
+    name: &str,
+    arguments: &Value,
+    cwd: &Path,
+) -> EaiResult<Option<String>> {
+    let Some(result) = try_call_result(name, arguments, Some(cwd))? else {
+        return Ok(None);
+    };
     if result
         .get("isError")
         .is_some_and(|flag| flag != &Value::Bool(false))
@@ -420,7 +429,7 @@ pub(crate) fn call_text_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResu
     blocks[0]
         .get("text")
         .and_then(Value::as_str)
-        .map(str::to_owned)
+        .map(|text| Some(text.to_owned()))
         .ok_or_else(transfer_error)
 }
 
