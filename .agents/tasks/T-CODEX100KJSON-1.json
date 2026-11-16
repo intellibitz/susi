@@ -1,0 +1,205 @@
+{
+  "id": "T-CODEX100KJSON-1",
+  "title": "Share exact raw JSON field readers across core and GMCP",
+  "goal": "Vision: V-6. Reduce repeated JSON object field lookup/type projection without changing field names, values, defaults, trim/filter/casts, error handling or validation order.",
+  "status": "verified_pending_publication",
+  "size": "m",
+  "created_by": "CODEX100KJSON",
+  "created_unix": 1794823362,
+  "base": "a30aca7107633c3a7db471ec692403e821afaeb6",
+  "scopes": [
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-core/src/peer_admin.rs",
+    "crates/susi-core/src/registry_ipc.rs",
+    "crates/susi-core/src/peer_roster.rs",
+    "crates/susi-gmcp/src/tools/core/knowledge.rs",
+    "crates/susi-gmcp/src/tools/core/agents.rs",
+    "crates/susi-gmcp/src/tools/core/substrate.rs",
+    "crates/susi-gmcp/src/tools/core/cluster.rs",
+    "crates/susi-gmcp/src/tools/core/models.rs",
+    "crates/susi-gmcp/src/tools/core/files_os.rs",
+    "crates/susi-config/src/json_util.rs",
+    "crates/susi-config/src/lib.rs",
+    ".agents/tasks/T-CODEX100KJSON-1.json"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "json_util::tests"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi-config json_util and DynamicModelInfo get_str/get_bool; susi-paths and serde-json facade; local GEMI/daemon raw field readers; existing serde_json Value::get/as_str/as_u64/as_bool and Map::get",
+    "reason": "Generalize existing exact get/as composition into one documented JsonFields trait in the current config JSON utility module. Core and GMCP already depend on config; no package or dependency edge added. Raw semantics only: caller-specific policy stays in place."
+  },
+  "coordination": "Parent approves focused10module scope and owns Board/publication. Worker uses private worktree/runtime/target; no commits, pushes or external messages.",
+  "patch_base": "4a3d93513ca923c2e1ae4595ff28b64bf70fb45c",
+  "synced_origin_main": {
+    "commit": "4a3d93513ca923c2e1ae4595ff28b64bf70fb45c",
+    "at_unix": 1794823761,
+    "method": "git fetch origin; git merge --no-edit origin/main (fast-forward, no target-file overlap)",
+    "mandate": "Read updated AGENTS.md and docs/ceo-mandate-82.md; retained unique CODEX100KJSON identity. No commits required to preserve scoped edits for this disjoint fast-forward."
+  },
+  "results": {
+    "substitutions": 232,
+    "projections": {
+      "str": 201,
+      "u64": 18,
+      "bool": 13
+    },
+    "caller_line_reduction": 279,
+    "shared_trait_and_implementations_lines_added": 35,
+    "public_reexport_line_added": 1,
+    "inline_boundary_test_lines_added": 42,
+    "net_production_line_reduction": 243,
+    "net_runtime_physical_line_reduction_including_tests": 201,
+    "runtime_file_line_counts": [
+      {
+        "path": "crates/susi-core/src/plane_bus.rs",
+        "before": 2114,
+        "after": 2046,
+        "reduction": 68
+      },
+      {
+        "path": "crates/susi-core/src/peer_admin.rs",
+        "before": 1415,
+        "after": 1378,
+        "reduction": 37
+      },
+      {
+        "path": "crates/susi-core/src/registry_ipc.rs",
+        "before": 925,
+        "after": 896,
+        "reduction": 29
+      },
+      {
+        "path": "crates/susi-core/src/peer_roster.rs",
+        "before": 389,
+        "after": 364,
+        "reduction": 25
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/knowledge.rs",
+        "before": 426,
+        "after": 394,
+        "reduction": 32
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/agents.rs",
+        "before": 536,
+        "after": 523,
+        "reduction": 13
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/substrate.rs",
+        "before": 594,
+        "after": 571,
+        "reduction": 23
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/cluster.rs",
+        "before": 877,
+        "after": 848,
+        "reduction": 29
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/models.rs",
+        "before": 207,
+        "after": 200,
+        "reduction": 7
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/files_os.rs",
+        "before": 429,
+        "after": 413,
+        "reduction": 16
+      },
+      {
+        "path": "crates/susi-config/src/json_util.rs",
+        "before": 972,
+        "after": 1049,
+        "reduction": -77
+      },
+      {
+        "path": "crates/susi-config/src/lib.rs",
+        "before": 353,
+        "after": 354,
+        "reduction": -1
+      }
+    ],
+    "existing_tests_removed_or_changed": 0,
+    "dependency_edges_or_packages_changed": 0,
+    "metadata_hash_default": "c8303f4bff9e9a13fd7da39094683ae27fc4b66912e74c50880710694ad02c52",
+    "metadata_hash_rich": "7a89f2f05efb8cfb8e7242036f60b36948348a4fa45045c58d830db764edf82d"
+  },
+  "validation": [
+    {
+      "command": "cargo test --locked -p susi-config json_util::tests",
+      "passed": 26,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/config-json.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-core --lib plane_bus::",
+      "passed": 13,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/core-plane-bus.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-core --lib peer_",
+      "passed": 17,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/core-peers.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-core --lib registry_ipc::",
+      "passed": 6,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/core-registry-ipc.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-gmcp --lib --test args_schema_parity --test tool_input_schemas",
+      "lib_passed": 233,
+      "schema_passed": 4,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/gmcp-default.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-gmcp --features tools-rich --lib --test args_schema_parity --test tool_input_schemas",
+      "lib_passed": 240,
+      "schema_passed": 4,
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/gmcp-rich.log"
+    },
+    {
+      "command": "cargo clippy --locked -p susi-config -p susi-core -p susi-gmcp -p susi-daemon --all-targets --features susi-daemon/tools-rich -- -D warnings",
+      "result": "pass after syncing origin/main",
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/clippy-synced.log"
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "result": "pass after syncing origin/main",
+      "log": "/workspace/codex/susi-core-100k-json-readers-runtime/fmt-synced.log"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "independent_review": {
+    "result": "No actionable parity findings. Reconstructed all232 replacements independently from pristinea30aca710 and compared entire formatted token streams of all10caller files. Receiver/key/projection and surrounding fallback/filter/trim/cast/error/evaluation order unchanged.",
+    "keys": "Only3nonliteral keys, CANCEL_STREAM once and PROGRESS_STREAM twice, all const&str; no numeric/range/array indexes or unsupported receiver converted.",
+    "evidence": "/workspace/codex/susi-core-100k-json-readers-runtime/substitutions.json"
+  },
+  "execution_environment": {
+    "target": "/workspace/codex/susi-core-100k-json-readers-target",
+    "SUSI_HOME": "/workspace/codex/susi-core-100k-json-readers-runtime/home",
+    "cargo_jobs": 2,
+    "toolchain": "1.99.0"
+  },
+  "limitations": [
+    "Focused Linux verification is not release qualification and does not establish the overall below100k goal.",
+    "Existing test bodies were preserved; the new boundary test remains inline and its42lines are included in the reported201line runtime reduction."
+  ],
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-json-readers.json"
+}

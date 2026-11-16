@@ -1,6 +1,7 @@
 //! CoreTools handlers for agent ranking, semantic/AST search, RAG, context graph, browser capture, and IPC.
 
 use std::path::Path;
+use susi_config::JsonFields as _;
 
 use super::CoreTools;
 #[cfg(feature = "tools-rich")]
@@ -58,8 +59,8 @@ impl CoreTools {
     });
     #[cfg(feature = "tools-rich")]
     pub fn ast_analyze(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let path_s = arg.get("path").and_then(|v| v.as_str());
-        let code_s = arg.get("code").and_then(|v| v.as_str());
+        let path_s = arg.field_str("path");
+        let code_s = arg.field_str("code");
 
         let code = if let Some(c) = code_s {
             c.to_string()
@@ -119,8 +120,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     pub fn semantic_search(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query_str = arg
-            .get("query")
-            .and_then(|v| v.as_str())
+            .field_str("query")
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
         let hits = crate::tools::semantic_index::SemanticIndex::search(workspace, query_str, 5)?;
@@ -145,8 +145,7 @@ impl CoreTools {
     });
     pub fn sandbox_exec(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let cmd = arg
-            .get("cmd")
-            .and_then(|v| v.as_str())
+            .field_str("cmd")
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
         gawd_hooks::audit_action("sandbox_exec", cmd, workspace)?;
@@ -172,8 +171,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     pub fn browser_automate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let url = arg
-            .get("url")
-            .and_then(|v| v.as_str())
+            .field_str("url")
             .ok_or_else(|| EaiError::protocol("Missing url"))?;
         let validated_url = secure_external_url(url)?;
         let url = validated_url.as_str();
@@ -202,8 +200,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     pub fn rag_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query = arg
-            .get("query")
-            .and_then(|v| v.as_str())
+            .field_str("query")
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
         let hits = crate::tools::semantic_index::SemanticIndex::vector_recall(workspace, query, 3)?;
@@ -230,8 +227,8 @@ impl CoreTools {
     pub fn context_graph_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let graph = crate::susi_core::context_graph::ContextGraph::global();
         let _ = graph.replay();
-        if let Some(node_id) = arg.get("node_id").and_then(|v| v.as_str()) {
-            let depth = arg.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+        if let Some(node_id) = arg.field_str("node_id") {
+            let depth = arg.field_u64("depth").unwrap_or(2) as usize;
             let node = crate::susi_core::context_graph::NodeId(node_id.to_string());
             let subgraph = graph.related(&node, depth);
             Ok(serde_json::to_string_pretty(&subgraph).unwrap_or_else(|_| "{}".to_string()))
@@ -252,21 +249,14 @@ impl CoreTools {
         input_schema: args::typed::<args::ContextGraphIngest>(),
     });
     pub fn context_graph_ingest(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let source = arg
-            .get("source")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let label = arg
-            .get("label")
-            .and_then(|v| v.as_str())
-            .unwrap_or("external context");
+        let source = arg.field_str("source").unwrap_or("unknown");
+        let label = arg.field_str("label").unwrap_or("external context");
         let payload = arg.get("payload").unwrap_or(&serde_json::Value::Null);
         let ws = arg
-            .get("workspace")
-            .and_then(|v| v.as_str())
+            .field_str("workspace")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| workspace.to_path_buf());
-        let user = arg.get("user").and_then(|v| v.as_str());
+        let user = arg.field_str("user");
         let id =
             ContextGraph::global().record_external_context(source, label, payload, Some(&ws), user);
         Ok(serde_json::to_string_pretty(&serde_json::json!({
@@ -299,23 +289,17 @@ impl CoreTools {
         input_schema: args::typed::<args::IpcGrant>(),
     });
     pub fn ipc_grant(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let grantor = arg
-            .get("grantor")
-            .and_then(|v| v.as_str())
-            .unwrap_or("susi");
+        let grantor = arg.field_str("grantor").unwrap_or("susi");
         let grantee = arg
-            .get("grantee")
-            .and_then(|v| v.as_str())
+            .field_str("grantee")
             .ok_or_else(|| EaiError::governance("ipc_grant requires grantee"))?;
         let resource = arg
-            .get("resource")
-            .and_then(|v| v.as_str())
+            .field_str("resource")
             .ok_or_else(|| EaiError::governance("ipc_grant requires resource"))?;
         let action = arg
-            .get("action")
-            .and_then(|v| v.as_str())
+            .field_str("action")
             .ok_or_else(|| EaiError::governance("ipc_grant requires action"))?;
-        let ttl_secs = arg.get("ttl_secs").and_then(|v| v.as_u64());
+        let ttl_secs = arg.field_u64("ttl_secs");
         let scope = PermissionScope::new(resource, action);
         let grant = IpcBroker::global().grant_and_record(
             grantor,
@@ -334,22 +318,16 @@ impl CoreTools {
     });
     pub fn ipc_request(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let requester = arg
-            .get("requester")
-            .and_then(|v| v.as_str())
+            .field_str("requester")
             .ok_or_else(|| EaiError::governance("ipc_request requires requester"))?;
-        let grantor = arg
-            .get("grantor")
-            .and_then(|v| v.as_str())
-            .unwrap_or("susi");
+        let grantor = arg.field_str("grantor").unwrap_or("susi");
         let resource = arg
-            .get("resource")
-            .and_then(|v| v.as_str())
+            .field_str("resource")
             .ok_or_else(|| EaiError::governance("ipc_request requires resource"))?;
         let action = arg
-            .get("action")
-            .and_then(|v| v.as_str())
+            .field_str("action")
             .ok_or_else(|| EaiError::governance("ipc_request requires action"))?;
-        let ttl_secs = arg.get("ttl_secs").and_then(|v| v.as_u64());
+        let ttl_secs = arg.field_u64("ttl_secs");
         let scope = PermissionScope::new(resource, action);
         let req = IpcBroker::global().request(requester, grantor, scope, ttl_secs);
         Ok(serde_json::to_string_pretty(&req).unwrap_or_else(|_| "{}".into()))
@@ -363,14 +341,10 @@ impl CoreTools {
     });
     pub fn ipc_negotiate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let request_id = arg
-            .get("request_id")
-            .and_then(|v| v.as_str())
+            .field_str("request_id")
             .ok_or_else(|| EaiError::governance("ipc_negotiate requires request_id"))?;
-        let actor = arg.get("actor").and_then(|v| v.as_str()).unwrap_or("susi");
-        let approve = arg
-            .get("approve")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let actor = arg.field_str("actor").unwrap_or("susi");
+        let approve = arg.field_bool("approve").unwrap_or(false);
         let resolved = IpcBroker::global()
             .negotiate(request_id, actor, approve, Some(workspace))
             .map_err(EaiError::governance)?;
@@ -384,17 +358,12 @@ impl CoreTools {
     });
     pub fn ipc_send(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let from = arg
-            .get("from")
-            .and_then(|v| v.as_str())
+            .field_str("from")
             .ok_or_else(|| EaiError::governance("ipc_send requires from"))?;
         let to = arg
-            .get("to")
-            .and_then(|v| v.as_str())
+            .field_str("to")
             .ok_or_else(|| EaiError::governance("ipc_send requires to"))?;
-        let topic = arg
-            .get("topic")
-            .and_then(|v| v.as_str())
-            .unwrap_or("message");
+        let topic = arg.field_str("topic").unwrap_or("message");
         let payload = arg
             .get("payload")
             .cloned()
@@ -412,10 +381,9 @@ impl CoreTools {
     });
     pub fn ipc_receive(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let recipient = arg
-            .get("recipient")
-            .and_then(|v| v.as_str())
+            .field_str("recipient")
             .ok_or_else(|| EaiError::governance("ipc_receive requires recipient"))?;
-        let limit = arg.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let limit = arg.field_u64("limit").unwrap_or(10) as usize;
         let msgs = IpcBroker::global().receive(recipient, limit);
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "recipient": recipient,

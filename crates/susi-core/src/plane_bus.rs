@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use susi_config::JsonFields as _;
 /// Rebuild a handler's displayed error (`"Protocol Error: ..."`) as the
 /// same `EaiError` kind instead of wrapping it in another layer, which
 /// rendered "Protocol Error: Protocol Error: ..." and lost the real kind.
@@ -294,12 +295,10 @@ fn req_watched(topic: &str, mut payload: Value) -> Result<Value, String> {
         loop {
             match rx.recv_timeout(std::time::Duration::from_millis(25)) {
                 Ok(chunk) => {
-                    if let (Some(sink), Some(line)) =
-                        (&sink, chunk.get("message").and_then(Value::as_str))
-                    {
+                    if let (Some(sink), Some(line)) = (&sink, chunk.field_str("message")) {
                         sink(line);
                     }
-                    if let Some(cs) = chunk.get(CANCEL_STREAM).and_then(Value::as_str) {
+                    if let Some(cs) = chunk.field_str(CANCEL_STREAM) {
                         if cancel_sent
                             || cancel
                                 .as_ref()
@@ -359,8 +358,7 @@ fn req_watched(topic: &str, mut payload: Value) -> Result<Value, String> {
 #[must_use]
 pub fn progress_sink_for(payload: &Value) -> Option<crate::progress::Sink> {
     let stream_id = payload
-        .get(PROGRESS_STREAM)
-        .and_then(Value::as_str)
+        .field_str(PROGRESS_STREAM)
         .filter(|id| !id.is_empty())?
         .to_string();
     Some(Arc::new(move |line: &str| {
@@ -371,17 +369,13 @@ pub fn progress_sink_for(payload: &Value) -> Option<crate::progress::Sink> {
 /// its cooperative cancellation flag installed on this thread.
 pub fn with_watched<T>(payload: &Value, call: impl FnOnce() -> T) -> T {
     let Some(stream_id) = payload
-        .get(PROGRESS_STREAM)
-        .and_then(Value::as_str)
+        .field_str(PROGRESS_STREAM)
         .filter(|id| !id.is_empty())
         .map(str::to_string)
     else {
         return call();
     };
-    let initially_cancelled = payload
-        .get("cancelled")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let initially_cancelled = payload.field_bool("cancelled").unwrap_or(false);
     let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(initially_cancelled));
     let (cancel_stream, cancel_rx) = PlaneBus::global().open_stream();
     let observed = cancel_flag.clone();
@@ -549,14 +543,8 @@ pub mod gemi {
                 json!({ "intent": intent.unwrap_or("") }),
             );
             (
-                v.get("engine")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("local")
-                    .to_string(),
-                v.get("model")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("default")
-                    .to_string(),
+                v.field_str("engine").unwrap_or("local").to_string(),
+                v.field_str("model").unwrap_or("default").to_string(),
             )
         }
         pub fn get_model_path(model_id: &str) -> Option<PathBuf> {
@@ -638,8 +626,7 @@ pub mod gemi {
                 json!({ "provider": provider }),
             )?;
             value
-                .get("cleared")
-                .and_then(Value::as_bool)
+                .field_bool("cleared")
                 .ok_or_else(|| "GEMI cooldown reset returned no boolean result".to_string())
         }
     }
@@ -760,7 +747,7 @@ pub mod gemi {
             let deliver = |chunk: &Value| {
                 if let Some(s) = chunk.as_str() {
                     on_chunk(s.to_string());
-                } else if let Some(s) = chunk.get("text").and_then(|v| v.as_str()) {
+                } else if let Some(s) = chunk.field_str("text") {
                     on_chunk(s.to_string());
                 } else if let Some(p) = chunk
                     .get("susi_meta")
@@ -779,11 +766,7 @@ pub mod gemi {
             }
             bus.stream_close(&stream_id);
             match result {
-                Ok(v) => v
-                    .get("text")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                Ok(v) => v.field_str("text").unwrap_or("").to_string(),
                 Err(e) => format!("[plane bus] {e}"),
             }
         }
@@ -872,13 +855,10 @@ pub mod gemi {
                 topics::GEMI_INFER_VERIFY,
                 json!({"text":text,"workspace":workspace.display().to_string()}),
             )?;
-            if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+            if let Some(err) = v.field_str("error") {
                 return Err(err.to_string());
             }
-            Ok(v.get("text")
-                .and_then(|x| x.as_str())
-                .unwrap_or(text)
-                .to_string())
+            Ok(v.field_str("text").unwrap_or(text).to_string())
         }
     }
     pub struct MissionPlanner;
@@ -930,10 +910,7 @@ pub mod gemi {
                 topics::GEMI_ALPHA_TRAIN,
                 json!({ "workspace": workspace.display().to_string() }),
             )?;
-            Ok(v.get("text")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string())
+            Ok(v.field_str("text").unwrap_or("").to_string())
         }
     }
     pub fn sample_telemetry() -> Value {
@@ -963,13 +940,10 @@ pub mod gemi {
     /// `susi ecosystem start <id>`: the engine's start message.
     pub fn ecosystem_start(id: &str) -> Result<String, String> {
         let v = req(topics::GEMI_ECOSYSTEM_START, json!({ "id": id }))?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
-        Ok(v.get("message")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("message").unwrap_or("").to_string())
     }
     /// `susi ecosystem kb <action>`: `query` carries `action` (`list`,
     /// `show`, `search` or `check`) and that action's filters.
@@ -1143,20 +1117,17 @@ pub mod gawd {
     }
     pub fn sanitize_input(input: &str) -> Result<String, String> {
         let v = req(topics::GAWD_SANITIZE, json!({ "input": input }))?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or(input)
-            .to_string())
+        Ok(v.field_str("text").unwrap_or(input).to_string())
     }
     pub fn audit_action(tool: &str, detail: &str, workspace: &Path) -> Result<(), String> {
         let v = req(
             topics::GAWD_AUDIT_ACTION,
             json!({"tool":tool,"detail":detail,"workspace":workspace.display().to_string()}),
         )?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
         Ok(())
@@ -1174,7 +1145,7 @@ pub mod gawd {
             topics::GAWD_AUDIT_ACTION,
             json!({"action":action_value,"tool":action.action_kind.as_str(),"detail":action.target.id,"workspace":workspace.display().to_string()}),
         )?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
         Ok(())
@@ -1217,60 +1188,42 @@ pub mod gawd {
             topics::GAWD_BLOAT,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn identity_report(workspace: &Path) -> Result<String, String> {
         let v = req(
             topics::GAWD_IDENTITY,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn audit_reasoning_substrate(workspace: &Path) -> Result<String, String> {
         let v = req(
             topics::GAWD_REASON_AUDIT,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn self_validate(workspace: &Path) -> Result<String, String> {
         let v = req(
             topics::GAWD_SELF_VALIDATE,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn train_reflexes(workspace: &Path) -> Result<String, String> {
         let v = req(
             topics::GAWD_TRAIN_REFLEX,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn resolve_capability_gap(name: &str, workspace: &Path) -> Result<String, String> {
         let v = req(
             topics::GAWD_CAPABILITY_GAP,
             json!({"name":name,"workspace":workspace.display().to_string()}),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
         req_ok(
@@ -1297,7 +1250,7 @@ pub mod gawd {
             topics::GAWD_PLAN_AUTONOMOUS,
             json!({"goal":goal,"workspace":workspace.display().to_string(),"version":version,"max_steps":max_steps}),
         )?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
         Ok(v)
@@ -1309,17 +1262,14 @@ pub mod gawd {
             topics::GAWD_PULSE_INGEST,
             json!({"intent":intent,"workspace":workspace.display().to_string()}),
         )?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     fn call(topic: &str, payload: Value) -> Result<Value, String> {
         let v = req(topic, payload)?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
         Ok(v)
@@ -1331,10 +1281,7 @@ pub mod gawd {
             topics::GAWD_AUDIT_COMPLIANCE,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     /// `susi admin audit-evidence export --input --output`: the segment
     /// count and destination.
@@ -1350,10 +1297,7 @@ pub mod gawd {
             topics::GAWD_SUBSTRATE_REPORT,
             json!({ "workspace": workspace.display().to_string() }),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
 }
 // ── Host composition-root facade (`susi-daemon`) ──────────────────────────
@@ -1366,7 +1310,7 @@ pub mod daemon {
     /// A reply carrying `{"error": ..}` is a refusal, not a result.
     fn call(topic: &str, payload: Value) -> Result<Value, String> {
         let v = req(topic, payload)?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
         Ok(v)
@@ -1456,13 +1400,10 @@ pub mod tools {
             json!({"name":name,"args":args,"workspace":workspace.display().to_string()}),
         )
         .map_err(EaiError::protocol)?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(super::remote_error(e));
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     /// Tools that download a model. They run only on an explicit user or
     /// client request (the CLI, or an MCP client's `tools/call`), never
@@ -1556,13 +1497,10 @@ pub mod tools {
             json!({"remote":remote,"tool":tool,"goal":goal}),
         )
         .map_err(EaiError::protocol)?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(super::remote_error(e));
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
 }
 pub mod agents {
@@ -1617,13 +1555,10 @@ pub mod agents {
             topics::AGENTS_EXTERNAL_MANAGED,
             json!({"name":name,"goal":goal,"workspace":workspace.display().to_string()}),
         )?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(e.to_string());
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn external_catalog(workspace: &Path, kind: &str) -> Value {
         req_ok(
@@ -1653,10 +1588,7 @@ pub mod agents {
             topics::AGENTS_EXTERNAL_LOGS,
             json!({"workspace":workspace.display().to_string(),"kind":kind,"run_id":run_id}),
         )?;
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("").to_string())
     }
     pub fn external_runs(workspace: &Path, kind: &str) -> Value {
         req_ok(
@@ -1693,7 +1625,7 @@ pub mod gawd_hooks {
     ) -> EaiResult<String> {
         let v = gawd::apply_patch(json!({"workspace":workspace.display().to_string(),"request_json":request_json,"trust_level":trust_level}))
         .map_err(EaiError::governance)?;
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(super::remote_error(e));
         }
         Ok(serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()))

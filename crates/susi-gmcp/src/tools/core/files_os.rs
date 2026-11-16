@@ -3,6 +3,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use susi_config::JsonFields as _;
 
 use super::CoreTools;
 use crate::susi_core::plane_bus::gawd_hooks;
@@ -31,8 +32,8 @@ impl CoreTools {
         input_schema: args::typed::<args::WriteFile>(),
     });
     pub fn write_file(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let path_s = arg.get("path").and_then(|v| v.as_str());
-        let content_s = arg.get("content").and_then(|v| v.as_str());
+        let path_s = arg.field_str("path");
+        let content_s = arg.field_str("content");
 
         if let (Some(p), Some(content)) = (path_s, content_s) {
             // confined_workspace_join resolves through the deepest existing
@@ -93,11 +94,7 @@ impl CoreTools {
         gawd_hooks::audit_action("exec_command", clean, workspace)?;
 
         let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task_scoped(
-                "exec_command",
-                clean,
-                arg.get("cancel_scope").and_then(|v| v.as_str()),
-            );
+            .register_task_scoped("exec_command", clean, arg.field_str("cancel_scope"));
 
         let args = susi_paths::shlex::split(clean)
             .ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
@@ -211,11 +208,8 @@ impl CoreTools {
         input_schema: args::typed::<args::OsServices>(),
     });
     pub fn os_services(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let action = arg
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("status");
-        let name = arg.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let action = arg.field_str("action").unwrap_or("status");
+        let name = arg.field_str("name").unwrap_or("");
         let audit = format!("{action} {name}").trim().to_string();
         gawd_hooks::audit_action("os_services", &audit, workspace)?;
 
@@ -278,12 +272,8 @@ impl CoreTools {
         input_schema: args::typed::<args::OsPs>(),
     });
     pub fn os_ps(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let limit = arg
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50)
-            .min(500) as usize;
-        let filter = arg.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+        let limit = arg.field_u64("limit").unwrap_or(50).min(500) as usize;
+        let filter = arg.field_str("filter").unwrap_or("");
         gawd_hooks::audit_action("os_ps", filter, workspace)?;
         os_ps_proc(limit, filter)
     }
@@ -305,10 +295,9 @@ impl CoreTools {
     });
     pub fn os_kill(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let pid =
-            arg.get("pid")
-                .and_then(|v| v.as_u64())
+            arg.field_u64("pid")
                 .ok_or_else(|| EaiError::protocol("Usage: os_kill {pid: <n>}"))? as u32;
-        let signal = arg.get("signal").and_then(|v| v.as_str()).unwrap_or("term");
+        let signal = arg.field_str("signal").unwrap_or("term");
         let sig_name = match signal {
             "term" | "TERM" | "15" => "TERM",
             "kill" | "KILL" | "9" => "KILL",
@@ -352,14 +341,9 @@ impl CoreTools {
     });
     pub fn os_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let name = arg
-            .get("name")
-            .and_then(|v| v.as_str())
+            .field_str("name")
             .ok_or_else(|| EaiError::protocol("Usage: os_logs {name: <service>}"))?;
-        let lines = arg
-            .get("lines")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50)
-            .min(500) as usize;
+        let lines = arg.field_u64("lines").unwrap_or(50).min(500) as usize;
         gawd_hooks::audit_action("os_logs", name, workspace)?;
         // Only registered leaf services — a free-form name would read
         // arbitrary logs under substrate_home.

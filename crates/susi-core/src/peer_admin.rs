@@ -11,6 +11,7 @@
 use crate::commit_log;
 use crate::susi_config;
 use std::path::PathBuf;
+use susi_config::JsonFields as _;
 
 /// One line a membership command emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,12 +167,8 @@ fn commit_membership(
     // own signature to evict it.
     let mut electorate: Vec<String> = roster
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
-        .filter_map(|n| {
-            n.get("node_id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        })
+        .filter(|n| n.field_str("admission") == Some("explicit"))
+        .filter_map(|n| n.field_str("node_id").map(str::to_string))
         .collect();
     electorate.push(self_id.clone());
     // Seal under our own leadership claim — the intake gate
@@ -249,12 +246,8 @@ fn commit_membership(
     };
     let mut targets: Vec<String> = current
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
-        .filter_map(|n| {
-            n.get("address")
-                .and_then(|a| a.as_str())
-                .map(str::to_string)
-        })
+        .filter(|n| n.field_str("admission") == Some("explicit"))
+        .filter_map(|n| n.field_str("address").map(str::to_string))
         .collect();
     if matches!(
         kind,
@@ -275,7 +268,7 @@ fn commit_membership(
         match crate::mcp_client::call_tool(addr, "commit_record", &args, bearer.as_deref()) {
             // A tool-level isError is a protocol refusal (stale term,
             // equivocation) — the gate working, not a push success.
-            Ok(result) => result.get("isError").and_then(|v| v.as_bool()) != Some(true),
+            Ok(result) => result.field_bool("isError") != Some(true),
             Err(_) => false,
         }
     })
@@ -295,10 +288,10 @@ fn commit_membership(
 fn endorse_targets(roster: &[serde_json::Value], self_id: &str) -> Vec<(String, String)> {
     roster
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter(|n| n.field_str("admission") == Some("explicit"))
         .filter_map(|n| {
-            let nid = n.get("node_id").and_then(|v| v.as_str())?;
-            let addr = n.get("address").and_then(|v| v.as_str())?;
+            let nid = n.field_str("node_id")?;
+            let addr = n.field_str("address")?;
             (nid != self_id
                 && !addr.starts_with("127.")
                 && !addr.starts_with("::1")
@@ -326,12 +319,8 @@ fn propose_member(
     subject_sig: &str,
 ) {
     let Some(leader_addr) = roster.iter().find_map(|n| {
-        (n.get("node_id").and_then(|v| v.as_str()) == Some(leader))
-            .then(|| {
-                n.get("address")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
-            })
+        (n.field_str("node_id") == Some(leader))
+            .then(|| n.field_str("address").map(str::to_string))
             .flatten()
     }) else {
         note!(
@@ -349,7 +338,7 @@ fn propose_member(
         "subject_sig": subject_sig,
     });
     match crate::mcp_client::call_tool(&leader_addr, "member_propose", &args, bearer.as_deref()) {
-        Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+        Ok(result) if result.field_bool("isError") != Some(true) => {
             say!(out, "{kind} committed by leader {leader}");
         }
         Ok(result) => {
@@ -421,12 +410,8 @@ pub fn rekey(out: Out<'_>, force: bool) -> Result<(), String> {
     let fingerprint = susi_config::cluster_key::key_fingerprint(&new_key);
     let mut electorate: Vec<String> = load_registry()?
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
-        .filter_map(|n| {
-            n.get("node_id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        })
+        .filter(|n| n.field_str("admission") == Some("explicit"))
+        .filter_map(|n| n.field_str("node_id").map(str::to_string))
         .collect();
     electorate.push(self_id.clone());
     // Seal under our own leadership claim — the intake gate refuses
@@ -478,12 +463,8 @@ pub fn rekey(out: Out<'_>, force: bool) -> Result<(), String> {
     let bearer = susi_config::cluster_key::peer_bearer();
     let targets: Vec<String> = load_registry()?
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
-        .filter_map(|n| {
-            n.get("address")
-                .and_then(|a| a.as_str())
-                .map(str::to_string)
-        })
+        .filter(|n| n.field_str("admission") == Some("explicit"))
+        .filter_map(|n| n.field_str("address").map(str::to_string))
         .filter(|a| !(a.starts_with("127.") || a.starts_with("::1") || a.starts_with("localhost")))
         .collect();
     // Parallel staging: each call carries a ~10s connect timeout —
@@ -497,9 +478,7 @@ pub fn rekey(out: Out<'_>, force: bool) -> Result<(), String> {
                 &stage_args,
                 bearer.as_deref(),
             ) {
-                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
-                    Ok(())
-                }
+                Ok(result) if result.field_bool("isError") != Some(true) => Ok(()),
                 Ok(result) => {
                     let detail = result
                         .get("content")
@@ -577,7 +556,7 @@ pub fn rekey(out: Out<'_>, force: bool) -> Result<(), String> {
             &activate_args,
             bearer.as_deref(),
         ) {
-            Ok(result) => result.get("isError").and_then(|v| v.as_bool()) != Some(true),
+            Ok(result) => result.field_bool("isError") != Some(true),
             Err(_) => false,
         }
     });
@@ -668,8 +647,8 @@ pub fn remove(out: Out<'_>, peer: &str) -> Result<(), String> {
     let matches: Vec<&serde_json::Value> = nodes
         .iter()
         .filter(|n| {
-            let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
-            let addr = n.get("address").and_then(|v| v.as_str()).unwrap_or("");
+            let id = n.field_str("node_id").unwrap_or("");
+            let addr = n.field_str("address").unwrap_or("");
             id == peer || addr.starts_with(peer) || id.starts_with(peer)
         })
         .collect();
@@ -682,8 +661,8 @@ pub fn remove(out: Out<'_>, peer: &str) -> Result<(), String> {
             .map(|n| {
                 format!(
                     "{} ({})",
-                    n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
-                    n.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                    n.field_str("node_id").unwrap_or("?"),
+                    n.field_str("address").unwrap_or("?")
                 )
             })
             .collect();
@@ -699,14 +678,8 @@ pub fn remove(out: Out<'_>, peer: &str) -> Result<(), String> {
     let (subject_id, subject_addr) = {
         let m = matches[0];
         (
-            m.get("node_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?")
-                .to_string(),
-            m.get("address")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?")
-                .to_string(),
+            m.field_str("node_id").unwrap_or("?").to_string(),
+            m.field_str("address").unwrap_or("?").to_string(),
         )
     };
     if delegate_membership(
@@ -732,12 +705,12 @@ pub fn remove(out: Out<'_>, peer: &str) -> Result<(), String> {
     let mut banned = load_banned()?;
     let now = now_secs();
     for n in &evicted {
-        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
-        let addr = n.get("address").and_then(|v| v.as_str()).unwrap_or("?");
-        if !banned.iter().any(|b| {
-            b.get("node_id").and_then(|v| v.as_str()) == Some(id)
-                || b.get("address").and_then(|v| v.as_str()) == Some(addr)
-        }) {
+        let id = n.field_str("node_id").unwrap_or("?");
+        let addr = n.field_str("address").unwrap_or("?");
+        if !banned
+            .iter()
+            .any(|b| b.field_str("node_id") == Some(id) || b.field_str("address") == Some(addr))
+        {
             banned.push(serde_json::json!({
                 "node_id": id, "address": addr, "banned_at": now,
             }));
@@ -752,8 +725,8 @@ pub fn remove(out: Out<'_>, peer: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     drop(_peers_lock);
     for n in &evicted {
-        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
-        let addr = n.get("address").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = n.field_str("node_id").unwrap_or("?");
+        let addr = n.field_str("address").unwrap_or("?");
         say!(out, "evicted + banned: {id} ({addr})");
         // Commit the eviction — receivers drop the member and record the
         // ban on append, so the eviction takes effect cluster-wide, not
@@ -833,18 +806,16 @@ fn add_over_channel(
     // hub never starts a second ledger here). A node already in a cluster
     // admits the peer into its own, through its own leader.
     let joining = !load_registry()?.iter().any(|n| {
-        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
-            && n.get("node_id").and_then(|v| v.as_str()) != Some(peer.node_id.as_str())
+        n.field_str("admission") == Some("explicit")
+            && n.field_str("node_id") != Some(peer.node_id.as_str())
             && !n
-                .get("pubkey")
-                .and_then(|v| v.as_str())
+                .field_str("pubkey")
                 .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
     });
     let banned = load_banned()?;
     if banned.iter().any(|b| {
-        b.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
-            || b.get("pubkey")
-                .and_then(|v| v.as_str())
+        b.field_str("node_id") == Some(peer.node_id.as_str())
+            || b.field_str("pubkey")
                 .is_some_and(|k| !k.is_empty() && k.eq_ignore_ascii_case(&peer.pubkey))
     }) {
         return Err(format!(
@@ -862,10 +833,9 @@ fn add_over_channel(
     // address hint and the uplink and commits nothing (a repeat must never
     // seal a second admission or start a ledger here).
     let already_bound = load_registry()?.iter().any(|n| {
-        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
-            && n.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
-            && n.get("pubkey")
-                .and_then(|v| v.as_str())
+        n.field_str("admission") == Some("explicit")
+            && n.field_str("node_id") == Some(peer.node_id.as_str())
+            && n.field_str("pubkey")
                 .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
     });
     let node = serde_json::json!({
@@ -890,11 +860,10 @@ fn add_over_channel(
             crate::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
         let mut nodes = load_registry()?;
         nodes.retain(|n| {
-            n.get("node_id").and_then(|v| v.as_str()) != Some(peer.node_id.as_str())
-                && n.get("address").and_then(|v| v.as_str()) != Some(endpoint)
+            n.field_str("node_id") != Some(peer.node_id.as_str())
+                && n.field_str("address") != Some(endpoint)
                 && !n
-                    .get("pubkey")
-                    .and_then(|v| v.as_str())
+                    .field_str("pubkey")
                     .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
         });
         nodes.push(node);
@@ -1041,7 +1010,7 @@ fn request_admission(
         }
     });
     match crate::mcp_client::session_call_to(&target, endpoint, "tools/call", &args, 30) {
-        Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+        Ok(result) if result.field_bool("isError") != Some(true) => {
             say!(
                 out,
                 "{} admitted this node ({self_id}@{self_addr})",
@@ -1091,8 +1060,8 @@ fn add_over_lan(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), Strin
         // deliberate `peers unban` first, not an accidental re-add.
         let banned = load_banned()?;
         if banned.iter().any(|b| {
-            b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
-                || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
+            b.field_str("node_id") == Some(node_id.as_str())
+                || b.field_str("address") == Some(address.as_str())
         }) {
             return Err(format!(
                 "{node_id} ({address}) is banned — `susi peers unban` it before re-adding"
@@ -1132,8 +1101,8 @@ fn add_over_lan(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), Strin
             crate::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
         let mut nodes = load_registry()?;
         nodes.retain(|n| {
-            n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
-                && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
+            n.field_str("node_id") != Some(node_id.as_str())
+                && n.field_str("address") != Some(address.as_str())
         });
         nodes.push(node);
         // Roster gossip: the peer vouched for its own verified members.
@@ -1144,12 +1113,12 @@ fn add_over_lan(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), Strin
         let mut learned = 0usize;
         for (gid, gaddr) in &roster {
             let known = nodes.iter().any(|n| {
-                n.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
-                    || n.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+                n.field_str("node_id") == Some(gid.as_str())
+                    || n.field_str("address") == Some(gaddr.as_str())
             });
             let banned_hit = banned.iter().any(|b| {
-                b.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
-                    || b.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+                b.field_str("node_id") == Some(gid.as_str())
+                    || b.field_str("address") == Some(gaddr.as_str())
             });
             let looped = gaddr
                 .split(':')
@@ -1222,8 +1191,8 @@ pub fn unban(out: Out<'_>, peer: &str) -> Result<(), String> {
     let matches: Vec<&serde_json::Value> = banned
         .iter()
         .filter(|b| {
-            let id = b.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
-            let addr = b.get("address").and_then(|v| v.as_str()).unwrap_or("");
+            let id = b.field_str("node_id").unwrap_or("");
+            let addr = b.field_str("address").unwrap_or("");
             id == peer || addr == peer || id.starts_with(peer) || addr.starts_with(peer)
         })
         .collect();
@@ -1236,8 +1205,8 @@ pub fn unban(out: Out<'_>, peer: &str) -> Result<(), String> {
             .map(|b| {
                 format!(
                     "{} ({})",
-                    b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
-                    b.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                    b.field_str("node_id").unwrap_or("?"),
+                    b.field_str("address").unwrap_or("?")
                 )
             })
             .collect();
@@ -1252,14 +1221,8 @@ pub fn unban(out: Out<'_>, peer: &str) -> Result<(), String> {
     let (subject_id, subject_addr) = {
         let m = matches[0];
         (
-            m.get("node_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?")
-                .to_string(),
-            m.get("address")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?")
-                .to_string(),
+            m.field_str("node_id").unwrap_or("?").to_string(),
+            m.field_str("address").unwrap_or("?").to_string(),
         )
     };
     if delegate_membership(
@@ -1285,8 +1248,8 @@ pub fn unban(out: Out<'_>, peer: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     drop(_peers_lock);
     for b in &lifted {
-        let id = b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
-        let addr = b.get("address").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = b.field_str("node_id").unwrap_or("?");
+        let addr = b.field_str("address").unwrap_or("?");
         // Replicate the unban — receivers banned this member via the
         // committed removal, so lifting it locally alone would leave
         // them refusing its handshakes forever.

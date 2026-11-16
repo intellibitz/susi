@@ -1,6 +1,7 @@
 //! CoreTools handlers for model inventory, placement, routing preferences, and model installation.
 
 use std::path::Path;
+use susi_config::JsonFields as _;
 
 use super::CoreTools;
 use crate::susi_core::plane_bus::gawd;
@@ -31,20 +32,16 @@ impl CoreTools {
     pub fn select_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         // `{model}` over MCP; a bare string from in-process callers.
         let model = arg
-            .get("model")
-            .and_then(|v| v.as_str())
+            .field_str("model")
             .or_else(|| arg.as_str())
             .map(str::trim)
             .filter(|m| !m.is_empty())
             .ok_or_else(|| EaiError::config("model is required"))?;
         let v = ModelManager::set_selected_model(model);
-        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        if let Some(e) = v.field_str("error") {
             return Err(EaiError::config(e));
         }
-        Ok(v.get("text")
-            .and_then(|x| x.as_str())
-            .unwrap_or("model selected")
-            .to_string())
+        Ok(v.field_str("text").unwrap_or("model selected").to_string())
     }
 
     crate::tool_def!(inference_placement_tool_attr {
@@ -87,8 +84,7 @@ impl CoreTools {
         workspace: &Path,
     ) -> EaiResult<String> {
         let provider = arg
-            .get("provider")
-            .and_then(|value| value.as_str())
+            .field_str("provider")
             .map(str::trim)
             .filter(|value| crate::susi_core::plane_bus::gemi::valid_provider_id(value))
             .ok_or_else(|| EaiError::config("provider is required"))?;
@@ -117,8 +113,7 @@ impl CoreTools {
     pub fn scout_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         // `{url}` over MCP; a bare string from in-process callers.
         let url = arg
-            .get("url")
-            .and_then(|v| v.as_str())
+            .field_str("url")
             .or_else(|| arg.as_str())
             .map(str::trim)
             .filter(|u| !u.is_empty())
@@ -132,8 +127,7 @@ impl CoreTools {
         // which exits, downloads in the foreground).
         let res = ModelManager::install_model(url);
         let text = res
-            .get("text")
-            .and_then(|x| x.as_str())
+            .field_str("text")
             .map(str::to_string)
             .unwrap_or_else(|| res.to_string());
         if let Some(error) = text.strip_prefix("ERROR: ") {
@@ -195,8 +189,7 @@ impl CoreTools {
     });
     pub fn coding_models_prefer(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let model = arg
-            .get("model")
-            .and_then(|v| v.as_str())
+            .field_str("model")
             .ok_or_else(|| EaiError::protocol("model is required"))?;
         // Actually prefer it on the GEMI plane; a failed preflight is an
         // error, not a `{"preferred": …}` claim.

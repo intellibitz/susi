@@ -1,6 +1,7 @@
 //! CoreTools handlers and anti-entropy helpers for quorum commit logs, cluster rekeying, and membership.
 
 use std::path::Path;
+use susi_config::JsonFields as _;
 
 use super::CoreTools;
 use crate::susi_core::plane_bus::{gawd, gawd_hooks};
@@ -207,14 +208,10 @@ impl CoreTools {
         input_schema: args::typed::<args::CommitLogFetch>(),
     });
     pub fn commit_log_fetch(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let coordinator = arg.get("coordinator").and_then(|v| v.as_str());
-        let from_seq = arg.get("from_seq").and_then(|v| v.as_u64()).unwrap_or(1);
-        let limit = arg
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(500)
-            .min(1000) as usize;
-        let offset = arg.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let coordinator = arg.field_str("coordinator");
+        let from_seq = arg.field_u64("from_seq").unwrap_or(1);
+        let limit = arg.field_u64("limit").unwrap_or(500).min(1000) as usize;
+        let offset = arg.field_u64("offset").unwrap_or(0) as usize;
         // Serve the compaction archive alongside the live ledger — a
         // peer repairing a gap that spans the snapshot boundary needs
         // records the live file no longer holds.
@@ -254,8 +251,7 @@ impl CoreTools {
         )
         .map_err(|e| EaiError::protocol(format!("bad commit record: {e}")))?;
         let key_hex = arg
-            .get("key_hex")
-            .and_then(|v| v.as_str())
+            .field_str("key_hex")
             .ok_or_else(|| EaiError::protocol("missing 'key_hex' field"))?;
         let key_bytes = susi_paths::hex::decode(key_hex)
             .map_err(|e| EaiError::protocol(format!("bad key_hex: {e}")))?;
@@ -433,12 +429,10 @@ impl CoreTools {
     pub fn member_propose(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)?;
         let member = arg
-            .get("member")
-            .and_then(|v| v.as_str())
+            .field_str("member")
             .ok_or_else(|| EaiError::protocol("missing 'member' field"))?;
         let kind = arg
-            .get("kind")
-            .and_then(|v| v.as_str())
+            .field_str("kind")
             .unwrap_or(crate::susi_core::commit_log::KIND_MEMBER_ADD);
         // Optional on member_add: the subject's Ed25519 pubkey as the
         // proposer's handshake attested it — the committed record then
@@ -447,14 +441,8 @@ impl CoreTools {
         // `susi-bind-v1:{id}:{pubkey}` from its v3 pong — intake refuses
         // a pubkey binding without it, so a proposer can never bind a
         // key the subject didn't claim.
-        let member_pubkey = arg
-            .get("member_pubkey")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let subject_sig = arg
-            .get("subject_sig")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let member_pubkey = arg.field_str("member_pubkey").unwrap_or("");
+        let subject_sig = arg.field_str("subject_sig").unwrap_or("");
         if !matches!(
             kind,
             crate::susi_core::commit_log::KIND_MEMBER_ADD
@@ -592,17 +580,9 @@ impl CoreTools {
         let bound_members: Vec<String> =
             crate::susi_config::cluster_key::config_json_rows("peers.json")
                 .iter()
-                .filter(|r| r.get("admission").and_then(|v| v.as_str()) == Some("explicit"))
-                .filter(|r| {
-                    r.get("pubkey")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|k| !k.is_empty())
-                })
-                .filter_map(|r| {
-                    r.get("address")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string)
-                })
+                .filter(|r| r.field_str("admission") == Some("explicit"))
+                .filter(|r| r.field_str("pubkey").is_some_and(|k| !k.is_empty()))
+                .filter_map(|r| r.field_str("address").map(str::to_string))
                 .collect();
         let mut targets: Vec<String> = roster.iter().map(|(_, a, _)| a.clone()).collect();
         for a in bound_members
@@ -626,7 +606,7 @@ impl CoreTools {
                 &args,
                 bearer.as_deref(),
             ) {
-                if result.get("isError").and_then(|v| v.as_bool()) != Some(true) {
+                if result.field_bool("isError") != Some(true) {
                     pushed += 1;
                 }
             }
@@ -682,7 +662,7 @@ impl CoreTools {
             let entry = heads
                 .entry(r.coordinator.clone())
                 .or_insert_with(|| serde_json::json!({"seq": 0u64, "epoch": ""}));
-            if r.seq > entry.get("seq").and_then(|v| v.as_u64()).unwrap_or(0) {
+            if r.seq > entry.field_u64("seq").unwrap_or(0) {
                 entry["seq"] = serde_json::json!(r.seq);
                 entry["epoch"] = serde_json::json!(r.epoch.get(..12).unwrap_or(&r.epoch));
             }
@@ -693,12 +673,7 @@ impl CoreTools {
         let banned = crate::susi_config::cluster_key::config_json_rows("peers_banned.json").len();
         let bound = crate::susi_config::cluster_key::config_json_rows("peers.json")
             .iter()
-            .filter(|p| {
-                !p.get("pubkey")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .is_empty()
-            })
+            .filter(|p| !p.field_str("pubkey").unwrap_or("").is_empty())
             .count();
         let key_epoch = crate::susi_config::cluster_key::cluster_key()
             .map(|k| crate::susi_config::cluster_key::key_fingerprint(&k))
@@ -727,11 +702,7 @@ impl CoreTools {
         input_schema: args::typed::<args::CommitLog>(),
     });
     pub fn commit_log(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let limit = arg
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20)
-            .min(500) as usize;
+        let limit = arg.field_u64("limit").unwrap_or(20).min(500) as usize;
         let records = crate::susi_core::commit_log::load();
         let mut lines = vec!["EPOCH\tCOORDINATOR\tTALLY\tQUORUM\tAT".to_string()];
         for r in records.iter().rev().take(limit) {
