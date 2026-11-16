@@ -2,7 +2,7 @@
   "id": "T-CODEX100KACPEVENTBRIDGE-1",
   "title": "Report live typed lifecycle events for session-owned ACP MCP calls",
   "goal": "Vision: V-6. Complete a coherent typed ACP tool lifecycle slice for actual session-owned MCP calls without changing legacy API/wire behavior, ownership, evidence or existing financial budgets. Keep the overall core-size and complete-protocol goals open.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "l",
   "created_by": "CODEX100KACPBRIDGE",
   "created_unix": 1794832573,
@@ -44,7 +44,7 @@
   },
   "coordination": "protocol_audit owns ACP crate seam/typed wire mapping; scoped_tools owns default observer and typed registry result boundary; bridge_e2e owns actual command regressions. Parent owns publication. No config or ledger source changes, paid calls, external posts or pushes.",
   "progress": "Actual shipped command passes all ten retained/new MCP bridge scenarios, including live pending then terminal updates, cancellation, revocation, MCP isError and two live same-cwd sessions. Root queue tests cover complete-result sink redaction, bounded backpressure, child cancellation/lease/owner revocation, unfinished-call failure, late event suppression and callback-panic scoped-worker cleanup. Existing tool authority/evidence/budgets and legacy String output contracts remain unchanged. Parent owns integration/publication; complete size/protocol goals remain open.",
-  "phase": "verified_coherent_slice_ready_for_parent_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "root_units_passed": 12,
     "actual_cli_passed": 10,
@@ -53,5 +53,17 @@
     "format": "cargo fmt --all --check and git diff --check passed",
     "independent_review": "Parent and review_gemi cleared root queue/observer implementation after redaction and cancellation-aware capacity wait fixes.",
     "evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json"
-  }
+  },
+  "closed": {
+    "at_unix": 1794835050,
+    "commit": "b7c8aac9860596db797ed8e546cd52d69f1ab084",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "b7c8aac9860596db797ed8e546cd52d69f1ab084"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+  "integration_result": "Scoped implementation accepted on integrated0.21.71 development tree and remote-verified on main. Parent actual CLI10, affected units, SHA1 parity, workspace/lint/boundaries and live27pass2skip recorded. Complete307809-line and full-standards goal remain open."
 }
