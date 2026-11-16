@@ -8,7 +8,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use susi_paths::http_body::{read_line_capped, MAX_HEAD_BYTES};
+use susi_paths::http_body::read_response_head;
 
 /// Streaming body with the loopback client's historical error diagnostics.
 pub type Body<R = BufReader<Conn>> = susi_paths::http_body::Body<R>;
@@ -214,35 +214,7 @@ fn over_budget() -> io::Error {
 /// Read a response head from `reader` and frame the body that follows.
 /// `method` matters only for `HEAD`, whose response never has a body.
 pub fn read_response<R: BufRead>(mut reader: R, method: &str) -> io::Result<StreamingResponse<R>> {
-    let mut lines = Vec::new();
-    let mut used = 0;
-    loop {
-        let mut line = Vec::new();
-        read_line_capped(&mut reader, &mut line, MAX_HEAD_BYTES - used)?;
-        used += line.len() as u64;
-        if !line.ends_with(b"\n") {
-            return Err(invalid("response has no header terminator"));
-        }
-        let line = String::from_utf8_lossy(&line)
-            .trim_end_matches(['\r', '\n'])
-            .to_string();
-        if line.is_empty() {
-            break;
-        }
-        lines.push(line);
-    }
-    let mut lines = lines.into_iter();
-    let status: u16 = lines
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1).map(str::to_string))
-        .and_then(|code| code.parse().ok())
-        .ok_or_else(|| invalid("response has no status line"))?;
-    let headers: Vec<(String, String)> = lines
-        .filter_map(|line| {
-            line.split_once(':')
-                .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
-        })
-        .collect();
+    let (status, headers) = read_response_head::<_, false>(&mut reader)?;
     let chunked = headers
         .iter()
         .any(|(k, v)| k == "transfer-encoding" && v.to_ascii_lowercase().contains("chunked"));
@@ -265,10 +237,6 @@ pub fn read_response<R: BufRead>(mut reader: R, method: &str) -> io::Result<Stre
         headers,
         body,
     })
-}
-
-fn invalid(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message.to_string())
 }
 
 /// A whole response held in memory, decoded the way [`request`] does.
