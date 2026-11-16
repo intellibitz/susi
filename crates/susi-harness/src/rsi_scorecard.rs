@@ -356,21 +356,21 @@ mod standalone {
         req_done: bool,
     ) -> EaiResult<String> {
         let sel: BTreeSet<String> = tasks.iter().cloned().collect();
-        let r = score(
-            root,
-            (!sel.is_empty()).then_some(&sel),
-            Some(&root.join(ev)),
-        );
+        let selected = (!sel.is_empty()).then_some(&sel);
+        let r = score(root, selected, Some(&root.join(ev)));
         let n = r["problems"].as_array().map_or(0, Vec::len);
         if n > 0 {
             return Err(EaiError::config(format!(
                 "scorecard reported {n} problem(s)"
             )));
         }
+        let rows = r["tasks"].as_array().map_or(&[][..], Vec::as_slice);
+        // Optional history may disappear. Completion requires every selected task
+        // to remain represented by a complete evidence row.
         if req_done
-            && r["tasks"]
-                .as_array()
-                .is_some_and(|a| a.iter().any(|x| x["status"] != "complete"))
+            && (rows.is_empty()
+                || (!sel.is_empty() && rows.len() != sel.len())
+                || rows.iter().any(|row| row["status"] != "complete"))
         {
             return Err(EaiError::config("scorecard requires all tasks complete"));
         }
@@ -380,7 +380,6 @@ mod standalone {
                 .map_err(|e| EaiError::io(e.to_string()));
         }
         let mut t = String::from("RSI self-build scorecard\ntask                         status       elapsed   cost              defects  stop\n---------------------------  -----------  --------  ----------------  -------  --------\n");
-        let rows = r["tasks"].as_array().map_or(&[][..], Vec::as_slice);
         for row in rows {
             let dur = match row["elapsed_seconds"].as_u64() {
                 None => "—".into(),

@@ -42,12 +42,13 @@ networking clients, UI, OS daemon APIs, Candle, Wasmi, Bollard, or `rmcp`.
 
 Concrete implementations are assembled only at composition roots.
 
-The workflow governor, storage audit, scorecard, five harness filesystem tools
-and swarm writer-isolation operations are MCP adapters; their implementations
-execute in admitted provider processes. Shared client/session machinery lives
+The workflow governor and swarm writer-isolation operations require admitted
+MCP providers. Storage audits, scorecards and five harness filesystem tools
+prefer providers, retaining standalone behavior after definitive provider absence.
+Shared client/session machinery lives
 in `susi-config`, with HTTP transport supplied by application composition.
 `run_command` retains its local policy. This is a partial extraction: the agent
-engine remains in core until its complete socket behavior is qualified. See
+engine and standalone fallbacks remain until replacement behavior is qualified. See
 [implementation services](docs/architecture.md#implementation-services-and-protocol-adapters).
 
 ## Local and cloud operating planes

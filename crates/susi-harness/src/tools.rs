@@ -217,8 +217,8 @@ impl Registry {
 
     /// Authorize and run a tool with JSON arguments.
     ///
-    /// Built-in filesystem contracts resolve an installed MCP provider after
-    /// authorization and argument parsing. Explicit MCP registrations require
+    /// Authorized filesystem calls prefer MCP, with standalone fallback only on
+    /// definitive provider absence. Explicit MCP registrations require
     /// the caller's live client; command execution retains its local policy.
     #[must_use]
     pub fn execute(

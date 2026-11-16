@@ -291,8 +291,12 @@ protocol library without placing its implementation in core.
 
 Providers come from the ordinary MCP registry and must advertise the requested
 tool. Selection pins one provider; current authority is checked before the call.
-A missing or changed provider is an error, and a lost mutation response does not
-permit replay. Native paths retain their lossless wire representation. Large
+Unavailable, ambiguous or changed providers are errors; a lost mutation response
+does not permit replay. Healthy discovery proving no advertised provider permits
+standalone storage audits, scorecards and the five filesystem tools. Workflow
+reconciliation and swarm storage still require providers. These fallbacks remain
+migration debt until default installations preserve their behavior through the socket.
+Native paths retain their lossless wire representation. Large
 arguments and results use session-owned resources when the provider advertises
 the corresponding transfer contract; other calls retain inline behavior. Native Git context requires
 an explicit `inherit_parent_env` flag and an exact executable

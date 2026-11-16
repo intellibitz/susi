@@ -80,7 +80,7 @@ network call:
 | Response cache | [`cache.rs`](../crates/susi-harness/src/cache.rs) — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
 | Spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
 | The worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph |
-| MCP tools | Shared [`mcp_client`](../crates/susi-config/src/mcp_client.rs) and [`mcp_session`](../crates/susi-config/src/mcp_session.rs), with harness [`mcp.rs`](../crates/susi-harness/src/mcp.rs) compatibility/HTTP composition and [`tools.rs`](../crates/susi-harness/src/tools.rs) records/approval policy; five filesystem tools use admitted providers, `run_command` keeps local policy |
+| MCP tools | Shared [`mcp_client`](../crates/susi-config/src/mcp_client.rs) and [`mcp_session`](../crates/susi-config/src/mcp_session.rs), with harness [`mcp.rs`](../crates/susi-harness/src/mcp.rs) compatibility/HTTP composition and [`tools.rs`](../crates/susi-harness/src/tools.rs) records/approval policy; five filesystem tools prefer admitted providers and retain standalone fallbacks after definitive absence; `run_command` keeps local policy |
 | Plugin manifests | Retracted: the harness plugin registry (`plugins.rs`, `harness.plugins.json`) was removed; core admits installed extension packs through `susi extensions` and MCP servers through `susi mcp-add`, and plugins live in Susi Commercial Apps |
 
 ## The seams that were missing

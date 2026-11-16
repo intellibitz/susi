@@ -401,8 +401,10 @@ command: the harness owns claim, close, finish and sync), and three that write.
 the two tools that change an existing file; `append_to_file` adds to the end of
 a file (a newline first when the file does not end in one, the file created
 when missing); `replace_file_content` swaps one exact substring that occurs
-once. The five filesystem implementations resolve an installed MCP provider
-after the registry's existing authorization and argument checks. `run_command`
+once. The five filesystem tools prefer an admitted MCP provider after the
+registry's authorization and argument checks. Healthy discovery proving no
+advertised provider selects their standalone implementation. Discovery and
+selected-provider errors remain errors and never trigger replay. `run_command`
 retains its local execution policy. Large arguments and results use bounded
 standard tool calls and session-owned resources without replaying mutations.
 
@@ -472,11 +474,14 @@ susi harness scorecard --events .susi/records/rsi-loop.jsonl [--task T-…] [--j
   missing in the report until a release actually carries the task, which is
   what the scorecard's first-missing-phase display is for.
 
-`susi harness scorecard` calls the installed Rust implementation through the
-`workflow_harness_v1` MCP contract, alongside Git integration and storage audits.
+`susi harness scorecard` and storage audits prefer an admitted implementation
+through `workflow_harness_v1`, with standalone behavior after healthy discovery
+proves no provider advertises it. Git reconciliation still requires this provider.
+Missing task records cannot satisfy `--require-complete`; an empty informational
+scorecard remains available without history.
 The existing command options, receipts, typed errors and path semantics remain.
 Installation registers the verified provider through the ordinary MCP registry.
-Native Git context requires both execution permission and an exact executable
+Provider execution with native Git context requires execution permission and an exact executable
 `process.env_inherit` grant with `inherit_parent_env: true` in that entry.
 Other peers retain an isolated environment unless individually admitted;
 HTTP and client-supplied peers cannot inherit the caller's environment.
