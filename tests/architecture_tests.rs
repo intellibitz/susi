@@ -2279,6 +2279,14 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "A file over 2,000 lines grows by at most 25 lines in a change",
         "Remove what nothing uses in the change that leaves it unused",
         "Clear debt you meet in its own commit",
+        "Keep commits tidy",
+        "Each commit is one whole change that builds and passes what it affects",
+        "trailers together in the final paragraph",
+        "Its subject says what in at most 72 characters, with no trailing period",
+        "a change over 100 lines has a body that says why",
+        "Commit only source",
+        "rotate a committed secret at once",
+        "Never rewrite published history; correct a published mistake with a new commit",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2334,6 +2342,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     );
     assert!(flat("crates/susi-core/src/self_build.rs")
         .contains("keep contract, docs, tests, code tidy"));
+    assert!(flat("crates/susi-core/src/self_build.rs").contains("Keep commits tidy."));
     for lint in [
         "ignore_without_reason = \"deny\"",
         "should_panic_without_expect = \"deny\"",
