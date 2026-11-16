@@ -23,12 +23,17 @@
   },
   "created_by": "ANTIGRAVITY",
   "created_unix": 1794795706,
+  "closed": {
+    "at_unix": 1794796397,
+    "commit": "6a1e23296cc9017acdac4f377a55e8ac699b699d",
+    "by": "ANTIGRAVITY"
+  },
   "native_worker": "antigravity",
   "owner": "antigravity",
   "reuse": {
     "decision": "existing",
-    "searched": "Checked crates/susi-harness/src/{git_governor.rs,lifecycle.rs,workflow_runner.rs}, crates/susi-core/src/{agent_tx.rs,broker.rs,context_graph.rs}, crates/susi-gmcp/src/protocol.rs, and src/cli/harness_cli.rs.",
-    "reason": "Reuses git_governor::{run_git,cat_file_batch_json} and lifecycle::DEFAULT_LIFECYCLE_PATH for pure-Rust scorecard, confined_with_rel and grants_for helpers in susi-core, workflow_runner::git_raw helper, and moves unchanged harness inline test suites to src/tests/ per crate convention."
+    "reason": "Reuses git_governor::{run_git,cat_file_batch_json} and lifecycle::DEFAULT_LIFECYCLE_PATH for pure-Rust scorecard, confined_with_rel and grants_for helpers in susi-core, workflow_runner::git_raw helper, and moves unchanged harness inline test suites to src/tests/ per crate convention.",
+    "searched": "Checked crates/susi-harness/src/{git_governor.rs,lifecycle.rs,workflow_runner.rs}, crates/susi-core/src/{agent_tx.rs,broker.rs,context_graph.rs}, crates/susi-gmcp/src/protocol.rs, and src/cli/harness_cli.rs."
   },
   "schema": "susi.task_record/v1",
   "scopes": [
