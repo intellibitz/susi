@@ -1,0 +1,28 @@
+{
+  "id": "T-AGYREL072-7",
+  "title": "Prune deleted legacy task records from task_record_schema_debt",
+  "goal": "Remove the three already-deleted legacy task entries (.agents/tasks/T-STEP1HARNESS-1.json, T-STEP1NATIVECOMMAND-1.json, T-STEP1RUSTENTRY-1.json) from tests/task_record_schema_debt.json so tests/task_records passes on main ahead of v0.21.72 release qualification.",
+  "size": "xs",
+  "deps": [],
+  "scopes": [
+    "tests/task_record_schema_debt.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "tests/task_records.rs and tests/task_record_schema_debt.json already govern legacy task schema debt; removing three deleted task entries needs no new code."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "AGYREL071",
+  "created_unix": 1794850529
+}
