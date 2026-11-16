@@ -1,0 +1,19 @@
+{
+  "branch": "claude-claim-done",
+  "task": "T-AGENTCLAUDECLAIMDONE-3",
+  "agent": "AGENTCLAUDECLAIMDONE",
+  "head": "a0d9093e896db306a27f1d634e52b23a2354a26d",
+  "closed_unix": 1794840115,
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/visions/V-11.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "crates/susi-core/src/self_build.rs",
+    "docs/ceo-mandate-86.md",
+    "tests/architecture_tests.rs",
+    "tests/agent_bootstrap.rs"
+  ]
+}
