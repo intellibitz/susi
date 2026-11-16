@@ -8,7 +8,7 @@
   "created_by": "CODEX100KCATALOG",
   "created_unix": 1794818957,
   "base": "694a728dab8391402e3d46ddf6076705f67d4d75",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "native_worker": "codex-100k-catalog",
   "scopes": [
     ".agents/tasks/T-CODEX100KCATALOG-1.json",
@@ -54,5 +54,16 @@
       "The complete core is not yet below 100000 lines."
     ]
   },
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json",
+  "closed": {
+    "at_unix": 1794820421,
+    "commit": "05d7ddc48b840de6e972b79a37eb634a81bbbe96",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6028ce8f3e85798726f677ece348c5a95caeef6f",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  }
 }

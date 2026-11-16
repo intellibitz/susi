@@ -22,7 +22,7 @@
   },
   "created_by": "CODEXCORE100KHTTP",
   "created_unix": 1794818700,
-  "status": "verified_pending_publication",
+  "status": "completed",
   "base_commit": "694a728da",
   "scopes": [
     "crates/susi-config/src/plain_http.rs",
@@ -87,5 +87,16 @@
     "new_decoder_test_lines": 83,
     "dependency_review": "Exact cargo tree normal+build closure for susi-wire-client on both x86_64 Linux and Windows adds only susi-paths; external packages unchanged: serde_json, serde_core, itoa, memchr, zmij. Pillar closure unchanged. Shared paths only depends on the existing serde-json facade."
   },
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json",
+  "closed": {
+    "at_unix": 1794820421,
+    "commit": "e51bb8b33279c370320fbfe060d84f3b0da06894",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6028ce8f3e85798726f677ece348c5a95caeef6f",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  }
 }
