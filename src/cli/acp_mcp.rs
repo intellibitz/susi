@@ -340,14 +340,14 @@ impl Lease {
 }
 
 struct Process {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<(Child, Option<susi_harness::workload_process::Tree>)>>,
     stop: AtomicBool,
 }
 
 impl Process {
-    fn own(child: Child) -> io::Result<Arc<Self>> {
+    fn own(child: Child, tree: susi_harness::workload_process::Tree) -> io::Result<Arc<Self>> {
         let process = Arc::new(Self {
-            child: Mutex::new(Some(child)),
+            child: Mutex::new(Some((child, Some(tree)))),
             stop: AtomicBool::new(false),
         });
         let owned = Arc::clone(&process);
@@ -359,7 +359,10 @@ impl Process {
                     return;
                 }
                 let mut slot = owned.child.lock().unwrap_or_else(|e| e.into_inner());
-                match slot.as_mut().map(Child::try_wait) {
+                match slot
+                    .as_mut()
+                    .map(|(child, tree)| susi_harness::workload_process::try_wait(tree, child))
+                {
                     None | Some(Ok(Some(_))) => {
                         slot.take();
                         return;
@@ -383,7 +386,10 @@ impl Process {
 
     fn reap(&self) {
         let child = self.child.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(mut child) = child {
+        if let Some((mut child, tree)) = child {
+            // Stop descendants before reaping their group leader. On Windows
+            // the owned kill-on-close Job handles even an exited root process.
+            drop(tree);
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -403,12 +409,6 @@ impl ManagedIo {
     }
 
     fn check(&self) -> io::Result<()> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "ACP MCP connection closed",
-            ));
-        }
         let result = self
             .lease
             .lock()
@@ -417,8 +417,15 @@ impl ManagedIo {
             .map_or(Ok(()), Lease::check);
         if result.is_err() {
             self.close();
+            return result;
         }
-        result
+        if self.closed.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "ACP MCP connection closed",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -435,10 +442,12 @@ impl Server {
         lease: Lease,
     ) -> Result<(Self, Vec<Value>), String> {
         lease.check().map_err(|e| e.to_string())?;
-        let mut child = susi_tools::spawn_authorized_stdio_peer_literal(config, policy)?;
+        let mut command = susi_tools::authorized_stdio_command_literal(config, policy)?;
+        let (mut child, tree) =
+            susi_harness::workload_process::spawn(&mut command).map_err(|e| e.to_string())?;
         let input = child.stdin.take();
         let output = child.stdout.take();
-        let process = Process::own(child).map_err(|e| e.to_string())?;
+        let process = Process::own(child, tree).map_err(|e| e.to_string())?;
         let io = Arc::new(ManagedIo {
             process,
             closed: AtomicBool::new(false),
@@ -505,8 +514,13 @@ impl Server {
             }
         }
         let _clear = Clear(&self.io);
-        host.call_tool("session", name, args, None)
-            .map_err(|e| e.to_string())
+        let result = host
+            .call_tool("session", name, args, None)
+            .map_err(|e| e.to_string());
+        if result.is_err() {
+            self.io.close();
+        }
+        result
     }
 }
 
@@ -526,16 +540,40 @@ struct PumpReader {
 impl PumpReader {
     fn start(mut output: impl Read + Send + 'static, io: Arc<ManagedIo>) -> io::Result<Self> {
         let (send, receive) = mpsc::sync_channel(2);
+        let state = Arc::clone(&io);
         std::thread::Builder::new()
             .name("acp-mcp-read".into())
             .spawn(move || loop {
+                if state.check().is_err() {
+                    break;
+                }
                 let mut bytes = vec![0; 8192];
                 let result = output.read(&mut bytes).map(|n| {
                     bytes.truncate(n);
                     bytes
                 });
+                if result
+                    .as_ref()
+                    .is_err_and(|e| e.kind() == io::ErrorKind::Interrupted)
+                {
+                    continue;
+                }
                 let finished = result.as_ref().map_or(true, Vec::is_empty);
-                if send.send(result).is_err() || finished {
+                let mut pending = result;
+                loop {
+                    if state.check().is_err() {
+                        return;
+                    }
+                    match send.try_send(pending) {
+                        Ok(()) => break,
+                        Err(mpsc::TrySendError::Full(returned)) => {
+                            pending = returned;
+                            std::thread::sleep(POLL);
+                        }
+                        Err(mpsc::TrySendError::Disconnected(_)) => return,
+                    }
+                }
+                if finished {
                     break;
                 }
             })?;
@@ -592,16 +630,23 @@ struct PumpWriter {
 impl PumpWriter {
     fn start(mut input: impl Write + Send + 'static, io: Arc<ManagedIo>) -> io::Result<Self> {
         let (send, receive) = mpsc::sync_channel::<WriteJob>(1);
+        let state = Arc::clone(&io);
         std::thread::Builder::new()
             .name("acp-mcp-write".into())
-            .spawn(move || {
-                while let Ok((bytes, reply)) = receive.recv() {
-                    let result = input.write_all(&bytes).and_then(|()| input.flush());
-                    let failed = result.is_err();
-                    let _ = reply.send(result);
-                    if failed {
-                        break;
-                    }
+            .spawn(move || loop {
+                if state.check().is_err() {
+                    break;
+                }
+                let (bytes, reply) = match receive.recv_timeout(POLL) {
+                    Ok(job) => job,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                let result = input.write_all(&bytes).and_then(|()| input.flush());
+                let failed = result.is_err();
+                let _ = reply.send(result);
+                if failed {
+                    break;
                 }
             })?;
         Ok(Self { send, io })
@@ -754,5 +799,63 @@ mod tests {
         );
         drop(release);
         assert!(io.process.stop.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn interrupted_pipe_read_retries_before_forwarding_data() {
+        struct InterruptedOnce(bool);
+        impl Read for InterruptedOnce {
+            fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let bytes = b"{\"jsonrpc\":\"2.0\"}\n";
+                out[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+        }
+        let io = managed(lease());
+        let mut reader = PumpReader::start(InterruptedOnce(false), io.clone()).unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(line, "{\"jsonrpc\":\"2.0\"}\n");
+        io.close();
+    }
+
+    #[test]
+    fn closed_pumps_release_idle_writer_and_full_reader_queue() {
+        struct Observed(Arc<AtomicBool>);
+        impl Drop for Observed {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        impl Read for Observed {
+            fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+                out.fill(b'x');
+                Ok(out.len())
+            }
+        }
+        impl Write for Observed {
+            fn write(&mut self, out: &[u8]) -> io::Result<usize> {
+                Ok(out.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let io = managed(lease());
+        let reader_dropped = Arc::new(AtomicBool::new(false));
+        let writer_dropped = Arc::new(AtomicBool::new(false));
+        let _reader = PumpReader::start(Observed(reader_dropped.clone()), io.clone()).unwrap();
+        let _writer = PumpWriter::start(Observed(writer_dropped.clone()), io.clone()).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        io.close();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !reader_dropped.load(Ordering::Acquire) || !writer_dropped.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "closed pump retained its pipe");
+            std::thread::sleep(POLL);
+        }
     }
 }

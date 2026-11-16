@@ -362,13 +362,12 @@ fn decode_chunked_text(mut input: &str) -> String {
 }
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
-    spawn_stdio_command_mode(config, false)
+    stdio_command(config, false)
+        .spawn()
+        .map_err(|e| e.to_string())
 }
 
-fn spawn_stdio_command_mode(
-    config: &McpServerConfig,
-    literal_environment: bool,
-) -> Result<std::process::Child, String> {
+fn stdio_command(config: &McpServerConfig, literal_environment: bool) -> Command {
     let mut command = Command::new(&config.command);
     susi_paths::console::without_window(&mut command)
         .args(&config.args)
@@ -431,7 +430,7 @@ fn spawn_stdio_command_mode(
             command.current_dir(cwd);
         }
     }
-    command.spawn().map_err(|e| e.to_string())
+    command
 }
 
 fn read_jsonrpc_response(
@@ -768,18 +767,18 @@ pub fn spawn_authorized_stdio_peer(
     spawn_stdio_command(config)
 }
 
-/// Spawn a client-supplied MCP peer with literal environment and cwd values.
+/// Prepare a client-supplied MCP peer for the caller's process containment.
 /// Unlike stored host configurations, empty values never resolve credentials
 /// from the host environment and cwd never expands a workspace template.
-pub fn spawn_authorized_stdio_peer_literal(
+pub fn authorized_stdio_command_literal(
     config: &McpServerConfig,
     policy: &MacPolicy,
-) -> Result<std::process::Child, String> {
+) -> Result<Command, String> {
     if config.parse_http_url()?.is_some() {
         return Err("stdio MCP requires an executable, not an HTTP URL".into());
     }
     authorize_transport(config, policy)?;
-    spawn_stdio_command_mode(config, true)
+    Ok(stdio_command(config, true))
 }
 
 #[cfg(test)]

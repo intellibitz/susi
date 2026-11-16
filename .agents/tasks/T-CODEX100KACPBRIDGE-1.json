@@ -15,6 +15,8 @@
     "src/cli/acp_mcp.rs",
     "crates/susi-tools/src/mcp_budget.rs",
     "crates/susi-tools/src/lib.rs",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/workload_process.rs",
     "crates/susi-core/src/scoped_tools.rs",
     "crates/susi-core/src/lib.rs",
     "crates/susi-core/src/plane_bus.rs",
@@ -40,7 +42,10 @@
       "--offline",
       "--locked",
       "--test",
-      "acp_mcp_bridge"
+      "acp_mcp_bridge",
+      "--",
+      "--ignored",
+      "--nocapture"
     ]
   },
   "reuse": {
@@ -48,5 +53,5 @@
     "searched": "Audited wire-client McpHost/DuplexStreams, CLI with_cli_host, tools authorized spawn/MAC/registry, core watched bus and parallel context, ACP executor/GAWD local runner, GEMI tool normalization and provider routes. Design receipts are private acp-mcp-design.json and acp-mcp-scope-plan.json. Reuse existing host and guarded mission paths; no external source or dependency."
   },
   "coordination": "protocol_audit owns ACP crate factory/lifecycle; scoped_tools owns core/tool overlay and worker carry; scoped_inference owns GEMI tool ownership and diagnostic routing. Parent integrator owns publication. No external Board posts or paid provider calls.",
-  "progress": "Interfaces agreed; isolated worktree initialized. Wiring root managed-child/session composition and deterministic E2E tests while disjoint context/inference workers implement."
+  "progress": "ACP factory and explicit core/tool worker scope commits integrated privately; first actual root compile passed (cold52.79s, no qualification claim). Root owns process-contained MCP sessions with literal env/cwd and bounded I/O. Reuses harness process-group/Windows Job primitives. Managed I/O and real shipped-command E2E qualification in progress; inference companion completing all-session-schema availability and watched diagnostic routing."
 }

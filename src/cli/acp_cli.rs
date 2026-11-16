@@ -36,21 +36,27 @@ fn stdio_executor(workspace: &Path) -> GawdAcpExecutor {
         workspace,
         Arc::new(move |intent, path| {
             wire_stdio_substrate();
-            if susi_core::scoped_tools::current().is_some() {
-                let answer = susi_gawd::ama::SusiMasterAgent::new().solve_clean_with_model(
-                    intent,
-                    path,
-                    susi::SUSI_VERSION,
-                    None,
-                );
-                if answer.trim().is_empty() {
-                    Err("mission produced no result (empty GAWD answer)".into())
+            susi_config::progress::with_sink(Some(Arc::new(|line| eprintln!("{line}"))), || {
+                if susi_core::scoped_tools::current().is_some() {
+                    let answer = susi_gawd::ama::SusiMasterAgent::new().solve_clean_with_model(
+                        intent,
+                        path,
+                        susi::SUSI_VERSION,
+                        None,
+                    );
+                    if answer.trim().is_empty() {
+                        Err("mission produced no result (empty GAWD answer)".into())
+                    } else {
+                        Ok(answer)
+                    }
                 } else {
-                    Ok(answer)
+                    susi_core::plane_bus::gawd::solve_mission_for_acp(
+                        intent,
+                        path,
+                        susi::SUSI_VERSION,
+                    )
                 }
-            } else {
-                susi_core::plane_bus::gawd::solve_mission_for_acp(intent, path, susi::SUSI_VERSION)
-            }
+            })
         }),
     )
 }

@@ -37,7 +37,7 @@ pub use config::{GlobalMcpEntry, McpConfig, McpServerConfig};
 pub use hooks::{EngineHooks, HardwareSnapshot};
 pub use leading_mcp::{LeadingMcpDefinition, LeadingMcpManager, LeadingMcpOverride};
 pub use mcp_budget::{
-    authorize_mcp_transport, spawn_authorized_stdio_peer, spawn_authorized_stdio_peer_literal,
+    authorize_mcp_transport, authorized_stdio_command_literal, spawn_authorized_stdio_peer,
 };
 pub use registry::ToolRegistry;
 pub use types::{McpTool, MetaCategory, MetaTool, MetaToolHandler, SusiTool};
