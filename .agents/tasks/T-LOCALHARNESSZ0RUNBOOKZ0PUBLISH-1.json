@@ -1,0 +1,30 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "base": "2275ca62ffbc268d3e9c00c448400dc9bf4547c3",
+  "created_by": "harness-runbook-publish",
+  "created_unix": 1794786747,
+  "id": "T-LOCALHARNESSZ0RUNBOOKZ0PUBLISH-1",
+  "integration": "pending_native_receipt",
+  "native_worker": "harness-runbook-publish",
+  "owner": "harness-runbook-publish",
+  "scopes": [
+    ".agents/tasks/done/t-localharnessz0runbookz0publish-1.json",
+    ".agents/tasks/t-localharnessz0runbookz0publish-1.json",
+    "docs/harness-runbook.md"
+  ],
+  "status": "verified",
+  "title": "Document publishing a harness landing",
+  "workflow": "susi-local-v2"
+}
