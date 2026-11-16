@@ -32,7 +32,9 @@
     "T-CODEX100KSCOPEDTOOLS-1",
     "T-CODEX100KACPINFERENCE-1",
     "T-CODEX100KMCPCATALOG-1",
-    "T-CODEX100KGMCPTEST-1"
+    "T-CODEX100KGMCPTEST-1",
+    "T-CODEX100KCONFIGACCESSORS-1",
+    "T-CODEX100KLEDGER-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -81,17 +83,19 @@
     ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json",
     ".agents/evidence/core-under-100k/2026-11-16-http-head.json",
     ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json"
+    ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+    ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
+    ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json"
   ],
   "progress": {
-    "runtime_rust": 301075,
+    "runtime_rust": 300907,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 307529,
-    "genuine_runtime_lines_removed": 2294,
-    "remaining_to_remove": 207530,
+    "complete_socket_rust": 307361,
+    "genuine_runtime_lines_removed": 2462,
+    "remaining_to_remove": 207362,
     "upstream_runtime_lines_added": 84,
     "correctness_lines_added": 104,
-    "net_runtime_lines_removed": -314,
+    "net_runtime_lines_removed": -146,
     "standards_compatibility_lines_added": 2504
   },
   "publication_cadence": {

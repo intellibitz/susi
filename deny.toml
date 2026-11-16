@@ -19,9 +19,8 @@ targets = [
     "aarch64-pc-windows-msvc",
 ]
 [advisories]
-ignore = [
-    "RUSTSEC-2024-0436", # paste is unmaintained/archived by its author; no safe upgrade, pulled transitively via candle's gemm crates
-]
+# No exceptions. RUSTSEC-2024-0436 (paste) was one until paste left the graph.
+ignore = []
 
 [licenses]
 # Strict product policy: no exceptions are silently grandfathered in.

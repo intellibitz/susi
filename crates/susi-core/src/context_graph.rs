@@ -478,6 +478,19 @@ impl ContextGraph {
         edge.id.clone()
     }
 
+    // All convenience relations share the same identity and empty properties.
+    // Callers retain the clock read and ordering relative to their other events.
+    fn record_relation(&self, source: NodeId, kind: EdgeType, target: NodeId, at: u64) {
+        self.record_edge(Edge {
+            id: Self::edge_id(&source, &kind, &target, at),
+            source,
+            target,
+            kind,
+            created_at: at,
+            properties: HashMap::new(),
+        });
+    }
+
     /// Convenience: ensure a workspace node exists and return its id.
     pub fn record_workspace(&self, workspace: &Path) -> NodeId {
         let canonical = workspace
@@ -530,25 +543,11 @@ impl ContextGraph {
             .collect(),
         });
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&id, &EdgeType::OccurredIn, &ws_id, at),
-            source: id.clone(),
-            target: ws_id,
-            kind: EdgeType::OccurredIn,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(id.clone(), EdgeType::OccurredIn, ws_id, at);
         if let Some(user) = user {
             let user_id = self.record_user(user);
             let at = Self::now();
-            self.record_edge(Edge {
-                id: Self::edge_id(&user_id, &EdgeType::Invoked, &id, at),
-                source: user_id,
-                target: id.clone(),
-                kind: EdgeType::Invoked,
-                created_at: at,
-                properties: HashMap::new(),
-            });
+            self.record_relation(user_id, EdgeType::Invoked, id.clone(), at);
         }
         id
     }
@@ -592,32 +591,11 @@ impl ContextGraph {
             .collect(),
         });
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&mission, &EdgeType::Called, &call_id, at),
-            source: mission,
-            target: call_id.clone(),
-            kind: EdgeType::Called,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(mission, EdgeType::Called, call_id.clone(), at);
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&call_id, &EdgeType::Used, &tool_id, at),
-            source: call_id.clone(),
-            target: tool_id,
-            kind: EdgeType::Used,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(call_id.clone(), EdgeType::Used, tool_id, at);
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&call_id, &EdgeType::OccurredIn, &ws_id, at),
-            source: call_id.clone(),
-            target: ws_id,
-            kind: EdgeType::OccurredIn,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(call_id.clone(), EdgeType::OccurredIn, ws_id, at);
         call_id
     }
 
@@ -667,34 +645,13 @@ impl ContextGraph {
         if let Some(mission_id) = mission_id {
             let mission = NodeId::stable("mission", mission_id);
             let at = Self::now();
-            self.record_edge(Edge {
-                id: Self::edge_id(&agent_id, &EdgeType::ParticipatedIn, &mission, at),
-                source: agent_id.clone(),
-                target: mission,
-                kind: EdgeType::ParticipatedIn,
-                created_at: at,
-                properties: HashMap::new(),
-            });
+            self.record_relation(agent_id.clone(), EdgeType::ParticipatedIn, mission, at);
         }
         let ws_id = self.record_workspace(workspace);
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&agent_id, &EdgeType::Observed, &obs_id, at),
-            source: agent_id.clone(),
-            target: obs_id.clone(),
-            kind: EdgeType::Observed,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(agent_id.clone(), EdgeType::Observed, obs_id.clone(), at);
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&obs_id, &EdgeType::OccurredIn, &ws_id, at),
-            source: obs_id.clone(),
-            target: ws_id,
-            kind: EdgeType::OccurredIn,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(obs_id.clone(), EdgeType::OccurredIn, ws_id, at);
         obs_id
     }
 
@@ -745,37 +702,16 @@ impl ContextGraph {
             .collect(),
         });
         let at = Self::now();
-        self.record_edge(Edge {
-            id: Self::edge_id(&source_id, &EdgeType::IngestedBy, &ctx_id, at),
-            source: source_id,
-            target: ctx_id.clone(),
-            kind: EdgeType::IngestedBy,
-            created_at: at,
-            properties: HashMap::new(),
-        });
+        self.record_relation(source_id, EdgeType::IngestedBy, ctx_id.clone(), at);
         if let Some(user) = user {
             let user_id = self.record_user(user);
             let at = Self::now();
-            self.record_edge(Edge {
-                id: Self::edge_id(&ctx_id, &EdgeType::References, &user_id, at),
-                source: ctx_id.clone(),
-                target: user_id,
-                kind: EdgeType::References,
-                created_at: at,
-                properties: HashMap::new(),
-            });
+            self.record_relation(ctx_id.clone(), EdgeType::References, user_id, at);
         }
         if let Some(workspace) = workspace {
             let ws_id = self.record_workspace(workspace);
             let at = Self::now();
-            self.record_edge(Edge {
-                id: Self::edge_id(&ctx_id, &EdgeType::OccurredIn, &ws_id, at),
-                source: ctx_id.clone(),
-                target: ws_id,
-                kind: EdgeType::OccurredIn,
-                created_at: at,
-                properties: HashMap::new(),
-            });
+            self.record_relation(ctx_id.clone(), EdgeType::OccurredIn, ws_id, at);
         }
         ctx_id
     }
@@ -816,14 +752,7 @@ impl ContextGraph {
         if let Some(workspace) = workspace {
             let ws_id = self.record_workspace(workspace);
             let at = Self::now();
-            self.record_edge(Edge {
-                id: Self::edge_id(&id, &EdgeType::OccurredIn, &ws_id, at),
-                source: id.clone(),
-                target: ws_id,
-                kind: EdgeType::OccurredIn,
-                created_at: at,
-                properties: HashMap::new(),
-            });
+            self.record_relation(id.clone(), EdgeType::OccurredIn, ws_id, at);
         }
         id
     }

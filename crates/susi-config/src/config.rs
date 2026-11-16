@@ -33,6 +33,19 @@ const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
     "a2a_http_port",
 ];
 
+// Keep the public typed wrappers and their bundled-default lookup keys together.
+// Special accessors with file, environment, migration or validation policy stay explicit.
+macro_rules! bundled_accessors {
+    ($($(#[$meta:meta])* $name:ident: $ty:ty;)*) => {
+        $(
+            $(#[$meta])*
+            pub fn $name(&self) -> $ty {
+                self.get_or_bundled_default(stringify!($name))
+            }
+        )*
+    };
+}
+
 impl SusiConfig {
     // Mandate 42: safe - parses the include_str! bundled default config; a
     // parse failure is a build-time bug caught by any test run.
@@ -187,6 +200,125 @@ impl SusiConfig {
             .unwrap_or_else(|| Self::bundled_defaults().get(key).unwrap_or_default())
     }
 
+    bundled_accessors! {
+        execution_lease_secs: u64;
+        max_concurrent_agents: usize;
+        trust_level: String;
+        max_stdin_size_bytes: usize;
+        max_rpc_body_bytes: usize;
+        allow_origin: String;
+        /// Max requests per IP per 60s window on world-facing HTTP surfaces. 0
+        /// disables rate limiting.
+        rate_limit_per_minute: u32;
+        default_model: String;
+        default_engine: String;
+        governance: GovernancePatterns;
+        intent_classify: IntentClassifyConfig;
+        alpha_weights_url: String;
+        alpha_weights_filename: String;
+        tokenizer_filename: String;
+        hf_base_url: String;
+        qdrant_url: String;
+        crates_io_api_url: String;
+        inference_endpoints: InferenceEndpointsConfig;
+        agent_rank_threshold: f32;
+        cloud_scout_timeout_secs: u64;
+        model_provisioning_wait_secs: u64;
+        /// Interval for re-probing local inference engines and MCP tools after
+        /// daemon start. `0` disables the background rediscovery loop.
+        capability_rediscovery_secs: u64;
+        reflex_training_threshold: usize;
+        model_lifecycle: ModelLifecycleConfig;
+        inference_routing: InferenceRoutingConfig;
+        privacy: PrivacyConfig;
+        /// The explicitly configured ladder, or empty if none is set. This is a
+        /// pure config accessor with no network/discovery fallback — `sandbox`
+        /// must not depend on `gemi::hf_discovery` for that (it would create a
+        /// cycle, since `gemi` already depends on `sandbox` for `SusiConfig`
+        /// itself). Callers that want the dynamic-discovery fallback when this
+        /// is empty should use `gemi::hf_discovery::resolve_model_ladder`.
+        model_ladder: Vec<ModelLadderConfigStep>;
+        default_fallback_model: ModelLadderConfigStep;
+        admin_command_routing: HashMap<String, Vec<Vec<String>>>;
+        agent_routing: HashMap<String, Vec<String>>;
+        model_scoring_heuristics: ModelScoringHeuristics;
+        memory_experience_heuristics: MemoryExperienceHeuristics;
+        sandbox_image: String;
+        /// Special-token IDs that terminate generation (previously hardcoded as
+        /// `1 | 2 | 32000 | 151643` directly in the inference loop — vendor/
+        /// tokenizer-specific magic numbers with zero comment on which model
+        /// family each belonged to).
+        eos_token_ids: Vec<u32>;
+        max_generation_tokens: usize;
+        /// Penalty divisor applied to already-seen tokens' logits before argmax
+        /// (llama.cpp convention: >1.0 discourages repetition, 1.0 disables it).
+        /// Pure greedy decoding with no penalty readily loops on tiny models -
+        /// observed live on qwen2.5-0.5b as a "Name three colors" response
+        /// degenerating into an infinitely-nesting repeated JSON structure.
+        repeat_penalty: f32;
+        /// How many of the most recent tokens (prompt + generated) count toward
+        /// the repeat penalty above.
+        repeat_last_n: usize;
+        /// Whether the generation loop may draft-and-verify multiple tokens per
+        /// target-model forward pass (see `gemi::speculative`) instead of one
+        /// token at a time. Verification always falls back to the target
+        /// model's own greedy choice on the first disagreement, so the emitted
+        /// token sequence is provably identical to plain greedy decoding
+        /// either way (see `speculative::tests::
+        /// test_speculative_output_matches_plain_greedy_decoding`) - this only
+        /// gates whether the batched path is attempted, never behavior.
+        ///
+        /// Defaults to `false`: measured live on this host (RTX 2000 Ada
+        /// Laptop, 8GB VRAM), a fully GPU-resident Qwen2.5-7B target with a
+        /// 0.5B draft ran at 4.36 tok/s versus 18.47 tok/s for plain greedy
+        /// decoding of the same model - a 4x regression, not the hoped-for
+        /// speedup. CUDA's quantized matmul genuinely gets cheaper per-token
+        /// with a wider batch (confirmed via `cudarc`'s `fast_mmq` threshold),
+        /// but that saving is consumed by the extra host/kernel-launch round
+        /// trips this adds: the draft model still needs `speculative_draft_tokens
+        /// - 1` *sequential* single-token forwards per round (autoregressive,
+        ///   can't be batched), plus a resync forward, on top of the target's
+        ///   batched verify call - more total round trips than the classic loop
+        ///   for the same tokens, and per-call host/launch overhead dominates
+        ///   over raw compute at these model sizes on this stack. Left
+        ///   configurable (and the implementation fully correctness-tested) in
+        ///   case a future candle version, different hardware, or a larger
+        ///   draft_chunk changes this trade-off - but never default-on without
+        ///   remeasuring.
+        speculative_decoding_enabled: bool;
+        /// How many tokens the draft model proposes ahead of the target model
+        /// per verification round. Larger values amortize more work into each
+        /// batched target-model forward pass (raising GPU utilization) but waste
+        /// more of that pass whenever the draft diverges early.
+        speculative_draft_tokens: usize;
+        /// Upper bound (prompt + generated tokens combined) the native Qwen2
+        /// engine's KV cache preallocates per layer at model-load time (see
+        /// `qwen2_split::ModelWeights::from_gguf_split`). The cache is written
+        /// into in place as generation proceeds rather than reallocated every
+        /// token, so this must be decided once, before any particular
+        /// request's prompt length is known - sized generously above
+        /// `max_generation_tokens` to comfortably cover realistic prompts.
+        /// Exceeding it mid-generation is a hard error (not silent truncation
+        /// or a fallback to reallocation): raise this value if it's ever hit.
+        kv_cache_capacity_tokens: usize;
+        /// Risk substrings that block reasoning OUTPUT before it's returned as a
+        /// final answer — a distinct security layer from `governance()`'s
+        /// `destructive_commands` (which gates COMMANDS before execution); the
+        /// two lists overlap in spirit but not in content.
+        axiomatic_risk_patterns: Vec<String>;
+        model_scan_exclude_dirs: Vec<String>;
+        /// Deliberately narrower than `model_scan_exclude_dirs`: this gates
+        /// `recursive_scan_model_dir_for_paths`, which `deep_scan_home_and_register`
+        /// invokes *with* `.cache`/`.local` etc. as starting directories (they're
+        /// dot-prefixed, so a separate first pass has to seed them explicitly) — if
+        /// this list excluded them too, the scan would refuse to look inside its
+        /// own seeded roots.
+        model_discovery_exclude_dirs: Vec<String>;
+        home_scan_root_exclude_dirs: Vec<String>;
+        model_file_extensions: Vec<String>;
+        model_file_min_bytes: u64;
+    }
+
     /// Uniform shift applied to every host-contract port. One knob — a
     /// second instance or a nonstandard host layout gets clean ports while
     /// the relative contract shape stays fixed (the legacy per-port config
@@ -241,24 +373,6 @@ impl SusiConfig {
     /// Swarm gossip UDP. Offset with the rest of the instance; not a host-contract port.
     pub fn gossip_port(&self) -> u16 {
         susi_paths::ports::GOSSIP.saturating_add(self.port_offset())
-    }
-    pub fn execution_lease_secs(&self) -> u64 {
-        self.get_or_bundled_default("execution_lease_secs")
-    }
-    pub fn max_concurrent_agents(&self) -> usize {
-        self.get_or_bundled_default("max_concurrent_agents")
-    }
-    pub fn trust_level(&self) -> String {
-        self.get_or_bundled_default("trust_level")
-    }
-    pub fn max_stdin_size_bytes(&self) -> usize {
-        self.get_or_bundled_default("max_stdin_size_bytes")
-    }
-    pub fn max_rpc_body_bytes(&self) -> usize {
-        self.get_or_bundled_default("max_rpc_body_bytes")
-    }
-    pub fn allow_origin(&self) -> String {
-        self.get_or_bundled_default("allow_origin")
     }
     /// Bearer token required on world-facing HTTP surfaces (GMCP HTTP, GEMI
     /// REST). Prefer the dedicated `~/.susi/api_token` file (0600); fall back to
@@ -375,18 +489,6 @@ impl SusiConfig {
         Ok(token)
     }
 
-    /// Max requests per IP per 60s window on world-facing HTTP surfaces. 0
-    /// disables rate limiting.
-    pub fn rate_limit_per_minute(&self) -> u32 {
-        self.get_or_bundled_default("rate_limit_per_minute")
-    }
-
-    pub fn default_model(&self) -> String {
-        self.get_or_bundled_default("default_model")
-    }
-    pub fn default_engine(&self) -> String {
-        self.get_or_bundled_default("default_engine")
-    }
     pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
         self.get("bootstrap_mcp_servers").unwrap_or_default()
     }
@@ -395,60 +497,6 @@ impl SusiConfig {
     }
     pub fn discoverable_assets<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
         self.get("discoverable_assets").unwrap_or_default()
-    }
-    pub fn governance(&self) -> GovernancePatterns {
-        self.get_or_bundled_default("governance")
-    }
-    pub fn intent_classify(&self) -> IntentClassifyConfig {
-        self.get_or_bundled_default("intent_classify")
-    }
-    pub fn alpha_weights_url(&self) -> String {
-        self.get_or_bundled_default("alpha_weights_url")
-    }
-    pub fn alpha_weights_filename(&self) -> String {
-        self.get_or_bundled_default("alpha_weights_filename")
-    }
-    pub fn tokenizer_filename(&self) -> String {
-        self.get_or_bundled_default("tokenizer_filename")
-    }
-    pub fn hf_base_url(&self) -> String {
-        self.get_or_bundled_default("hf_base_url")
-    }
-    pub fn qdrant_url(&self) -> String {
-        self.get_or_bundled_default("qdrant_url")
-    }
-    pub fn crates_io_api_url(&self) -> String {
-        self.get_or_bundled_default("crates_io_api_url")
-    }
-    pub fn inference_endpoints(&self) -> InferenceEndpointsConfig {
-        self.get_or_bundled_default("inference_endpoints")
-    }
-    pub fn agent_rank_threshold(&self) -> f32 {
-        self.get_or_bundled_default("agent_rank_threshold")
-    }
-    pub fn cloud_scout_timeout_secs(&self) -> u64 {
-        self.get_or_bundled_default("cloud_scout_timeout_secs")
-    }
-    pub fn model_provisioning_wait_secs(&self) -> u64 {
-        self.get_or_bundled_default("model_provisioning_wait_secs")
-    }
-    /// Interval for re-probing local inference engines and MCP tools after
-    /// daemon start. `0` disables the background rediscovery loop.
-    pub fn capability_rediscovery_secs(&self) -> u64 {
-        self.get_or_bundled_default("capability_rediscovery_secs")
-    }
-    pub fn reflex_training_threshold(&self) -> usize {
-        self.get_or_bundled_default("reflex_training_threshold")
-    }
-    pub fn model_lifecycle(&self) -> ModelLifecycleConfig {
-        self.get_or_bundled_default("model_lifecycle")
-    }
-    pub fn inference_routing(&self) -> InferenceRoutingConfig {
-        self.get_or_bundled_default("inference_routing")
-    }
-
-    pub fn privacy(&self) -> PrivacyConfig {
-        self.get_or_bundled_default("privacy")
     }
 
     /// External coding agents mounted as pluggable swarm peers.
@@ -524,108 +572,10 @@ impl SusiConfig {
             .clone()
     }
 
-    /// The explicitly configured ladder, or empty if none is set. This is a
-    /// pure config accessor with no network/discovery fallback — `sandbox`
-    /// must not depend on `gemi::hf_discovery` for that (it would create a
-    /// cycle, since `gemi` already depends on `sandbox` for `SusiConfig`
-    /// itself). Callers that want the dynamic-discovery fallback when this
-    /// is empty should use `gemi::hf_discovery::resolve_model_ladder`.
-    pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
-        self.get_or_bundled_default("model_ladder")
-    }
-    pub fn default_fallback_model(&self) -> ModelLadderConfigStep {
-        self.get_or_bundled_default("default_fallback_model")
-    }
-    pub fn admin_command_routing(&self) -> HashMap<String, Vec<Vec<String>>> {
-        self.get_or_bundled_default("admin_command_routing")
-    }
-    pub fn agent_routing(&self) -> HashMap<String, Vec<String>> {
-        self.get_or_bundled_default("agent_routing")
-    }
-    pub fn model_scoring_heuristics(&self) -> ModelScoringHeuristics {
-        self.get_or_bundled_default("model_scoring_heuristics")
-    }
-    pub fn memory_experience_heuristics(&self) -> MemoryExperienceHeuristics {
-        self.get_or_bundled_default("memory_experience_heuristics")
-    }
-    pub fn sandbox_image(&self) -> String {
-        self.get_or_bundled_default("sandbox_image")
-    }
-    /// Special-token IDs that terminate generation (previously hardcoded as
-    /// `1 | 2 | 32000 | 151643` directly in the inference loop — vendor/
-    /// tokenizer-specific magic numbers with zero comment on which model
-    /// family each belonged to).
-    pub fn eos_token_ids(&self) -> Vec<u32> {
-        self.get_or_bundled_default("eos_token_ids")
-    }
     /// Maximum simultaneous HTTP completion jobs; excess clients receive HTTP 429.
     pub fn gemi_max_concurrent_requests(&self) -> usize {
         self.get_or_bundled_default::<usize>("gemi_max_concurrent_requests")
             .max(1)
-    }
-    pub fn max_generation_tokens(&self) -> usize {
-        self.get_or_bundled_default("max_generation_tokens")
-    }
-    /// Penalty divisor applied to already-seen tokens' logits before argmax
-    /// (llama.cpp convention: >1.0 discourages repetition, 1.0 disables it).
-    /// Pure greedy decoding with no penalty readily loops on tiny models -
-    /// observed live on qwen2.5-0.5b as a "Name three colors" response
-    /// degenerating into an infinitely-nesting repeated JSON structure.
-    pub fn repeat_penalty(&self) -> f32 {
-        self.get_or_bundled_default("repeat_penalty")
-    }
-    /// How many of the most recent tokens (prompt + generated) count toward
-    /// the repeat penalty above.
-    pub fn repeat_last_n(&self) -> usize {
-        self.get_or_bundled_default("repeat_last_n")
-    }
-    /// Whether the generation loop may draft-and-verify multiple tokens per
-    /// target-model forward pass (see `gemi::speculative`) instead of one
-    /// token at a time. Verification always falls back to the target
-    /// model's own greedy choice on the first disagreement, so the emitted
-    /// token sequence is provably identical to plain greedy decoding
-    /// either way (see `speculative::tests::
-    /// test_speculative_output_matches_plain_greedy_decoding`) - this only
-    /// gates whether the batched path is attempted, never behavior.
-    ///
-    /// Defaults to `false`: measured live on this host (RTX 2000 Ada
-    /// Laptop, 8GB VRAM), a fully GPU-resident Qwen2.5-7B target with a
-    /// 0.5B draft ran at 4.36 tok/s versus 18.47 tok/s for plain greedy
-    /// decoding of the same model - a 4x regression, not the hoped-for
-    /// speedup. CUDA's quantized matmul genuinely gets cheaper per-token
-    /// with a wider batch (confirmed via `cudarc`'s `fast_mmq` threshold),
-    /// but that saving is consumed by the extra host/kernel-launch round
-    /// trips this adds: the draft model still needs `speculative_draft_tokens
-    /// - 1` *sequential* single-token forwards per round (autoregressive,
-    ///   can't be batched), plus a resync forward, on top of the target's
-    ///   batched verify call - more total round trips than the classic loop
-    ///   for the same tokens, and per-call host/launch overhead dominates
-    ///   over raw compute at these model sizes on this stack. Left
-    ///   configurable (and the implementation fully correctness-tested) in
-    ///   case a future candle version, different hardware, or a larger
-    ///   draft_chunk changes this trade-off - but never default-on without
-    ///   remeasuring.
-    pub fn speculative_decoding_enabled(&self) -> bool {
-        self.get_or_bundled_default("speculative_decoding_enabled")
-    }
-    /// How many tokens the draft model proposes ahead of the target model
-    /// per verification round. Larger values amortize more work into each
-    /// batched target-model forward pass (raising GPU utilization) but waste
-    /// more of that pass whenever the draft diverges early.
-    pub fn speculative_draft_tokens(&self) -> usize {
-        self.get_or_bundled_default("speculative_draft_tokens")
-    }
-    /// Upper bound (prompt + generated tokens combined) the native Qwen2
-    /// engine's KV cache preallocates per layer at model-load time (see
-    /// `qwen2_split::ModelWeights::from_gguf_split`). The cache is written
-    /// into in place as generation proceeds rather than reallocated every
-    /// token, so this must be decided once, before any particular
-    /// request's prompt length is known - sized generously above
-    /// `max_generation_tokens` to comfortably cover realistic prompts.
-    /// Exceeding it mid-generation is a hard error (not silent truncation
-    /// or a fallback to reallocation): raise this value if it's ever hit.
-    pub fn kv_cache_capacity_tokens(&self) -> usize {
-        self.get_or_bundled_default("kv_cache_capacity_tokens")
     }
     /// Seconds a loaded model may sit unused before the inference cache's
     /// sweeper unloads it and returns its memory (VRAM included). `0`
@@ -636,34 +586,6 @@ impl SusiConfig {
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or_else(|| self.get_or_bundled_default("model_idle_timeout_secs"))
-    }
-    /// Risk substrings that block reasoning OUTPUT before it's returned as a
-    /// final answer — a distinct security layer from `governance()`'s
-    /// `destructive_commands` (which gates COMMANDS before execution); the
-    /// two lists overlap in spirit but not in content.
-    pub fn axiomatic_risk_patterns(&self) -> Vec<String> {
-        self.get_or_bundled_default("axiomatic_risk_patterns")
-    }
-    pub fn model_scan_exclude_dirs(&self) -> Vec<String> {
-        self.get_or_bundled_default("model_scan_exclude_dirs")
-    }
-    /// Deliberately narrower than `model_scan_exclude_dirs`: this gates
-    /// `recursive_scan_model_dir_for_paths`, which `deep_scan_home_and_register`
-    /// invokes *with* `.cache`/`.local` etc. as starting directories (they're
-    /// dot-prefixed, so a separate first pass has to seed them explicitly) — if
-    /// this list excluded them too, the scan would refuse to look inside its
-    /// own seeded roots.
-    pub fn model_discovery_exclude_dirs(&self) -> Vec<String> {
-        self.get_or_bundled_default("model_discovery_exclude_dirs")
-    }
-    pub fn home_scan_root_exclude_dirs(&self) -> Vec<String> {
-        self.get_or_bundled_default("home_scan_root_exclude_dirs")
-    }
-    pub fn model_file_extensions(&self) -> Vec<String> {
-        self.get_or_bundled_default("model_file_extensions")
-    }
-    pub fn model_file_min_bytes(&self) -> u64 {
-        self.get_or_bundled_default("model_file_min_bytes")
     }
 }
 
