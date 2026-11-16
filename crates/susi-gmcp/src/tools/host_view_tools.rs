@@ -21,6 +21,7 @@ use crate::susi_core::plane_bus::{daemon, gemi};
 use crate::susi_error::{EaiError, EaiResult};
 
 use super::args;
+use super::forward::forwarded_tools;
 use super::forward::{forward, policy_workspace, Kind};
 use super::CoreTools;
 
@@ -73,63 +74,38 @@ fn membership(run: impl FnOnce(peer_admin::Out<'_>) -> Result<(), String>) -> Ea
 impl CoreTools {
     // ── 2. Operator view ───────────────────────────────────────────────
 
-    crate::tool_def!(operator_status_tool_attr {
-        name: "operator_status",
-        description: "The executable's measured identity (sha256), daemon, local model, missions in flight, resumable missions, approvals and the scheduled queue, as `susi status --json`; with detail true, the whole `susi status` view (missions with prompts, resumable DAG nodes, rollback snapshots, brain leaders and unfit providers, routing, spend, approvals). Args: optional workspace, detail",
-        input_schema: args::typed::<args::OperatorStatus>(),
-    });
-    pub fn operator_status(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        host_in("status", arg, workspace, &[("detail", Kind::Bool)])
-    }
+    forwarded_tools! {
+        operator_status(operator_status_tool_attr, args::typed::<args::OperatorStatus>()),
+        "The executable's measured identity (sha256), daemon, local model, missions in flight, resumable missions, approvals and the scheduled queue, as `susi status --json`; with detail true, the whole `susi status` view (missions with prompts, resumable DAG nodes, rollback snapshots, brain leaders and unfit providers, routing, spend, approvals). Args: optional workspace, detail",
+        |arg, workspace| host_in("status", arg, workspace, &[("detail", Kind::Bool)]);
 
-    crate::tool_def!(operator_review_tool_attr {
-        name: "operator_review",
-        description:
-            "Daemon liveness and reclaimable OS cache, as `susi review`. Args: optional workspace",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
-    pub fn operator_review(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        host_in("review", arg, workspace, &[])
+        operator_review(operator_review_tool_attr, args::typed::<args::WorkspaceView>()),
+        "Daemon liveness and reclaimable OS cache, as `susi review`. Args: optional workspace",
+        |arg, workspace| host_in("review", arg, workspace, &[]);
     }
 
     // ── 4. Onboarding ──────────────────────────────────────────────────
 
-    crate::tool_def!(os_ecosystem_tool_attr {
-        name: "os_ecosystem",
-        description: "The local AI ecosystem: hardware, runtimes, models, agent and framework readiness, MCP servers and running AI processes, as `susi os ecosystem --json`. Args: optional workspace",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
-    pub fn os_ecosystem(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        host_in("os_ecosystem", arg, workspace, &[])
+    forwarded_tools! {
+        os_ecosystem(os_ecosystem_tool_attr, args::typed::<args::WorkspaceView>()),
+        "The local AI ecosystem: hardware, runtimes, models, agent and framework readiness, MCP servers and running AI processes, as `susi os ecosystem --json`. Args: optional workspace",
+        |arg, workspace| host_in("os_ecosystem", arg, workspace, &[]);
     }
 
     // ── 9. OS ──────────────────────────────────────────────────────────
 
-    crate::tool_def!(os_status_tool_attr {
-        name: "os_status",
-        description: "Substrate status: consensus, ledger, services, peers, endpoints, storage and warnings, as `susi os status --json`",
-        input_schema: args::no_args(),
-    });
-    pub fn os_status(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("os_status", arg, &[])
-    }
+    forwarded_tools! {
+        os_status(os_status_tool_attr, args::no_args()),
+        "Substrate status: consensus, ledger, services, peers, endpoints, storage and warnings, as `susi os status --json`",
+        |arg, _workspace| host("os_status", arg, &[]);
 
-    crate::tool_def!(os_runtime_tool_attr {
-        name: "os_runtime",
-        description: "Live AI processes by owner (SUSI or external), managed models with daemon residency, and per-process GPU memory, as `susi os runtime --json`",
-        input_schema: args::no_args(),
-    });
-    pub fn os_runtime(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("os_runtime", arg, &[])
-    }
+        os_runtime(os_runtime_tool_attr, args::no_args()),
+        "Live AI processes by owner (SUSI or external), managed models with daemon residency, and per-process GPU memory, as `susi os runtime --json`",
+        |arg, _workspace| host("os_runtime", arg, &[]);
 
-    crate::tool_def!(model_uninstall_tool_attr {
-        name: "model_uninstall",
-        description: "Remove one SUSI-managed .gguf model (refused while loaded or selected), as `susi os manage model uninstall`. Args: name",
-        input_schema: args::typed::<args::ModelUninstall>(),
-    });
-    pub fn model_uninstall(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("model_uninstall", arg, &[("name", Kind::Str)])
+        model_uninstall(model_uninstall_tool_attr, args::typed::<args::ModelUninstall>()),
+        "Remove one SUSI-managed .gguf model (refused while loaded or selected), as `susi os manage model uninstall`. Args: name",
+        |arg, _workspace| host("model_uninstall", arg, &[("name", Kind::Str)]);
     }
 
     crate::tool_def!(peers_add_tool_attr {
@@ -188,13 +164,10 @@ impl CoreTools {
 
     // ── 10. Lifecycle ──────────────────────────────────────────────────
 
-    crate::tool_def!(daemon_shutdown_tool_attr {
-        name: "daemon_shutdown",
-        description: "Stop this daemon instance after replying (the call `susi stop` makes); starting it again stays with the CLI",
-        input_schema: args::no_args(),
-    });
-    pub fn daemon_shutdown(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("daemon_shutdown", arg, &[])
+    forwarded_tools! {
+        daemon_shutdown(daemon_shutdown_tool_attr, args::no_args()),
+        "Stop this daemon instance after replying (the call `susi stop` makes); starting it again stays with the CLI",
+        |arg, _workspace| host("daemon_shutdown", arg, &[]);
     }
 
     // ── 13. Maintenance ────────────────────────────────────────────────
@@ -211,22 +184,14 @@ impl CoreTools {
         pretty(&doc)
     }
 
-    crate::tool_def!(auto_status_tool_attr {
-        name: "auto_status",
-        description: "Zero-config substrate readiness: packs, leading MCP, preferred coding model, agent and framework readiness, last prime, as `susi auto status`. Args: optional workspace",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
-    pub fn auto_status(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        host_in("auto_status", arg, workspace, &[])
-    }
+    forwarded_tools! {
+        auto_status(auto_status_tool_attr, args::typed::<args::WorkspaceView>()),
+        "Zero-config substrate readiness: packs, leading MCP, preferred coding model, agent and framework readiness, last prime, as `susi auto status`. Args: optional workspace",
+        |arg, workspace| host_in("auto_status", arg, workspace, &[]);
 
-    crate::tool_def!(auto_prime_tool_attr {
-        name: "auto_prime",
-        description: "Re-run auto-prime now (models and installed peers; never enables MCP), as `susi auto prime`",
-        input_schema: args::no_args(),
-    });
-    pub fn auto_prime(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("auto_prime", arg, &[])
+        auto_prime(auto_prime_tool_attr, args::no_args()),
+        "Re-run auto-prime now (models and installed peers; never enables MCP), as `susi auto prime`",
+        |arg, _workspace| host("auto_prime", arg, &[]);
     }
 
     crate::tool_def!(deep_scan_tool_attr {
@@ -248,22 +213,14 @@ impl CoreTools {
             .to_string())
     }
 
-    crate::tool_def!(config_reload_tool_attr {
-        name: "config_reload",
-        description: "Reload config.json and report the engine, model, model-ladder steps and MCP bootstrap servers in effect, as `susi admin reload`",
-        input_schema: args::no_args(),
-    });
-    pub fn config_reload(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("config_reload", arg, &[])
-    }
+    forwarded_tools! {
+        config_reload(config_reload_tool_attr, args::no_args()),
+        "Reload config.json and report the engine, model, model-ladder steps and MCP bootstrap servers in effect, as `susi admin reload`",
+        |arg, _workspace| host("config_reload", arg, &[]);
 
-    crate::tool_def!(provider_contract_tool_attr {
-        name: "provider_contract",
-        description: "Provider contract fixture checks, plus the read-only credentialed claims when SUSI_PROVIDER_PROBE=1, as `susi admin provider-contract`",
-        input_schema: args::no_args(),
-    });
-    pub fn provider_contract(arg: &Value, _workspace: &Path) -> EaiResult<String> {
-        host("provider_contract", arg, &[])
+        provider_contract(provider_contract_tool_attr, args::no_args()),
+        "Provider contract fixture checks, plus the read-only credentialed claims when SUSI_PROVIDER_PROBE=1, as `susi admin provider-contract`",
+        |arg, _workspace| host("provider_contract", arg, &[]);
     }
 
     crate::tool_def!(intent_ladder_tool_attr {

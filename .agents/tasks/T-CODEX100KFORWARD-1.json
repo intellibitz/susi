@@ -1,0 +1,144 @@
+{
+  "id": "T-CODEX100KFORWARD-1",
+  "title": "Share forwarded GMCP tool declarations and task-control dispatch",
+  "goal": "Vision: V-6. Reduce repeated wrapper code while preserving every public handler and attribute function, exact metadata/schema, argument semantics, policy checks, topic routing, result formatting and errors.",
+  "status": "verified_pending_publication",
+  "size": "m",
+  "created_by": "CODEXCORE100KFORWARD",
+  "created_unix": 1794821386,
+  "base": "6a262d34679ba88706b0ccef131ed103e3a378ae",
+  "scopes": [
+    "crates/susi-gmcp/src/tools/adapter_tools.rs",
+    "crates/susi-gmcp/src/tools/provider_tools.rs",
+    "crates/susi-gmcp/src/tools/host_view_tools.rs",
+    "crates/susi-gmcp/src/tools/harness_tools.rs",
+    "crates/susi-gmcp/src/tools/core/agents.rs",
+    "crates/susi-gmcp/src/tools/forward.rs",
+    ".agents/tasks/T-CODEX100KFORWARD-1.json",
+    "crates/susi-gmcp/src/tests/forward.rs",
+    "crates/susi-gmcp/src/tests/core_tools.rs"
+  ],
+  "deps": [
+    "T-CODEX100KARGS-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "tools::"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "tools/forward.rs payload/send/forward/policy helpers; mcp/schema.rs tool_def!; tools/helpers.rs external_agent_control; all selected forwarding families and existing behavior tests",
+    "reason": "Reuse existing tool_def! and each family helper unchanged; one private macro owns the public wrapper contract and derives wire names from handler identifiers. Share identical task-control ID parsing/result formatting without changing mutation methods."
+  },
+  "coordination": "Parent owns Board, integration and publication; worker makes no commits, pushes or external messages.",
+  "results": {
+    "public_tool_wrappers_preserved": 59,
+    "token_identical_forwarding_expressions": 56,
+    "shared_task_controls": 3,
+    "metadata": "All59 public names, attribute names, description literals, schema expressions and argument binders independently compared with pristine base; added executable Tool equality checks compare every metadata field.",
+    "runtime_file_line_counts": [
+      {
+        "path": "crates/susi-gmcp/src/tools/adapter_tools.rs",
+        "before": 140,
+        "after": 108,
+        "reduction": 32
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/provider_tools.rs",
+        "before": 341,
+        "after": 219,
+        "reduction": 122
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/host_view_tools.rs",
+        "before": 290,
+        "after": 247,
+        "reduction": 43
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/harness_tools.rs",
+        "before": 211,
+        "after": 186,
+        "reduction": 25
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/core/agents.rs",
+        "before": 588,
+        "after": 536,
+        "reduction": 52
+      },
+      {
+        "path": "crates/susi-gmcp/src/tools/forward.rs",
+        "before": 149,
+        "after": 172,
+        "reduction": -23
+      }
+    ],
+    "net_runtime_reduction": 251,
+    "new_test_lines": 347,
+    "net_all_rust_line_increase": 96,
+    "existing_test_changes": 0,
+    "dependencies_changed": 0
+  },
+  "validation": [
+    {
+      "command": "cargo test --locked -p susi-gmcp --lib",
+      "passed": 233,
+      "log": "/workspace/codex/susi-core-100k-forward-runtime/gmcp-lib-default.log"
+    },
+    {
+      "command": "cargo test --locked -p susi-gmcp --features tools-rich --lib",
+      "passed": 240,
+      "log": "/workspace/codex/susi-core-100k-forward-runtime/gmcp-lib-rich.log"
+    },
+    {
+      "command": "cargo clippy --locked -p susi-gmcp --all-targets --features tools-rich -- -D warnings",
+      "result": "pass",
+      "log": "/workspace/codex/susi-core-100k-forward-runtime/clippy.log"
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "result": "pass",
+      "log": "/workspace/codex/susi-core-100k-forward-runtime/fmt-final.log"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "cargo test --locked -p susi-gmcp --features tools-rich --test tool_input_schemas",
+      "passed": 3,
+      "failed": 1,
+      "log": "/workspace/codex/susi-core-100k-forward-runtime/tool-input-schemas.log",
+      "failure": "every_registered_tool_has_a_typed_input_schema still parses literal registration calls from the earlier bootstrap implementation; already broken at base6a262d346 and repaired separately by protocol_audit in the concurrent ARGS task. No changes to that integration test in this patch."
+    }
+  ],
+  "integration_dependencies": [
+    "Concurrent ARGS task replaces stale schema-registration source scanner with executable registry/schema assertions in root socket_parity; parent must validate integrated schema and socket tests."
+  ],
+  "peer_review": "Independent review verified all59 exact declarations, all56 forwarding expressions, task-control semantics, original test prefixes and measured runtime delta. No behavioral or macro-hygiene finding.",
+  "execution_environment": {
+    "target": "/workspace/codex/susi-core-100k-forward-target",
+    "SUSI_HOME": "/workspace/codex/susi-core-100k-forward-runtime/home",
+    "cargo_jobs": 2,
+    "toolchain": "1.99.0"
+  },
+  "limitations": [
+    "Focused verification does not qualify a release or establish the overall below100k goal.",
+    "Added regression assertions increase total Rust source including tests; reported runtime reduction excludes the newly added test lines and counts every line in the six runtime files."
+  ],
+  "integrated_verification": {
+    "default_gmcp": "244 passed",
+    "rich_gmcp": "251 passed",
+    "rich_structure": "53 architecture +6 socket parity +3 task records passed",
+    "workspace_check": "all targets passed",
+    "format": "passed",
+    "live_host": "27 pass, 2 explicit optional skips"
+  }
+}

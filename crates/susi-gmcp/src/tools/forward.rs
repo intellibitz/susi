@@ -9,6 +9,29 @@ use crate::susi_core::mac_policy::MacPolicy;
 use crate::susi_error::{EaiError, EaiResult};
 use serde_json::{Map, Value};
 
+/// Declare public forwarding handlers together with their existing MCP
+/// attribute functions. The wire name follows the handler identifier; the
+/// forwarding expression retains each family's argument and error contract.
+macro_rules! forwarded_tools {
+    ($($handler:ident($attribute:ident, $schema:expr), $description:literal,
+        |$arg:ident, $workspace:ident| $forward:expr;)*) => {
+        $(
+            crate::tool_def!($attribute {
+                name: stringify!($handler),
+                description: $description,
+                input_schema: $schema,
+            });
+            pub fn $handler(
+                $arg: &serde_json::Value,
+                $workspace: &std::path::Path,
+            ) -> $crate::susi_error::EaiResult<String> {
+                $forward
+            }
+        )*
+    };
+}
+pub(super) use forwarded_tools;
+
 /// The JSON type a forwarded argument must have.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {

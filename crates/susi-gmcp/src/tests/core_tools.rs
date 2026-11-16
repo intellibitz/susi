@@ -1169,3 +1169,122 @@ mod core_io_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod task_control_tests {
+    use crate::susi_core::task_manager::{SwarmTaskManager, TaskStatus};
+    use crate::susi_error::EaiResult;
+    use crate::tools::CoreTools;
+    use serde_json::{json, Value};
+    use std::path::Path;
+    use std::sync::atomic::Ordering;
+
+    type Control = fn(&Value, &Path) -> EaiResult<String>;
+
+    // Remove only this test's record and flags, including after an assertion panic.
+    struct OwnedTask(String);
+    impl Drop for OwnedTask {
+        fn drop(&mut self) {
+            let manager = SwarmTaskManager::global();
+            manager
+                .tasks
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.0);
+            manager
+                .cancel_map
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.0);
+            manager
+                .pause_map
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.0);
+        }
+    }
+
+    #[test]
+    fn task_controls_preserve_arguments_messages_and_owned_task_transitions() {
+        crate::test_isolation::with_isolated_home(|workspace| {
+            let controls: [(Control, &str, TaskStatus); 3] = [
+                (CoreTools::tasks_pause, "paused", TaskStatus::Paused),
+                (CoreTools::tasks_resume, "resumed", TaskStatus::Running),
+                (CoreTools::tasks_kill, "killed", TaskStatus::Killed),
+            ];
+            let scope = format!("gmcp-task-control-{}", workspace.display());
+            for object in [false, true] {
+                let task = SwarmTaskManager::global().register_task_scoped(
+                    &scope,
+                    "task control regression",
+                    Some(&scope),
+                );
+                let _owned = OwnedTask(task.task_id.clone());
+                assert_eq!(
+                    task.status.load(Ordering::Acquire),
+                    TaskStatus::Running as u8
+                );
+
+                for (control, _, _) in controls {
+                    for arg in [
+                        json!({}),
+                        Value::Null,
+                        json!({"task_id": null}),
+                        json!({"task_id": false}),
+                        json!({"task_id": 7}),
+                        json!({"task_id": []}),
+                        json!({"task_id": {}}),
+                        json!({"task_id": " \t\n"}),
+                        json!(" \t\n"),
+                    ] {
+                        let error = control(&arg, workspace).unwrap_err();
+                        assert_eq!(error.code(), "susi.protocol");
+                        assert_eq!(error.to_string(), "Protocol Error: Task '' not found.");
+                    }
+                }
+                assert_eq!(
+                    task.status.load(Ordering::Acquire),
+                    TaskStatus::Running as u8
+                );
+                assert!(!task.pause_flag.load(Ordering::Acquire));
+                assert!(!task.cancel_flag.load(Ordering::Acquire));
+
+                let padded = format!(" \t{}\n", task.task_id);
+                let arg = if object {
+                    json!({"task_id": padded, "extra": true})
+                } else {
+                    json!(padded)
+                };
+                for (control, verb, status) in controls {
+                    assert_eq!(
+                        control(&arg, workspace).unwrap(),
+                        format!("Task '{}' {verb}.", task.task_id)
+                    );
+                    assert_eq!(task.status.load(Ordering::Acquire), status as u8);
+                    assert_eq!(
+                        task.pause_flag.load(Ordering::Acquire),
+                        status == TaskStatus::Paused
+                    );
+                    assert_eq!(
+                        task.cancel_flag.load(Ordering::Acquire),
+                        status == TaskStatus::Killed
+                    );
+                }
+                for (control, _, _) in controls {
+                    assert_eq!(
+                        control(&arg, workspace).unwrap_err().to_string(),
+                        format!("Protocol Error: Task '{}' not found.", task.task_id),
+                    );
+                }
+                assert_eq!(
+                    task.status.load(Ordering::Acquire),
+                    TaskStatus::Killed as u8
+                );
+                assert_eq!(
+                    task.result.read().unwrap().as_deref(),
+                    Some("Killed by pulse")
+                );
+            }
+        });
+    }
+}

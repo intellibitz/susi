@@ -4,10 +4,32 @@ use std::path::Path;
 
 use super::CoreTools;
 use crate::susi_core::plane_bus::{agents, gawd_hooks, tools as plane_tools};
+use crate::susi_core::task_manager::SwarmTaskManager;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
 use crate::tools::args;
+use crate::tools::forward::forwarded_tools;
 use crate::tools::helpers::external_agent_control;
+
+// Task controls share their permissive ID contract (object, bare string or
+// missing ID), but retain the selected manager operation and result wording.
+fn task_control(
+    arg: &serde_json::Value,
+    action: fn(&SwarmTaskManager, &str) -> bool,
+    completed: &str,
+) -> EaiResult<String> {
+    let id = arg
+        .get("task_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| arg.as_str())
+        .unwrap_or("")
+        .trim();
+    if action(SwarmTaskManager::global(), id) {
+        Ok(format!("Task '{}' {}.", id, completed))
+    } else {
+        Err(EaiError::protocol(format!("Task '{}' not found.", id)))
+    }
+}
 
 impl CoreTools {
     /// Resolve an `a2a_delegate` target to `http://{ip}:{port}`. Only
@@ -283,40 +305,22 @@ impl CoreTools {
         serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(agents_status_tool_attr {
-        name: "agents_status",
-        description: "Inspect an external task; refresh=true recovers cloud status after worker loss. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskStatus>(),
-    });
-    pub fn agents_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "status")
-    }
+    forwarded_tools! {
+        agents_status(agents_status_tool_attr, args::typed::<args::ExternalTaskStatus>()),
+        "Inspect an external task; refresh=true recovers cloud status after worker loss. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "status");
 
-    crate::tool_def!(agents_cancel_tool_attr {
-        name: "agents_cancel",
-        description: "Request cancellation of a managed external agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskId>(),
-    });
-    pub fn agents_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "cancel")
-    }
+        agents_cancel(agents_cancel_tool_attr, args::typed::<args::ExternalTaskId>()),
+        "Request cancellation of a managed external agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "cancel");
 
-    crate::tool_def!(agents_logs_tool_attr {
-        name: "agents_logs",
-        description: "Read the last 64 KiB of external agent output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskLogs>(),
-    });
-    pub fn agents_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "logs")
-    }
+        agents_logs(agents_logs_tool_attr, args::typed::<args::ExternalTaskLogs>()),
+        "Read the last 64 KiB of external agent output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "logs");
 
-    crate::tool_def!(agents_send_tool_attr {
-        name: "agents_send",
-        description: "Send a follow-up message to an existing cloud agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskSend>(),
-    });
-    pub fn agents_send(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "send")
+        agents_send(agents_send_tool_attr, args::typed::<args::ExternalTaskSend>()),
+        "Send a follow-up message to an existing cloud agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "send");
     }
 
     crate::tool_def!(frameworks_list_tool_attr {
@@ -366,31 +370,18 @@ impl CoreTools {
         serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(frameworks_status_tool_attr {
-        name: "frameworks_status",
-        description: "Inspect an agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskStatus>(),
-    });
-    pub fn frameworks_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "status")
-    }
+    forwarded_tools! {
+        frameworks_status(frameworks_status_tool_attr, args::typed::<args::ExternalTaskStatus>()),
+        "Inspect an agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "status");
 
-    crate::tool_def!(frameworks_cancel_tool_attr {
-        name: "frameworks_cancel",
-        description: "Request cancellation of a managed agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskId>(),
-    });
-    pub fn frameworks_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "cancel")
-    }
+        frameworks_cancel(frameworks_cancel_tool_attr, args::typed::<args::ExternalTaskId>()),
+        "Request cancellation of a managed agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "cancel");
 
-    crate::tool_def!(frameworks_logs_tool_attr {
-        name: "frameworks_logs",
-        description: "Read the last 64 KiB of agent-framework output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ExternalTaskLogs>(),
-    });
-    pub fn frameworks_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        external_agent_control(arg, workspace, "logs")
+        frameworks_logs(frameworks_logs_tool_attr, args::typed::<args::ExternalTaskLogs>()),
+        "Read the last 64 KiB of agent-framework output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        |arg, workspace| external_agent_control(arg, workspace, "logs");
     }
 
     crate::tool_def!(tasks_list_tool_attr {
@@ -403,61 +394,18 @@ impl CoreTools {
         serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(tasks_pause_tool_attr {
-        name: "tasks_pause",
-        description: "Pause a running task by task_id",
-        input_schema: args::typed::<args::SwarmTaskId>(),
-    });
-    pub fn tasks_pause(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let id = arg
-            .get("task_id")
-            .and_then(|v| v.as_str())
-            .or_else(|| arg.as_str())
-            .unwrap_or("")
-            .trim();
-        if crate::susi_core::task_manager::SwarmTaskManager::global().pause_task(id) {
-            Ok(format!("Task '{}' paused.", id))
-        } else {
-            Err(EaiError::protocol(format!("Task '{}' not found.", id)))
-        }
-    }
+    forwarded_tools! {
+        tasks_pause(tasks_pause_tool_attr, args::typed::<args::SwarmTaskId>()),
+        "Pause a running task by task_id",
+        |arg, _workspace| task_control(arg, SwarmTaskManager::pause_task, "paused");
 
-    crate::tool_def!(tasks_resume_tool_attr {
-        name: "tasks_resume",
-        description: "Resume a paused task by task_id",
-        input_schema: args::typed::<args::SwarmTaskId>(),
-    });
-    pub fn tasks_resume(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let id = arg
-            .get("task_id")
-            .and_then(|v| v.as_str())
-            .or_else(|| arg.as_str())
-            .unwrap_or("")
-            .trim();
-        if crate::susi_core::task_manager::SwarmTaskManager::global().resume_task(id) {
-            Ok(format!("Task '{}' resumed.", id))
-        } else {
-            Err(EaiError::protocol(format!("Task '{}' not found.", id)))
-        }
-    }
+        tasks_resume(tasks_resume_tool_attr, args::typed::<args::SwarmTaskId>()),
+        "Resume a paused task by task_id",
+        |arg, _workspace| task_control(arg, SwarmTaskManager::resume_task, "resumed");
 
-    crate::tool_def!(tasks_kill_tool_attr {
-        name: "tasks_kill",
-        description: "Kill a running or stalled task by task_id",
-        input_schema: args::typed::<args::SwarmTaskId>(),
-    });
-    pub fn tasks_kill(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let id = arg
-            .get("task_id")
-            .and_then(|v| v.as_str())
-            .or_else(|| arg.as_str())
-            .unwrap_or("")
-            .trim();
-        if crate::susi_core::task_manager::SwarmTaskManager::global().kill_task(id) {
-            Ok(format!("Task '{}' killed.", id))
-        } else {
-            Err(EaiError::protocol(format!("Task '{}' not found.", id)))
-        }
+        tasks_kill(tasks_kill_tool_attr, args::typed::<args::SwarmTaskId>()),
+        "Kill a running or stalled task by task_id",
+        |arg, _workspace| task_control(arg, SwarmTaskManager::kill_task, "killed");
     }
 
     crate::tool_def!(mcp_registry_tool_attr {
