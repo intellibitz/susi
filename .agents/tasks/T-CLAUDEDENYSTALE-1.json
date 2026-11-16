@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEDENYSTALE-1",
+  "title": "Drop core's stale cargo-deny exception for paste, which is no longer a dependency",
+  "goal": "Vision: V-9. CEO direction 2026-11-16: apply the deny.toml fix in core. cargo deny check warns that core's exception for RUSTSEC-2024-0436 (paste) matches no crate: paste left Cargo.lock. A dead exception would silently hide the advisory if paste came back. Remove it, keep cargo deny check passing with no advisory warning.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "advisory_evidence"
+    ]
+  },
+  "created_by": "CLAUDEDENYSTALE",
+  "created_unix": 1794832909,
+  "scopes": [
+    "deny.toml"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "deny.toml and its readers in core: xtask/src/advisory_evidence.rs (config_with_database inserts db-path after the [advisories] line and keeps the rest byte for byte; its own tests use ignore=[]), xtask/src/distill/functional.rs and the release gates. A one-line policy change; nothing built."
+  },
+  "limitations": [
+    "Claimed --unscoped by CEO direction: deny.toml is reserved by the close receipt of T-CODEXSTEP120261101-5 (CODEXSTEP120261101, closed 2026-11-01), which comes from a line of history with a different root commit from today's main, so it can never settle by ancestry. Its deny.toml is an older version that this one-line change cannot collide with. The owner was asked on the board (item 1758) and told of this change.",
+    "cargo deny check was run on Linux x86_64 with cargo-deny 0.20.2; the policy also covers the Windows targets' graph, which was not run on Windows.",
+    "Main is unqualified development, not a release."
+  ]
+}
