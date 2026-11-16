@@ -605,56 +605,30 @@ impl HostedServer {
             PeerBackend::Http(_, _) if budget.is_some() => Err(WireError::Protocol(
                 "bounded tool listing is only supported for duplex servers".into(),
             )),
-            PeerBackend::Http(s, _) => match (method, key) {
-                ("tools/list", _) => s.list_all_tools(),
-                ("resources/list", _) => s.list_all_resources(),
-                ("resources/templates/list", _) => s.list_all_resource_templates(),
-                _ => s.list_all_prompts(),
-            },
-            PeerBackend::Duplex(p) => {
-                let mut params = json!({});
-                let mut items = Vec::new();
-                let mut seen = BTreeSet::new();
-                for _ in 0..MAX_PAGINATION_PAGES {
-                    let res = p.request(
-                        method,
-                        &params,
-                        None,
-                        (&mut self.policy, &mut self.notifications),
-                    )?;
-                    let page = res.get(key).and_then(Value::as_array).ok_or_else(|| {
-                        WireError::Protocol(format!("{method} response missing `{key}`"))
+            PeerBackend::Http(s, _) => s.list_paginated(method, key),
+            PeerBackend::Duplex(p) => crate::mcp::catalog_pages(method, |params, items| {
+                let res = p.request(
+                    method,
+                    params,
+                    None,
+                    (&mut self.policy, &mut self.notifications),
+                )?;
+                let page = res.get(key).and_then(Value::as_array).ok_or_else(|| {
+                    WireError::Protocol(format!("{method} response missing `{key}`"))
+                })?;
+                if let Some(budget) = &mut budget {
+                    budget.items = budget.items.checked_sub(page.len()).ok_or_else(|| {
+                        WireError::Protocol(format!("{method} exceeded catalog item limit"))
                     })?;
-                    if let Some(budget) = &mut budget {
-                        budget.items = budget.items.checked_sub(page.len()).ok_or_else(|| {
-                            WireError::Protocol(format!("{method} exceeded catalog item limit"))
+                    for item in page {
+                        serde_json::to_writer(&mut *budget, item).map_err(|_| {
+                            WireError::Protocol(format!("{method} exceeded catalog byte limit"))
                         })?;
-                        for item in page {
-                            serde_json::to_writer(&mut *budget, item).map_err(|_| {
-                                WireError::Protocol(format!("{method} exceeded catalog byte limit"))
-                            })?;
-                        }
-                    }
-                    items.extend(page.iter().cloned());
-                    let cursor = res
-                        .get("nextCursor")
-                        .or_else(|| res.get("next_cursor"))
-                        .and_then(Value::as_str)
-                        .filter(|c| !c.is_empty());
-                    match cursor {
-                        Some(c) if seen.insert(c.to_string()) => params = json!({ "cursor": c }),
-                        Some(c) => {
-                            return Err(WireError::Protocol(format!(
-                                "{method} repeated pagination cursor {c:?}"
-                            )))
-                        }
-                        None => return Ok(items),
                     }
                 }
-                Err(WireError::Protocol(format!(
-                    "{method} exceeded {MAX_PAGINATION_PAGES} pagination pages"
-                )))
-            }
+                items.extend(page.iter().cloned());
+                Ok(res)
+            }),
         }
     }
 }
