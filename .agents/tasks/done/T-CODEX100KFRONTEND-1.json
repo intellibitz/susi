@@ -3,7 +3,7 @@
   "title": "Consolidate harness binary argument decoding without changing command behavior",
   "goal": "Vision: V-6. Reduce repeated parser implementations in harness frontends while preserving every argument, default, diagnostic, validation order, repeated flag and positional-prompt behavior.",
   "size": "m",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KFRONTEND",
   "created_unix": 1794821935,
   "base_commit": "73f698cb2",
@@ -43,5 +43,16 @@
     "Local isolated task; no external board messages, commit or push. Scope excludes harness MCP modules and does not establish the complete under-100k goal."
   ],
   "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
-  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted."
+  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted.",
+  "closed": {
+    "at_unix": 1794822704,
+    "commit": "684625196772e5cc11c371bc349814189e0ac425",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6e1b85e4371f7aebd8353ec3197a568c01561f33",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json"
+  }
 }

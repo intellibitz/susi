@@ -3,7 +3,7 @@
   "title": "Share buffered MCP event parsing without changing caller policy",
   "goal": "Vision: V-6. Reduce complete Susi core source while preserving every capability by reusing buffered SSE JSON frame parsing between the peer MCP client and Susi Harness.",
   "size": "s",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KMCP",
   "scopes": [
     "crates/susi-core/src/mcp_client.rs",
@@ -58,5 +58,16 @@
     "integration": "Pending parent integration; no commit or publication performed."
   },
   "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
-  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted."
+  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted.",
+  "closed": {
+    "at_unix": 1794822704,
+    "commit": "9ed97fdba62406e45bdb3ea7803e83ccb8e7af7a",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6e1b85e4371f7aebd8353ec3197a568c01561f33",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json"
+  }
 }

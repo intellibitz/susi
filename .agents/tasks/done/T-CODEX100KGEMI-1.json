@@ -3,7 +3,7 @@
   "title": "Share GEMI model probes and plane payload handling",
   "goal": "Vision: V-6. Reduce repeated model-probe mechanics while preserving lazy prompt validation, endpoint resolution, runtime diagnostics, key admission, inference errors and credential redaction. Share plane-bus string lookup and the two identical deep-generation handlers while preserving defaults and caller capabilities.",
   "size": "m",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEXCORE100KGEMI",
   "created_unix": 1794821847,
   "base_commit": "73f698cb221072c9772d73e51de4e7a273d8d8c1",
@@ -114,5 +114,16 @@
   ],
   "test_repair": "Existing model_rate_arbitration_probe_helpers_admit inspected each old wrapper for literal try_acquire/provider.generate calls. It now requires every wrapper to call shared model_probe::run without a direct generation bypass and checks validation < provider resolution < runtime construction < admission < generation in that helper. New executable regression proves active permit during generation, release after success/error, untrimmed prompt forwarding, redaction and original error mapping. Invalid prompts prove provider construction is never called.",
   "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
-  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted."
+  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted.",
+  "closed": {
+    "at_unix": 1794822704,
+    "commit": "883d7e37f5d6fbb0e86dc2ac39ee09e4af2ffd13",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6e1b85e4371f7aebd8353ec3197a568c01561f33",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json"
+  }
 }
