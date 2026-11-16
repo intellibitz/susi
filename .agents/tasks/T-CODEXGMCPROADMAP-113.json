@@ -25,7 +25,7 @@
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
   "state": "open",
-  "status": "in_progress",
+  "status": "implemented",
   "base_commit": "48e61cb53d3c378b7a379bba60d9ead4f6e10c3d",
   "limitations": [
     "Per `docs/gmcp-roadmap.md` (`VC-203-020`), `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships the protocol-generic server authoring SDK and fail-closed plugin host lifecycle with zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps).",
@@ -52,5 +52,6 @@
     "docs/gmcp/contract-203-020.md",
     "tests/gmcp_requirements/vc_203_020.rs",
     "tests/gmcp_requirements/vc_203_020_part2.rs"
-  ]
+  ],
+  "implementation_commit": "b6ce4b22070cd50515760821ce76d71ba8603f6a"
 }
