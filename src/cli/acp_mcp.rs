@@ -4,7 +4,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex, TryLockError};
+use std::sync::{mpsc, Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -21,12 +21,14 @@ const MAX_TOOLS: usize = 1024;
 
 pub(super) struct SessionFactory {
     base: Arc<GawdAcpExecutor>,
+    processes: Mutex<Vec<Weak<Process>>>,
 }
 
 impl SessionFactory {
     pub(super) fn new(base: GawdAcpExecutor) -> Self {
         Self {
             base: Arc::new(base),
+            processes: Mutex::new(Vec::new()),
         }
     }
 }
@@ -60,12 +62,23 @@ impl AcpTurnExecutor for SessionFactory {
         super::wire_stdio_substrate();
         let config = susi_config::SusiConfig::load_global().unwrap_or_default();
         let handshake = Duration::from_secs(config.cloud_scout_timeout_secs().max(1));
-        let tools = SessionTools::connect(spec, cancelled, handshake)?;
+        let tools = SessionTools::connect(spec, cancelled, handshake, &self.processes)?;
         Ok(Some(Arc::new(SessionExecutor {
             base: Arc::clone(&self.base),
             tools: Arc::new(tools),
             lease: Duration::from_secs(config.execution_lease_secs().max(1)),
         })))
+    }
+}
+
+impl Drop for SessionFactory {
+    fn drop(&mut self) {
+        // Detached mission workers may still own a revoked scope. Connection
+        // teardown nevertheless owns reaping before the CLI process exits.
+        let processes = self.processes.get_mut().unwrap_or_else(|e| e.into_inner());
+        for process in processes.drain(..).filter_map(|weak| weak.upgrade()) {
+            process.finish();
+        }
     }
 }
 
@@ -125,6 +138,7 @@ impl SessionTools {
         spec: &AcpSessionSpec,
         cancelled: Arc<AtomicBool>,
         handshake: Duration,
+        processes: &Mutex<Vec<Weak<Process>>>,
     ) -> Result<Self, String> {
         let mut session = Self {
             admission: spec.admission.clone(),
@@ -157,6 +171,7 @@ impl SessionTools {
                     turn_cancel: None,
                     active: None,
                 },
+                processes,
             )?;
             session.servers.push(server);
             for (tool_index, tool) in catalog.into_iter().enumerate() {
@@ -325,7 +340,7 @@ impl Lease {
                 .is_some_and(|v| !v.load(Ordering::Acquire))
         {
             return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
+                io::ErrorKind::ConnectionAborted,
                 "MCP operation cancelled",
             ));
         }
@@ -342,6 +357,7 @@ impl Lease {
 struct Process {
     child: Mutex<Option<(Child, Option<susi_harness::workload_process::Tree>)>>,
     stop: AtomicBool,
+    owner: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Process {
@@ -349,9 +365,10 @@ impl Process {
         let process = Arc::new(Self {
             child: Mutex::new(Some((child, Some(tree)))),
             stop: AtomicBool::new(false),
+            owner: Mutex::new(None),
         });
         let owned = Arc::clone(&process);
-        if let Err(error) = std::thread::Builder::new()
+        let owner = std::thread::Builder::new()
             .name("acp-mcp-owner".into())
             .spawn(move || loop {
                 if owned.stop.load(Ordering::Acquire) {
@@ -376,12 +393,25 @@ impl Process {
                 }
                 drop(slot);
                 std::thread::sleep(POLL);
-            })
-        {
-            process.reap();
-            return Err(error);
+            });
+        match owner {
+            Ok(owner) => *process.owner.lock().unwrap_or_else(|e| e.into_inner()) = Some(owner),
+            Err(error) => {
+                process.reap();
+                return Err(error);
+            }
         }
         Ok(process)
+    }
+
+    fn finish(&self) {
+        self.stop.store(true, Ordering::Release);
+        // Serialize concurrent final owners through completion, not merely
+        // through taking the JoinHandle. The child owner never takes this lock.
+        let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(handle) = owner.take() {
+            let _ = handle.join();
+        }
     }
 
     fn reap(&self) {
@@ -440,6 +470,7 @@ impl Server {
         config: &susi_tools::McpServerConfig,
         policy: &susi_core::mac_policy::MacPolicy,
         lease: Lease,
+        processes: &Mutex<Vec<Weak<Process>>>,
     ) -> Result<(Self, Vec<Value>), String> {
         lease.check().map_err(|e| e.to_string())?;
         let mut command = susi_tools::authorized_stdio_command_literal(config, policy)?;
@@ -448,6 +479,11 @@ impl Server {
         let input = child.stdin.take();
         let output = child.stdout.take();
         let process = Process::own(child, tree).map_err(|e| e.to_string())?;
+        {
+            let mut owners = processes.lock().unwrap_or_else(|e| e.into_inner());
+            owners.retain(|process| process.strong_count() > 0);
+            owners.push(Arc::downgrade(&process));
+        }
         let io = Arc::new(ManagedIo {
             process,
             closed: AtomicBool::new(false),
@@ -487,6 +523,7 @@ impl Server {
             }
             Err(error) => {
                 io.close();
+                io.process.finish();
                 Err(error)
             }
         }
@@ -527,6 +564,9 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.io.close();
+        // close_session only signals; final ownership release waits for reaping
+        // so the CLI cannot exit while its child owner is still scheduled.
+        self.io.process.finish();
     }
 }
 
@@ -705,6 +745,7 @@ mod tests {
             process: Arc::new(Process {
                 child: Mutex::new(None),
                 stop: AtomicBool::new(false),
+                owner: Mutex::new(None),
             }),
             closed: AtomicBool::new(false),
             lease: Mutex::new(Some(lease)),
@@ -776,12 +817,20 @@ mod tests {
             let io = managed(lease);
             let (release, blocked) = mpsc::channel();
             let reader = PumpReader::start(Blocking(blocked), io.clone()).unwrap();
+            let (done, receive) = mpsc::channel();
             let handle = std::thread::spawn(move || {
                 let mut reader = reader;
-                reader.read(&mut [0; 1]).unwrap_err().kind()
+                // read_line retries Interrupted: cancellation must be terminal,
+                // unlike a raw operating-system EINTR handled by the pump.
+                let kind = reader.read_line(&mut String::new()).unwrap_err().kind();
+                let _ = done.send(kind);
             });
             cancel.store(which == 0 || which == 1, Ordering::Release);
-            assert_eq!(handle.join().unwrap(), io::ErrorKind::Interrupted);
+            assert_eq!(
+                receive.recv_timeout(Duration::from_secs(1)).unwrap(),
+                io::ErrorKind::ConnectionAborted
+            );
+            handle.join().unwrap();
             drop(release);
             assert!(io.process.stop.load(Ordering::Acquire));
         }

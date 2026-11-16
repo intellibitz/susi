@@ -295,7 +295,7 @@ impl Fixture {
         for item in endpoints.iter_mut() {
             item["api_base"] = json!("");
         }
-        endpoints.push(json!({"name":"ACP fixture", "api_base":endpoint, "protocol_type":"openai", "model":"acp-fixture-model", "api_key_env":"SUSI_ACP_FIXTURE_API_KEY"}));
+        endpoints.push(json!({"name":"ACP fixture", "api_base":endpoint, "protocol_type":"chat", "model":"acp-fixture-model", "api_key_env":"SUSI_ACP_FIXTURE_API_KEY"}));
         fs::write(
             fx.home.join(".susi/config.json"),
             serde_json::to_vec_pretty(&config).unwrap(),
@@ -569,6 +569,14 @@ impl Provider {
         reader.read_exact(&mut body).unwrap();
         let reply = if first.starts_with("GET /v1/models ") {
             json!({"object":"list","data":[{"id":"acp-fixture-model","object":"model","owned_by":"offline-fixture"}]})
+        } else if first.starts_with("POST /v1/completions ") {
+            // Legacy local proxy/discovery callers may use text completions.
+            // This reply does not claim tool execution; the acceptance checks
+            // still require an actual chat schema, MCP call and tool result.
+            let request:Value=serde_json::from_slice(&body).unwrap();
+            assert!(request["prompt"].is_string(),"malformed completion request: {request}");
+            recorded.lock().unwrap().push(request);
+            json!({"id":"offline-text-fixture","object":"text_completion","model":"acp-fixture-model","choices":[{"index":0,"text":"Offline fixture ready. Use the supplied session probe through chat tools.","finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":8}})
         } else {
             assert!(first.starts_with("POST /v1/chat/completions "), "unexpected local provider request: {first}");
             let request: Value = serde_json::from_slice(&body).unwrap(); recorded.lock().unwrap().push(request.clone());
@@ -702,8 +710,10 @@ fn empty_mcp_session_prompt_uses_the_real_executor_with_pure_stdout() {
     provider.finish();
     let requests = provider.requests.lock().unwrap();
     assert!(
-        !requests.is_empty(),
-        "empty session never reached the real configured provider"
+        requests
+            .iter()
+            .any(|request| request["messages"].is_array()),
+        "empty session never reached the real configured chat provider"
     );
     assert!(
         requests.iter().all(|request| !has_probe(request)),
