@@ -501,35 +501,33 @@ pub fn prime_selected_catalogs(substrate: &Path, catalogs: Catalogs) -> serde_js
 
     // Reports the active installed pack (`default`: compiled defaults).
     let pack = crate::susi_sandbox::extensions::active_pack();
+    let pack_root = match susi_paths::native_path::encode(&pack.root) {
+        Ok(path) => path,
+        Err(error) => {
+            return serde_json::json!({"kind": "auto_prime_error", "error": error});
+        }
+    };
+    let mut report = serde_json::json!({
+        "kind": if catalogs.is_all() { "auto_prime" } else { "auto_prime_partial" },
+        "active_pack": pack.id,
+        "pack_root": pack_root,
+    });
+    if catalogs.coding_models {
+        report["preferred_coding_model"] = serde_json::json!(preferred_model);
+    }
+    if catalogs.execution_agents {
+        report["agents_ready"] = serde_json::json!(agents_ready);
+    }
+    if catalogs.frameworks {
+        report["frameworks_ready"] = serde_json::json!(frameworks_ready);
+    }
     if !catalogs.is_all() {
-        let mut report = serde_json::json!({
-            "kind": "auto_prime_partial",
-            "active_pack": pack.id,
-            "pack_root": pack.root,
-            "primed": catalogs.phases(),
-        });
-        if catalogs.coding_models {
-            report["preferred_coding_model"] = serde_json::json!(preferred_model);
-        }
-        if catalogs.execution_agents {
-            report["agents_ready"] = serde_json::json!(agents_ready);
-        }
-        if catalogs.frameworks {
-            report["frameworks_ready"] = serde_json::json!(frameworks_ready);
-        }
+        report["primed"] = serde_json::json!(catalogs.phases());
         return report;
     }
-    let report = serde_json::json!({
-        "kind": "auto_prime",
-        "active_pack": pack.id,
-        "pack_root": pack.root,
-        // Deprecated (zero-UI A8): core no longer auto-enables MCP servers,
-        // so this is always empty. Kept one release for report consumers.
-        "mcp_enabled": Vec::<String>::new(),
-        "preferred_coding_model": preferred_model,
-        "agents_ready": agents_ready,
-        "frameworks_ready": frameworks_ready,
-    });
+    // Deprecated (zero-UI A8): core no longer auto-enables MCP servers,
+    // so this is always empty. Kept one release for report consumers.
+    report["mcp_enabled"] = serde_json::json!(Vec::<String>::new());
     let path = susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
