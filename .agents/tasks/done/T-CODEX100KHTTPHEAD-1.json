@@ -2,7 +2,7 @@
   "id": "T-CODEX100KHTTPHEAD-1",
   "title": "Share equivalent HTTP response-head parsing without changing client policy",
   "goal": "Vision: V-6. Reduce duplicated physical runtime Rust while preserving every existing HTTP client capability, status policy, error kind/message, byte consumption and body/interim behavior.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "s",
   "created_by": "CODEXCORE100KHTTPHEAD",
   "created_unix": 1794828356,
@@ -120,5 +120,16 @@
     "log": "/workspace/codex/susi-core-100k-http-head-state/logs/differential.log",
     "limits": "Finite differential corpus, not exhaustive proof; baseline reader functions extracted from recorded source commit and adapted only to return the parsed head."
   },
-  "progress_unix": 1794828639
+  "progress_unix": 1794828639,
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-http-head.json",
+  "closed": {
+    "at_unix": 1794828896,
+    "commit": "66e71dfa3917ce6d44e06f565e02ceb11c61f85d",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "66e71dfa3917ce6d44e06f565e02ceb11c61f85d"
+  }
 }
