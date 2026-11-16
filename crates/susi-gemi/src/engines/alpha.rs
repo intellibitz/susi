@@ -81,13 +81,8 @@ impl SusiAlphaModel {
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
-        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
-            .unwrap_or_default()
-            .alpha_weights_filename();
-        let bundle = global_dir
-            .join("models")
-            .join(alpha_filename)
-            .with_extension("bundle.json");
+        let config = crate::susi_sandbox::manager::SusiConfig::load(global_dir).unwrap_or_default();
+        let bundle = crate::engines::local_plug::reflex_bundle_path(global_dir, config);
         if let Ok(meta) = std::fs::metadata(bundle) {
             return meta
                 .modified()
