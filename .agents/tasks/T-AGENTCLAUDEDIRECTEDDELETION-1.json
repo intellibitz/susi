@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENTCLAUDEDIRECTEDDELETION-1",
+  "title": "Delete the 2 superseded candidate lines the CEO directed",
+  "goal": "Vision: V-20. CEO direction 2026-11-16: \"delete the superseded candidates\". Delete refs/candidates/release/v0-21-65-distilled-rc1 and refs/candidates/release/v0.21.62 from the storage remote, each only at the object workflow releases reported (superseded by v0.21.65 and v0.21.62), and record each in .agents/storage/directed-deletions.txt so the storage guard accepts them.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDEDIRECTEDDELETION",
+  "created_unix": 1794853715
+}
