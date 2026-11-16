@@ -792,7 +792,13 @@ fn model_emitted_and_mission_tool_dispatch_cannot_reach_a_model_download() {
 
     // The model-emitted tool calls refuse it before anything runs.
     let router = functions(&read(ROUTER));
-    let fulfill = code_only(body_of(&router, "fulfill_emitted_tool_calls"));
+    let fulfill_emitted = code_only(body_of(&router, "fulfill_emitted_tool_calls"));
+    assert!(
+        fulfill_emitted.contains("fulfill_tool_calls")
+            || fulfill_emitted.contains("is_user_request_only(&call.name)"),
+        "{fulfill_emitted}"
+    );
+    let fulfill = code_only(body_of(&router, "fulfill_tool_calls"));
     assert!(
         fulfill.contains("is_user_request_only(&call.name)"),
         "{fulfill}"
