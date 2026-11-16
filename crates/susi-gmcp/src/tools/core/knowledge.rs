@@ -12,7 +12,7 @@ use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
 use crate::tools::args;
 #[cfg(feature = "tools-rich")]
-use crate::tools::helpers::secure_external_url;
+use crate::tools::helpers::{read_file_nofollow, secure_external_url, secure_path};
 
 impl CoreTools {
     crate::tool_def!(meta_scout_agents_tool_attr {
@@ -123,7 +123,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
-        let hits = super::semantic_index::SemanticIndex::search(workspace, query_str, 5)?;
+        let hits = crate::tools::semantic_index::SemanticIndex::search(workspace, query_str, 5)?;
 
         let mut out = format!("Semantic recall results for '{}':\n", query_str);
         if hits.is_empty() {
@@ -206,7 +206,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
-        let hits = super::semantic_index::SemanticIndex::vector_recall(workspace, query, 3)?;
+        let hits = crate::tools::semantic_index::SemanticIndex::vector_recall(workspace, query, 3)?;
 
         let mut out = "Top 3 Semantic Matches:\n".to_string();
         if hits.is_empty() {

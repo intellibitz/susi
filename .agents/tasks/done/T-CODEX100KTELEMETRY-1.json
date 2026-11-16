@@ -3,7 +3,7 @@
   "title": "Deduplicate telemetry construction and exposition without changing its public contract",
   "goal": "Support the current Susi core <100,000-line goal by removing repeated telemetry implementation while preserving public TokenUsage types, conversions, saturating arithmetic, aggregation, and exact Prometheus exposition.",
   "size": "s",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KTELEMETRY",
   "scopes": [
     "crates/susi-gawd/src/telemetry.rs",
@@ -56,5 +56,16 @@
     "telemetry_rs_physical_lines_after": 327,
     "production_lines_removed": 20
   },
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json",
+  "closed": {
+    "at_unix": 1794820421,
+    "commit": "74c0471ad97be98812b8f89930745a55ad62edf5",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6028ce8f3e85798726f677ece348c5a95caeef6f",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+  }
 }
