@@ -6,5 +6,5 @@
   "task": "T-AGENTCLAUDEDIRECTEDDELETION-1",
   "agent": "AGENTCLAUDEDIRECTEDDELETION",
   "claimed_unix": 1794853757,
-  "lease_until_unix": 1794857357
+  "lease_until_unix": 1794857440
 }
