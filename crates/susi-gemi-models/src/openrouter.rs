@@ -4,6 +4,7 @@
 //! `susi_gemi::openrouter_ext` so this crate never depends on engines HTTP.
 
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::fs;
 use std::path::PathBuf;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
@@ -63,10 +64,7 @@ impl OpenRouterManager {
 
     /// Model id pinned for the OpenRouter endpoint (empty → bundled default).
     pub fn preferred_model(&self) -> Option<String> {
-        fs::read_to_string(self.preferred_model_path())
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        crate::catalog::preferred(&self.preferred_model_path())
     }
 
     pub fn effective_model(&self) -> String {
@@ -163,13 +161,11 @@ impl OpenRouterManager {
     }
 
     pub fn clear_preferred_model(&self) -> Result<String> {
-        match fs::remove_file(self.preferred_model_path()) {
-            Ok(()) => Ok("cleared OpenRouter preferred model (using openrouter/auto)".into()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok("no OpenRouter preferred model was set".into())
-            }
-            Err(e) => Err(e.into()),
-        }
+        crate::catalog::clear_preferred(
+            &self.preferred_model_path(),
+            "cleared OpenRouter preferred model (using openrouter/auto)",
+            "no OpenRouter preferred model was set",
+        )
     }
 
     pub fn resolve_api_key(&self) -> String {

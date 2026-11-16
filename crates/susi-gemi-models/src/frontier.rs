@@ -8,9 +8,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::{EaiResult as Result, ResultExt as Context};
 
-use crate::cloud::{is_remote_cloud, resolve_api_key};
+use crate::catalog;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrontierVariant {
@@ -122,18 +122,10 @@ impl FrontierManager {
         if let Ok(bytes) = fs::read(&path) {
             let over: FrontierOverride =
                 serde_json::from_slice(&bytes).context("invalid frontier-model override")?;
-            if let Some(engine) = over.engine.filter(|s| !s.trim().is_empty()) {
-                def.engine = engine;
-            }
-            if let Some(model) = over.model.filter(|s| !s.trim().is_empty()) {
-                def.model = model;
-            }
-            if let Some(protocol) = over.protocol_type {
-                def.protocol_type = protocol;
-            }
-            if let Some(env) = over.api_key_env {
-                def.api_key_env = env;
-            }
+            catalog::apply_override(&mut def.engine, over.engine, false);
+            catalog::apply_override(&mut def.model, over.model, false);
+            catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
+            catalog::apply_override(&mut def.api_key_env, over.api_key_env, true);
         }
         def.validate()?;
         Ok(def)
@@ -156,65 +148,29 @@ impl FrontierManager {
     }
 
     pub fn preferred(&self) -> Option<String> {
-        fs::read_to_string(self.preferred_path())
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
+        crate::catalog::preferred(&self.preferred_path())
     }
 
     /// Local readiness only — does not call a paid model.
     pub fn preflight(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
-        let endpoint = crate::cloud::endpoint_named(&def.engine)
-            .with_context(|| format!("inference endpoint '{}' is not configured", def.engine))?;
-        if endpoint.api_base.trim().is_empty() {
-            bail!("endpoint '{}' has an empty api_base", def.engine);
-        }
-        let key_env = if def.api_key_env.is_empty() {
-            endpoint.api_key_env.as_str()
-        } else {
-            def.api_key_env.as_str()
-        };
-        let key = resolve_api_key(key_env, &def.engine);
-        if is_remote_cloud(endpoint.api_base.trim()) && !key_env.is_empty() && key.is_empty() {
-            bail!(
-                "set {key_env} (or `susi keys set {}`) for cloud access",
-                def.engine
-            );
-        }
+        let credentials = catalog::preflight(&def.engine, &def.api_key_env, false)?;
         Ok(format!(
             "endpoint {} ready; model id {}; credentials {}",
-            def.engine,
-            def.model,
-            if key_env.is_empty() || !is_remote_cloud(endpoint.api_base.trim()) {
-                "not required (local)"
-            } else {
-                "present"
-            }
+            def.engine, def.model, credentials
         ))
     }
 
     pub fn resolve_endpoint(&self, id: &str) -> Result<FrontierEndpoint> {
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
-        let endpoint = crate::cloud::endpoint_named(&def.engine)
-            .context("endpoint missing after preflight")?;
-        let key_env = if def.api_key_env.is_empty() {
-            endpoint.api_key_env.clone()
-        } else {
-            def.api_key_env.clone()
-        };
-        let protocol_type = if def.protocol_type.is_empty() {
-            endpoint.protocol_type.clone()
-        } else {
-            def.protocol_type.clone()
-        };
-        let api_key = resolve_api_key(&key_env, &def.engine);
+        let (endpoint, api_key) =
+            catalog::resolve_endpoint(&def.engine, &def.protocol_type, &def.api_key_env)?;
         Ok(FrontierEndpoint {
             def,
             api_base: endpoint.api_base.trim().to_string(),
-            protocol_type,
-            api_key_env: key_env,
+            protocol_type: endpoint.protocol_type,
+            api_key_env: endpoint.api_key_env,
             api_key,
         })
     }
@@ -246,13 +202,11 @@ impl FrontierManager {
     }
 
     pub fn clear_preferred(&self) -> Result<String> {
-        match fs::remove_file(self.preferred_path()) {
-            Ok(()) => Ok("cleared preferred frontier model".into()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok("no preferred frontier model was set".into())
-            }
-            Err(e) => Err(e.into()),
-        }
+        crate::catalog::clear_preferred(
+            &self.preferred_path(),
+            "cleared preferred frontier model",
+            "no preferred frontier model was set",
+        )
     }
 
     pub fn setup(&self, id: &str) -> Result<serde_json::Value> {
@@ -287,21 +241,11 @@ impl FrontierManager {
 
 impl FrontierDefinition {
     fn validate(&self) -> Result<()> {
-        if self.id.trim().is_empty()
-            || self.engine.trim().is_empty()
-            || self.model.trim().is_empty()
-        {
-            bail!("frontier model id, engine, and model must be nonempty");
-        }
-        if !self.api_key_env.is_empty()
-            && !self
-                .api_key_env
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
-            bail!("api_key_env must name an environment variable");
-        }
-        Ok(())
+        catalog::validate_model(
+            [&self.id, &self.engine, &self.model],
+            &self.api_key_env,
+            "frontier",
+        )
     }
 }
 

@@ -29,6 +29,7 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_config::{accel_reserve, cloud_eligibility, cloud_quota};
 pub use susi_core;
+mod catalog;
 pub mod cloud;
 pub mod cloud_credentials;
 pub mod cloud_manage;

@@ -1,0 +1,58 @@
+{
+  "id": "T-CODEX100KCATALOG-1",
+  "title": "Consolidate catalog mechanics while preserving model manager contracts",
+  "goal": "Reduce genuine duplicated Susi core implementation while preserving every catalog manager public type, method, result, error, override policy and credential policy; contribute toward the CEO's strictly below 100000-line core goal without claiming that this scoped reduction completes it.",
+  "size": "s",
+  "deps": [],
+  "owner": "codex",
+  "created_by": "CODEX100KCATALOG",
+  "created_unix": 1794818957,
+  "base": "694a728dab8391402e3d46ddf6076705f67d4d75",
+  "status": "verified_pending_publication",
+  "native_worker": "codex-100k-catalog",
+  "scopes": [
+    ".agents/tasks/T-CODEX100KCATALOG-1.json",
+    "crates/susi-gemi-models/src/catalog.rs",
+    "crates/susi-gemi-models/src/coding_models.rs",
+    "crates/susi-gemi-models/src/frontier.rs",
+    "crates/susi-gemi-models/src/lib.rs",
+    "crates/susi-gemi-models/src/open_weight.rs",
+    "crates/susi-gemi-models/src/openrouter.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi-gemi-models catalog managers and their regression tests; susi-config json_util shared override persistence; commercial migrated model catalog implementations",
+    "reason": "Reuse the existing first-party catalog mechanics behind private helpers; no new capability, dependency or harvested implementation is needed. Existing atomic persistence remains unchanged."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "2",
+      "-p",
+      "susi-gemi-models",
+      "--lib"
+    ]
+  },
+  "results": {
+    "models_lib": "cargo test --offline --locked -j 2 -p susi-gemi-models --lib: 247 passed, 0 failed, 2 ignored (existing ignored tests unchanged)",
+    "clippy": "cargo clippy --offline --locked -j 2 -p susi-gemi-models --all-targets -- -D warnings: passed",
+    "format": "cargo fmt -p susi-gemi-models --check and git diff --check: passed",
+    "physical_rust_lines": {
+      "before": 1714,
+      "after": 1680,
+      "reduction": 34,
+      "scope": "catalog.rs, coding_models.rs, frontier.rs, open_weight.rs, openrouter.rs, lib.rs; include all new helper lines and unchanged inline tests",
+      "runtime_reduction": 34,
+      "test_lines_removed_or_moved": 0
+    },
+    "limitations": [
+      "Scoped Linux x86_64 development verification; not full protocol or release qualification.",
+      "The complete core is not yet below 100000 lines."
+    ]
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+}

@@ -17,9 +17,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::{EaiResult as Result, ResultExt as Context};
 
-use crate::cloud::{is_remote_cloud, resolve_api_key};
+use crate::catalog;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodingModelDefinition {
@@ -94,18 +94,10 @@ impl CodingModelManager {
         if let Ok(bytes) = fs::read(&path) {
             let over: CodingModelOverride =
                 serde_json::from_slice(&bytes).context("invalid coding-model override")?;
-            if let Some(engine) = over.engine.filter(|s| !s.trim().is_empty()) {
-                def.engine = engine;
-            }
-            if let Some(model) = over.model.filter(|s| !s.trim().is_empty()) {
-                def.model = model;
-            }
-            if let Some(protocol) = over.protocol_type {
-                def.protocol_type = protocol;
-            }
-            if let Some(env) = over.api_key_env {
-                def.api_key_env = env;
-            }
+            catalog::apply_override(&mut def.engine, over.engine, false);
+            catalog::apply_override(&mut def.model, over.model, false);
+            catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
+            catalog::apply_override(&mut def.api_key_env, over.api_key_env, true);
         }
         def.validate()?;
         Ok(def)
@@ -146,23 +138,7 @@ impl CodingModelManager {
     /// Local readiness only — does not call a paid model.
     pub fn preflight(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
-        let endpoint = crate::cloud::endpoint_named(&def.engine)
-            .with_context(|| format!("inference endpoint '{}' is not configured", def.engine))?;
-        if endpoint.api_base.trim().is_empty() {
-            bail!("endpoint '{}' has an empty api_base", def.engine);
-        }
-        let key_env = if def.api_key_env.is_empty() {
-            endpoint.api_key_env.as_str()
-        } else {
-            def.api_key_env.as_str()
-        };
-        let key = resolve_api_key(key_env, &def.engine);
-        if is_remote_cloud(endpoint.api_base.trim()) && key.is_empty() {
-            bail!(
-                "set {key_env} (or `susi keys set {}`) for cloud access",
-                def.engine
-            );
-        }
+        catalog::preflight(&def.engine, &def.api_key_env, true)?;
         Ok(format!(
             "endpoint {} ready; model id {}; credentials present",
             def.engine, def.model
@@ -173,24 +149,13 @@ impl CodingModelManager {
     pub fn resolve_endpoint(&self, id: &str) -> Result<CodingModelEndpoint> {
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
-        let endpoint = crate::cloud::endpoint_named(&def.engine)
-            .context("endpoint missing after preflight")?;
-        let key_env = if def.api_key_env.is_empty() {
-            endpoint.api_key_env.clone()
-        } else {
-            def.api_key_env.clone()
-        };
-        let protocol_type = if def.protocol_type.is_empty() {
-            endpoint.protocol_type.clone()
-        } else {
-            def.protocol_type.clone()
-        };
-        let api_key = resolve_api_key(&key_env, &def.engine);
+        let (endpoint, api_key) =
+            catalog::resolve_endpoint(&def.engine, &def.protocol_type, &def.api_key_env)?;
         Ok(CodingModelEndpoint {
             def,
             api_base: endpoint.api_base.trim().to_string(),
-            protocol_type,
-            api_key_env: key_env,
+            protocol_type: endpoint.protocol_type,
+            api_key_env: endpoint.api_key_env,
             api_key,
         })
     }
@@ -210,10 +175,7 @@ impl CodingModelManager {
     }
 
     pub fn preferred(&self) -> Option<String> {
-        fs::read_to_string(susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt"))
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
+        catalog::preferred(&susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt"))
     }
 
     /// Zero-config: if no preferred coding model is set, prefer the best-ranked
@@ -243,21 +205,11 @@ impl CodingModelManager {
 
 impl CodingModelDefinition {
     fn validate(&self) -> Result<()> {
-        if self.id.trim().is_empty()
-            || self.engine.trim().is_empty()
-            || self.model.trim().is_empty()
-        {
-            bail!("coding model id, engine, and model must be nonempty");
-        }
-        if !self.api_key_env.is_empty()
-            && !self
-                .api_key_env
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
-            bail!("api_key_env must name an environment variable");
-        }
-        Ok(())
+        catalog::validate_model(
+            [&self.id, &self.engine, &self.model],
+            &self.api_key_env,
+            "coding",
+        )
     }
 }
 

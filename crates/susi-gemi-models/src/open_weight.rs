@@ -116,15 +116,9 @@ impl OpenWeightManager {
         if let Ok(bytes) = fs::read(&path) {
             let over: OpenWeightOverride =
                 serde_json::from_slice(&bytes).context("invalid open-weight override")?;
-            if let Some(engine) = over.engine.filter(|s| !s.trim().is_empty()) {
-                def.engine = engine;
-            }
-            if let Some(tag) = over.ollama_tag.filter(|s| !s.trim().is_empty()) {
-                def.ollama_tag = tag;
-            }
-            if let Some(protocol) = over.protocol_type {
-                def.protocol_type = protocol;
-            }
+            crate::catalog::apply_override(&mut def.engine, over.engine, false);
+            crate::catalog::apply_override(&mut def.ollama_tag, over.ollama_tag, false);
+            crate::catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
         }
         def.validate()?;
         Ok(def)
@@ -155,10 +149,7 @@ impl OpenWeightManager {
     }
 
     pub fn preferred(&self) -> Option<String> {
-        fs::read_to_string(self.preferred_path())
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
+        crate::catalog::preferred(&self.preferred_path())
     }
 
     pub fn ollama_cli_present() -> bool {
@@ -265,13 +256,11 @@ impl OpenWeightManager {
     }
 
     pub fn clear_preferred(&self) -> Result<String> {
-        match fs::remove_file(self.preferred_path()) {
-            Ok(()) => Ok("cleared preferred open-weight model".into()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok("no preferred open-weight model was set".into())
-            }
-            Err(e) => Err(e.into()),
-        }
+        crate::catalog::clear_preferred(
+            &self.preferred_path(),
+            "cleared preferred open-weight model",
+            "no preferred open-weight model was set",
+        )
     }
 
     /// Best-effort: ask Ollama `/api/tags` whether the tag is present.
