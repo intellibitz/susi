@@ -133,12 +133,20 @@ fn model_rate_arbitration_probe_helpers_admit() {
     ] {
         let src = std::fs::read_to_string(format!("{}{}", env!("CARGO_MANIFEST_DIR"), file))
             .unwrap_or_else(|_| panic!("{file} readable"));
-        let acquire = src
-            .find("crate::key_arbitration::try_acquire")
-            .unwrap_or_else(|| panic!("{file} admits through the arbiter"));
-        let generate = src
-            .find("provider.generate")
-            .unwrap_or_else(|| panic!("{file} issues a provider call"));
-        assert!(acquire < generate, "{file}: admission precedes the call");
+        assert!(
+            src.contains("crate::model_probe::run("),
+            "{file} uses the shared probe"
+        );
+        assert!(
+            !src.contains("provider.generate"),
+            "{file} must not bypass shared admission"
+        );
     }
+    let probe = include_str!("../model_probe.rs");
+    let validation = probe.find("prompt.trim().is_empty()").unwrap();
+    let resolve = probe.find("let provider = provider()?").unwrap();
+    let runtime = probe.find("let runtime =").unwrap();
+    let acquire = probe.find("crate::key_arbitration::try_acquire").unwrap();
+    let generate = probe.find("provider.generate").unwrap();
+    assert!(validation < resolve && resolve < runtime && runtime < acquire && acquire < generate);
 }

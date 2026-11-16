@@ -54,6 +54,7 @@ pub mod engine_benchmark;
 pub mod frontier_ext;
 pub mod key_arbitration;
 pub mod local_tool_calls;
+mod model_probe;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod operator_report;

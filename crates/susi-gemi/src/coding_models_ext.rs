@@ -3,8 +3,9 @@
 //! Catalog / preflight / configure live in [`susi_gemi_models::coding_models`].
 //! Paid probe and provider construction stay here so models never depends on engines.
 
+#[cfg(test)]
 use crate::susi_core::provider::Provider;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::EaiResult as Result;
 use susi_gemi_models::coding_models::CodingModelManager;
 
 use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
@@ -23,21 +24,9 @@ pub fn provider(manager: &CodingModelManager, id: &str) -> Result<HttpProvider> 
 
 /// Paid probe — short completion to verify auth/model id. Output is evidence, not Truth.
 pub fn probe(id: &str, prompt: &str) -> Result<String> {
-    if prompt.trim().is_empty() {
-        bail!("probe prompt must not be empty");
-    }
-    let manager = CodingModelManager::new()?;
-    let provider = provider(&manager, id)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("tokio runtime for model probe")?;
-    let _permit = crate::key_arbitration::try_acquire(provider.name())
-        .map_err(|d| susi_error::eai_err!(format!("{}: {}", provider.name(), d.describe())))?;
-    let text = runtime
-        .block_on(provider.generate(prompt))
-        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
-    Ok(crate::susi_config::redact_credentials(&text))
+    crate::model_probe::run(prompt, "tokio runtime for model probe", || {
+        provider(&CodingModelManager::new()?, id)
+    })
 }
 
 #[cfg(test)]

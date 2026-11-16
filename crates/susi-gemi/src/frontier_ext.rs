@@ -1,6 +1,7 @@
 //! Engines-side frontier model helpers (prefer routing, paid/local probe).
+#[cfg(test)]
 use crate::susi_core::provider::Provider;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::EaiResult as Result;
 use susi_gemi_models::frontier::FrontierManager;
 
 use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
@@ -35,21 +36,9 @@ pub fn prefer(model: &str, clear: bool) -> Result<String> {
 
 /// Probe — short completion via cloud or local endpoint.
 pub fn probe(id: &str, prompt: &str) -> Result<String> {
-    if prompt.trim().is_empty() {
-        bail!("probe prompt must not be empty");
-    }
-    let manager = FrontierManager::new()?;
-    let provider = provider(&manager, id)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("tokio runtime for frontier probe")?;
-    let _permit = crate::key_arbitration::try_acquire(provider.name())
-        .map_err(|d| susi_error::eai_err!(format!("{}: {}", provider.name(), d.describe())))?;
-    let text = runtime
-        .block_on(provider.generate(prompt))
-        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
-    Ok(crate::susi_config::redact_credentials(&text))
+    crate::model_probe::run(prompt, "tokio runtime for frontier probe", || {
+        provider(&FrontierManager::new()?, id)
+    })
 }
 
 #[cfg(test)]

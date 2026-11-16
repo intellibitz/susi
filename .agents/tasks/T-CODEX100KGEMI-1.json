@@ -1,0 +1,118 @@
+{
+  "id": "T-CODEX100KGEMI-1",
+  "title": "Share GEMI model probes and plane payload handling",
+  "goal": "Vision: V-6. Reduce repeated model-probe mechanics while preserving lazy prompt validation, endpoint resolution, runtime diagnostics, key admission, inference errors and credential redaction. Share plane-bus string lookup and the two identical deep-generation handlers while preserving defaults and caller capabilities.",
+  "size": "m",
+  "status": "verified_pending_publication",
+  "created_by": "CODEXCORE100KGEMI",
+  "created_unix": 1794821847,
+  "base_commit": "73f698cb221072c9772d73e51de4e7a273d8d8c1",
+  "deps": [],
+  "scopes": [
+    "crates/susi-gemi/src/coding_models_ext.rs",
+    "crates/susi-gemi/src/frontier_ext.rs",
+    "crates/susi-gemi/src/open_weight_ext.rs",
+    "crates/susi-gemi/src/openrouter_ext.rs",
+    "crates/susi-gemi/src/model_probe.rs",
+    "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests/model_probe.rs",
+    ".agents/tasks/T-CODEX100KGEMI-1.json",
+    "crates/susi-gemi/src/plane_handler.rs",
+    "crates/susi-gemi/src/tests/plane_payload.rs",
+    "crates/susi-gemi/src/tests/vc_202_020_rate_mastery.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Compared existing four *_ext::probe implementations, engines/http_provider, susi-adapters-llm::inference_wire, core::Provider, key_arbitration and credential redaction; Commercial Apps probe uses are host-contract/admission checks, not a compatible model probe. Protocol body/parsing already shares inference_wire. Reuse the exact existing lifecycle with lazy provider construction; no external source or dependencies."
+  },
+  "limitations": [
+    "Local subtask; parent owns integration/publication and Board coordination. Board check item1647 had no stop/request for CODEX. No external messages, paid providers or production installation.",
+    "All behavior checks use fake providers or existing isolated tests; no paid/network provider calls are introduced.",
+    "Development verification on Linux only, not a release or full standards-conformance attestation. The whole-core under-100k goal remains open."
+  ],
+  "results": {
+    "runtime_file_lines_before": 1418,
+    "runtime_file_lines_after": 1352,
+    "net_runtime_reduction": 66,
+    "paths": [
+      {
+        "path": "crates/susi-gemi/src/coding_models_ext.rs",
+        "before": 97,
+        "after": 86
+      },
+      {
+        "path": "crates/susi-gemi/src/frontier_ext.rs",
+        "before": 103,
+        "after": 92
+      },
+      {
+        "path": "crates/susi-gemi/src/open_weight_ext.rs",
+        "before": 109,
+        "after": 96
+      },
+      {
+        "path": "crates/susi-gemi/src/openrouter_ext.rs",
+        "before": 151,
+        "after": 138
+      },
+      {
+        "path": "crates/susi-gemi/src/plane_handler.rs",
+        "before": 783,
+        "after": 735
+      },
+      {
+        "path": "crates/susi-gemi/src/lib.rs",
+        "before": 175,
+        "after": 176
+      },
+      {
+        "path": "crates/susi-gemi/src/model_probe.rs",
+        "before": 0,
+        "after": 29
+      }
+    ],
+    "existing_tests_removed": 0,
+    "existing_inline_test_bodies": "All four catalog modules and plane_handler test bodies byte-identical to base.",
+    "new_regression_tests": 4,
+    "new_separate_test_lines": 137,
+    "dependencies_added": 0,
+    "public_signatures_changed": 0,
+    "shared_mechanics": [
+      "Four probe wrappers now use one lazy provider-construction/runtime/admission/inference/redaction helper, preserving distinct runtime context strings.",
+      "44 repeated payload string reads use one Value::get/as_str helper; workspace uses existing path helper.",
+      "Two deep-generation topics share one branch; ordinary deep requests still ignore model and model-specific topic still defaults to the exact string default."
+    ]
+  },
+  "validation": [
+    {
+      "command": "cargo test --offline --locked -p susi-gemi --lib",
+      "passed": 452,
+      "failed": 0,
+      "ignored": 0,
+      "log": "/workspace/codex/core-100k-gemi-state/all-tests.log"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p susi-gemi --all-targets -- -D warnings",
+      "result": "pass",
+      "log": "/workspace/codex/core-100k-gemi-state/clippy.log"
+    },
+    {
+      "command": "cargo fmt --all --check; git diff --check",
+      "result": "pass"
+    }
+  ],
+  "test_repair": "Existing model_rate_arbitration_probe_helpers_admit inspected each old wrapper for literal try_acquire/provider.generate calls. It now requires every wrapper to call shared model_probe::run without a direct generation bypass and checks validation < provider resolution < runtime construction < admission < generation in that helper. New executable regression proves active permit during generation, release after success/error, untrimmed prompt forwarding, redaction and original error mapping. Invalid prompts prove provider construction is never called.",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
+  "peer_review": "Independent review found no behavior differences in SSE line normalization/selection, numeric diagnostics/order, probe validation/admission/error lifetime, or plane defaults. All new helpers counted."
+}
