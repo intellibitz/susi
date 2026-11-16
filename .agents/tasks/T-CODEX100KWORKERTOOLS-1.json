@@ -1,0 +1,46 @@
+{
+  "id": "T-CODEX100KWORKERTOOLS-1",
+  "title": "Prove native six-tool contracts across a real MCP child",
+  "goal": "Vision: V-6. Establish test-only valid-object worker tool preservation over standard MCP before any production backend or removal; zero reduction credit.",
+  "size": "m",
+  "status": "in_progress",
+  "created_by": "CODEX100KWORKERTOOLS",
+  "scopes": [
+    "Cargo.toml",
+    "tests/harness_worker_mcp_parity.rs"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "harness_worker_mcp_parity",
+      "--",
+      "--run"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing Registry::builtin/execute and six handler contracts, McpHost connect_duplex/list_tools_bounded/call_tool, workload_process spawn/Tree, test_env home isolation, prior direct-vs-harness_run parity fixture.",
+    "reason": "A custom harness=false test reexecutes its own binary and links the existing production libraries; no shipped fixture binary, nested Cargo invocation, dependency, handler copy, or production backend needed."
+  },
+  "created_unix": 1794834194,
+  "base": "2cf495799602d3cf7acfd39eff681cbcf99c4782",
+  "constraints": [
+    "Test and fixture only; no production behavior/implementation/counting boundary changes.",
+    "Native x86_64 Linux verification only; no Windows qualification claim.",
+    "No external Board/provider/network traffic; cleared child environments and owned private homes/resources.",
+    "Parent owns integration/publication; no pushes.",
+    "Max build jobs2, private compiler/target/home, monitor limited disk.",
+    "Preserve standard MCP arguments object semantics; characterize direct malformed/nonobject inputs separately without normalization."
+  ],
+  "evidence": {
+    "handoff": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-boundary-handoff.json",
+    "validation": "in progress; no preservation pass claimed"
+  }
+}
