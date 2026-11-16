@@ -31,9 +31,8 @@ use arguments::{number, required, take};
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
 use susi_harness::catalog::PriceCatalogue;
-use susi_harness::gateway::{serve, GatewayState};
+use susi_harness::gateway::{serve_admitted, GatewayState};
 
 struct Options {
     port: u16,
@@ -55,10 +54,7 @@ fn main() {
         Ok(options) => options,
         Err(message) => fail(&message),
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => fail(&format!("runtime: {error}")),
     };
@@ -83,31 +79,17 @@ async fn run(options: Options) -> Result<(), String> {
     let api_key = name.map(susi_harness::secrets::Credential::Named);
     // The accounts are read, and the serving rule applied, before anything
     // listens: a malformed file used to fail only after the port was bound.
-    let ingress = match &options.accounts {
-        Some(path) => {
-            let text = std::fs::read_to_string(path)
-                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
-            Some(Arc::new(
-                susi_harness::ingress::Ingress::parse(&text).map_err(|error| error.to_string())?,
-            ))
-        }
-        None => None,
-    };
-    susi_harness::ingress::require_accounts_off_loopback(HOST, ingress.as_deref())
-        .map_err(|error| error.to_string())?;
-    let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);
-    let state = Arc::new(GatewayState {
+    let ingress =
+        susi_harness::ingress::load_for_host(HOST, options.accounts.as_deref(), "accounts")?;
+    let mut state = GatewayState::cached(
         catalogue,
-        ledger_path: options.ledger,
-        upstream_chat_url: options.upstream,
-        provider: options.provider,
-        api_key,
-        timeout_secs: options.timeout,
-        max_output_tokens: options.max_output_tokens,
-        cache: Some(std::sync::Arc::new(
-            susi_harness::cache::ResponseCache::new(cache_dir),
-        )),
-    });
+        options.ledger,
+        options.upstream,
+        options.provider,
+        options.timeout,
+    );
+    state.api_key = api_key;
+    state.max_output_tokens = options.max_output_tokens;
     let listener = tokio::net::TcpListener::bind((HOST, options.port))
         .await
         .map_err(|error| format!("bind: {error}"))?;
@@ -116,14 +98,9 @@ async fn run(options: Options) -> Result<(), String> {
         .map_err(|error| format!("local_addr: {error}"))?;
     println!("harness-gateway listening on http://{address}");
     let _ = std::io::stdout().flush();
-    match ingress {
-        Some(ingress) => susi_harness::ingress::serve(listener, state, ingress)
-            .await
-            .map_err(|error| format!("serve: {error}")),
-        None => serve(listener, state)
-            .await
-            .map_err(|error| format!("serve: {error}")),
-    }
+    serve_admitted(listener, state, ingress)
+        .await
+        .map_err(|error| format!("serve: {error}"))
 }
 
 /// The one address this binary serves on. Any other goes through

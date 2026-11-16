@@ -166,14 +166,10 @@ macro_rules! schema_catalog {
 }
 
 macro_rules! declare_attributes {
-    (@method [$($attrs:tt)*] $definition:ident $handler:ident []) => {};
-    (@method [$($attrs:tt)*] $definition:ident $handler:ident [$schema:expr => $wire:literal]) => {
-        $($attrs)*
-        crate::tool_def!($definition { name: stringify!($handler), description: $wire, input_schema: $schema });
-    };
-    ($($(#[$attr:meta])* [$definition:ident $(, $schema:expr => $wire:literal)?]
+    ($($(#[$attr:meta])* [$definition:ident, $schema:expr => $wire:literal]
       $handler:ident $(: $category:ident => $summary:literal)?;)*) => {
-        $(declare_attributes!(@method [$(#[$attr])*] $definition $handler [$($schema => $wire)?]);)*
+        $($(#[$attr])*
+          crate::tool_def!($definition { name: stringify!($handler), description: $wire, input_schema: $schema });)*
     };
 }
 
@@ -184,7 +180,7 @@ impl CoreTools {
 /// Every built-in handler's name, wire description and typed schema in public list order.
 pub fn core_tool_definitions() -> Vec<crate::mcp::model::Tool> {
     macro_rules! definitions {
-        ($($(#[$attr:meta])* [$definition:ident $(, $schema:expr => $wire:literal)?]
+        ($($(#[$attr:meta])* [$definition:ident, $schema:expr => $wire:literal]
           $handler:ident $(: $category:ident => $summary:literal)?;)*) => {
             vec![$($(#[$attr])* CoreTools::$definition(),)*]
         };

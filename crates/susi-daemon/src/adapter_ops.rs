@@ -10,6 +10,7 @@
 //! never instructions read from a repository; the workspace only roots the
 //! durable task records `retry` reads and writes.
 
+use crate::operator_args::{field, msg};
 use serde_json::{Value, json};
 use std::path::Path;
 use susi_gawd::external::{Adapter, AgentManager, CatalogKind, RunRecord, RunStatus, catalog};
@@ -17,10 +18,6 @@ use susi_gemi::models::coding_models::{CodingModelManager, CodingModelOverride};
 use susi_tools::{LeadingMcpManager, LeadingMcpOverride};
 
 type R<T> = Result<T, String>;
-
-fn msg(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
 
 fn encode<T: serde::Serialize>(value: &T) -> R<Value> {
     serde_json::to_value(value).map_err(msg)
@@ -309,14 +306,6 @@ pub fn mcp_add(name: &str, command_or_url: &str, args: &[String]) -> R<String> {
 }
 
 // ── socket dispatch ────────────────────────────────────────────────────────
-
-fn field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-}
 
 /// Dispatch one `daemon.adapters` request: `{action, kind, id, ..}`, with
 /// `workspace` the (absolute) workspace the tool resolved.

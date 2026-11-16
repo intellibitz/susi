@@ -8,7 +8,9 @@ use std::sync::{Arc, OnceLock};
 
 pub trait NativeInferenceEngine: Send + Sync {
     fn name(&self) -> String;
-    fn run_inference(&self, prompt: &str) -> EaiResult<String>;
+    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
+        self.run_inference_stream(prompt, &|_| {}, None)
+    }
     fn run_inference_stream(
         &self,
         prompt: &str,
@@ -35,10 +37,7 @@ impl NativeInferenceEngine for LlamaCppEngine {
     fn name(&self) -> String {
         "CandleGgufEngine".to_string()
     }
-    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        // Native Priority: Use the hardened SusiGgufEngine directly
-        SusiGgufEngine.run_inference(prompt)
-    }
+
     fn run_inference_stream(
         &self,
         prompt: &str,
@@ -63,10 +62,6 @@ pub struct SusiGgufEngine;
 impl NativeInferenceEngine for SusiGgufEngine {
     fn name(&self) -> String {
         "CandleGgufEngine".to_string()
-    }
-
-    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        self.run_inference_stream(prompt, &|_| {}, None)
     }
 
     fn run_inference_stream(
@@ -147,7 +142,7 @@ impl SusiGgufEngine {
             }
         }
         Err(EaiError::inference(
-            "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine",
+            crate::engines::local_plug::LOCAL_ENGINE_ABSENT,
         ))
     }
 }
@@ -157,10 +152,6 @@ pub struct SusiFederatedEngine;
 impl NativeInferenceEngine for SusiFederatedEngine {
     fn name(&self) -> String {
         "SusiFederatedEngine".to_string()
-    }
-
-    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        self.run_inference_stream(prompt, &|_| {}, None)
     }
 
     fn run_inference_stream(
@@ -176,10 +167,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         );
         let (text, mut ladder) =
             GemiEngine::try_discovered_providers(prompt, None, None, None, callback, &|_| {});
-        if ladder.step_downs() > 0 {
-            callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-        }
-        ladder.persist();
+        super::report_and_persist(&mut ladder, callback);
         if let Some(text) = text {
             return Ok(text);
         }
@@ -190,15 +178,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         let endpoint = endpoints
             .endpoints
             .iter()
-            .find(|e| {
-                let key = crate::engines::http_provider::HttpProvider::resolve_api_key(
-                    &e.api_key_env,
-                    &e.name,
-                );
-                !key.is_empty()
-                    || e.api_base.contains("localhost")
-                    || e.api_base.contains("127.0.0.1")
-            })
+            .find(|e| crate::engines::native_lifecycle::SusiHost::federated_endpoint_ready(e))
             .or_else(|| endpoints.endpoints.first())
             .ok_or_else(|| {
                 crate::susi_error::EaiError::inference(
