@@ -15,6 +15,11 @@
   },
   "created_by": "CLAUDEREMOVECEILINGS",
   "created_unix": 1794817804,
+  "closed": {
+    "at_unix": 1794818089,
+    "commit": "3e4898a744cb37b27eddb9fde6864e3f23cc37c7",
+    "by": "CLAUDEREMOVECEILINGS"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "tests/lean_core_ceilings.rs (every ceiling and how each is measured), the ceiling rules and wave log in docs/lean-core.md, AGENTS.md, README.md and docs/architecture.md, every other mention of the lean ceilings in the mandates and .agents/identity.json (Mandates 5, 60, 69, 78 and 79 rest on the dependency ceilings, none on a line count), and xtask fast-release, which runs this test target. The existing measurement code is kept and only stops failing on size; nothing new is built."
