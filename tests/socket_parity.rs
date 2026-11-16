@@ -35,13 +35,16 @@ use std::path::{Path, PathBuf};
 enum Surface {
     /// MCP tool served on 9090/9093 `tools/list` (registered in `gmcp_bootstrap.rs`).
     Mcp(&'static str),
+    /// Existing optional tool: present exactly when `tools-rich` is enabled.
+    /// Both availability and absence are checked against the actual registry.
+    RichMcp(&'static str),
     /// A2A agent-card skill id on 9094.
     #[allow(dead_code)] // no mapping needs an A2A skill today; B4 entries may
     A2a(&'static str),
     /// 9091 HTTP route: method and path.
     Route(&'static str, &'static str),
 }
-use Surface::{A2a, Mcp, Route};
+use Surface::{A2a, Mcp, RichMcp, Route};
 
 /// CLI command → the socket surface(s) that reach the same capability.
 ///
@@ -300,7 +303,9 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("frameworks tasks", &[Mcp("frameworks_tasks")]),
     ("mcp ledger", &[Mcp("ledger_verify")]),
     ("patch", &[Mcp("apply_patch_cycle")]),
-    ("ambient pulse", &[Mcp("ambient_pulse")]),
+    // The CLI always exposes this command; its MCP handler has historically
+    // required tools-rich. Do not let a source scan claim default availability.
+    ("ambient pulse", &[RichMcp("ambient_pulse")]),
     ("ambient start", &[Mcp("ambient_start")]),
     ("tx begin", &[Mcp("tx_begin")]),
     ("tx list", &[Mcp("tx_list")]),
@@ -702,14 +707,18 @@ fn cli_commands() -> Vec<String> {
     keys
 }
 
-/// MCP tools the daemon registers (`ToolRegistry::register_meta_tool(registry, "<name>", ..)`).
-fn registered_mcp_tools() -> BTreeSet<String> {
-    let source = read("crates/susi-daemon/src/gmcp_bootstrap.rs");
-    let body = source.split("#[cfg(test)]").next().unwrap_or(&source);
-    body.split("ToolRegistry::register_meta_tool(")
-        .skip(1)
-        .filter_map(|call| call.split('"').nth(1).map(str::to_string))
-        .collect()
+/// Execute the daemon's bootstrap so this checks registered tools, independent
+/// of the source spelling and without counting disabled feature-gated tools.
+fn registered_mcp_tools() -> &'static BTreeSet<String> {
+    static TOOLS: std::sync::OnceLock<BTreeSet<String>> = std::sync::OnceLock::new();
+    TOOLS.get_or_init(|| {
+        let registry = susi_tools::ToolRegistry {
+            tools: Default::default(),
+        };
+        susi_daemon::gmcp_bootstrap::bootstrap_registry(&registry);
+        let names = registry.tools.read().keys().cloned().collect();
+        names
+    })
 }
 
 /// A 9091 route is served when its quoted path sits in a `(&Method::<M>, ..)`
@@ -785,20 +794,28 @@ fn parity_tables_name_real_commands_and_served_surfaces() {
         );
     }
     let tools = registered_mcp_tools();
-    assert!(tools.len() >= 80, "parsed only {} MCP tools", tools.len());
+    assert_eq!(
+        tools.len(),
+        if cfg!(feature = "tools-rich") {
+            204
+        } else {
+            199
+        }
+    );
     let server = read("crates/susi-server/src/lib.rs");
     let a2a = read("crates/susi-gawd-a2a/src/executor.rs");
     for (key, surfaces) in MAPPED {
         assert!(!surfaces.is_empty(), "`{key}` maps to nothing");
         for surface in *surfaces {
-            let served = match surface {
+            let matches_build = match surface {
                 Mcp(tool) => tools.contains(*tool),
+                RichMcp(tool) => tools.contains(*tool) == cfg!(feature = "tools-rich"),
                 Route(method, path) => route_served(&server, method, path),
                 A2a(skill) => a2a.contains(&format!("id: \"{skill}\"")),
             };
             assert!(
-                served,
-                "`susi {key}` maps to {surface:?}, which is not served"
+                matches_build,
+                "`susi {key}` maps to {surface:?}, whose availability does not match this build"
             );
         }
     }

@@ -1,1489 +1,282 @@
 //! Registers every CoreTools handler into a fresh ToolRegistry.
 
+use susi_gmcp::tools::CoreTools;
 use susi_tools::{MetaCategory, ToolRegistry};
 
-use susi_gmcp::tools::CoreTools;
+type CoreToolHandler =
+    fn(&serde_json::Value, &std::path::Path) -> susi_tools::susi_error::EaiResult<String>;
 
-/// Vendored-error boundary: `CoreTools` handlers return susi-gmcp's vendored
-/// `EaiError` while `ToolRegistry` expects susi-tools' vendored `EaiError`.
-/// `rewrap` preserves the error kind across the boundary.
-fn adapt<F>(
-    f: F,
-) -> impl Fn(&serde_json::Value, &std::path::Path) -> susi_tools::susi_error::EaiResult<String>
-+ Send
-+ Sync
-+ 'static
-where
-    F: Fn(&serde_json::Value, &std::path::Path) -> Result<String, susi_gmcp::susi_error::EaiError>
-        + Send
-        + Sync
-        + 'static,
-{
-    move |v, p| f(v, p)
+struct CoreTool {
+    name: &'static str,
+    description: &'static str,
+    category: MetaCategory,
+    handler: CoreToolHandler,
 }
 
-/// Populates a freshly created `ToolRegistry` with every concrete tool this
-/// engine provides - `susi_tools::ToolRegistry::global()` calls this via the
-/// `EngineHooks::bootstrap_tools` hook below, since the registry mechanism
-/// itself lives in `susi-tools` but the concrete `CoreTools::*` handlers
-/// (and their gemi/gawd dependencies) stay here in `gmcp`.
-pub fn bootstrap_registry(registry: &ToolRegistry) {
-    ToolRegistry::register_meta_tool(
-        registry,
-        "status",
-        "SUSI Substrate status report",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ledger_verify",
-        "Verify the pinned GMCP normative requirements ledger (VC-203-001)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ledger_verify),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "identity",
-        "SUSI substrate identity report",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::identity),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "sovereign_dashboard",
-        "Report on autonomous invisible work performed by the substrate",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::sovereign_dashboard),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "bloat_audit",
-        "Recursively audit every Rust source in the workspace (production code) and target/ for bloat and hardcoded secrets, thread-parallel across all cores",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::bloat_audit),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "distill_genome",
-        "Distill the hard-compiled genome into the Tier 2 reasoning model",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::distill_genome),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "self_validate",
-        "Execute autonomous substrate self-validation",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::self_validate),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "list_models",
-        "List available model substrates",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::list_models),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "select_model",
-        "Select or override active model substrate",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::select_model),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "inference_placement",
-        "Explain the live local-versus-cloud inference placement decision",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::inference_placement),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "scout_model",
-        "Scout or install model substrate",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::scout_model),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "swarm_schedule",
-        "Show recent mission scheduler decisions",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::swarm_schedule),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "train_reflexes",
-        "Manually trigger native neural reflex distillation",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::train_reflexes),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "read_file",
-        "Read file content in workspace",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::read_file),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "write_file",
-        "Write content to workspace file",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::write_file),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "exec_command",
-        "Execute command in workspace",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::exec_command),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_services",
-        "List or restart the substrate's leaf services (supervised process table)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_services),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_ps",
-        "List host processes from /proc (pid, name, RSS), sorted by memory",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_ps),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_sysinfo",
-        "Host kernel/uptime/load/memory summary from /proc",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_sysinfo),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_kill",
-        "Signal a supervised substrate service pid (TERM/KILL only, fails closed otherwise)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::os_kill),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_logs",
-        "Tail a supervised leaf service's log file",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_logs),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commit_record",
-        "Accept a cluster-key-signed swarm quorum commit record into the local ledger",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::commit_record),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commit_records",
-        "Batch intake of replicated commit records — one ledger pass for anti-entropy pushes",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::commit_records),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commit_log",
-        "List quorum commit records in the local ledger, newest first",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::commit_log),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commit_log_fetch",
-        "Return commit-ledger records for peer anti-entropy pulls",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::commit_log_fetch),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "cluster_rekey_stage",
-        "Stage a next-epoch cluster key delivered with its committed cluster_rekey record",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::cluster_rekey_stage),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "cluster_rekey_commit",
-        "Apply a committed cluster_rekey_activate record — activates the staged key",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::cluster_rekey_commit),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "member_propose",
-        "Leader-only member_add proposal — seals and replicates a roster delta",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::member_propose),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "member_endorse",
-        "Endorse a sealed privileged record — joint-consensus vote for roster/config deltas",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::member_endorse),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "cluster_status",
-        "Read-only consensus snapshot — term, leader, ledger heads, key epoch, roster counts",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::cluster_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "a2a_delegate",
-        "Delegate a task to a remote A2A agent endpoint (roster-gated: loopback or verified cluster members)",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::a2a_delegate),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "delegate_to_ide",
-        "Delegate a complex task to an overarching IDE Agent like Antigravity",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::delegate_to_ide),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "verify_model_download_agent",
-        "Verify model download agent, network status, and model provisioning",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::verify_model_download_agent),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_list",
-        "List managed external executors and setup readiness",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_run",
-        "Launch external task with agent and prompt",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_tasks",
-        "List durable external tasks",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_tasks),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_status",
-        "Inspect external task_id; optional refresh",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_cancel",
-        "Cancel external task_id",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_cancel),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_logs",
-        "Read external task_id output; optional stderr",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_logs),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_send",
-        "Send message to cloud task_id",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agents_send),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "coding_models_list",
-        "List top coding/agent models and readiness",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::coding_models_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "coding_models_prefer",
-        "Prefer coding model id for routing",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::coding_models_prefer),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_list",
-        "List managed agent frameworks and setup readiness",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_run",
-        "Launch framework task with engine and prompt",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_tasks",
-        "List durable framework tasks",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_tasks),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_status",
-        "Inspect framework task_id",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_cancel",
-        "Cancel framework task_id",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_cancel),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_logs",
-        "Read framework task_id output; optional stderr",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::frameworks_logs),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tasks_list",
-        "List active and historical swarm tasks with liveness telemetry",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::tasks_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tasks_pause",
-        "Pause a running task by task_id",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::tasks_pause),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tasks_resume",
-        "Resume a paused task by task_id",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::tasks_resume),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tasks_kill",
-        "Kill a running or stalled task by task_id",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::tasks_kill),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "mcp_registry",
-        "Interrogate global MCP registry and benchmark servers",
-        MetaCategory::McpProxy,
-        adapt(CoreTools::mcp_registry),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "mcp_configure",
-        "Configure external MCP server",
-        MetaCategory::McpProxy,
-        adapt(CoreTools::mcp_configure),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "leading_mcp_list",
-        "List top MCP servers and readiness",
-        MetaCategory::McpProxy,
-        adapt(CoreTools::leading_mcp_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "leading_mcp_enable",
-        "Enable leading MCP server into mcp_config",
-        MetaCategory::McpProxy,
-        adapt(CoreTools::leading_mcp_enable),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "leading_mcp_disable",
-        "Disable leading MCP server from mcp_config",
-        MetaCategory::McpProxy,
-        adapt(CoreTools::leading_mcp_disable),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agent_register",
-        "Dynamically register a new agent profile",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::agent_register),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "reason",
-        "Execute swarm reasoning substrate",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::reason),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "susi_solve",
-        "Solve a natural-language intent via the SUSI swarm substrate",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::susi_solve),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "mission_run",
-        "Run a goal as `susi <goal>` does and report its status and exit code",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::mission_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "power_reason",
-        "Delegate complex reasoning to Power-Tier MCP remotes",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::power_reason),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "meta_scout_agents",
-        "Discover agent capabilities from connected remotes",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::meta_scout_agents),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "meta_rank_agents",
-        "Report current agent expertise hierarchy",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::meta_rank_agents),
-    );
+// The public name is the handler's identifier, so the dispatch target cannot
+// drift independently of the catalog. All handlers share one registration
+// implementation rather than a generic instantiation per adapter closure.
+macro_rules! core_tools {
+    ($($(#[$attr:meta])* $handler:ident: $category:ident => $description:literal;)*) => {
+        const CORE_TOOLS: &[CoreTool] = &[
+            $($(#[$attr])* CoreTool {
+                name: stringify!($handler),
+                description: $description,
+                category: MetaCategory::$category,
+                handler: CoreTools::$handler,
+            },)*
+        ];
+    };
+}
+
+core_tools! {
+    status: SystemPrimitive => "SUSI Substrate status report";
+    ledger_verify: SystemPrimitive => "Verify the pinned GMCP normative requirements ledger (VC-203-001)";
+    identity: SystemPrimitive => "SUSI substrate identity report";
+    sovereign_dashboard: SystemPrimitive => "Report on autonomous invisible work performed by the substrate";
+    bloat_audit: SystemPrimitive => "Recursively audit every Rust source in the workspace (production code) and target/ for bloat and hardcoded secrets, thread-parallel across all cores";
+    distill_genome: SystemPrimitive => "Distill the hard-compiled genome into the Tier 2 reasoning model";
+    self_validate: SystemPrimitive => "Execute autonomous substrate self-validation";
+    list_models: SystemPrimitive => "List available model substrates";
+    select_model: SystemPrimitive => "Select or override active model substrate";
+    inference_placement: SystemPrimitive => "Explain the live local-versus-cloud inference placement decision";
+    scout_model: SystemPrimitive => "Scout or install model substrate";
+    swarm_schedule: SystemPrimitive => "Show recent mission scheduler decisions";
+    train_reflexes: SystemPrimitive => "Manually trigger native neural reflex distillation";
+    read_file: WorkspaceIo => "Read file content in workspace";
+    write_file: WorkspaceIo => "Write content to workspace file";
+    exec_command: WorkspaceIo => "Execute command in workspace";
+    os_services: SystemPrimitive => "List or restart the substrate's leaf services (supervised process table)";
+    os_ps: SystemPrimitive => "List host processes from /proc (pid, name, RSS), sorted by memory";
+    os_sysinfo: SystemPrimitive => "Host kernel/uptime/load/memory summary from /proc";
+    os_kill: WorkspaceIo => "Signal a supervised substrate service pid (TERM/KILL only, fails closed otherwise)";
+    os_logs: SystemPrimitive => "Tail a supervised leaf service's log file";
+    commit_record: WorkspaceIo => "Accept a cluster-key-signed swarm quorum commit record into the local ledger";
+    commit_records: WorkspaceIo => "Batch intake of replicated commit records — one ledger pass for anti-entropy pushes";
+    commit_log: SystemPrimitive => "List quorum commit records in the local ledger, newest first";
+    commit_log_fetch: SystemPrimitive => "Return commit-ledger records for peer anti-entropy pulls";
+    cluster_rekey_stage: WorkspaceIo => "Stage a next-epoch cluster key delivered with its committed cluster_rekey record";
+    cluster_rekey_commit: WorkspaceIo => "Apply a committed cluster_rekey_activate record — activates the staged key";
+    member_propose: WorkspaceIo => "Leader-only member_add proposal — seals and replicates a roster delta";
+    member_endorse: WorkspaceIo => "Endorse a sealed privileged record — joint-consensus vote for roster/config deltas";
+    cluster_status: WorkspaceIo => "Read-only consensus snapshot — term, leader, ledger heads, key epoch, roster counts";
+    a2a_delegate: IntelligenceBridge => "Delegate a task to a remote A2A agent endpoint (roster-gated: loopback or verified cluster members)";
+    delegate_to_ide: IntelligenceBridge => "Delegate a complex task to an overarching IDE Agent like Antigravity";
+    verify_model_download_agent: SystemPrimitive => "Verify model download agent, network status, and model provisioning";
+    agents_list: IntelligenceBridge => "List managed external executors and setup readiness";
+    agents_run: IntelligenceBridge => "Launch external task with agent and prompt";
+    agents_tasks: IntelligenceBridge => "List durable external tasks";
+    agents_status: IntelligenceBridge => "Inspect external task_id; optional refresh";
+    agents_cancel: IntelligenceBridge => "Cancel external task_id";
+    agents_logs: IntelligenceBridge => "Read external task_id output; optional stderr";
+    agents_send: IntelligenceBridge => "Send message to cloud task_id";
+    coding_models_list: IntelligenceBridge => "List top coding/agent models and readiness";
+    coding_models_prefer: IntelligenceBridge => "Prefer coding model id for routing";
+    frameworks_list: IntelligenceBridge => "List managed agent frameworks and setup readiness";
+    frameworks_run: IntelligenceBridge => "Launch framework task with engine and prompt";
+    frameworks_tasks: IntelligenceBridge => "List durable framework tasks";
+    frameworks_status: IntelligenceBridge => "Inspect framework task_id";
+    frameworks_cancel: IntelligenceBridge => "Cancel framework task_id";
+    frameworks_logs: IntelligenceBridge => "Read framework task_id output; optional stderr";
+    tasks_list: SystemPrimitive => "List active and historical swarm tasks with liveness telemetry";
+    tasks_pause: SystemPrimitive => "Pause a running task by task_id";
+    tasks_resume: SystemPrimitive => "Resume a paused task by task_id";
+    tasks_kill: SystemPrimitive => "Kill a running or stalled task by task_id";
+    mcp_registry: McpProxy => "Interrogate global MCP registry and benchmark servers";
+    mcp_configure: McpProxy => "Configure external MCP server";
+    leading_mcp_list: McpProxy => "List top MCP servers and readiness";
+    leading_mcp_enable: McpProxy => "Enable leading MCP server into mcp_config";
+    leading_mcp_disable: McpProxy => "Disable leading MCP server from mcp_config";
+    agent_register: IntelligenceBridge => "Dynamically register a new agent profile";
+    reason: SystemPrimitive => "Execute swarm reasoning substrate";
+    susi_solve: SystemPrimitive => "Solve a natural-language intent via the SUSI swarm substrate";
+    mission_run: SystemPrimitive => "Run a goal as `susi <goal>` does and report its status and exit code";
+    power_reason: IntelligenceBridge => "Delegate complex reasoning to Power-Tier MCP remotes";
+    meta_scout_agents: IntelligenceBridge => "Discover agent capabilities from connected remotes";
+    meta_rank_agents: IntelligenceBridge => "Report current agent expertise hierarchy";
 
     // SPECIALIST TOOLBOXES: Type 1 (Coding) & Type 2 (Assistant)
     #[cfg(feature = "tools-rich")]
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ast_analyze",
-        "Structural AST analysis of Rust source (syn); other languages report size only",
-        MetaCategory::CodingSpecialist,
-        adapt(CoreTools::ast_analyze),
-    );
+    ast_analyze: CodingSpecialist => "Structural AST analysis of Rust source (syn); other languages report size only";
     #[cfg(feature = "tools-rich")]
-    ToolRegistry::register_meta_tool(
-        registry,
-        "semantic_search",
-        "Unified BM25 recall over .susi stores and workspace files",
-        MetaCategory::CodingSpecialist,
-        adapt(CoreTools::semantic_search),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "sandbox_exec",
-        "Isolated Docker execution via bollard",
-        MetaCategory::CodingSpecialist,
-        adapt(CoreTools::sandbox_exec),
-    );
+    semantic_search: CodingSpecialist => "Unified BM25 recall over .susi stores and workspace files";
+    sandbox_exec: CodingSpecialist => "Isolated Docker execution via bollard";
     #[cfg(feature = "tools-rich")]
-    ToolRegistry::register_meta_tool(
-        registry,
-        "browser_automate",
-        "DOM access and web automation via headless Chrome",
-        MetaCategory::AssistantSpecialist,
-        adapt(CoreTools::browser_automate),
-    );
+    browser_automate: AssistantSpecialist => "DOM access and web automation via headless Chrome";
     #[cfg(feature = "tools-rich")]
-    ToolRegistry::register_meta_tool(
-        registry,
-        "rag_query",
-        "Vector recall over the unified .susi index (local fastembed)",
-        MetaCategory::AssistantSpecialist,
-        adapt(CoreTools::rag_query),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_query",
-        "Query the Universal Context Graph for the current workspace or a specific node id",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::context_graph_query),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_ingest",
-        "Ingest an external context event into the Universal Context Graph",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::context_graph_ingest),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_compact",
-        "Compact the append-only Universal Context Graph log",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::context_graph_compact),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_grant",
-        "Grant an inter-app permission scope",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_grant),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_request",
-        "Request an inter-app permission (opens negotiation)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_request),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_negotiate",
-        "Approve or deny a pending permission request",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_negotiate),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_send",
-        "Send a broker message (requires dispatch grant unless from=susi)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_send),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_receive",
-        "Receive broker messages for an identity",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_receive),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "host_telemetry",
-        "Sample host thermal, battery, and load telemetry",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::host_telemetry),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "apply_patch_cycle",
-        "Apply a workspace-confined patch then run tests; revert on failure",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::apply_patch_cycle),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "privacy_status",
-        "Report privacy mode and cryptographic capability grants",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::privacy_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "privacy_consent_egress",
-        "Grant time-limited network egress / cloud inference consent",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::privacy_consent_egress),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "intent_advertise",
-        "Advertise a provider capability on the semantic intent bus",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::intent_advertise),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "intent_need",
-        "Publish a need and match providers on the semantic intent bus",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::intent_need),
-    );
+    rag_query: AssistantSpecialist => "Vector recall over the unified .susi index (local fastembed)";
+    context_graph_query: SystemPrimitive => "Query the Universal Context Graph for the current workspace or a specific node id";
+    context_graph_ingest: SystemPrimitive => "Ingest an external context event into the Universal Context Graph";
+    context_graph_compact: SystemPrimitive => "Compact the append-only Universal Context Graph log";
+    ipc_grant: SystemPrimitive => "Grant an inter-app permission scope";
+    ipc_request: SystemPrimitive => "Request an inter-app permission (opens negotiation)";
+    ipc_negotiate: SystemPrimitive => "Approve or deny a pending permission request";
+    ipc_send: SystemPrimitive => "Send a broker message (requires dispatch grant unless from=susi)";
+    ipc_receive: SystemPrimitive => "Receive broker messages for an identity";
+    host_telemetry: SystemPrimitive => "Sample host thermal, battery, and load telemetry";
+    apply_patch_cycle: WorkspaceIo => "Apply a workspace-confined patch then run tests; revert on failure";
+    privacy_status: SystemPrimitive => "Report privacy mode and cryptographic capability grants";
+    privacy_consent_egress: SystemPrimitive => "Grant time-limited network egress / cloud inference consent";
+    intent_advertise: SystemPrimitive => "Advertise a provider capability on the semantic intent bus";
+    intent_need: SystemPrimitive => "Publish a need and match providers on the semantic intent bus";
     #[cfg(feature = "tools-rich")]
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ambient_pulse",
-        "Scan workspace, record FS changes into context graph, refresh vector index",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ambient_pulse),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tx_begin",
-        "Begin a multi-agent transaction snapshotting listed files",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::tx_begin),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tx_commit",
-        "Commit an open multi-agent transaction",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::tx_commit),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tx_abort",
-        "Abort a transaction and restore snapshotted files",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::tx_abort),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_pareto",
-        "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::brain_pareto),
-    );
+    ambient_pulse: SystemPrimitive => "Scan workspace, record FS changes into context graph, refresh vector index";
+    tx_begin: WorkspaceIo => "Begin a multi-agent transaction snapshotting listed files";
+    tx_commit: WorkspaceIo => "Commit an open multi-agent transaction";
+    tx_abort: WorkspaceIo => "Abort a transaction and restore snapshotted files";
+    brain_pareto: IntelligenceBridge => "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers";
 
     // Zero-UI plan B4 groups 2, 6, 11 and 12: CLI control-plane commands
     // and the runtime model / placement tools that replaced the 9091 runtime
     // routes, reachable over the standards socket.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "inference_reset_provider",
-        "Re-admit a repaired inference provider after routing quarantine",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::inference_reset_provider),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "operator_snapshot",
-        "Unified operator state for the server workspace (same document as `susi top --json`)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::operator_snapshot),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_list",
-        "List installed extension packs",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::extensions_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_status",
-        "Active extension pack, its root, and every installed pack",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::extensions_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_validate",
-        "Check a pack directory against the host's admission rules (reads no host state)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::extensions_validate),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_load",
-        "Verify and activate an installed extension pack",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::extensions_load),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_unload",
-        "Deactivate an extension pack (files kept)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::extensions_unload),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "plan_run",
-        "Solve a goal with the autonomous planning loop in the server workspace",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::plan_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "intent_ingest",
-        "Ingest a natural-language intent into the server workspace evidence ledger",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::intent_ingest),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "blackboard_show",
-        "Show the last mission blackboard (credential-redacted)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::blackboard_show),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "blackboard_post",
-        "Post a key-value update to the shared blackboard and Susi Native Board",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::blackboard_post),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "board_list",
-        "List collaborative items on the Susi Native Board",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::board_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "board_check",
-        "Check the Susi Native Board for open stops and unanswered requests",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::board_check),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "board_post",
-        "Post an item onto the Susi Native Board",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::board_post),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "runtime_models_list",
-        "List models loaded in the inference cache",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::runtime_models_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "runtime_models_load",
-        "Load a model into the inference cache",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::runtime_models_load),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "runtime_models_unload",
-        "Evict a model from the inference cache",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::runtime_models_unload),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "placement_decision",
-        "Look up an audited inference-placement decision by id",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::placement_decision),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_stats",
-        "Universal Context Graph node and edge counts by kind",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::context_graph_stats),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_show",
-        "Most recent Universal Context Graph events for a workspace",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::context_graph_show),
-    );
+    inference_reset_provider: WorkspaceIo => "Re-admit a repaired inference provider after routing quarantine";
+    operator_snapshot: SystemPrimitive => "Unified operator state for the server workspace (same document as `susi top --json`)";
+    extensions_list: SystemPrimitive => "List installed extension packs";
+    extensions_status: SystemPrimitive => "Active extension pack, its root, and every installed pack";
+    extensions_validate: SystemPrimitive => "Check a pack directory against the host's admission rules (reads no host state)";
+    extensions_load: WorkspaceIo => "Verify and activate an installed extension pack";
+    extensions_unload: WorkspaceIo => "Deactivate an extension pack (files kept)";
+    plan_run: WorkspaceIo => "Solve a goal with the autonomous planning loop in the server workspace";
+    intent_ingest: WorkspaceIo => "Ingest a natural-language intent into the server workspace evidence ledger";
+    blackboard_show: SystemPrimitive => "Show the last mission blackboard (credential-redacted)";
+    blackboard_post: WorkspaceIo => "Post a key-value update to the shared blackboard and Susi Native Board";
+    board_list: SystemPrimitive => "List collaborative items on the Susi Native Board";
+    board_check: SystemPrimitive => "Check the Susi Native Board for open stops and unanswered requests";
+    board_post: WorkspaceIo => "Post an item onto the Susi Native Board";
+    runtime_models_list: SystemPrimitive => "List models loaded in the inference cache";
+    runtime_models_load: WorkspaceIo => "Load a model into the inference cache";
+    runtime_models_unload: WorkspaceIo => "Evict a model from the inference cache";
+    placement_decision: SystemPrimitive => "Look up an audited inference-placement decision by id";
+    context_graph_stats: SystemPrimitive => "Universal Context Graph node and edge counts by kind";
+    context_graph_show: SystemPrimitive => "Most recent Universal Context Graph events for a workspace";
 
     // Zero-UI plan B4 groups 4, 5, 8 and 9: onboarding, assurance, context
     // and IPC, and the OS view, reachable over the standards socket.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_pending",
-        "List pending inter-app permission requests",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_pending),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_check",
-        "Check whether an identity holds an inter-app permission scope",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_check),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_revoke",
-        "Revoke an inter-app permission scope from an identity",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::ipc_revoke),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ipc_list",
-        "List the inter-app permission grants an identity holds",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ipc_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "privacy_mode",
-        "Set the privacy mode (balanced, local_only = this machine and its local network, host_only = this machine alone, open)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::privacy_mode),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "privacy_grant",
-        "Grant a cryptographic capability token",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::privacy_grant),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "privacy_revoke",
-        "Revoke a capability grant",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::privacy_revoke),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "intent_list",
-        "List active intent-bus providers and needs",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::intent_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ambient_start",
-        "Start the background ambient indexer for the server workspace",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::ambient_start),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "tx_list",
-        "List open multi-agent transactions in the server workspace",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::tx_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "context_graph_sample_os",
-        "Sample OS context into the Universal Context Graph",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::context_graph_sample_os),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "audit_verify",
-        "Verify the server workspace's tamper-evident audit chain",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::audit_verify),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "audit_query",
-        "Query redacted action history from the audit chain",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::audit_query),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "compliance_audit",
-        "Run the deterministic compliance audit",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::compliance_audit),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "audit_evidence_export",
-        "Export redacted audit segments in the verifiable format",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::audit_evidence_export),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "substrate_report",
-        "Compiled-constants substrate report",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::substrate_report),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "substrate_status",
-        "Pluggable / Sandbox / Governance / Host-contract / Reflexes status",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::substrate_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "crown_verify",
-        "Verify every Tier S USP",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::crown_verify),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "clean",
-        "Remove SUSI-owned residue and report bytes freed",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::clean),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "setup_plan",
-        "Detect the host and return the zero-config setup plan",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::setup_plan),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "setup_apply",
-        "Apply the zero-config setup plan (existing settings preserved)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::setup_apply),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ecosystem_scan",
-        "Scan (or return the last scan of) the local AI ecosystem",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ecosystem_scan),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ecosystem_start",
-        "Start an installed local AI engine",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::ecosystem_start),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ecosystem_kb",
-        "Query the cloud-AI-ecosystem knowledge base",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ecosystem_kb),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "ecosystem_explain",
-        "Explain a knowledge-base component, standard or protocol",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::ecosystem_explain),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_provision",
-        "Explicit cloud provisioning: probe, list or apply",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::os_provision),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_capabilities",
-        "Discover or invoke typed capability-bus capabilities",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::os_capabilities),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "services_start",
-        "Clear an operator stop on a supervised leaf service",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::services_start),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "services_stop",
-        "Stop a supervised leaf service and hold it down",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::services_stop),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "services_restart",
-        "Restart a supervised leaf service",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::services_restart),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commits_audit",
-        "Whole-ledger consistency check of the commit log",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::commits_audit),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commits_replay",
-        "Consensus view the commit ledger replays to",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::commits_replay),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commits_show",
-        "Show one commit record by epoch prefix",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::commits_show),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commits_sync",
-        "Commit-ledger anti-entropy with verified peers",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::commits_sync),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "commits_compact",
-        "Compact the commit ledger into a snapshot plus archive",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::commits_compact),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_probe",
-        "Cryptographically verify a peer host without admitting it",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::peers_probe),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_list",
-        "List the verified cluster roster, leader and banned members",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::peers_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_status",
-        "Every rostered member's cluster status side by side",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::peers_status),
-    );
+    ipc_pending: SystemPrimitive => "List pending inter-app permission requests";
+    ipc_check: SystemPrimitive => "Check whether an identity holds an inter-app permission scope";
+    ipc_revoke: WorkspaceIo => "Revoke an inter-app permission scope from an identity";
+    ipc_list: SystemPrimitive => "List the inter-app permission grants an identity holds";
+    privacy_mode: WorkspaceIo => "Set the privacy mode (balanced, local_only = this machine and its local network, host_only = this machine alone, open)";
+    privacy_grant: WorkspaceIo => "Grant a cryptographic capability token";
+    privacy_revoke: WorkspaceIo => "Revoke a capability grant";
+    intent_list: SystemPrimitive => "List active intent-bus providers and needs";
+    ambient_start: WorkspaceIo => "Start the background ambient indexer for the server workspace";
+    tx_list: SystemPrimitive => "List open multi-agent transactions in the server workspace";
+    context_graph_sample_os: WorkspaceIo => "Sample OS context into the Universal Context Graph";
+    audit_verify: SystemPrimitive => "Verify the server workspace's tamper-evident audit chain";
+    audit_query: SystemPrimitive => "Query redacted action history from the audit chain";
+    compliance_audit: SystemPrimitive => "Run the deterministic compliance audit";
+    audit_evidence_export: WorkspaceIo => "Export redacted audit segments in the verifiable format";
+    substrate_report: SystemPrimitive => "Compiled-constants substrate report";
+    substrate_status: SystemPrimitive => "Pluggable / Sandbox / Governance / Host-contract / Reflexes status";
+    crown_verify: SystemPrimitive => "Verify every Tier S USP";
+    clean: WorkspaceIo => "Remove SUSI-owned residue and report bytes freed";
+    setup_plan: SystemPrimitive => "Detect the host and return the zero-config setup plan";
+    setup_apply: WorkspaceIo => "Apply the zero-config setup plan (existing settings preserved)";
+    ecosystem_scan: SystemPrimitive => "Scan (or return the last scan of) the local AI ecosystem";
+    ecosystem_start: WorkspaceIo => "Start an installed local AI engine";
+    ecosystem_kb: SystemPrimitive => "Query the cloud-AI-ecosystem knowledge base";
+    ecosystem_explain: SystemPrimitive => "Explain a knowledge-base component, standard or protocol";
+    os_provision: WorkspaceIo => "Explicit cloud provisioning: probe, list or apply";
+    os_capabilities: WorkspaceIo => "Discover or invoke typed capability-bus capabilities";
+    services_start: WorkspaceIo => "Clear an operator stop on a supervised leaf service";
+    services_stop: WorkspaceIo => "Stop a supervised leaf service and hold it down";
+    services_restart: WorkspaceIo => "Restart a supervised leaf service";
+    commits_audit: SystemPrimitive => "Whole-ledger consistency check of the commit log";
+    commits_replay: SystemPrimitive => "Consensus view the commit ledger replays to";
+    commits_show: SystemPrimitive => "Show one commit record by epoch prefix";
+    commits_sync: WorkspaceIo => "Commit-ledger anti-entropy with verified peers";
+    commits_compact: WorkspaceIo => "Compact the commit ledger into a snapshot plus archive";
+    peers_probe: SystemPrimitive => "Cryptographically verify a peer host without admitting it";
+    peers_list: SystemPrimitive => "List the verified cluster roster, leader and banned members";
+    peers_status: SystemPrimitive => "Every rostered member's cluster status side by side";
 
     // Zero-UI plan B4 group 3: providers, keys (presence only) and the
     // brain, reachable over the standards socket.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_list",
-        "List a provider control plane's curated models and readiness",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_list),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_doctor",
-        "Check a provider control plane's readiness (no paid call)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_doctor),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_setup",
-        "Show a provider model's setup instructions and effective wiring",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_setup),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_configure",
-        "Store a host override for a provider model",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::provider_configure),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_reset",
-        "Drop a provider model's host override",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::provider_reset),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_pull",
-        "Pull an open-weight model's weights through Ollama",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::provider_pull),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_prefer",
-        "Prefer or clear a provider model for routing",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::provider_prefer),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_probe",
-        "Probe a model endpoint with a short completion (cloud probes are paid)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_probe),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_models",
-        "List OpenRouter routes or the live models its key reaches",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_models),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "keys_status",
-        "Report which cloud vendor keys are set (presence only, never values)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::keys_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "keys_prefer",
-        "Pin, clear or report the preferred cloud vendor",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::keys_prefer),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "keys_check",
-        "Check each vendor key against its model list (values never returned)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::keys_check),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "keys_models",
-        "List the models a vendor's valid key reaches",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::keys_models),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_status",
-        "Evidence-ranked providers for every task class",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_budget",
-        "Set or report the budget dial and shared spend policy",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::brain_budget),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_classify",
-        "Show which task class a prompt routes as",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_classify),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_explain",
-        "Explain the brain's routing decision for a prompt",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_explain),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_export",
-        "Export the brain evidence bundle",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_export),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_import",
-        "Merge a brain evidence bundle",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::brain_import),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_matrix",
-        "Show the measured model capability matrix",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_matrix),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_cache",
-        "Show the measured prompt-cache hit rate and saving",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::brain_cache),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_reset",
-        "Forget every recorded brain outcome",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::brain_reset),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_bench",
-        "Run the fixed prompt set against the fake engine and record evidence",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::brain_bench),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "brain_probe",
-        "Probe a registered provider with the scout benchmark",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::brain_probe),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "benchmark_run",
-        "Measure local (and configured cloud) inference latency and throughput",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::benchmark_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "verify_download_agent",
-        "Verify network status and the hardware-selected model ladder",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::verify_download_agent),
-    );
+    provider_list: SystemPrimitive => "List a provider control plane's curated models and readiness";
+    provider_doctor: SystemPrimitive => "Check a provider control plane's readiness (no paid call)";
+    provider_setup: SystemPrimitive => "Show a provider model's setup instructions and effective wiring";
+    provider_configure: WorkspaceIo => "Store a host override for a provider model";
+    provider_reset: WorkspaceIo => "Drop a provider model's host override";
+    provider_pull: WorkspaceIo => "Pull an open-weight model's weights through Ollama";
+    provider_prefer: WorkspaceIo => "Prefer or clear a provider model for routing";
+    provider_probe: SystemPrimitive => "Probe a model endpoint with a short completion (cloud probes are paid)";
+    provider_models: SystemPrimitive => "List OpenRouter routes or the live models its key reaches";
+    keys_status: SystemPrimitive => "Report which cloud vendor keys are set (presence only, never values)";
+    keys_prefer: WorkspaceIo => "Pin, clear or report the preferred cloud vendor";
+    keys_check: SystemPrimitive => "Check each vendor key against its model list (values never returned)";
+    keys_models: SystemPrimitive => "List the models a vendor's valid key reaches";
+    brain_status: SystemPrimitive => "Evidence-ranked providers for every task class";
+    brain_budget: WorkspaceIo => "Set or report the budget dial and shared spend policy";
+    brain_classify: SystemPrimitive => "Show which task class a prompt routes as";
+    brain_explain: SystemPrimitive => "Explain the brain's routing decision for a prompt";
+    brain_export: SystemPrimitive => "Export the brain evidence bundle";
+    brain_import: WorkspaceIo => "Merge a brain evidence bundle";
+    brain_matrix: SystemPrimitive => "Show the measured model capability matrix";
+    brain_cache: SystemPrimitive => "Show the measured prompt-cache hit rate and saving";
+    brain_reset: WorkspaceIo => "Forget every recorded brain outcome";
+    brain_bench: WorkspaceIo => "Run the fixed prompt set against the fake engine and record evidence";
+    brain_probe: WorkspaceIo => "Probe a registered provider with the scout benchmark";
+    benchmark_run: SystemPrimitive => "Measure local (and configured cloud) inference latency and throughput";
+    verify_download_agent: SystemPrimitive => "Verify network status and the hardware-selected model ladder";
 
     // Zero-UI plan B4 group 7: adapter lifecycle for agents, frameworks,
     // coding models and MCP servers.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "adapter_doctor",
-        "Check agent, framework, coding-model or MCP adapter readiness",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::adapter_doctor),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "adapter_setup",
-        "Show an adapter's setup instructions and effective configuration",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::adapter_setup),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "adapter_configure",
-        "Store a host adapter override (verified upgrade for agents and frameworks)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::adapter_configure),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "adapter_reset",
-        "Drop a host adapter override and restore the bundled adapter",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::adapter_reset),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "agents_retry",
-        "Run a finished external agent task again with its original prompt",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::agents_retry),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "frameworks_retry",
-        "Run a finished agent-framework task again with its original prompt",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::frameworks_retry),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "mcp_add",
-        "Admit an MCP server into the registry and hot-plug it",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::mcp_add),
-    );
+    adapter_doctor: SystemPrimitive => "Check agent, framework, coding-model or MCP adapter readiness";
+    adapter_setup: SystemPrimitive => "Show an adapter's setup instructions and effective configuration";
+    adapter_configure: WorkspaceIo => "Store a host adapter override (verified upgrade for agents and frameworks)";
+    adapter_reset: WorkspaceIo => "Drop a host adapter override and restore the bundled adapter";
+    agents_retry: WorkspaceIo => "Run a finished external agent task again with its original prompt";
+    frameworks_retry: WorkspaceIo => "Run a finished agent-framework task again with its original prompt";
+    mcp_add: WorkspaceIo => "Admit an MCP server into the registry and hot-plug it";
 
     // Zero-UI plan B4 group 1: the self-build harness.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_status",
-        "Harness API snapshot for a ledger: spend, tasks, workers, warnings",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::harness_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_budget",
-        "One-line harness budget report and top-up alerts",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::harness_budget),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_models",
-        "Harness provider registry, drift check, discovery or keyed models",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::harness_models),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_plan",
-        "Plan a batch of dependency-ready queue tasks",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::harness_plan),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_author",
-        "Author a plan for a roadmap vector through the metered gateway",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::harness_author),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_run",
-        "Start running a harness plan under the budget gate",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::harness_run),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "harness_runs",
-        "Harness missions this daemon started and their outcomes",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::harness_runs),
-    );
+    harness_status: SystemPrimitive => "Harness API snapshot for a ledger: spend, tasks, workers, warnings";
+    harness_budget: SystemPrimitive => "One-line harness budget report and top-up alerts";
+    harness_models: SystemPrimitive => "Harness provider registry, drift check, discovery or keyed models";
+    harness_plan: WorkspaceIo => "Plan a batch of dependency-ready queue tasks";
+    harness_author: WorkspaceIo => "Author a plan for a roadmap vector through the metered gateway";
+    harness_run: WorkspaceIo => "Start running a harness plan under the budget gate";
+    harness_runs: SystemPrimitive => "Harness missions this daemon started and their outcomes";
 
     // Zero-UI plan B4 groups 2, 4, 9, 10 and 13: host views, maintenance
     // and daemon lifecycle.
-    ToolRegistry::register_meta_tool(
-        registry,
-        "operator_status",
-        "Measured executable identity and substrate counts (as `susi status --json`)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::operator_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "operator_review",
-        "Daemon liveness and reclaimable OS cache (as `susi review`)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::operator_review),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_ecosystem",
-        "Local AI ecosystem: hardware, runtimes, models, adapters, MCP servers, AI processes",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_ecosystem),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_status",
-        "Substrate status: consensus, ledger, services, peers, endpoints, storage",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "os_runtime",
-        "Live AI processes by owner, managed-model residency and GPU memory",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::os_runtime),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "model_uninstall",
-        "Remove one SUSI-managed model file (refused while loaded or selected)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::model_uninstall),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_add",
-        "Join a peer by signed handshake and commit its admission",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::peers_add),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_remove",
-        "Evict and ban a verified peer, committed cluster-wide",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::peers_remove),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_unban",
-        "Lift a peer ban, committed cluster-wide",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::peers_unban),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "peers_rekey",
-        "Rotate the cluster key across every verified member",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::peers_rekey),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "daemon_shutdown",
-        "Stop this daemon instance after replying",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::daemon_shutdown),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "extensions_create",
-        "Create an empty extension pack shell (not activated)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::extensions_create),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "auto_status",
-        "Zero-config substrate readiness snapshot",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::auto_status),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "auto_prime",
-        "Re-run zero-config auto-prime (never enables MCP)",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::auto_prime),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "deep_scan",
-        "Scan the home directory for model files and register them",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::deep_scan),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "config_reload",
-        "Reload config.json and report what is in effect",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::config_reload),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "provider_contract",
-        "Provider contract fixture checks (credentialed half opt-in)",
-        MetaCategory::SystemPrimitive,
-        adapt(CoreTools::provider_contract),
-    );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "intent_ladder",
-        "Intent ladder scorecard, runs, verification, gap outbox and adoption",
-        MetaCategory::WorkspaceIo,
-        adapt(CoreTools::intent_ladder),
-    );
+    operator_status: SystemPrimitive => "Measured executable identity and substrate counts (as `susi status --json`)";
+    operator_review: SystemPrimitive => "Daemon liveness and reclaimable OS cache (as `susi review`)";
+    os_ecosystem: SystemPrimitive => "Local AI ecosystem: hardware, runtimes, models, adapters, MCP servers, AI processes";
+    os_status: SystemPrimitive => "Substrate status: consensus, ledger, services, peers, endpoints, storage";
+    os_runtime: SystemPrimitive => "Live AI processes by owner, managed-model residency and GPU memory";
+    model_uninstall: WorkspaceIo => "Remove one SUSI-managed model file (refused while loaded or selected)";
+    peers_add: WorkspaceIo => "Join a peer by signed handshake and commit its admission";
+    peers_remove: WorkspaceIo => "Evict and ban a verified peer, committed cluster-wide";
+    peers_unban: WorkspaceIo => "Lift a peer ban, committed cluster-wide";
+    peers_rekey: WorkspaceIo => "Rotate the cluster key across every verified member";
+    daemon_shutdown: WorkspaceIo => "Stop this daemon instance after replying";
+    extensions_create: WorkspaceIo => "Create an empty extension pack shell (not activated)";
+    auto_status: SystemPrimitive => "Zero-config substrate readiness snapshot";
+    auto_prime: WorkspaceIo => "Re-run zero-config auto-prime (never enables MCP)";
+    deep_scan: WorkspaceIo => "Scan the home directory for model files and register them";
+    config_reload: WorkspaceIo => "Reload config.json and report what is in effect";
+    provider_contract: SystemPrimitive => "Provider contract fixture checks (credentialed half opt-in)";
+    intent_ladder: WorkspaceIo => "Intent ladder scorecard, runs, verification, gap outbox and adoption";
 
     // No essential-MCP auto-link: core never configures or launches a
     // third-party MCP server on its own (zero-UI plan A8).
+}
+
+/// Populates a freshly created `ToolRegistry` with every concrete tool this
+/// engine provides. `ToolRegistry::global()` calls this through the daemon's
+/// `EngineHooks::bootstrap_tools`; the registry mechanism stays in `susi-tools`.
+pub fn bootstrap_registry(registry: &ToolRegistry) {
+    for tool in CORE_TOOLS {
+        ToolRegistry::register_meta_tool(
+            registry,
+            tool.name,
+            tool.description,
+            tool.category,
+            tool.handler,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1491,6 +284,130 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod inline_tests {
     use super::*;
+
+    type ExpectedTool = (&'static str, &'static str, MetaCategory, CoreToolHandler);
+    const EXPECTED_TOOLS: &[ExpectedTool] = include!("../tests/fixtures/gmcp_bootstrap_catalog.rs");
+
+    fn fresh_registry() -> ToolRegistry {
+        let registry = ToolRegistry {
+            tools: Default::default(),
+        };
+        bootstrap_registry(&registry);
+        registry
+    }
+
+    #[test]
+    fn bootstrap_matches_pristine_catalog_and_handler_mapping() {
+        assert_eq!(
+            EXPECTED_TOOLS.len(),
+            if cfg!(feature = "tools-rich") {
+                204
+            } else {
+                199
+            }
+        );
+        assert_eq!(CORE_TOOLS.len(), EXPECTED_TOOLS.len());
+        let registry = fresh_registry();
+        let tools = registry.tools.read();
+        assert_eq!(tools.len(), EXPECTED_TOOLS.len());
+        let capabilities = susi_core::registry::CapabilityRegistry::global();
+
+        // Zip preserves registration order; the fixture independently pins
+        // the original name, exact description, category and callable target.
+        for (descriptor, &(name, description, category, handler)) in
+            CORE_TOOLS.iter().zip(EXPECTED_TOOLS)
+        {
+            assert_eq!(
+                (descriptor.name, descriptor.description, descriptor.category),
+                (name, description, category),
+            );
+            assert!(
+                std::ptr::fn_addr_eq(descriptor.handler, handler),
+                "handler for {name}"
+            );
+            let tool = tools.get(name).unwrap();
+            assert_eq!(tool.name(), name);
+            assert_eq!(tool.description(), description);
+            let capability = capabilities.get_tool(name).unwrap();
+            assert_eq!(capability.name(), name);
+            assert_eq!(capability.description(), description);
+        }
+    }
+
+    #[test]
+    fn registered_handlers_preserve_success_and_error_results() {
+        let registry = fresh_registry();
+        let tools = registry.tools.read();
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        // Read a checked-in file: no writes, process execution or inference.
+        let arg = serde_json::json!({"path": "Cargo.toml"});
+        let expected = CoreTools::read_file(&arg, workspace).unwrap();
+        assert_eq!(
+            tools["read_file"].execute(&arg, workspace).unwrap(),
+            expected
+        );
+
+        // These validations fail before any tool side effects. Compare both
+        // the shared error contract and the exact caller-visible message.
+        let cases: &[(&str, CoreToolHandler, serde_json::Value, &str)] = &[
+            (
+                "select_model",
+                CoreTools::select_model,
+                serde_json::json!({}),
+                "Config",
+            ),
+            (
+                "inference_placement",
+                CoreTools::inference_placement,
+                serde_json::json!(false),
+                "Config",
+            ),
+            (
+                "write_file",
+                CoreTools::write_file,
+                serde_json::json!({}),
+                "Protocol",
+            ),
+            (
+                "exec_command",
+                CoreTools::exec_command,
+                serde_json::json!(""),
+                "Protocol",
+            ),
+            (
+                "os_kill",
+                CoreTools::os_kill,
+                serde_json::json!({}),
+                "Protocol",
+            ),
+            (
+                "tx_commit",
+                CoreTools::tx_commit,
+                serde_json::json!({}),
+                "Governance",
+            ),
+            (
+                "tx_abort",
+                CoreTools::tx_abort,
+                serde_json::json!({}),
+                "Governance",
+            ),
+            (
+                "read_file",
+                CoreTools::read_file,
+                serde_json::json!({"path": "../outside"}),
+                "Filesystem",
+            ),
+        ];
+        for &(name, handler, ref arg, kind) in cases {
+            let expected = handler(arg, workspace).unwrap_err();
+            let actual = tools[name].execute(arg, workspace).unwrap_err();
+            assert_eq!(actual.kind_name(), kind, "{name}");
+            assert_eq!(actual.code(), expected.code(), "{name}");
+            assert_eq!(actual.retryable(), expected.retryable(), "{name}");
+            assert_eq!(actual.to_string(), expected.to_string(), "{name}");
+        }
+    }
 
     #[test]
     fn bootstrap_registry_registers_core_system_primitives() {
