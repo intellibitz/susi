@@ -1856,6 +1856,8 @@ mod tests {
     #[test]
     fn a_core_checkout_finds_the_board_in_the_agents_own_clone_of_its_repository() {
         let fx = GitBoardFixture::new("agent-root-board");
+        // Keep lookup inside the fixture when TMPDIR is in a real agent root.
+        fs::write(fx.root.join(AGENT_ROOT_MARKER), "agent = \"fixture\"\n").unwrap();
         let run = |dir: &Path, args: &[&str]| git(dir, args).expect("git");
         // An agent root holding a clone of this public repository and a clone
         // of the board's private one.
