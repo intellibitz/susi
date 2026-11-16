@@ -383,9 +383,13 @@ Susi core becomes minimal and blazing fast (`<10s` warm build+test+release
 pipeline budget; `<60s` cold compile budget): **GAWD** (A2A, ACP and Susi Harness parallel workflow), **GEMI** and **GMCP** are the only architectural pillars; everything else is an add-on plug that lives exclusively in
 `susi-commercial-apps` and is admitted over the socket. The plan, the crate
 classification, the measured ladder toward zero third-party dependencies and the
-split of work between agents are in `docs/lean-core.md`. The ceilings in
-`tests/lean_core_ceilings.rs` only go down: every cut lowers them in the same
-change, and nothing raises one without a CEO decision recorded in the doc.
+split of work between agents are in `docs/lean-core.md`. The dependency-reach
+ceilings in `tests/lean_core_ceilings.rs` only go down: every cut lowers them in
+the same change, and nothing raises one without a CEO decision recorded in the
+doc. Source size has no ceiling (CEO decision 2026-11-16, "remove all ceiling"):
+the same test measures and prints the line counts per pillar, per category and
+for the largest files, and growth never fails it. A change that makes core
+bigger still needs a measured reason (Mandates 69 and 78).
 Before migrating a module out of core, grep every cfg (`#[cfg(windows)]` code
 is invisible to a Linux build), then `cargo check --workspace --all-targets`
 and `cargo fmt --all --check` on the exact tree, and ship through the gate.

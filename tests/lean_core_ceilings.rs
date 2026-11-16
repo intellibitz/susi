@@ -1,8 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Lean-core ceilings (`docs/lean-core.md`): the four pillars' dependency
-//! reach and size may only shrink. Every cut lowers a constant here in the
-//! same change; nothing raises one without a CEO decision recorded in the doc.
+//! reach may only shrink. Every cut lowers a constant here in the same change;
+//! nothing raises one without a CEO decision recorded in the doc.
+//!
+//! Source size is measured and printed here, not capped. Every line-count
+//! ceiling (per pillar, per category and per file) was removed by CEO decision
+//! 2026-11-16, "remove all ceiling" (T-CLAUDEREMOVECEILINGS-1, `docs/lean-core.md`).
 //!
 //! The reach is measured from `cargo metadata` (normal and build edges, the
 //! way the linked product is built; dev edges excluded), so the numbers are
@@ -160,214 +164,20 @@ const CARGO_LOCK_PACKAGES_CEILING: usize = 181;
 /// `susi-gemi-models`, `susi-gemi`, `susi-gmcp`, `susi-harness`,
 /// `susi-leaf-services` and `susi-tools`).
 const DIRECT_FACADE_EDGES_CEILING: usize = 9;
-/// Rust lines under `crates/<crate>/src` per pillar family, counting what
-/// ships: the `tests/` and `mastery_tests/` directories directly under `src`
-/// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
-/// left out, so a suite returning to core (2026-11-08: 35 core-subject suites
-/// come back from the commercial copies) never reads as production growth
-/// and a cut can never hide behind a deleted test. Inline `mod tests` inside
-/// production files still count. A pillar may take production lines only from
-/// a crate leaving core (a contract moving in, as `set_selected_model_override`
-/// did on 2026-11-07, +128 in gemi-models while vendor-models shed far more)
-/// or from a plug port that replaces a stub (mandate rule 4); the change that
-/// moves them re-pins every crate here at its measured value and says so in
-/// the wave log. A new security capability's boundary checks (2026-11-08:
-/// the `host_only` privacy mode) are re-pinned the same way. 2026-11-09:
-/// susi-gmcp 19,469 -> 25,900 when the MCP SDK facade (susi-vendor-mcp-server
-/// over rmcp) left core and GMCP took its protocol in (`src/mcp`, 6,433
-/// lines in place of the rmcp crate's 55,000 source lines across its
-/// features); 28 fewer units in the host build (T-NOMCPSDK-1, wave log).
-/// 2026-11-09: susi-gemi-models 16,797 -> 16,743 (hardware.rs reads Windows
-/// memory, swap and uptime through host_metrics; T-NOWINDOW-1).
-/// 2026-11-09: 16,743 -> 16,737 after shared scan/cache predicates and
-/// fail-closed model publication consolidation (T-DOTMODELPUBLISH-1).
-/// 2026-11-10: gemi-models 16,737 -> 15,938: move the unchanged model-manager
-/// unit suite to src/tests while adding explicit retry-clock assertions
-/// (T-DOTLATENCY-1). Test organization, not removed runtime capability.
-/// 2026-11-11: susi-gawd-a2a 2,113 -> 3,702 when the A2A SDK facade
-/// (susi-vendor-ra2a over ra2a 0.10.1) left core and the tier took the
-/// protocol subset it serves in (`src/protocol`, 1,744 lines in place of
-/// ra2a's 10,221 source lines and its reqwest/hyper-tls/encoding_rs/chrono/
-/// tower-http/uuid tail; T-CLAUDENOA2ASDK-1, wave log). The same "crate
-/// leaving core, contract moving in" re-pin as T-NOMCPSDK-1. The A2A tier is
-/// outside the pillar closure since T-A2ASTD-1, so the reach ceilings above
-/// do not move; the host build loses the units.
-/// 2026-11-11: ratify accumulated source reductions across four pillar crates
-/// (susi-gawd-swarm 20,641 -> 20,635, susi-gawd-agents 11,263 -> 10,447,
-/// susi-gemi 21,290 -> 21,263, susi-harness 40,790 -> 40,594; -1,045 lines
-/// total) alongside removing the unreferenced susi-vendor-flume workspace
-/// facade (T-AGYCLOUD-3).
-/// 2026-11-11: T-AGYCLOUD-4: susi-gawd-agents 10,447 -> 10,443 (drop regex
-/// facade edge in accountability.rs), susi-gemi 21,263 -> 21,171 (std RwLock
-/// in local_plug.rs + move unchanged usage_accounting unit tests to src/tests),
-/// susi-harness 40,594 -> 40,575 (poll_body over hyper::body::Body + move
-/// unchanged MicroUsd inline tests from lib.rs to src/tests/money.rs).
-/// 2026-11-11: susi-harness 40,575 -> 39,446 (T-HARNESSSTD-1, measured).
-/// Production lines grew by 1,859: src/http.rs (1,843 lines, the std
-/// HTTP/1.1 server and axum's JSON rejection paths) replaces axum and the
-/// eight crates it brought into the pillars (about 45,000 source lines),
-/// and poll_body went. The ceiling still falls because the gateway, ingress
-/// and cockpit inline test modules (2,988 lines) moved unchanged to
-/// src/tests, the crate's convention. Stated here so the drop is not read
-/// as a cut.
-/// 2026-11-11: susi-gemi-models 15,950 -> 15,945 and susi-gmcp 25,900 ->
-/// 25,891 (URL parsing moved to `susi_paths::weburl`; T-SMALLFACADES-2).
-/// 2026-11-11: susi-gawd-swarm 20,635 -> 20,116 (T-CARBONLEAN-1, measured):
-/// move unchanged amas.rs inline unit suite (519 lines) to src/tests/amas.rs
-/// alongside deleting susi-vendor-console-subscriber, susi-vendor-criterion
-/// and susi-vendor-sha1 (63 packages removed from Cargo.lock).
-/// 2026-11-11: susi-gmcp 25,891 -> 25,889 (T-CARBONLEAN-2, measured): POSIX
-/// shell splitting moves to `susi_paths::shlex` alongside deleting
-/// `susi-vendor-shlex` and `susi-vendor-tracing-appender` (9 packages removed
-/// from Cargo.lock; host packages 237 -> 229).
-/// 2026-11-11: susi-gmcp 25,889 -> 25,860 (T-AGYCLOUD-8, measured): delete
-/// `tower_service::Service` wrapper on `StreamableHttpService` and call
-/// `StreamableHttpService::handle` directly; delete `susi-vendor-tower-service`
-/// (host packages 229 -> 228).
-/// 2026-11-11: ratify current shipped line reductions across susi-gawd-a2a
-/// (3,702 -> 3,619), susi-gemi (21,171 -> 21,145) and susi-harness (39,446 ->
-/// 37,604) alongside dropping susi-vendor-tracing from the pillar closure
-/// (T-AGYWIN-1).
-/// 2026-11-11: susi-harness 37,604 -> 37,439 (T-CARBONLEAN-9, measured):
-/// T-AGYFURY-1 added src/git_governor.rs alongside T-AGYWIN-1's 37,604 re-pin;
-/// move the unchanged providers.rs inline unit suite (1,206 lines) to
-/// src/tests/providers.rs, the crate's convention. Test organization, not
-/// removed runtime capability.
-/// 2026-11-11: susi-gawd 12,653 -> 12,523 (T-CLAUDEREL56-2, measured): the
-/// unchanged evolution.rs inline unit suite moved to src/tests/evolution.rs
-/// with T-CLAUDEREL56-1's env-lock fix. Test organization, not removed
-/// runtime capability.
-/// 2026-11-11: susi-harness 37,439 -> 37,434 (T-CLAUDEHARNESSCEIL-1,
-/// measured): T-CLAUDEAGENTREFS-1 removed the JSON `.claim` reader in
-/// `discover_active_claim_branches`, which no writer feeds (claims are
-/// `susi-local-claim-v2` text, read by the existing hazard scan).
-/// 2026-11-11: susi-harness 37,434 -> 37,536 (T-CLAUDESTORAGEGUARD-3,
-/// measured; CEO decision 2026-11-11, "raise it", docs/lean-core.md). The one
-/// rise here that is new capability, not a move: src/storage_guard.rs (347
-/// lines) and 14 lines in operator.rs and lib.rs make every harness
-/// publication witness the storage remote, so storage safety needs no
-/// hosting-provider rule. The crate measured 37,175 before the change, 259
-/// under its ceiling, so the ceiling moves by 102 while the source grows 361.
-/// 2026-11-12: susi-gemi 21,145 -> 21,047 and susi-gemi-models 15,945 ->
-/// 15,921 (T-CLAUDELEANPROMPT-1, measured). Removed runtime capability: none.
-/// `PromptFormat` (detect and wrap for four chat families) and
-/// `ModelManager::chat_template_supports_tools` were reached only by their
-/// own tests since the local engine left core; the engine that wraps prompts
-/// is Susi Commercial Apps' `susi-gpu-fabric`, which now renders the model's
-/// own chat template.
-/// 2026-11-12: susi-gemi 21,047 -> 21,180 (T-CLAUDELOCALTOOLS-1, measured;
-/// CEO direction 2026-11-12, "let the local engine take full conversations
-/// and tool lists", docs/lean-core.md). New capability, not a move: a request
-/// that needs tools now also reaches the local engine as a conversation with
-/// the registered tools' schemas, so the engine can render the model's own
-/// tool format. 133 lines, 35 over the ceiling this crate had this morning.
-/// 2026-11-12: susi-gemi-models 15,921 -> 15,939 (T-CLAUDETOOLCAP-1,
-/// measured; CEO direction 2026-11-12, "fix it and finish the end-to-end
-/// run"). `supports_tool_calling` answered `false` for every local model since
-/// the GGUF reader left core, so a request that needs tools was refused before
-/// it reached the engine. It now asks the engine (18 lines).
-/// 2026-11-12: susi-gemi 21,180 -> 21,172 (T-CLAUDETOOLPICK-1, measured).
-/// Local tool requests now offer the tools that fit the request (at most 8)
-/// instead of the first 32 by name; the new selection is paid for by deleting
-/// what nothing called: the dead `ModelSubstrate`/`NeuralBackend` leftovers
-/// of the engine move, `needs_qwen2_backend`, `cost::expected_call_cost_usd`
-/// and `worker::is_seat`.
-/// 2026-11-12: susi-gawd-a2a 3,619 -> 3,588 (T-CLAUDEACPGAWD-1, measured):
-/// ACP turns on 9094 now run as GAWD missions (`GawdAcpExecutor`) instead of
-/// core's echo executor; the ceiling ratchets down to the measured size.
-/// 2026-11-12: T-CODEXHISTORY-1, measured after carrying the normalized
-/// OpenAI conversation and tool schemas from the server through GAWD/GEMI to
-/// the local engine. CEO direction is board item 215; no dependency or
-/// reach-ceiling changes are made.
-/// `susi-gawd` 12,523 -> 12,525, `susi-gawd-swarm` 20,116 -> 20,206 and
-/// `susi-gemi` 21,172 -> 21,262.
-/// 2026-11-12: susi-gemi 21,172 -> 21,063 (T-CLAUDEGEMIFIX-1, measured):
-/// `/v1/embeddings` gets one 30 s budget across providers; paid for by
-/// deleting what only its own tests called (`looks_like_inference_tool`,
-/// `worker::seat_window_state`). With T-CODEXHISTORY-1 merged the
-/// measured size is 21,153.
-/// 2026-11-12: susi-gemi 21,153 -> 21,096 (T-CLAUDEGEMIFIX-2, measured):
-/// calls to caller-supplied tools return to the caller as OpenAI
-/// `tool_calls` and `max_tokens` reaches the engine; paid for by deleting
-/// `SusiPulse::compute_spectral_prediction` and `SpectralPrediction`, which
-/// only their own test used.
-/// 2026-11-12: susi-gawd-a2a 3,588 -> 3,413 (T-CTOCORELEAN-1, measured):
-/// remove dead `TaskStore::delete` (-4 production lines) and move the unchanged
-/// `executor.rs` inline unit suite (-171 lines; test organization, not removed
-/// runtime capability) to `src/tests/executor.rs`, the crate's convention,
-/// alongside pruning 73 production lines of unreferenced dead helpers in
-/// `susi-vendor-tempfile` and `susi-vendor-wasmtime`.
-/// 2026-11-12: susi-gawd-a2a 3,413 -> 3,347 (T-CLAUDEACPHISTORY-1, measured):
-/// ACP session history reaches the GAWD mission (+31), paid by moving the
-/// inline `capabilities` unit tests to `src/tests/capabilities.rs` (-97).
-/// 2026-11-12: susi-gawd-agents 10,443 -> 10,413, susi-gemi 21,096 -> 20,709,
-/// susi-gemi-models 15,939 -> 15,563, susi-gmcp 25,860 -> 25,828
-/// (T-CARBONCLOUD-9, measured): delete 501 shipped lines of zero-caller dead
-/// helpers (`UsageLedger::measured_cost_per_success`,
-/// `ScoutReport::verified_fraction`, `credential_scout::scout_configured`,
-/// `InferenceRouter::list_cloud_providers`,
-/// `GemiEngine::generate_reasoning_deep_opts`,
-/// `HardwareProfiler::get_bootstrap_model_ladder`,
-/// `ModelDownloadProgress::computed_percentage`,
-/// `ModelManager::{register_residency_probe,resident,fits_memory,weight_allocation_fits_memory,cold_load_fits_memory}`,
-/// `ModelCache::{is_loaded,is_reusable,is_reusable_admitted,reusable_with_digest}`,
-/// `cloud_credentials::{cli_keys_list,cli_keys_set,cli_keys_remove}`,
-/// `PriceCatalog::{cost_usd,accept_version}`, `BudgetLedger::consent_granted`,
-/// `cloud_intent::record_dispatch_outcome`, `AgentManager::with_poll_interval`)
-/// and pin prior slack (-825 ceiling lines, 146,952 -> 146,127).
-/// 2026-11-12: susi-gmcp 25,828 -> 25,153 (T-CLAUDEGMCPRESOURCES-1, measured): the
-/// wire-level protocol suite moved from src/protocol_tests.rs to the suite dir
-/// src/tests/protocol.rs (-721) and the VC-203-010 resource admission, guard,
-/// sealed-read and cancellation path added 46 shipped lines.
-/// 2026-11-13: susi-gawd-a2a 3,347 -> 3,251 (T-ANTIGRAVITYCOREPROD-1, measured):
-/// ACP session-id header binding propagation on `/acp` & `/acp/stream` (+14)
-/// and `TaskStore::on_evict` push-config cleanup on reaper eviction (+30),
-/// alongside moving the existing `task_store.rs` inline unit suite (-140)
-/// into `src/tests/task_store.rs`. Test organization, not removed runtime capability.
-/// 2026-11-15: susi-gmcp 25,153 -> 24,096 (T-AG4CORESIZE-2, measured 24,056 + 40
-/// headroom for queued GMCP roadmap items): split `src/tools/core.rs` (4,240 lines)
-/// by responsibility into `src/tools/core.rs` and `src/tools/core/{agents,cluster,files_os,knowledge,models,substrate}.rs`,
-/// moving its unchanged inline unit suite into `src/tests/core_tools.rs`.
-/// Test organization, not removed runtime capability.
-/// 2026-11-16: susi-gawd 12,525 -> 12,770 and susi-gmcp 24,096 -> 24,128
-/// (T-LOCALHARNESSZ0LEANZ0CEILINGS-1, measured): commit f2d9d8131 (workspace state
-/// isolation, token lookup, audit, stop, uninstall and IPC bus rendezvous) landed on main
-/// 245 and 32 lines over these ceilings and 160 over the runtime budget below. CEO decision
-/// 2026-11-15, "raise any test run limit so harness continues to run": raised to what main
-/// measures, not cut (docs/lean-core.md).
-const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 12_770),
-    ("susi-gawd-swarm", 20_206),
-    ("susi-gawd-agents", 10_413),
-    ("susi-gawd-a2a", 3_251),
-    ("susi-gemi", 20_709),
-    ("susi-gemi-models", 15_563),
-    ("susi-gmcp", 24_128),
-    ("susi-harness", 37_536),
+/// The pillar crates whose shipped source size is reported.
+const PILLAR_CRATES: [&str; 8] = [
+    "susi-gawd",
+    "susi-gawd-swarm",
+    "susi-gawd-agents",
+    "susi-gawd-a2a",
+    "susi-gemi",
+    "susi-gemi-models",
+    "susi-gmcp",
+    "susi-harness",
 ];
 
-/// Tracked physical-line budgets by repository category (`git ls-files -z`).
-/// Separating runtime Rust, vendor facades, tests, tooling, vendored sources,
-/// and generated audit baselines keeps audit trails and offline vendor trees
-/// intact without inflating first-party runtime size.
-/// 2026-11-16: runtime 302,000 -> 302,016 (T-CLAUDESELFBUILDBRIEF-2, 302,009 measured).
-/// CEO decision 2026-11-16, "this cannot happen, lift the ceiling": the delegated-task
-/// contract's unit test pins every clause of its Mandates 75-81 and one-way publication
-/// items. The ceiling rises by the 16 lines those pins take (docs/lean-core.md).
-const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 302_016;
-const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
-/// 2026-11-16: tests 129,000 -> 139,000 (T-CLAUDETESTBUDGET-1, 128,999 measured). CEO
-/// decision 2026-11-16, "lift the core test budget": it stood 5 lines under its ceiling.
-/// Tests grew about 10,000 lines since the budget was set on 2026-11-15, so it gets that
-/// much room again (docs/lean-core.md).
-const TEST_RUST_CEILING: usize = 139_000;
-const TOOLING_RUST_CEILING: usize = 72_200;
-const XTASK_MAX_FILE_LINES_CEILING: usize = 4_000;
-const GMCP_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_800;
-const GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_000;
-const INTEGRATION_TEST_MAX_FILE_LINES_CEILING: usize = 3_500;
-const GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING: usize = 2_800;
-const VENDORED_DEPENDENCY_LINES_CEILING: usize = 216_164;
+/// Unsafe-exposure baselines under `.agents/baseline/` may not multiply. A file
+/// count, not a line count.
 const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 
 fn workspace_root() -> PathBuf {
@@ -478,7 +288,8 @@ fn pillar_reach(metadata: &Value) -> Reach {
 }
 
 /// Directories directly under a crate's `src` that hold standalone test
-/// suites rather than shipped code (see [`LINE_CEILINGS`]).
+/// suites (`#[cfg(test)] #[path = ..]` modules) rather than shipped code. They
+/// are left out of a pillar's reported size; inline `mod tests` still count.
 const SUITE_DIRS: [&str; 2] = ["tests", "mastery_tests"];
 
 fn rust_lines(dir: &Path) -> usize {
@@ -556,16 +367,15 @@ fn pillar_dependency_reach_does_not_grow() {
     );
 }
 
+/// Shipped Rust lines under each pillar's `src`, printed for the record. Not a
+/// ceiling: growth never fails this.
 #[test]
-fn pillar_source_does_not_grow() {
+fn pillar_source_size_is_reported() {
     let root = workspace_root();
-    for (krate, ceiling) in LINE_CEILINGS {
-        let lines = rust_lines(&root.join("crates").join(krate).join("src"));
-        eprintln!("lean-core: {krate} src = {lines} lines (ceiling {ceiling})");
-        assert!(
-            lines <= ceiling,
-            "{krate} grew to {lines} shipped Rust lines under src (ceiling {ceiling}; suite dirs excluded); lean-core cuts only"
-        );
+    for krate in PILLAR_CRATES {
+        let src = root.join("crates").join(krate).join("src");
+        assert!(src.is_dir(), "{krate} has no src directory");
+        eprintln!("lean-core: {krate} src = {} lines", rust_lines(&src));
     }
 }
 
@@ -587,8 +397,12 @@ fn is_test_or_bench_rust(rel: &str) -> bool {
         || file.ends_with("_tests.rs")
 }
 
+/// Tracked physical lines by repository category (`git ls-files -z`), printed
+/// for the record: runtime Rust, vendor facades, tests, tooling, vendored sources
+/// and audit trails, with the largest file of each watched kind. Sizes are not
+/// capped; only the number of unsafe baseline files is.
 #[test]
-fn repository_category_budgets_do_not_grow() {
+fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
     let root = workspace_root();
     let output = Command::new("git")
         .current_dir(&root)
@@ -670,69 +484,18 @@ fn repository_category_budgets_do_not_grow() {
     }
 
     eprintln!(
-        "lean-core categories: runtime_rust={first_party_runtime_rust} (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING}), vendor_facade_rust={vendor_facade_rust} (ceiling {VENDOR_FACADE_RUST_CEILING}), test_rust={test_rust} (ceiling {TEST_RUST_CEILING}, max tests/ {} = {} lines / ceiling {INTEGRATION_TEST_MAX_FILE_LINES_CEILING}, max gmcp_reqs {} = {} lines / ceiling {GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING}), tooling_rust={tooling_rust} (ceiling {TOOLING_RUST_CEILING}, max xtask file {} = {} lines / ceiling {XTASK_MAX_FILE_LINES_CEILING}), max gmcp_tools {} = {} lines / ceiling {GMCP_TOOLS_MAX_FILE_LINES_CEILING}, max gmcp_core {} = {} lines / ceiling {GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING}, vendor={vendor_lines} (ceiling {VENDORED_DEPENDENCY_LINES_CEILING}), .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})",
-        largest_integration_test_file.1,
-        largest_integration_test_file.0,
-        largest_gmcp_requirements_file.1,
-        largest_gmcp_requirements_file.0,
-        largest_xtask_file.1,
-        largest_xtask_file.0,
-        largest_gmcp_tools_file.1,
-        largest_gmcp_tools_file.0,
-        largest_gmcp_core_file.1,
-        largest_gmcp_core_file.0,
+        "lean-core categories: runtime_rust={first_party_runtime_rust}, vendor_facade_rust={vendor_facade_rust}, test_rust={test_rust}, tooling_rust={tooling_rust}, vendor={vendor_lines}, .agents={agents_lines} (append-only evidence={evidence_jsonl_lines}, unsafe_baselines={unsafe_baseline_files} / ceiling {UNSAFE_BASELINE_FILES_CEILING})"
     );
+    for (kind, (lines, file)) in [
+        ("tests/", &largest_integration_test_file),
+        ("gmcp_requirements", &largest_gmcp_requirements_file),
+        ("xtask", &largest_xtask_file),
+        ("gmcp tools", &largest_gmcp_tools_file),
+        ("gmcp core tools", &largest_gmcp_core_file),
+    ] {
+        eprintln!("lean-core largest {kind} file: {file} = {lines} lines");
+    }
 
-    assert!(
-        first_party_runtime_rust <= FIRST_PARTY_RUNTIME_RUST_CEILING,
-        "first-party runtime Rust reached {first_party_runtime_rust} lines (ceiling {FIRST_PARTY_RUNTIME_RUST_CEILING})"
-    );
-    assert!(
-        vendor_facade_rust <= VENDOR_FACADE_RUST_CEILING,
-        "vendor-facade Rust reached {vendor_facade_rust} lines (ceiling {VENDOR_FACADE_RUST_CEILING})"
-    );
-    assert!(
-        test_rust <= TEST_RUST_CEILING,
-        "test/bench Rust reached {test_rust} lines (ceiling {TEST_RUST_CEILING})"
-    );
-    assert!(
-        tooling_rust <= TOOLING_RUST_CEILING,
-        "tooling Rust reached {tooling_rust} lines (ceiling {TOOLING_RUST_CEILING})"
-    );
-    assert!(
-        largest_xtask_file.0 <= XTASK_MAX_FILE_LINES_CEILING,
-        "largest xtask Rust file {} reached {} lines (ceiling {XTASK_MAX_FILE_LINES_CEILING})",
-        largest_xtask_file.1,
-        largest_xtask_file.0
-    );
-    assert!(
-        largest_gmcp_tools_file.0 <= GMCP_TOOLS_MAX_FILE_LINES_CEILING,
-        "largest susi-gmcp tools file {} reached {} lines (ceiling {GMCP_TOOLS_MAX_FILE_LINES_CEILING})",
-        largest_gmcp_tools_file.1,
-        largest_gmcp_tools_file.0
-    );
-    assert!(
-        largest_gmcp_core_file.0 <= GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING,
-        "largest susi-gmcp core tools file {} reached {} lines (ceiling {GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING})",
-        largest_gmcp_core_file.1,
-        largest_gmcp_core_file.0
-    );
-    assert!(
-        largest_integration_test_file.0 <= INTEGRATION_TEST_MAX_FILE_LINES_CEILING,
-        "largest integration test file {} reached {} lines (ceiling {INTEGRATION_TEST_MAX_FILE_LINES_CEILING})",
-        largest_integration_test_file.1,
-        largest_integration_test_file.0
-    );
-    assert!(
-        largest_gmcp_requirements_file.0 <= GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING,
-        "largest gmcp_requirements file {} reached {} lines (ceiling {GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING})",
-        largest_gmcp_requirements_file.1,
-        largest_gmcp_requirements_file.0
-    );
-    assert!(
-        vendor_lines <= VENDORED_DEPENDENCY_LINES_CEILING,
-        "vendored dependency tree reached {vendor_lines} lines (ceiling {VENDORED_DEPENDENCY_LINES_CEILING})"
-    );
     assert!(
         unsafe_baseline_files <= UNSAFE_BASELINE_FILES_CEILING,
         "unsafe baseline file count reached {unsafe_baseline_files} (ceiling {UNSAFE_BASELINE_FILES_CEILING})"

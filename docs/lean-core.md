@@ -19,7 +19,9 @@ packs live in Susi Commercial Apps) is routed exclusively to
 software) and admitted over the standard protocol socket.
 
 This page is the shared plan for every agent on the program. Numbers come from
-`tests/lean_core_ceilings.rs`, which only lets them go down.
+`tests/lean_core_ceilings.rs`. Its dependency-reach ceilings only go down.
+Source size is measured and printed there and has no ceiling (CEO decision
+2026-11-16, "remove all ceiling"; wave log).
 
 ## The ladder (measured)
 
@@ -28,12 +30,12 @@ This page is the shared plan for every agent on the program. Numbers come from
 | 0 | third-party crates compiled | 331 | 96 |
 | 0 | workspace crates compiled | 59 | 33 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 9 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 144,299 (ratcheted -1,057 from 145,356 in T-AG4CORESIZE-2) |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | no ceiling since 2026-11-16; `143,454` measured that day |
 | clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
 | warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
-Rungs, in order. Each is done when its number is on this table and the ceiling
-test pins it.
+Rungs, in order. Each is done when its number is on this table and, for the
+dependency-reach rows, the ceiling test pins it.
 
 1. **Product debt out of the pillar closure.** `susi-vendor-{models,agents,web,
    cloud,chrome,candle,fastembed,tantivy}` are third-party product integrations
@@ -60,7 +62,7 @@ means the three architectural pillars plus their host; the harness is a GAWD cap
 
 | Bucket | Crates | Rule |
 |--------|--------|------|
-| Keep: pillar | `susi-gawd`, `-gawd-a2a`, `-gawd-agents`, `-gawd-swarm`, `susi-gemi`, `-gemi-models`, `susi-gmcp`, `susi-harness` | shrink; ceilings pin them |
+| Keep: pillar | `susi-gawd`, `-gawd-a2a`, `-gawd-agents`, `-gawd-swarm`, `susi-gemi`, `-gemi-models`, `susi-gmcp`, `susi-harness` | shrink; dependency ceilings pin them, size is reported |
 | Keep: foundation under the pillars | `susi-core`, `-error`, `-paths`, `-config`, `-abi`, `-adapters-llm`, `-build-policy`, `-sandbox-client`, `-native-client`, `-http-transport` (until rung 2 replaces it) | shrink |
 | Keep: socket host | `susi` (root), `-cli-defs`, `-daemon`, `-server`, `-leaf-services` (collapse the five leaf services into the daemon: one process, no per-service HTTP), `-wire-client`, `-conformance`, `-windows-runtime`, `-build-os-ucrt`, `xtask`, `-unsafe-ratchet` (tooling) | shrink; collapse |
 | Keep: Tier 0 | `susi-vendor-wasmtime` (SUSI-Alpha Wasm reflexes are core), `-vendor-syn` (reflex validation) | review at rung 2 |
@@ -291,7 +293,7 @@ middle branches are tied, shortening one alone saves nothing (why the swarm
 and A2A moves measured no wall gain); the serial pieces are the front,
 config, core and the tail.
 
-## Repository Line Accounting & Category Budgets
+## Repository Line Accounting
 
 Raw tracked text-line counts (~1.49M lines across `git ls-files`) overstate
 Susi's runtime footprint because the repository intentionally versions four
@@ -303,22 +305,23 @@ distinct artifacts side by side:
    lines, `merge=union`). Audit trails and append-only evidence are preserved
    without downward caps; only unsafe baseline file count is bounded (`2`).
 2. **`vendor/**` (`216,164` tracked lines, marked `linguist-vendored`)**:
-   patched offline dependency sources (`vendor/README.md`). Kept intact for
-   deterministic offline builds under a hard ceiling (`216,164`).
-3. **Tooling and tests (`72,094` tooling `.rs` lines in `xtask/**` +
-   `toolchain/**`, `128,999` test/bench/fuzz `.rs` lines)**: guarded by separate
-   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`139,000`), and
-   per-file ceilings (`XTASK_MAX_FILE_LINES_CEILING = 4,000`,
-   `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
-   `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`) in
-   `tests/lean_core_ceilings.rs`.
+   patched offline dependency sources (`vendor/README.md`), kept intact for
+   deterministic offline builds.
+3. **Tooling and tests (`72,166` tooling `.rs` lines in `xtask/**` +
+   `toolchain/**`, `127,697` test/bench/fuzz `.rs` lines)**.
 4. **First-party runtime & facade Rust**: `first_party_runtime_rust`
-   (`302,009` lines under `crates/*` excluding `susi-vendor-*` and explicit
-   test/bench paths, plus root `src/**` and `build.rs`; ceiling `302,016`),
-   `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`; ceiling
-   `6,454`), and per-file tool ceilings (`GMCP_TOOLS_MAX_FILE_LINES_CEILING = 1,800`,
-   `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING = 1,000`), alongside the stricter
-   8-pillar shipped `src` ceilings (`LINE_CEILINGS`).
+   (`300,308` lines under `crates/*` excluding `susi-vendor-*` and explicit
+   test/bench paths, plus root `src/**` and `build.rs`) and
+   `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`). The eight
+   pillar crates ship `143,454` of those lines under `src`.
+
+None of these line counts has a ceiling (CEO decision 2026-11-16, "remove all
+ceiling"; wave log). `tests/lean_core_ceilings.rs` measures and prints them on
+every run, with the largest file under `tests/`, `tests/gmcp_requirements/`,
+`xtask/` and the GMCP tools: run
+`cargo test --locked --test lean_core_ceilings -- --nocapture`. The figures
+above were measured on 2026-11-16. Growth never fails the test; a change that
+makes core bigger still needs a measured reason (Mandates 69 and 78).
 
 `docs/**` is marked `linguist-documentation` in `.gitattributes` so platform
 diff stats and language breakdowns reflect first-party Rust rather than
@@ -1347,3 +1350,29 @@ vendored crates or append-only audit logs.
   pillar `src` ceiling and no runtime, tooling, vendor or per-file ceiling
   changes. The largest integration test file, `tests/architecture_tests.rs`,
   stays under its own ceiling (`3,339` of `3,500` lines).
+
+- 2026-11-16 T-CLAUDEREMOVECEILINGS-1 (CEO decision 2026-11-16, "remove all
+  ceiling"): every line-count ceiling is removed from
+  `tests/lean_core_ceilings.rs`: the eight per-pillar shipped `src` ceilings
+  (`LINE_CEILINGS`), the category budgets (`FIRST_PARTY_RUNTIME_RUST_CEILING`,
+  `VENDOR_FACADE_RUST_CEILING`, `TEST_RUST_CEILING`, `TOOLING_RUST_CEILING`,
+  `VENDORED_DEPENDENCY_LINES_CEILING`) and the per-file ceilings
+  (`XTASK_MAX_FILE_LINES_CEILING`, `GMCP_TOOLS_MAX_FILE_LINES_CEILING`,
+  `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING`,
+  `INTEGRATION_TEST_MAX_FILE_LINES_CEILING`,
+  `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING`). The decision followed four
+  raises in two days (the entries above), each made because a budget with a
+  handful of lines to spare stopped a test, a guard or a landing. The sizes
+  are still measured and printed by the same test
+  (`pillar_source_size_is_reported`,
+  `repository_size_is_reported_and_unsafe_baselines_do_not_multiply`), so
+  growth stays visible; nothing fails on it. Measured at removal: pillar `src`
+  `143,454` lines, runtime Rust `300,308`, vendor facades `6,454`, tests
+  `127,697`, tooling `72,166`, vendored sources `216,164`. Not removed, because
+  they are not line counts and Mandates 60 and 69 rest on them: the
+  dependency-reach ceilings (`THIRD_PARTY_CEILING` `96`, `WORKSPACE_CEILING`
+  `33`, `WORKSPACE_MEMBERS_CEILING` `49`, `CARGO_LOCK_PACKAGES_CEILING` `181`,
+  `DIRECT_FACADE_EDGES_CEILING` `9`) and the unsafe-baseline file count (`2`).
+  The `<10s` warm pipeline budget and the cold compile budget are time budgets
+  and are unchanged. Earlier entries in this log that lower or raise a line
+  ceiling are history.
