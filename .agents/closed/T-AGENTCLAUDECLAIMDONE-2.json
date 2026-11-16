@@ -1,0 +1,10 @@
+{
+  "branch": "claude-claim-done",
+  "task": "T-AGENTCLAUDECLAIMDONE-2",
+  "agent": "AGENTCLAUDECLAIMDONE",
+  "head": "22a85c7a8c8c47ec4ff3d22fd879ea52ff46dd62",
+  "closed_unix": 1794839373,
+  "scopes": [
+    "docs/ceo-mandate-85.md"
+  ]
+}
