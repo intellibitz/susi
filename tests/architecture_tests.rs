@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=85).collect::<Vec<_>>(),
+        (1..=86).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2215,6 +2215,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (83, "Never wait on another agent"),
         (84, "Susi core stays under 100,000 lines"),
         (85, "No agent holds a claim after it is done with it"),
+        (86, "Agents clean up finished worktrees"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3332,6 +3333,60 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
     ] {
         assert!(said.contains(words), "V-8 lost the CEO's words: {words}");
     }
+}
+
+/// Mandate 86 (CEO 2026-11-16): agents clean up finished worktrees.
+#[test]
+fn ceo_mandate_86_cleans_up_finished_worktrees() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("ceo-mandate-86.md") || text.contains("Mandate 86"),
+            "{path}: Mandate 86 must be discoverable"
+        );
+    }
+    let doc = flat("docs/ceo-mandate-86.md");
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "1. **Finished means removed.**",
+        "2. **Reuse, never hoard.**",
+        "3. **Clean up before you leave.**",
+        "4. **Never lose work.**",
+        "5. **Only your own.**",
+        "6. **Never the primary checkout, and never the CEO's working directory.**",
+        "susi-commercial workflow prune --apply",
+        "Implementation truth",
+        "**Not enforced:**",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 86 lost requirement: {phrase}"
+        );
+    }
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-11.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        vision["statement"].as_str(),
+        Some("make a mandate that agents must clean up finished worktrees"),
+        "the CEO's words are recorded as they were given"
+    );
 }
 
 /// Mandate 85 (CEO 2026-11-16): no agent holds a claim after it is done with it.

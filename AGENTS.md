@@ -8,6 +8,23 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 86 (2026-11-16): Agents Clean Up Finished Worktrees
+
+Read [CEO Mandate 86](docs/ceo-mandate-86.md). The CEO's words: "make a mandate
+that agents must clean up finished worktrees."
+
+- **Finished means removed:** a worktree whose every commit is on
+  `origin/main`, with nothing uncommitted and no live claim or running agent,
+  is removed with its merged branch and build target unless your next task
+  starts in it. Reuse is allowed; hoarding is not.
+- **Before you leave:** release your claims (Mandate 85) and run
+  `susi-commercial workflow prune --apply`. `workflow check` also removes your
+  finished worktrees once idle for an hour, inside your agent root.
+- **Never lose work, never touch another's:** publish or deliberately abandon
+  unpublished work first; remove only worktrees in your own agent root or
+  under your own name (Mandate 77); never the primary checkout or the CEO's
+  working directory.
+
 ## CEO Mandate 85 (2026-11-16): No Agent Holds a Claim After It Is Done With It
 
 Read [CEO Mandate 85](docs/ceo-mandate-85.md). The CEO's words: "make a mandate
@@ -415,6 +432,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 83 | **The ten agent operating rules (2026-11-16).** Section above; [`docs/ceo-mandate-83.md`](docs/ceo-mandate-83.md). |
 | 84 | **Susi core stays under 100,000 lines; until it does, it never grows (2026-11-16).** Section above; [`docs/ceo-mandate-84.md`](docs/ceo-mandate-84.md). |
 | 85 | **No agent holds a claim after it is done with it (2026-11-16).** Section above; [`docs/ceo-mandate-85.md`](docs/ceo-mandate-85.md). |
+| 86 | **Agents clean up finished worktrees (2026-11-16).** Section above; [`docs/ceo-mandate-86.md`](docs/ceo-mandate-86.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

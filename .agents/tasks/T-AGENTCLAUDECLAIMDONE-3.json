@@ -1,0 +1,40 @@
+{
+  "id": "T-AGENTCLAUDECLAIMDONE-3",
+  "title": "Mandate 86: agents clean up finished worktrees",
+  "goal": "Vision: V-11. CEO directive 2026-11-16: agents must clean up finished worktrees. Record CEO Mandate 86 in core (constitution entry, docs/ceo-mandate-86.md, AGENTS.md, CLAUDE.md and GEMINI.md, README, self-build contract with no net line in core under Mandate 84) and guard it in the governance tests. The workflow tool that removes them is in intellibitz/susi-commercial-apps (its T-AGENTCLAUDECLAIMDONE-2).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "created_by": "AGENTCLAUDECLAIMDONE",
+  "created_unix": 1794839980,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Mandates 77, 83 and 85 and their records, the self-build contract, the governance guards, and the workflow tool's worktree prune and its new idle reclaim in intellibitz/susi-commercial-apps (T-AGENTCLAUDECLAIMDONE-2 there). Documentation and governance tests only in core."
+  },
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/visions/V-11.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "crates/susi-core/src/self_build.rs",
+    "docs/ceo-mandate-86.md",
+    "tests/agent_bootstrap.rs",
+    "tests/architecture_tests.rs"
+  ],
+  "limitations": [
+    "Core carries the rule, its documents, the self-build clause and the governance tests; the cleanup itself is the commercial workflow tool's.",
+    "The self-build clause was added with no net line in core (Mandate 84): 'in the task record' was dropped from the reuse clause to make room."
+  ]
+}

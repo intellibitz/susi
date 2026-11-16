@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-11",
+  "statement": "make a mandate that agents must clean up finished worktrees",
+  "set_by": "ceo",
+  "recorded_by": "AGENTCLAUDECLAIMDONE",
+  "set_unix": 1794839980
+}
