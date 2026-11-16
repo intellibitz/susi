@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENTCLAUDEDOCSTIDY-1",
+  "title": "Keep documentation tidy (commercial Mandate 91), in the active contract; index every doc",
+  "goal": "Vision: V-16. Directive 2026-11-16: agents must keep docs tidy. The rule lands in core's active contract: documents say what is true now and change with what they describe, one topic per document found through the docs index, every document reachable, every link and named command resolving, records dated, quoted upstream text left as quoted. docs/README.md indexes every document (24 were named by no other document), linked from README.md. Pinned in tests/architecture_tests.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDEDOCSTIDY",
+  "created_unix": 1794847182,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inside Susi: README.md already lists some documents and docs/architecture.md links others; the commercial workflow docs check (susi-commercial-apps Mandate 91) reports what is unreachable. This adds an index document and one contract paragraph; no new code."
+  }
+}
