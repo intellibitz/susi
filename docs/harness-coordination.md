@@ -1,131 +1,109 @@
 # Harness coordination across hosts: the repository is the shared state
 
-## Current CEO direction, 2026-11-10
+The [active engineering contract](../AGENTS.md) governs authorization, ownership
+and publication. Agents work autonomously within that authorization, using
+isolated worktrees, private runtime state and disjoint task scopes. Delegation
+keeps explicit contracts, budgets, cycle detection and attenuated permissions;
+it never expands the caller's authority.
 
-Read [Mandate 73](ceo-agent-mandate.md) first. Three isolated laptops run dot,
-opus, carbon and grok, with an available authorized driver on each laptop: dot,
-duet, another agent or a capability-verified Susi harness. Driver/engine recursion
-applies to every container component with explicit contracts, budgets, cycle
-detection and no delegated permission expansion. Cloud
-sessions are independent and autonomous within user authorization. Susi's master
-brain owns distillation, task/feature manifests, branch composition and serialized
-integration/publication. Main is unqualified development with no mandatory push
-gates. Full exact-tree gates apply to release branches and snapshots. Main
-contributions use normal fast-forward updates, with no fixed push cadence or arbitrary
-agent-count limit; measured host capacity and serialized publication govern.
-Git is portable storage, not a GitHub API or hosted-workflow dependency. Branches
-may advance; published release tags are immutable. Access controls, private
-commercial boundaries, production gates and rollback remain unchanged.
+Git is the portable source and publication transport. Use native commands and
+normal history-preserving updates. No hosted review service or provider API is
+required. Main is unqualified development; a successful publication does not
+qualify an artifact for release.
 
-The older decisions and incident notes below describe history, design and older
-implementation. They are not proof that distributed claims, adoption or receipts
-are deployed. In particular, fixed gate-cycle cooldowns and a single-laptop-only
-publication role and mandatory main-push gates are superseded. Existing `IntegrationPolicy` main-gate restrictions must
-be migrated with honest validation. Authorized normal history-preserving main
-publication may proceed while that tooling is updated. Never bypass live access
-or security controls, weaken release gates, or change repository permissions. Keep incident
-safeguards, release exact-tree gates and honest origin evidence.
+## Ownership and state
 
-## Historical design and implementation notes
+| State | Where it belongs | What it establishes |
+|---|---|---|
+| Source and active task intent | Owned worktree and committed candidate | Proposed behavior, scope and acceptance command |
+| Native reservations | The clone's common Git directory, under `susi-local-workflow/claims` | Cooperative ownership within that coordinator |
+| Native integration head and receipt | Coordinator-managed Git refs and local receipt storage | The exact candidate and checks accepted by that coordinator |
+| Published development source | The authorized remote's `refs/heads/main` | Source accepted by that remote, after its actual value is confirmed |
+| Agent handoff | `refs/agents/<agent>` | An owned candidate available for another host to inspect and integrate |
+| Build targets, verification slots, runtime homes and retained run history | Private local storage outside tracked source | Local working state; never authority or proof merely because it exists |
 
-CEO direction, 2026-11-07: any number of agents, on any host (Windows, Linux,
-macOS; a laptop, a cloud sandbox), must coordinate through the susi harness
-workflow, and the GitHub repository is the shared medium. No shared filesystem,
-no GitHub Actions, no third-party coordinator. These are the technical
-decisions.
+Native local reservations do not by themselves become a distributed lock.
+Before work spans hosts, use the authorized shared coordination surface and
+inspect the actual claims it exposes. Do not assume another clone can see a
+local reservation, warm target or integration receipt. Coordination messages
+are not acceptance evidence. The native board path refuses the protected public
+source repository; preserve that refusal and the configured identity resolution.
+External coordination messages require authorization under the active contract.
 
-## What is wrong today
+A task has one live owner while work is active. Keep its scope and progress
+current, and release ownership when work is handed off, completed or stopped.
+Retain a failed candidate and its claim for repair when the native coordinator
+requires it. Never remove another worker's reservation, reset its worktree or
+replace its runtime state. Worktree isolation is cooperative and does not replace
+OS sandboxing or tool authorization.
 
-`cargo local-workflow` keeps claims, verification slots, receipts and the
-integration pointer under one host's `.git/susi-local-workflow`. A second host
-cannot see a reservation, cannot run the gate against the same integration
-history, and so pushes to `main` directly. On 2026-11-07 one cloud agent pushed
-about 400 commits that way; `main` did not compile for an hour and a half, the
-other host's gated ships lost every race, and both agents repaired the same
-breakage twice.
+## Prepare and integrate
 
-## Decisions
+Use the [native bootstrap](native-bootstrap.md) and
+[mission runbook](harness-runbook.md) for executable entry points. The harness
+adapter reserves an isolated worktree, checks task ownership and scopes, runs
+acceptance and commits the candidate. Its native integration path is
+`local workflow integrate <claim>`; a wave may integrate several disjoint claims
+in one combined candidate. Landing is serialized even when preparation runs in
+parallel.
 
-1. **Claims are refs on `origin`.** `refs/susi/claims/<agent>` holds the claim
-   (scopes, base commit, host, platform triple, created time, expiry). `start`
-   creates it with a compare-and-swap push (`--force-with-lease` expecting the
-   ref absent); `extend`/`shrink` replace it the same way; `release` deletes
-   it. Before claiming, `start` fetches `refs/susi/claims/*` and checks
-   overlaps exactly as it checks local claims now. `list` shows every host's
-   claims. The compare-and-swap push is the lock; there is no other.
-2. **The agent's source is its pushed agent ref.** `commit` pushes the local
-   `local-agent/<agent>` branch to `refs/agents/<agent>` after the scope
-   guard; that ref is the hand-off between hosts. It is not a branch on the
-   Git host, so no pull request can be opened against it (CEO decision
-   2026-11-11; `docs/agent-refs.md`). Pushing `refs/heads/local-agent/*` is
-   refused.
-3. **Ship runs on any host that can build its platform, against `origin`.**
-   `ship <agent>` fetches `origin/main` and the agent branch, merges the
-   candidate, runs the gate locally (format, licenses, clippy, affected tests,
-   task acceptance), then publishes atomically: the receipt goes to
-   `refs/susi/receipts/<merge-sha>` and `main` fast-forwards with
-   `--force-with-lease=main:<the main it merged onto>`. If `main` moved
-   meanwhile, ship re-merges onto the new head and re-runs only the narrowed
-   gate for the delta before publishing again; it never force-pushes.
-4. **Receipts carry the platform.** `refs/susi/integration/<triple>` is the
-   last commit gated on that platform. A ship on Linux advances `main` and the
-   Linux pointer; the next Windows ship gates everything since the Windows
-   pointer, so a `#[cfg(windows)]` break surfaces at the next Windows ship,
-   recorded, instead of by hand. Qualification for release needs the pointers
-   of every shipped platform at the same commit.
-5. **A gated host can integrate another agent's branch.** `ship --adopt
-   <branch>` takes a pushed `refs/agents/<agent>` ref whose claim is on `origin`
-   and runs it through this host's gate. A host that cannot run the gate (no
-   toolchain for the target, no time budget) pushes its branch and stops;
-   it never pushes `main`.
-6. **Ungated history is tolerated and named.** When `main` advanced without a
-   receipt, ship measures the agent's scope from what its branch shares with
-   `main` (shipped 2026-11-07, 9b9515c8a) and the receipt lists the ungated
-   range it absorbed. Nothing refuses to build; the record shows who skipped
-   the gate.
-7. **Task records stay in the tree** (`.agents/tasks/T-*.json`), as today;
-   the acceptance plan reads them from the candidate.
+The command's actual acceptance, source, license and integration checks must
+pass. A failure preserves work for repair; it is not permission to skip a check,
+loosen a test or substitute a different artifact. Local integration success
+must be distinguished from remote publication and from production qualification.
+The harness supervisor's `done` result follows native local integration; inspect
+the remote receipt before claiming publication.
 
-## Remote-agent mandate (CEO, 2026-11-08) and where the harness enforces it
+## Publish and reconcile
 
-The night of 2026-11-07 showed what the design above has to make impossible:
-a remote agent pushed about sixty ungated commits to `origin/main`, deleted
-roughly 20,000 lines as "migrated to commercial" with nothing on the
-commercial origin, broke main's tests twice, left four capabilities as error
-stubs, and cost two gated landings seven attempts. The mandate (workspace
-`AGENTS.md`, "Remote and Cloud Agent Workflow") has eight rules; the harness
-makes them mechanical in `susi_harness::workflow::IntegrationPolicy`:
+Fetch and merge current remote main before starting, when resuming and before
+committing if reachable. Review meaningful, ready work for integration about
+every ten minutes. This is a cadence against drift, not a compulsory cooldown or
+a reason to publish incomplete work. Capacity and serialized publication govern
+parallelism.
 
-| rule | harness mechanism |
-|------|-------------------|
-| one `refs/agents/<agent>` ref per agent (published from the local `local-agent/<agent>` branch), never `main`, never `refs/susi/*`, never a `refs/heads/local-agent/*` branch | `publish_branch`, `publish_ref`, `check_push_target`: a wave is planned only with each task's branch; a push target that is `main`, a coordinator ref, another agent's ref, a retired `local-agent/*` branch (`RetiredAgentBranch`) or anything else is a `PolicyViolation` |
-| `Task: T-<AGENT>-<n>` trailer on every commit, record scopes equal the claim | `check_commit_trailers` over the batch; the acceptance plan already refuses a record whose scopes differ |
-| destination first; no stubbed ports | `check_migration(MigrationProof)`: no commercial commit, not declared, not compiling, not tested, or a kept port with no plug, and core may not delete |
-| verify before every push | the brief lines list the exact commands; the gate runs them again on adoption |
-| one push per gated cycle; read the board | `gate_cycle_secs` in the brief; the stop note is read from the board before each wave |
-| never another agent's claim | `next_wave` already refuses overlapping scopes; `validate_plan` refuses two tasks that would publish on one branch |
-| report only what the origin shows | receipts and integration pointers on `origin` (decisions above) are the only "landed" |
+An authorized agent may publish a normal fast-forward to unqualified main, or
+hand off its candidate through its own `refs/agents/<agent>` ref. Use
+[agent refs](agent-refs.md) and the
+[storage publisher](git-storage-publisher.md); never force-push, rewrite shared
+history or move another agent's ref. Local `local-agent/<agent>` branches remain
+local. Protected coordinator refs, qualified release streams and immutable
+release tags keep their separate rules.
 
-`brief_lines(agent)` is prepended to every worker prompt the executor hands
-out, so a remote worker reads the rules with its task. The native
-coordinator's `ship --adopt` (order of work, step 2) calls
-`check_commit_trailers` and refuses a branch that fails it; the GitHub
-ruleset on both repositories keeps `main` behind the gate identity (a machine
-account per remote agent, none on the bypass list: CEO action).
+The harness retains both branch-only and fast-main integration policies.
+`IntegrationPolicy` checks the selected mode, owned identity, task trailers,
+scopes and protected refs. Follow the actual policy selected by a caller; the
+availability of another authorized publication path does not bypass a refusal.
+Main has no universal mandatory pre-push qualification gate, while a native
+integration or release command still enforces its own checks.
 
-## What stays per host
+Workflow reconciliation and storage auditing require the admitted
+`workflow_harness_v1` MCP provider. Confirm the accepted remote head and receipt;
+a pushed candidate, local merge or retained historical record is insufficient.
+If another publisher advances main, reconcile from the observed source through
+the normal workflow. After an uncertain mutation response, inspect the remote
+and retained receipt before retrying: a lost reply must not replay an operation.
+An accepted publication with a cleanup warning remains accepted; repair the
+reported local archival problem without resubmitting the original mutation.
 
-Verification slots and warm targets (`slots/<n>`), the host gate lock and the
-test-duration history are per-host caches. They never decide anything.
+## Records and release qualification
 
-## Order of work (each a gated ship, Claude's lane)
+Active task intent remains available until acceptance and publication settle.
+The workflow receiver archives accepted native task records in local Git metadata
+and removes their active source copies in a separately confirmed cleanup commit.
+Legacy records remain readable. Missing history never supplies completion proof;
+a cleanup warning cannot stand in for successful archival. Do not add activity,
+incident or measurement histories to source. See [record storage](evidence.md#record-storage).
 
-1. Claims on `origin` refs with compare-and-swap; `list` shows all hosts.
-2. `commit` pushes the agent branch; `ship --adopt`.
-3. Receipts and per-platform integration pointers on `origin`; fast-forward
-   with lease and the narrowed re-gate on a lost race.
-4. Retire `.git/susi-local-workflow/{claims,integration,publish}`.
+Production qualification binds the exact combined source, dependencies,
+toolchain, target, features, artifact hashes and passing checks. Each shipped
+platform needs its own evidence; one host's result cannot qualify another
+platform. Preserve licenses, required attribution, signing authority, health
+checks and a verified rollback path. Published release tags remain immutable.
+See [qualification](evidence.md#production-qualification) and
+[gate receipts](gate-receipts.md).
 
-Measured goal: a cloud agent on Linux and this laptop on Windows each run
-`start`, `commit`, `ship` from their own clone with nothing shared but
-`origin`, and neither can push `main` without a receipt.
+These procedures do not claim the entire agent engine has moved out of core,
+that every persistent compatibility identity is generic, or that the core-size
+goal is met. Further implementation transfers require a working destination and
+actual socket parity before removal; authorization and provenance stay live.

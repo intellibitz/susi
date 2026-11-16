@@ -46,6 +46,8 @@ pub mod key_rotation;
 pub mod key_scope;
 pub mod mac_policy;
 pub mod mcp;
+pub mod mcp_client;
+pub mod mcp_session;
 pub mod native_path;
 pub mod peer_channel;
 pub mod peer_channel_link;

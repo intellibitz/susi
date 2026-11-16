@@ -416,24 +416,47 @@ pub fn retire_remote_clutter(config: &RetireBranchesConfig) -> EaiResult<RetireB
 
 const ERROR_SCHEMA: &str = "susi-workflow-error-v1";
 
+const WORKFLOW_TOOL: &str = "workflow_harness_v1";
+
+fn workflow_request(
+    operation: &str,
+    config: &impl Serialize,
+) -> EaiResult<(Value, Option<&'static Path>)> {
+    let config = serde_json::to_value(config)
+        .map_err(|error| EaiError::protocol(format!("serialize workflow request: {error}")))?;
+    Ok((
+        json!({"operation":operation,"config":config}),
+        (operation != "score_task").then_some(Path::new(".")),
+    ))
+}
+
 pub(crate) fn workflow_call<T: DeserializeOwned>(
     operation: &str,
     config: &impl Serialize,
 ) -> EaiResult<T> {
-    let config = serde_json::to_value(config)
-        .map_err(|error| EaiError::protocol(format!("serialize workflow request: {error}")))?;
-    let result = crate::tool_backend::call_result(
-        "workflow_harness_v1",
-        &json!({"operation":operation, "config":config}),
-        (operation != "score_task").then_some(Path::new(".")),
-    )?;
-    decode_workflow_result(result)
+    let (request, cwd) = workflow_request(operation, config)?;
+    decode_workflow_result(crate::tool_backend::call_result(
+        WORKFLOW_TOOL,
+        &request,
+        cwd,
+    )?)
+}
+
+/// The fallback runs only after discovery proves that no provider claimed this tool.
+pub(crate) fn workflow_call_or<T: DeserializeOwned>(
+    operation: &str,
+    config: &impl Serialize,
+    fallback: impl FnOnce() -> EaiResult<T>,
+) -> EaiResult<T> {
+    let (request, cwd) = workflow_request(operation, config)?;
+    match crate::tool_backend::try_call_result(WORKFLOW_TOOL, &request, cwd)? {
+        Some(result) => decode_workflow_result(result),
+        None => fallback(),
+    }
 }
 
 // Relative paths and their diagnostic labels keep the caller's native cwd.
-pub(crate) fn caller_wire_path(path: &Path) -> EaiResult<Value> {
-    wire_path(path)
-}
+pub(crate) use wire_path as caller_wire_path;
 
 pub(crate) fn wire_path(path: &Path) -> EaiResult<Value> {
     susi_paths::native_path::encode(path).map_err(EaiError::config)

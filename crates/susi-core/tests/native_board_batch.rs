@@ -5,53 +5,49 @@ use std::path::Path;
 use std::process::Stdio;
 use susi_core::native_board::{load_git, SCHEMA};
 
-fn git(repo: &Path, args: &[&str]) -> String {
+type FixtureResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn git(repo: &Path, args: &[&str]) -> FixtureResult<String> {
     let output = susi_paths::console::background_command("git")
         .current_dir(repo)
         .stdin(Stdio::null())
         .args(args)
-        .output()
-        .expect("run fixture Git");
+        .output()?;
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout)
-        .expect("fixture Git output")
-        .trim()
-        .to_owned()
+    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-fn item(n: u64, prev: &str) -> Vec<u8> {
-    serde_json::to_vec_pretty(&serde_json::json!({
+fn item(n: u64, prev: &str) -> FixtureResult<Vec<u8>> {
+    Ok(serde_json::to_vec_pretty(&serde_json::json!({
         "schema":SCHEMA,"n":n,"kind":"note","agent":"fixture","host":"test",
         "posted_unix":1,"title":"entry","body":"Unicode Ω and\nseveral lines","prev":prev,
-    }))
-    .expect("encode board item")
+    }))?)
 }
 
 #[test]
-fn mixed_git_objects_preserve_numbering_diagnostics_and_annotated_blob_targets() {
-    let dir = susi_paths::tempfile::tempdir().expect("fixture directory");
+fn mixed_git_objects_preserve_numbering_diagnostics_and_annotated_blob_targets() -> FixtureResult<()>
+{
+    let dir = susi_paths::tempfile::tempdir()?;
     let repo = dir.path();
-    git(repo, &["init", "--quiet"]);
-    let blob = |bytes: &[u8]| {
-        fs::write(repo.join("fixture"), bytes).expect("write fixture blob");
+    git(repo, &["init", "--quiet"])?;
+    let blob = |bytes: &[u8]| -> FixtureResult<String> {
+        fs::write(repo.join("fixture"), bytes)?;
         git(repo, &["hash-object", "-w", "fixture"])
     };
-    let post = |n, oid: &str| {
-        git(repo, &["update-ref", &format!("refs/board/items/{n}"), oid]);
-    };
-    let first = blob(&item(1, ""));
-    post(1, &first);
-    post(2, &git(repo, &["mktree"]));
-    post(3, &blob(b"bad\x00json\n1234\n{}\n"));
-    let fourth = blob(&item(4, "broken-link"));
-    post(4, &fourth);
-    let seventh = blob(&item(71, &fourth));
-    post(7, &seventh);
-    let eighth = blob(&item(8, &seventh));
+    let post = |n, oid: &str| git(repo, &["update-ref", &format!("refs/board/items/{n}"), oid]);
+    let first = blob(&item(1, "")?)?;
+    post(1, &first)?;
+    post(2, &git(repo, &["mktree"])?)?;
+    post(3, &blob(b"bad\x00json\n1234\n{}\n")?)?;
+    let fourth = blob(&item(4, "broken-link")?)?;
+    post(4, &fourth)?;
+    let seventh = blob(&item(71, &fourth)?)?;
+    post(7, &seventh)?;
+    let eighth = blob(&item(8, &seventh)?)?;
     git(
         repo,
         &[
@@ -68,11 +64,11 @@ fn mixed_git_objects_preserve_numbering_diagnostics_and_annotated_blob_targets()
             "fixture",
             &eighth,
         ],
-    );
-    let tag = git(repo, &["rev-parse", "refs/tags/fixture-tag"]);
-    post(8, &tag);
+    )?;
+    let tag = git(repo, &["rev-parse", "refs/tags/fixture-tag"])?;
+    post(8, &tag)?;
 
-    let (items, findings) = load_git(repo).expect("read even the damaged sequence");
+    let (items, findings) = load_git(repo)?;
     assert_eq!(
         items.iter().map(|stored| stored.n).collect::<Vec<_>>(),
         [1, 4, 7, 8]
@@ -89,4 +85,5 @@ fn mixed_git_objects_preserve_numbering_diagnostics_and_annotated_blob_targets()
     ]) {
         assert!(finding.starts_with(expected), "{finding}");
     }
+    Ok(())
 }

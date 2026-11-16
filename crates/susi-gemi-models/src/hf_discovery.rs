@@ -61,8 +61,14 @@ fn hf_header_refs(owned: &[(String, String)]) -> Vec<(&str, &str)> {
         .collect()
 }
 
-fn hf_get_json<T: serde::de::DeserializeOwned>(url: &str, headers: &[(&str, &str)]) -> Option<T> {
-    let call = susi_http_transport::http_call("GET", url, headers, 8, 10).ok()?;
+fn hf_get_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    headers: &[(&str, &str)],
+    timeout_secs: u64,
+    max_redirects: u32,
+) -> Option<T> {
+    let call =
+        susi_http_transport::http_call("GET", url, headers, timeout_secs, max_redirects).ok()?;
     if !(200..300).contains(&call.status) {
         return None;
     }
@@ -166,22 +172,12 @@ fn repo_metadata(base: &str, repo: &str, headers: &[(&str, &str)]) -> Option<HfM
     if !crate::susi_core::mac_policy::egress_permitted(base) {
         return None;
     }
-    let result = susi_http_transport::http_call(
-        "GET",
+    let result = hf_get_json::<HfModel>(
         &format!("{base}/api/models/{repo}?blobs=true"),
         headers,
         2,
         0,
     )
-    .ok()
-    .filter(|call| (200..300).contains(&call.status))
-    .and_then(|call| {
-        crate::susi_core::bounded_io::json_capped::<HfModel>(
-            call.into_reader(),
-            crate::susi_core::bounded_io::JSON_BODY_CAP,
-        )
-        .ok()
-    })
     .filter(|model| model.id == repo);
     if result
         .as_ref()
@@ -248,21 +244,17 @@ fn retain_admitted(
     let steps = retain_quantized(steps);
     // Each step's license lookups are independent and bounded; checked at
     // once, a ladder costs its slowest lookup, not their sum.
-    let admitted: Vec<bool> = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
+        let headers = &headers;
         let checks: Vec<_> = steps
-            .iter()
-            .map(|step| scope.spawn(|| admitted_step(cfg, step, &headers)))
+            .into_iter()
+            .map(|step| scope.spawn(move || admitted_step(cfg, &step, headers).then_some(step)))
             .collect();
         checks
             .into_iter()
-            .map(|check| check.join().unwrap_or(false))
+            .filter_map(|check| check.join().ok().flatten())
             .collect()
-    });
-    steps
-        .into_iter()
-        .zip(admitted)
-        .filter_map(|(step, admitted)| admitted.then_some(step))
-        .collect()
+    })
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -324,6 +316,90 @@ fn supported_model_type(model_type: Option<&str>) -> bool {
     )
 }
 
+/// A cache-only query never dispatches a provider lookup. A missing, older, or
+/// unavailable host leaves the existing local admission path in charge.
+fn configured_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    steps: Vec<ModelLadderConfigStep>,
+    mode: &str,
+) -> Vec<ModelLadderConfigStep> {
+    const TOPIC: &str = "ecosystem_hub.models.discovery.v1";
+    use crate::susi_core::plane_bus_ipc::{route_candidates, IpcPlaneBus};
+    let base = cfg.hf_base_url();
+    let cached = || -> Option<Vec<ModelLadderConfigStep>> {
+        let bus = IpcPlaneBus::global();
+        let target = route_candidates(&bus.rendezvous_dirs(), TOPIC)
+            .into_iter()
+            .map(|(_, endpoint)| endpoint)
+            .find(|endpoint| endpoint.ip().is_loopback())?;
+        if base.contains(['@', '?', '#'])
+            || !crate::susi_core::mac_policy::egress_permitted(&base)
+            || !hf_auth_headers().is_empty()
+        {
+            return None;
+        }
+        let artifacts: Vec<_> = steps
+            .iter()
+            .map(|s| (&s.hf_repo, &s.hf_file, &s.tokenizer_repo))
+            .collect();
+        let bytes = serde_json::to_vec(&("susi-model-admission-v2", &base, artifacts)).ok()?;
+        let hash = crate::resumable_downloads::sha256_hex(&bytes);
+        let request =
+            serde_json::json!({"version":2,"mode":mode,"selection_sha256":hash,"cache_only":true});
+        // The general plane bus also serves long-running tools. First-goal discovery
+        // only observes a loopback cache under a one-second total exchange deadline.
+        let secret = std::fs::read_to_string(bus.rendezvous().parent()?.join("secret")).ok()?;
+        let secret = secret.trim();
+        if secret.len() != 64 || !secret.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let body =
+            serde_json::to_vec(&serde_json::json!({"topic": TOPIC, "payload": request})).ok()?;
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            &format!("http://{target}/handle"),
+            &[
+                ("X-Susi-Bus-Key", secret),
+                ("Content-Type", "application/json"),
+            ],
+            Some(&body),
+            1,
+            0,
+        )
+        .ok()?;
+        if call.status != 200 {
+            return None;
+        }
+        let envelope: serde_json::Value =
+            crate::susi_core::bounded_io::json_capped(call.into_reader(), 1024 * 1024 + 1024)
+                .ok()?;
+        let reply = &envelope["ok"];
+        let result = &reply["result"];
+        if reply["version"] != 2
+            || reply["mode"] != mode
+            || reply["selection_sha256"] != hash
+            || result["status"] != "ready"
+        {
+            return None;
+        }
+        let indices: Vec<usize> =
+            serde_json::from_value(result["admitted_indices"].clone()).ok()?;
+        if indices.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return None;
+        }
+        indices
+            .into_iter()
+            .map(|i| {
+                steps
+                    .get(i)
+                    .filter(|s| is_quantized_gguf(&s.hf_file))
+                    .cloned()
+            })
+            .collect()
+    };
+    cached().unwrap_or_else(|| retain_admitted(cfg, steps))
+}
+
 pub fn resolve_model_ladder(
     cfg: &crate::susi_sandbox::manager::SusiConfig,
 ) -> Vec<ModelLadderConfigStep> {
@@ -331,7 +407,7 @@ pub fn resolve_model_ladder(
     if configured.is_empty() {
         retain_admitted(cfg, discover_dynamic_ladder())
     } else {
-        retain_admitted(cfg, configured)
+        configured_ladder(cfg, configured, "catalog")
     }
 }
 
@@ -414,16 +490,10 @@ pub(crate) fn compact_ladder(
     }
     let limit = limit.clamp(1, 10);
     if result.len() > limit {
-        let count = result.len();
+        let last = result.len() - 1;
+        let intervals = (limit - 1).max(1);
         result = (0..limit)
-            .map(|i| {
-                result[if limit == 1 {
-                    0
-                } else {
-                    i * (count - 1) / (limit - 1)
-                }]
-                .clone()
-            })
+            .map(|i| result[i * last / intervals].clone())
             .collect();
     }
     for (index, step) in result.iter_mut().enumerate() {
@@ -439,7 +509,7 @@ pub fn resolve_bootstrap_ladder(
 ) -> Vec<ModelLadderConfigStep> {
     let configured = cfg.model_ladder();
     if !configured.is_empty() {
-        return retain_admitted(cfg, configured);
+        return configured_ladder(cfg, configured, "bootstrap");
     }
     if !crate::susi_core::mac_policy::egress_permitted(&cfg.hf_base_url()) {
         return Vec::new();
@@ -470,22 +540,19 @@ fn resolve_repo_step(
     let base = cfg.hf_base_url();
     let policy = cfg.model_lifecycle();
     let model = repo_metadata(&base, &repo, headers)?;
-    let tokenizer_repo = if model
-        .siblings
-        .iter()
-        .any(|f| f.rfilename == cfg.tokenizer_filename() && f.size > 0)
-    {
+    let contains_tokenizer = |model: &HfModel| {
+        model
+            .siblings
+            .iter()
+            .any(|file| file.rfilename == cfg.tokenizer_filename() && file.size > 0)
+    };
+    let tokenizer_repo = if contains_tokenizer(&model) {
         repo.clone()
     } else {
         base_repo.clone()?
     };
     let tokenizer = repo_metadata(&base, &tokenizer_repo, headers)?;
-    if !permitted_license(&tokenizer)
-        || !tokenizer
-            .siblings
-            .iter()
-            .any(|file| file.rfilename == cfg.tokenizer_filename() && file.size > 0)
-    {
+    if !permitted_license(&tokenizer) || !contains_tokenizer(&tokenizer) {
         return None;
     }
     let best = model
@@ -521,6 +588,8 @@ fn resolve_repo_step(
     let config = hf_get_json::<serde_json::Value>(
         &format!("{base}/{config_repo}/resolve/main/config.json"),
         headers,
+        8,
+        10,
     )?;
     if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
         return None;
@@ -544,7 +613,7 @@ fn fetch_dynamic_ladder(
         "{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true",
         policy.discovery_limit.clamp(1, 50)
     );
-    let Some(mut models) = hf_get_json::<Vec<HfModel>>(&url, &hdr) else {
+    let Some(mut models) = hf_get_json::<Vec<HfModel>>(&url, &hdr, 8, 10) else {
         return Vec::new();
     };
     let fallback = cfg.default_fallback_model();

@@ -42,8 +42,15 @@ use super::workflow_cli;
 
 use std::env;
 use std::path::Path;
-use susi_daemon::discovery_pipeline::Catalogs;
 use susi_daemon::SusiDaemon;
+
+fn in_workspace<A>(
+    prep: PlanePrep,
+    action: A,
+    execute: fn(A, &Path) -> crate::anyhow::Result<()>,
+) -> std::process::ExitCode {
+    run_plane_cwd(prep, |cwd| execute(action, cwd))
+}
 
 /// Dispatch control-plane commands that must run before substrate boot.
 /// Returns `Ok(exit_code)` when the command was handled; `Err(command)` hands
@@ -53,171 +60,62 @@ use susi_daemon::SusiDaemon;
 pub(crate) fn dispatch(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {
-    // The catalogs this command reads, taken before its arm consumes it:
-    // an Ecosystem plane primes exactly these and nothing else.
-    let ecosystem = PlanePrep::Ecosystem(
-        command
-            .as_ref()
-            .map_or(Catalogs::ALL, super::defs::command_catalogs),
-    );
-    // Leaf-service mode: the daemon re-execs this binary as
-    // `service-run <name>`; it must serve before anything else touches
-    // the substrate (no daemon ensure, no mission pipeline).
-    if let Some(Commands::ServiceRun { name, port }) = command {
-        return Ok(run_plane(PlanePrep::None, || service_run(&name, port)));
-    }
-    if let Some(Commands::Acp { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            acp_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Run(args)) = command {
-        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
-            run_cli::execute(args, cwd)
-        }));
-    }
-    if let Some(Commands::Extensions { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || {
-            extensions_cli::execute(action)
-        }));
-    }
-    if let Some(Commands::Auto { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
-            auto_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Setup { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || setup_cli::execute(action)));
-    }
-    if let Some(Commands::Workflow { args }) = command {
-        return Ok(run_plane(PlanePrep::None, || workflow_cli::execute(&args)));
-    }
-    if let Some(Commands::Harness { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            harness_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Tasks { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            tasks_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Brain { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || brain_cli::execute(action)));
-    }
-    if let Some(Commands::Ecosystem { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || {
-            ecosystem_cli::execute(action)
-        }));
-    }
-    if let Some(Commands::Blackboard { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            blackboard_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Board { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            board_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::ContextGraph { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            context_graph_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Broker { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            broker_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Telemetry { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || {
-            telemetry_cli::execute(action)
-        }));
-    }
-    if let Some(Commands::Patch { args }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            patch_cli::execute(args, cwd)
-        }));
-    }
-    if let Some(Commands::Plan { args }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
-            plan_cli::execute(args, cwd)
-        }));
-    }
-    if let Some(Commands::Privacy { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || privacy_cli::execute(action)));
-    }
-    if let Some(Commands::Intent { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || intent_cli::execute(action)));
-    }
-    if let Some(Commands::Ambient { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            ambient_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Tx { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            tx_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Substrate { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            substrate_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Crown { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            crown_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Services { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            services_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Commits { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            commits_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Os { json, action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            os_cli::execute(action, json, cwd)
-        }));
-    }
-    if let Some(Commands::Peers { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            peers_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Agents { action }) = command {
-        return Ok(run_plane_cwd(ecosystem, |cwd| {
-            agent_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Frameworks { action }) = command {
-        return Ok(run_plane_cwd(ecosystem, |cwd| {
-            framework_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Models { action }) = command {
-        return Ok(run_plane_cwd(ecosystem, |cwd| {
-            model_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::OpenWeight { action }) = command {
-        return Ok(run_plane(ecosystem, || open_weight_cli::execute(action)));
-    }
-    if let Some(Commands::Frontier { action }) = command {
-        return Ok(run_plane(ecosystem, || frontier_cli::execute(action)));
-    }
-    if let Some(Commands::OpenRouter { action }) = command {
-        return Ok(run_plane(PlanePrep::None, || {
-            openrouter_cli::execute(action)
-        }));
-    }
-    Err(command)
+    use Commands::*;
+    // Read the catalog set before moving the command into its handler.
+    let ecosystem = PlanePrep::Ecosystem(command.as_ref().map_or(
+        susi_daemon::discovery_pipeline::Catalogs::ALL,
+        super::defs::command_catalogs,
+    ));
+    Ok(match command {
+        // Leaf-service mode: the daemon re-execs this binary as
+        // `service-run <name>`; it must serve before anything else touches
+        // the substrate (no daemon ensure, no mission pipeline).
+        Some(ServiceRun { name, port }) => run_plane(PlanePrep::None, || service_run(&name, port)),
+        Some(Acp { action }) => in_workspace(PlanePrep::None, action, acp_cli::execute),
+        Some(Run(args)) => in_workspace(PlanePrep::Substrate, args, run_cli::execute),
+        Some(Extensions { action }) => {
+            run_plane(PlanePrep::None, || extensions_cli::execute(action))
+        }
+        Some(Auto { action }) => in_workspace(PlanePrep::Substrate, action, auto_cli::execute),
+        Some(Setup { action }) => run_plane(PlanePrep::None, || setup_cli::execute(action)),
+        Some(Workflow { args }) => run_plane(PlanePrep::None, || workflow_cli::execute(&args)),
+        Some(Harness { action }) => in_workspace(PlanePrep::None, action, harness_cli::execute),
+        Some(Tasks { action }) => in_workspace(PlanePrep::None, action, tasks_cli::execute),
+        Some(Brain { action }) => run_plane(PlanePrep::None, || brain_cli::execute(action)),
+        Some(Ecosystem { action }) => run_plane(PlanePrep::None, || ecosystem_cli::execute(action)),
+        Some(Blackboard { action }) => {
+            in_workspace(PlanePrep::None, action, blackboard_cli::execute)
+        }
+        Some(Board { action }) => in_workspace(PlanePrep::None, action, board_cli::execute),
+        Some(ContextGraph { action }) => {
+            in_workspace(PlanePrep::None, action, context_graph_cli::execute)
+        }
+        Some(Broker { action }) => in_workspace(PlanePrep::None, action, broker_cli::execute),
+        Some(Telemetry { action }) => run_plane(PlanePrep::None, || telemetry_cli::execute(action)),
+        Some(Patch { args }) => in_workspace(PlanePrep::None, args, patch_cli::execute),
+        Some(Plan { args }) => in_workspace(PlanePrep::Substrate, args, plan_cli::execute),
+        Some(Privacy { action }) => run_plane(PlanePrep::None, || privacy_cli::execute(action)),
+        Some(Intent { action }) => run_plane(PlanePrep::None, || intent_cli::execute(action)),
+        Some(Ambient { action }) => in_workspace(PlanePrep::None, action, ambient_cli::execute),
+        Some(Tx { action }) => in_workspace(PlanePrep::None, action, tx_cli::execute),
+        Some(Substrate { action }) => in_workspace(PlanePrep::None, action, substrate_cli::execute),
+        Some(Crown { action }) => in_workspace(PlanePrep::None, action, crown_cli::execute),
+        Some(Services { action }) => in_workspace(PlanePrep::None, action, services_cli::execute),
+        Some(Commits { action }) => in_workspace(PlanePrep::None, action, commits_cli::execute),
+        Some(Os { json, action }) => {
+            run_plane_cwd(PlanePrep::None, |cwd| os_cli::execute(action, json, cwd))
+        }
+        Some(Peers { action }) => in_workspace(PlanePrep::None, action, peers_cli::execute),
+        Some(Agents { action }) => in_workspace(ecosystem, action, agent_cli::execute),
+        Some(Frameworks { action }) => in_workspace(ecosystem, action, framework_cli::execute),
+        Some(Models { action }) => in_workspace(ecosystem, action, model_cli::execute),
+        Some(OpenWeight { action }) => run_plane(ecosystem, || open_weight_cli::execute(action)),
+        Some(Frontier { action }) => run_plane(ecosystem, || frontier_cli::execute(action)),
+        Some(OpenRouter { action }) => {
+            run_plane(PlanePrep::None, || openrouter_cli::execute(action))
+        }
+        other => return Err(other),
+    })
 }
 
 /// Handle the `mcp` command pre-boot branch. Returns `Ok(exit_code)` when

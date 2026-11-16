@@ -1,0 +1,16 @@
+{
+  "branch": "codexcoremodels/reuse",
+  "scopes": [
+    ".agents/tasks/T-CODEXCOREMODELS-6.json",
+    "crates/susi-gemi-models/src/catalog.rs",
+    "crates/susi-gemi-models/src/coding_models.rs",
+    "crates/susi-gemi-models/src/frontier.rs",
+    "crates/susi-gemi-models/src/open_weight.rs",
+    "crates/susi-gemi-models/src/openrouter.rs",
+    "crates/susi-gemi-models/tests/catalog_compat.rs"
+  ],
+  "task": "T-CODEXCOREMODELS-6",
+  "agent": "CODEXCOREMODELS",
+  "claimed_unix": 1794860484,
+  "lease_until_unix": 1794864084
+}

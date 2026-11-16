@@ -1,4 +1,8 @@
-use super::completion_count;
+fn completion_count(raw: &str, head: &str) -> Option<usize> {
+    let result = serde_json::from_str(raw).ok()?;
+    let reply = susi_config::mcp_session::json_result(result, None).ok()?;
+    super::completion_count(&reply, head)
+}
 use serde_json::json;
 
 #[test]

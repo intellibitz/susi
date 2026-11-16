@@ -116,97 +116,128 @@ pub fn render_frame(snap: &TopSnapshot) -> String {
 /// Render the unified operator control surface (VC-201-099).
 #[must_use]
 pub fn render_operator_state(state: &UnifiedOperatorState) -> String {
-    let mut out = String::from("susi top — unified operator control surface\n");
+    render_sections(state, None)
+}
 
-    out.push_str("── workload ──\n");
-    if state.snapshot.queue.is_empty() {
-        out.push_str("  queue: (idle)\n");
-    } else {
-        out.push_str("  active tasks:\n");
-        for q in &state.snapshot.queue {
-            out.push_str(&format!("    {} [{}] {}\n", q.task_id, q.holder, q.title));
+/// Render a single CLI dimension. Filtered views omit unavailable rows.
+pub fn render_operator_dimension(state: &UnifiedOperatorState, dimension: &str) -> Option<String> {
+    let dimension = match dimension {
+        "config" => "configuration",
+        "workload" | "resources" | "providers" | "configuration" | "federation" | "evidence" => {
+            dimension
         }
-    }
-    if state.blocked_work.is_empty() {
-        out.push_str("  blocked: (none)\n");
-    } else {
-        out.push_str("  blocked work:\n");
-        for b in &state.blocked_work {
-            out.push_str(&format!("    {} — {} ({})\n", b.task_id, b.title, b.reason));
-        }
-    }
+        _ => return None,
+    };
+    Some(render_sections(state, Some(dimension)))
+}
 
-    out.push_str("── resources ──\n");
-    match &state.resources {
-        Some(r) => out.push_str(&format!(
-            "  cpu: {:.1}% | ram: {}/{} MB\n",
-            r.cpu_util_pct, r.mem_used_mb, r.mem_total_mb
-        )),
-        None => out.push_str("  system: (unmeasured)\n"),
+fn render_sections(state: &UnifiedOperatorState, dimension: Option<&str>) -> String {
+    let full = dimension.is_none();
+    let includes = |name| full || dimension == Some(name);
+    let mut out = String::new();
+    if full {
+        out.push_str("susi top — unified operator control surface\n");
     }
-    match &state.snapshot.gpu {
-        Some(g) => out.push_str(&format!(
-            "  gpu: util={:.0}% temp={:.0}C vram={}/{}MB\n",
-            g.util_pct, g.temp_c, g.vram_used_mb, g.vram_total_mb
-        )),
-        None => out.push_str("  gpu: (none)\n"),
-    }
-
-    out.push_str("── providers ──\n");
-    if state.snapshot.providers.is_empty() {
-        out.push_str("  (none)\n");
-    } else {
-        for p in &state.snapshot.providers {
-            out.push_str(&format!(
-                "  {} {} {}ms\n",
-                p.name,
-                if p.healthy { "ok" } else { "down" },
-                p.latency_ms
-            ));
-        }
-    }
-
-    out.push_str("── configuration ──\n");
-    match &state.config {
-        Some(c) => out.push_str(&format!(
-            "  profile: {} | port: {} | root: {}\n",
-            c.profile, c.port, c.workspace_root
-        )),
-        None => out.push_str("  (default)\n"),
-    }
-
-    out.push_str("── federation ──\n");
-    match &state.federation {
-        Some(f) => {
-            let agents_str = if f.active_agents.is_empty() {
-                "none".to_string()
-            } else {
-                f.active_agents.join(", ")
-            };
-            out.push_str(&format!(
-                "  peers: {} | quorum: {} | agents: {}\n",
-                f.peer_count,
-                if f.quorum_healthy { "ok" } else { "degraded" },
-                agents_str
-            ));
-        }
-        None => out.push_str("  standalone\n"),
-    }
-
-    out.push_str("── evidence ──\n");
-    match &state.evidence {
-        Some(e) => out.push_str(&format!(
-            "  verified receipts: {} | audit chain: {}\n",
-            e.verified_receipts,
-            if e.audit_chain_intact {
-                "intact"
-            } else {
-                "compromised"
+    if includes("workload") {
+        out.push_str("── workload ──\n");
+        if state.snapshot.queue.is_empty() {
+            out.push_str("  queue: (idle)\n");
+        } else {
+            out.push_str("  active tasks:\n");
+            for q in &state.snapshot.queue {
+                out.push_str(&format!("    {} [{}] {}\n", q.task_id, q.holder, q.title));
             }
-        )),
-        None => out.push_str("  (untracked)\n"),
+        }
+        if state.blocked_work.is_empty() {
+            out.push_str("  blocked: (none)\n");
+        } else {
+            out.push_str("  blocked work:\n");
+            for b in &state.blocked_work {
+                out.push_str(&format!("    {} — {} ({})\n", b.task_id, b.title, b.reason));
+            }
+        }
     }
-
+    if includes("resources") {
+        out.push_str("── resources ──\n");
+        match &state.resources {
+            Some(r) => out.push_str(&format!(
+                "  cpu: {:.1}% | ram: {}/{} MB\n",
+                r.cpu_util_pct, r.mem_used_mb, r.mem_total_mb
+            )),
+            None if full => out.push_str("  system: (unmeasured)\n"),
+            None => {}
+        }
+        match &state.snapshot.gpu {
+            Some(g) => out.push_str(&format!(
+                "  gpu: util={:.0}% temp={:.0}C vram={}/{}MB\n",
+                g.util_pct, g.temp_c, g.vram_used_mb, g.vram_total_mb
+            )),
+            None if full => out.push_str("  gpu: (none)\n"),
+            None => {}
+        }
+    }
+    if includes("providers") {
+        out.push_str("── providers ──\n");
+        if full && state.snapshot.providers.is_empty() {
+            out.push_str("  (none)\n");
+        } else {
+            for p in &state.snapshot.providers {
+                out.push_str(&format!(
+                    "  {} {} {}ms\n",
+                    p.name,
+                    if p.healthy { "ok" } else { "down" },
+                    p.latency_ms
+                ));
+            }
+        }
+    }
+    if includes("configuration") {
+        out.push_str("── configuration ──\n");
+        match &state.config {
+            Some(c) => out.push_str(&format!(
+                "  profile: {} | port: {} | root: {}\n",
+                c.profile, c.port, c.workspace_root
+            )),
+            None if full => out.push_str("  (default)\n"),
+            None => {}
+        }
+    }
+    if includes("federation") {
+        out.push_str("── federation ──\n");
+        match &state.federation {
+            Some(f) => {
+                let agents_str = if full && f.active_agents.is_empty() {
+                    "none".to_string()
+                } else {
+                    f.active_agents.join(", ")
+                };
+                out.push_str(&format!(
+                    "  peers: {} | quorum: {} | agents: {}\n",
+                    f.peer_count,
+                    if f.quorum_healthy { "ok" } else { "degraded" },
+                    agents_str
+                ));
+            }
+            None if full => out.push_str("  standalone\n"),
+            None => {}
+        }
+    }
+    if includes("evidence") {
+        out.push_str("── evidence ──\n");
+        match &state.evidence {
+            Some(e) => out.push_str(&format!(
+                "  verified receipts: {} | audit chain: {}\n",
+                e.verified_receipts,
+                if e.audit_chain_intact {
+                    "intact"
+                } else {
+                    "compromised"
+                }
+            )),
+            None if full => out.push_str("  (untracked)\n"),
+            None => {}
+        }
+    }
     out
 }
 
@@ -214,16 +245,11 @@ pub fn render_operator_state(state: &UnifiedOperatorState) -> String {
 
 /// Find repository root containing `.agents`.
 fn find_repo_root(start: &Path) -> PathBuf {
-    let mut cur = start.to_path_buf();
-    loop {
-        if cur.join(".agents").is_dir() || cur.join(".git").exists() {
-            return cur;
-        }
-        match cur.parent() {
-            Some(p) => cur = p.to_path_buf(),
-            None => return start.to_path_buf(),
-        }
-    }
+    start
+        .ancestors()
+        .find(|dir| dir.join(".agents").is_dir() || dir.join(".git").exists())
+        .unwrap_or(start)
+        .to_path_buf()
 }
 
 /// Sample operator control surface state across all six dimensions, for
@@ -305,19 +331,15 @@ fn sample_providers() -> Vec<ProviderRow> {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], *port));
         std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
     });
-    let local = match engine {
-        Some((name, _)) => ProviderRow {
-            name: name.to_owned(),
-            healthy: true,
-            latency_ms: start.elapsed().as_millis().max(1) as u64,
-        },
-        None => ProviderRow {
-            name: "local".into(),
-            healthy: false,
-            latency_ms: 0,
-        },
+    let (name, latency_ms) = match engine {
+        Some((name, _)) => (name, start.elapsed().as_millis().max(1) as u64),
+        None => ("local", 0),
     };
-    providers.push(local);
+    providers.push(ProviderRow {
+        name: name.to_owned(),
+        healthy: engine.is_some(),
+        latency_ms,
+    });
     providers
 }
 
@@ -334,21 +356,12 @@ fn sample_gpu() -> Option<GpuRow> {
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().next()?;
-    let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-    if parts.len() < 4 {
-        return None;
-    }
-    let util_pct = parts[0].parse::<f32>().ok()?;
-    let temp_c = parts[1].parse::<f32>().ok()?;
-    let vram_used_mb = parts[2].parse::<u32>().ok()?;
-    let vram_total_mb = parts[3].parse::<u32>().ok()?;
-
+    let mut values = stdout.lines().next()?.split(',').map(str::trim);
     Some(GpuRow {
-        util_pct,
-        temp_c,
-        vram_used_mb,
-        vram_total_mb,
+        util_pct: values.next()?.parse().ok()?,
+        temp_c: values.next()?.parse().ok()?,
+        vram_used_mb: values.next()?.parse().ok()?,
+        vram_total_mb: values.next()?.parse().ok()?,
     })
 }
 
@@ -449,36 +462,27 @@ fn sample_config(repo_root: &Path) -> Option<ConfigStateRow> {
 /// Sample federation state: peer worktrees and active worker identities.
 fn sample_federation(repo_root: &Path) -> Option<FederationStateRow> {
     let mut agents = Vec::new();
-    let mut peer_count = 1;
-
+    let mut worktrees = 0;
     let output = susi_paths::console::background_command("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(repo_root)
-        .output()
-        .ok();
-
-    if let Some(out) = output {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let mut worktrees = 0;
-            for line in stdout.lines() {
-                if let Some(rest) = line.strip_prefix("branch refs/heads/") {
-                    worktrees += 1;
-                    let branch = rest.trim();
-                    if branch.starts_with("antigravity-")
-                        || branch.starts_with("codex-")
-                        || branch.starts_with("devin-")
-                        || branch.starts_with("claude/")
-                    {
-                        agents.push(branch.to_string());
-                    }
-                }
-            }
-            if worktrees > 0 {
-                peer_count = worktrees;
+        .output();
+    if let Some(out) = output.ok().filter(|out| out.status.success()) {
+        for branch in String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix("branch refs/heads/"))
+        {
+            worktrees += 1;
+            let branch = branch.trim();
+            if ["antigravity-", "codex-", "devin-", "claude/"]
+                .iter()
+                .any(|prefix| branch.starts_with(prefix))
+            {
+                agents.push(branch.to_owned());
             }
         }
     }
+    let peer_count = worktrees.max(1);
 
     agents.sort();
     agents.dedup();
@@ -492,7 +496,6 @@ fn sample_federation(repo_root: &Path) -> Option<FederationStateRow> {
 
 /// Sample retained acceptance through the authorized protocol tool registry.
 fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
-    use susi_core::plane_bus::tools;
     let repo = repo_root.canonicalize().ok()?;
     let mut command = susi_paths::console::background_command("git");
     command
@@ -522,25 +525,9 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
     }
     let head = String::from_utf8(output.stdout).ok()?;
     let head = head.trim();
-    let registry = susi_config::mcp::read_mcp_config(&susi_config::mcp::mcp_config_path()).ok()?;
-    let mut names: Vec<_> = registry
-        .mcp_servers
-        .keys()
-        .map(|server| format!("{server}:workflow_tasks_report"))
-        .filter(|name| tools::exists(name))
-        .collect();
-    // Presence checks can match a prefix; require the exact advertised tool.
-    let catalog = tools::list_tools();
-    let advertised = catalog.as_array()?;
-    names.retain(|name| advertised.iter().any(|tool| tool["name"] == *name));
-    let [name] = names.as_slice() else {
-        return None;
-    };
     let args =
         serde_json::json!({"repo":susi_paths::native_path::encode(&repo).ok()?,"accepted_in":head});
-    let server = name.strip_suffix(":workflow_tasks_report")?;
-    let result =
-        tools::execute_external_tool(server, "workflow_tasks_report", &args.to_string()).ok()?;
+    let result = susi_config::mcp_session::call_json("workflow_tasks_report", &args, None).ok()?;
     let verified_receipts = completion_count(&result, head)?;
 
     // Preserve the existing metadata-presence indicator; it is not a new
@@ -554,23 +541,7 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
     })
 }
 
-fn completion_count(raw: &str, head: &str) -> Option<usize> {
-    let result: serde_json::Value = serde_json::from_str(raw).ok()?;
-    if result
-        .get("isError")
-        .is_some_and(|value| value != &serde_json::Value::Bool(false))
-    {
-        return None;
-    }
-    let reply = if let Some(value) = result.get("structuredContent") {
-        value.clone()
-    } else {
-        let blocks = result["content"].as_array()?;
-        if blocks.len() != 1 || blocks[0]["type"] != "text" {
-            return None;
-        }
-        serde_json::from_str(blocks[0]["text"].as_str()?).ok()?
-    };
+fn completion_count(reply: &serde_json::Value, head: &str) -> Option<usize> {
     if reply["schema"] != "susi-completed-report-v1" || reply["accepted_in"] != head {
         return None;
     }
@@ -714,7 +685,7 @@ mod inline_tests {
         assert_eq!(blocked[0].task_id, "T-2");
         assert_eq!(blocked[0].reason, "unmet dependency: T-1");
 
-        assert!(completion_count(r#"{"id":"T-0"}"#, "head").is_none());
+        assert!(completion_count(&serde_json::json!({"id":"T-0"}), "head").is_none());
 
         let _ = fs::remove_dir_all(&tmp);
     }
