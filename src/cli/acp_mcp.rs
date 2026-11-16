@@ -651,12 +651,16 @@ impl BufRead for PumpReader {
                 self.io.check()?;
                 match self.receive.recv_timeout(POLL) {
                     Ok(result) => {
+                        self.io.check()?;
                         self.bytes = result?;
                         self.offset = 0;
                         break;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(&[]),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        self.io.check()?;
+                        return Ok(&[]);
+                    }
                 }
             }
         }
@@ -717,10 +721,11 @@ impl Write for PumpWriter {
                     std::thread::sleep(POLL);
                 }
                 Err(mpsc::TrySendError::Disconnected(_)) => {
+                    self.io.check()?;
                     return Err(io::Error::new(
                         io::ErrorKind::BrokenPipe,
                         "MCP writer stopped",
-                    ))
+                    ));
                 }
             }
         }
@@ -730,10 +735,11 @@ impl Write for PumpWriter {
                 Ok(outcome) => return outcome.map(|()| n),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.io.check()?;
                     return Err(io::Error::new(
                         io::ErrorKind::BrokenPipe,
                         "MCP writer stopped",
-                    ))
+                    ));
                 }
             }
         }
