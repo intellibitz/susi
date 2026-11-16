@@ -13,9 +13,6 @@
     ".agents/tasks/T-STEP1ACCEPTANCE-5.json": "844aef114521db01a026f2121c8309aeca2dddaa35b0301dc994809b41c239d7",
     ".agents/tasks/T-STEP1ACCEPTANCE-6.json": "33fe27adabeff2fb7eb960d24fd59af0bcd2d9da3c898e23df5ccfc46bb00b16",
     ".agents/tasks/T-STEP1ACCEPTANCE-7.json": "ddf11129fc083935a490aa2658a2bc81520f74f57052f522a5284b310f1cabc5",
-    ".agents/tasks/T-STEP1HARNESS-1.json": "754151ba3bd32bcb42458539e0a9b7dc72d27dcb3813540331b18870441908af",
-    ".agents/tasks/T-STEP1NATIVECOMMAND-1.json": "962ccf3cf54a48dcb524b527750061a5d74500baa26909d01a7bf771a60f494d",
-    ".agents/tasks/T-STEP1RUSTENTRY-1.json": "c387225009b8d9dbb835a72a5cb5843e72b80af6481069bf3d0a11d7f864b51b",
     ".agents/tasks/T-STEP1UNICODE-1.json": "e74489e1d822ae348a3b69e585c8baaebf957180ad75e1dedd294a425c684d38",
     ".agents/tasks/T-VERSIONPATH-1.json": "d339c0d7a5413f0e90367f9b2813e4a2f06a610346a372896a338ea75fc16ab0"
   }
