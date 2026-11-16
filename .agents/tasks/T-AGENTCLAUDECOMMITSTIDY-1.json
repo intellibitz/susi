@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENTCLAUDECOMMITSTIDY-1",
+  "title": "Keep commits tidy (commercial Mandate 94), in the active contract",
+  "goal": "Vision: V-19. Directive 2026-11-16: agents must keep commits tidy. The rule lands in core's active contract beside the code rules: one whole labelled change per commit with trailers in the final paragraph; a subject of at most 72 characters that says what; a body saying why for a change over 100 lines; only source (no build output, scratch, blobs of 1 MiB or more, or secrets, which are rotated at once); published history never rewritten, a published mistake corrected by a new commit. Pinned in tests/architecture_tests.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDECOMMITSTIDY",
+  "created_unix": 1794851515,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inside Susi: core's distill lint (xtask/src/distill/lint.rs) checks Task trailers, records, scopes and host merges; the active contract already forbids rewriting shared history and empty or noise commits; the commercial workflow commits verb (susi-commercial-apps Mandate 94) reviews message shape and content. This adds one contract rule and one brief sentence; no new code."
+  }
+}
