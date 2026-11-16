@@ -1620,6 +1620,38 @@ impl PersistedTaskHandleStore {
         Ok(Self { path, handles })
     }
 
+    /// Open `path` fail-closed, or quarantine a corrupt/invalid store file
+    /// atomically to a sibling `.corrupt` snapshot and recover an empty store.
+    pub fn open_or_quarantine(
+        path: impl Into<PathBuf>,
+    ) -> Result<(Self, Option<PathBuf>), WireError> {
+        let path = path.into();
+        match Self::open(&path) {
+            Ok(store) => Ok((store, None)),
+            Err(WireError::Protocol(_)) => {
+                let nanos = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("task-handles.json");
+                let quarantined =
+                    path.with_file_name(format!("{name}.corrupt.{}.{nanos}", std::process::id()));
+                fs::rename(&path, &quarantined).map_err(|e| WireError::Io(e.to_string()))?;
+                Ok((
+                    Self {
+                        path,
+                        handles: Vec::new(),
+                    },
+                    Some(quarantined),
+                ))
+            }
+            Err(other) => Err(other),
+        }
+    }
+
     /// Upsert `handle` by `task_id` and flush atomically to disk.
     pub fn save(&mut self, handle: PersistedTaskHandle) -> Result<(), WireError> {
         if let Some(existing) = self
@@ -1700,9 +1732,14 @@ impl PersistedTaskHandleStore {
         let tmp_path = self
             .path
             .with_file_name(format!(".{file_name}.tmp.{}.{nanos}", std::process::id()));
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        let mut open_opts = fs::OpenOptions::new();
+        open_opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open_opts.mode(0o600);
+        }
+        let mut file = open_opts
             .open(&tmp_path)
             .map_err(|e| WireError::Io(e.to_string()))?;
         if let Err(err) = file.write_all(&payload).and_then(|()| file.sync_all()) {
@@ -2094,6 +2131,43 @@ pub(crate) fn parse_app_resource_summary(
     );
     let meta = first.get("_meta").cloned().unwrap_or_else(|| json!({}));
     let ui_meta = meta.get("ui").unwrap_or(&meta);
+    let csp = match ui_meta.get("csp") {
+        None | Some(Value::Null) => None,
+        Some(v @ Value::Object(_)) => Some(v.clone()),
+        Some(_) => {
+            return Err(WireError::Protocol(format!(
+                "MCP Apps {uri} `_meta.ui.csp` must be a JSON object"
+            )))
+        }
+    };
+    let permissions = match ui_meta
+        .get("permissions")
+        .or_else(|| ui_meta.get("sandbox"))
+    {
+        None | Some(Value::Null) => None,
+        Some(v @ Value::Object(_)) => Some(v.clone()),
+        Some(_) => {
+            return Err(WireError::Protocol(format!(
+                "MCP Apps {uri} `_meta.ui.permissions` must be a JSON object"
+            )))
+        }
+    };
+    let domain = match ui_meta.get("domain") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(d))
+            if !d.is_empty()
+                && !d.contains("..")
+                && d.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')) =>
+        {
+            Some(d.clone())
+        }
+        Some(_) => {
+            return Err(WireError::Protocol(format!(
+                "MCP Apps {uri} `_meta.ui.domain` must be a valid hostname"
+            )))
+        }
+    };
     Ok(AppResourceSummary {
         uri: uri.to_string(),
         mime_type: first
@@ -2101,15 +2175,9 @@ pub(crate) fn parse_app_resource_summary(
             .and_then(Value::as_str)
             .map(str::to_string),
         payload_bytes,
-        csp: ui_meta.get("csp").cloned(),
-        permissions: ui_meta
-            .get("permissions")
-            .or_else(|| ui_meta.get("sandbox"))
-            .cloned(),
-        domain: ui_meta
-            .get("domain")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        csp,
+        permissions,
+        domain,
         meta,
     })
 }

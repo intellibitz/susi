@@ -20,5 +20,32 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "implemented",
+  "base_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "limitations": [
+    "Adversarial stage (`GMCP-203-017-04`) hardens `McpHost`, `DuplexPeer`, `PersistedTaskHandleStore` (`0600` Unix mode + `open_or_quarantine` corrupt-store recovery), and `parse_app_resource_summary` (`ui://` CSP/permissions/hostname validation) against malformed frames, duplicate callback IDs, notification floods, oversized payloads, peer disconnects, cross-server task replay, and policy violations; interoperability, operations, and `.M` mastery ship across `T-CODEXGMCPROADMAP-118..120`.",
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, `.agents/gmcp/evidence/VC-203-017.jsonl` and `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-wire-client/src/host.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-tools/src/mcp_budget.rs",
+      "docs/gmcp/contract-203-017.md",
+      "tests/gmcp_requirements/vc_203_017.rs"
+    ],
+    "target": "crates/susi-wire-client/src/host.rs",
+    "why": "Extended existing `McpHost`, `DuplexPeer`, `PersistedTaskHandleStore`, and `parse_app_resource_summary` in `susi-wire-client` with protocol-version enforcement, duplicate callback ID detection, bounded notification queues, Unix `0600` atomic store writes + `open_or_quarantine` recovery, and fail-closed `ui://` CSP/domain validation without new dependencies."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "crates/susi-wire-client/src/host.rs",
+    "crates/susi-wire-client/src/mcp.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/gmcp_requirements/vc_203_017_part2.rs"
+  ]
 }

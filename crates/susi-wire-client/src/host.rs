@@ -338,11 +338,21 @@ impl DuplexPeer {
             None,
             (policy, notifications),
         )?;
-        let version = result
+        let raw_version = result
             .get("protocolVersion")
             .and_then(Value::as_str)
-            .unwrap_or(PROTOCOL_VERSION)
-            .to_string();
+            .ok_or_else(|| {
+                WireError::Protocol("duplex initialize result carries no protocolVersion".into())
+            })?;
+        if !matches!(
+            raw_version,
+            "2026-07-28" | "2025-11-25" | "2025-06-18" | "2025-03-26"
+        ) {
+            return Err(WireError::Protocol(format!(
+                "unsupported duplex MCP protocol version {raw_version:?}"
+            )));
+        }
+        let version = raw_version.to_string();
         let server_info = result
             .get("serverInfo")
             .cloned()
@@ -408,6 +418,17 @@ impl DuplexPeer {
     }
 }
 
+/// Maximum buffered notifications retained per hosted server (`HOST-011`).
+pub const MAX_BUFFERED_NOTIFICATIONS: usize = 256;
+const MAX_INTERLEAVED_FRAMES: usize = 1024;
+
+pub(crate) fn push_bounded_notification(buf: &mut Vec<Value>, msg: Value) {
+    if buf.len() >= MAX_BUFFERED_NOTIFICATIONS {
+        buf.remove(0);
+    }
+    buf.push(msg);
+}
+
 fn send_line(writer: &mut dyn Write, msg: &Value) -> Result<(), WireError> {
     let text = serde_json::to_string(msg).map_err(|e| WireError::Protocol(e.to_string()))?;
     writeln!(writer, "{text}")?;
@@ -424,6 +445,8 @@ fn recv_until_id(
     let (reader, writer) = io;
     let (policy, notifications) = ctx;
     let mut line = String::new();
+    let mut seen_srv_ids = BTreeSet::new();
+    let mut frames_seen = 0usize;
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
@@ -438,10 +461,27 @@ fn recv_until_id(
         if trimmed.is_empty() {
             continue;
         }
+        frames_seen += 1;
+        if frames_seen > MAX_INTERLEAVED_FRAMES {
+            return Err(WireError::Protocol(format!(
+                "peer exceeded {MAX_INTERLEAVED_FRAMES} interleaved frames before answering id {expected_id}"
+            )));
+        }
         let msg: Value = serde_json::from_str(trimmed)
             .map_err(|e| WireError::Protocol(format!("invalid JSON-RPC frame: {e}")))?;
+        if msg.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Err(WireError::Protocol(
+                "JSON-RPC frame must carry `\"jsonrpc\": \"2.0\"`".into(),
+            ));
+        }
         if let Some(srv_method) = msg.get("method").and_then(Value::as_str) {
             if let Some(srv_id) = msg.get("id").filter(|id| !id.is_null()) {
+                let id_key = srv_id.to_string();
+                if !seen_srv_ids.insert(id_key.clone()) {
+                    return Err(WireError::Protocol(format!(
+                        "duplicate server-originated JSON-RPC request id {id_key}"
+                    )));
+                }
                 let srv_params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
                 let reply = match policy.dispatch_mrtr(srv_method, &srv_params) {
                     Ok(res) => json!({"jsonrpc":"2.0","id":srv_id,"result":res}),
@@ -461,7 +501,7 @@ fn recv_until_id(
                         continue;
                     }
                 }
-                notifications.push(msg);
+                push_bounded_notification(notifications, msg);
                 continue;
             }
         }
@@ -764,7 +804,7 @@ impl McpHost {
         let result = match &mut srv.backend {
             PeerBackend::Http(s, _) => {
                 let (policy_ref, notes_ref) = (&mut srv.policy, &mut srv.notifications);
-                let mut note_cb = |n: &Value| notes_ref.push(n.clone());
+                let mut note_cb = |n: &Value| push_bounded_notification(notes_ref, n.clone());
                 let mut srv_cb = |m: &str, p: &Value| policy_ref.dispatch_mrtr(m, p);
                 s.request_host(
                     "tools/call",
@@ -843,7 +883,9 @@ impl McpHost {
             ));
         };
         let notes_ref = &mut srv.notifications;
-        match s.call_tool_with_tasks(name, args, true, &mut |n| notes_ref.push(n.clone()))? {
+        match s.call_tool_with_tasks(name, args, true, &mut |n| {
+            push_bounded_notification(notes_ref, n.clone())
+        })? {
             CallToolOutcome::Complete(val) => Ok(val),
             CallToolOutcome::Task(handle) => {
                 if let Some(store) = &mut srv.task_store {
@@ -941,7 +983,9 @@ impl McpHost {
             ));
         };
         let notes_ref = &mut srv.notifications;
-        match s.call_tool_with_tasks(name, args, true, &mut |n| notes_ref.push(n.clone()))? {
+        match s.call_tool_with_tasks(name, args, true, &mut |n| {
+            push_bounded_notification(notes_ref, n.clone())
+        })? {
             CallToolOutcome::Task(handle) => {
                 if let Some(store) = &mut srv.task_store {
                     store.save(PersistedTaskHandle::from_handle(
