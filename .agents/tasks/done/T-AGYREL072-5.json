@@ -26,5 +26,10 @@
     ],
     "limitations": [
         "Test-only fixes for Windows console launch policy and bash execution timeout on development main."
-    ]
+    ],
+    "closed": {
+        "at_unix": 1794842491,
+        "commit": "d4e422efc3ca4b11f83b3b6c2d7c1f0206fc3217",
+        "by": "AGYREL071"
+    }
 }
