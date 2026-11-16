@@ -5,6 +5,14 @@ use std::path::Path;
 use susi_config::mcp_session;
 use susi_error::EaiResult;
 
+fn client_info() -> susi_config::mcp_client::ClientInfo {
+    crate::register_tool_backend();
+    susi_config::mcp_client::ClientInfo {
+        name: "susi-harness",
+        version: env!("CARGO_PKG_VERSION"),
+    }
+}
+
 fn call_with_revision(
     name: &str,
     arguments: &Value,
@@ -15,17 +23,8 @@ fn call_with_revision(
         return result;
     }
     // Existing harness library and standalone callers retain their HTTP adapter.
-    crate::register_tool_backend();
-    mcp_session::call_reply_with_info(
-        name,
-        arguments,
-        cwd,
-        susi_config::mcp_client::ClientInfo {
-            name: "susi-harness",
-            version: env!("CARGO_PKG_VERSION"),
-        },
-    )
-    .map(|reply| (reply.result, reply.protocol_version))
+    mcp_session::call_reply_with_info(name, arguments, cwd, client_info())
+        .map(|reply| (reply.result, reply.protocol_version))
 }
 
 pub(crate) fn call_result(name: &str, arguments: &Value, cwd: Option<&Path>) -> EaiResult<Value> {
@@ -37,8 +36,29 @@ pub(crate) fn call_json(name: &str, arguments: &Value) -> EaiResult<Value> {
     mcp_session::json_result(result, revision.as_deref())
 }
 
-pub(crate) fn call_text_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResult<String> {
-    mcp_session::text_result(call_result(name, arguments, Some(cwd))?)
+pub(crate) fn try_call_result(
+    name: &str,
+    arguments: &Value,
+    cwd: Option<&Path>,
+) -> EaiResult<Option<Value>> {
+    #[cfg(test)]
+    if let Some(result) = fixture::dispatch(name, arguments, cwd) {
+        return result.map(|(value, _)| Some(value));
+    }
+    Ok(
+        mcp_session::try_call_reply_with_info(name, arguments, cwd, client_info())?
+            .map(|reply| reply.result),
+    )
+}
+
+pub(crate) fn try_call_text_in(
+    name: &str,
+    arguments: &Value,
+    cwd: &Path,
+) -> EaiResult<Option<String>> {
+    try_call_result(name, arguments, Some(cwd))?
+        .map(mcp_session::text_result)
+        .transpose()
 }
 
 #[cfg(test)]

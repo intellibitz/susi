@@ -1,47 +1,21 @@
 #![forbid(unsafe_code)]
 
-use std::sync::Arc;
-
-use susi_gmcp::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
+use susi_gmcp::susi_abi::cell::cell_ports;
 use susi_gmcp::susi_abi::swarm::SwarmRole;
-use susi_gmcp::susi_abi::syscall::{
-    SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
-};
+use susi_gmcp::susi_abi::syscall::{SyscallRequest, SyscallResponse};
 
 use susi_gmcp::susi_abi;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bind_addr = cell_bind_addr(cell_ports::GMCP);
-    println!("susi-gmcp micro-daemon starting on {bind_addr}");
-
-    let mut cell = SwarmCell::new(
-        "gmcp-tools-01".to_string(),
+    susi_abi::cell_server::run_pillar(
+        "susi-gmcp",
+        cell_ports::GMCP,
+        "gmcp-tools-01",
         SwarmRole::ToolDriver,
-        format!("tcp://{bind_addr}"),
-    );
-
-    // Register capabilities
-    cell.register_capability("mcp-protocol");
-    cell.register_capability("system-tools");
-
-    // Every syscall must present the host API token (or an explicit
-    // SUSI_CELL_TOKEN override); heartbeats stay open for liveness.
-    let expected_token: Arc<str> = match std::env::var(CELL_TOKEN_ENV)
-        .ok()
-        .filter(|t| !t.trim().is_empty())
-    {
-        Some(token) => token.into(),
-        None => susi_gmcp::susi_config::SusiConfig::ensure_api_auth_token_seeded()?.into(),
-    };
-
-    susi_abi::cell_server::serve(
-        cell,
-        bind_addr,
-        expected_token,
-        "susi-gmcp Swarm Cell",
+        &["mcp-protocol", "system-tools"],
+        susi_gmcp::susi_config::SusiConfig::ensure_api_auth_token_seeded,
         handle_tool,
-    )?;
-    Ok(())
+    )
 }
 
 fn handle_tool(req: SyscallRequest) -> SyscallResponse {
@@ -69,7 +43,7 @@ fn handle_tool(req: SyscallRequest) -> SyscallResponse {
         // panic in the tool as an `Error`.
         susi_gmcp::plane_tools::execute_tool(&name, &args, &workspace).map_err(|e| e.to_string())
     };
-    let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let latency_us = susi_abi::cell_server::elapsed_micros(started);
     // The tool registry flattens failures (EaiError display, capability
     // gaps, reflex errors) into text; never report those as a success.
     let outcome = outcome.and_then(|text| {
@@ -79,24 +53,11 @@ fn handle_tool(req: SyscallRequest) -> SyscallResponse {
             Ok(text)
         }
     });
-    match outcome {
-        Ok(text) => SyscallResponse {
-            id: req.id,
-            status: SyscallStatus::Success,
-            data: serde_json::json!({ "result": text }),
-            receipt: None,
-            latency_us,
-            message: None,
-        },
-        Err(e) => SyscallResponse {
-            id: req.id,
-            status: SyscallStatus::Error,
-            data: serde_json::Value::Null,
-            receipt: None,
-            latency_us,
-            message: Some(e),
-        },
-    }
+    let (data, error) = match outcome {
+        Ok(text) => (serde_json::json!({ "result":text }), None),
+        Err(message) => (serde_json::Value::Null, Some(message)),
+    };
+    susi_abi::cell_server::handler_reply(req.id, latency_us, data, error)
 }
 
 /// True when tool output is a flattened failure rather than a result:
@@ -178,7 +139,7 @@ mod tests {
         };
         let resp = handle_tool(req);
         assert_eq!(resp.id, "tool-1");
-        assert_eq!(resp.status, SyscallStatus::Error);
+        assert_eq!(resp.status, susi_abi::syscall::SyscallStatus::Error);
         assert!(resp
             .message
             .as_deref()
@@ -188,8 +149,8 @@ mod tests {
 
     #[test]
     fn tool_driver_swarm_cell_registers_mcp_and_system_tools_capabilities() {
-        let bind_addr = cell_bind_addr(cell_ports::GMCP);
-        let mut cell = SwarmCell::new(
+        let bind_addr = susi_abi::cell::cell_bind_addr(cell_ports::GMCP);
+        let mut cell = susi_abi::cell::SwarmCell::new(
             "gmcp-tools-01".to_string(),
             SwarmRole::ToolDriver,
             format!("tcp://{bind_addr}"),
