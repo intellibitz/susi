@@ -20,5 +20,16 @@
     ]
   },
   "created_by": "CODEXHARNESSID",
-  "created_unix": 1794652063
+  "created_unix": 1794652063,
+  "schema": "susi.task_record/v1",
+  "state": "closed",
+  "status": "done",
+  "base_commit": "842b4427151cfd500b075ee9e811496df0f7a71c",
+  "implementation_commit": "fb60c82d4d0c0f9d6698296dbe4c61f76d0f7c3c",
+  "verified_commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
+  "closed": {
+    "at_unix": 1794818118,
+    "commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
+    "by": "AG3HOUSEKEEP"
+  }
 }

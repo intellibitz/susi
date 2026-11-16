@@ -5,7 +5,7 @@
   "feature_id": "F-CORE-GMCP-TASK-CANCEL-GUARD-1",
   "title": "Reject cancellation of terminal GMCP tasks",
   "goal": "Make the GMCP task manager reject cancellation requests for completed, failed, and cancelled tasks with invalid_params, without mutating their state or timestamps, while preserving cooperative cancellation for active tasks.",
-  "status": "implemented",
+  "status": "done",
   "size": "s",
   "deps": [],
   "created_by": "codex",
@@ -68,5 +68,13 @@
   "limitations": [
     "Acceptance is run on the native Linux x86_64 host; no Windows run in this lane.",
     "The change covers tasks/cancel terminal-state validation only; other GMCP task or transport gaps remain out of scope."
-  ]
+  ],
+  "state": "closed",
+  "implementation_commit": "e7a0bf6681ef1adfa3cda7d6762dfe2162c0be7f",
+  "verified_commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
+  "closed": {
+    "at_unix": 1794818118,
+    "commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
+    "by": "AG3HOUSEKEEP"
+  }
 }
