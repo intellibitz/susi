@@ -848,7 +848,16 @@ mod capabilities_revoke_tests {
 
     #[test]
     fn capabilities_revoke_rejects_blank_id_and_cancels_issued_envelope() {
-        let ws = std::env::temp_dir();
+        let _env_lock = susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _tmp = susi_paths::tempfile::tempdir().expect("isolated temp home");
+        let ws = _tmp.path().join("ws");
+        std::fs::create_dir_all(&ws).expect("workspace dir");
+        let mut _env = susi_paths::test_env::EnvGuard::isolated();
+        _env.set("HOME", _tmp.path());
+        _env.set("XDG_CACHE_HOME", _tmp.path().join(".cache"));
+        _env.set("SUSI_HOME", _tmp.path());
         let err = capabilities(
             Some(Box::new(OsCapabilitiesAction::Revoke {
                 id: "   ".to_string(),

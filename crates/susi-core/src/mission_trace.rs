@@ -319,7 +319,7 @@ impl MissionTrace {
         );
 
         // 2. Append-only JSONL beside the workspace's other mission state.
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         std::fs::create_dir_all(&susi_dir)
             .map_err(|e| anyhow!("mission trace dir create failed: {e}"))?;
         let mut line = serde_json::to_vec(self)
@@ -363,7 +363,7 @@ fn bound_chars(input: &str, max: usize) -> String {
 /// Read every mission trace recorded under `workspace/.susi/`, skipping
 /// lines that do not parse (older schema generations stay readable).
 pub fn read_all(workspace: &Path) -> Vec<MissionTrace> {
-    let path = workspace.join(".susi").join("mission_traces.jsonl");
+    let path = susi_paths::workspace_state_dir(workspace).join("mission_traces.jsonl");
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };

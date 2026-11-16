@@ -62,6 +62,7 @@ fn doc(result: EaiResult<String>) -> serde_json::Value {
 
 #[test]
 fn broker_tools_return_the_cli_documents() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     // Read-only against the broker: a grant would persist into the
     // process bus directory, so only an unknown identity is queried.
     let ws = Path::new(".");
@@ -83,6 +84,7 @@ fn broker_tools_return_the_cli_documents() {
 
 #[test]
 fn intent_and_tx_lists_are_served() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let ws = temp_dir("tx");
     let intents = doc(CoreTools::intent_list(&json!({}), &ws));
     assert!(intents["providers"].is_array() && intents["needs"].is_array());
@@ -93,6 +95,7 @@ fn intent_and_tx_lists_are_served() {
 
 #[test]
 fn privacy_mode_refuses_unknown_modes_before_reaching_the_daemon() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     wire_echo();
     let ws = Path::new(".");
     let refused = CoreTools::privacy_mode(&json!({"mode": "lockdown"}), ws).unwrap_err();
@@ -111,6 +114,7 @@ fn privacy_mode_refuses_unknown_modes_before_reaching_the_daemon() {
 
 #[test]
 fn plane_backed_tools_forward_the_server_workspace_and_arguments() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     wire_echo();
     let ws = temp_dir("plane");
     let ws_text = ws.display().to_string();
@@ -157,6 +161,7 @@ fn plane_backed_tools_forward_the_server_workspace_and_arguments() {
 
 #[test]
 fn os_tools_validate_paths_and_forward_requests() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     wire_echo();
     let ws = Path::new(".");
     let probe = doc(CoreTools::os_provision(&json!({}), ws));
@@ -202,6 +207,7 @@ fn os_tools_validate_paths_and_forward_requests() {
 
 #[test]
 fn os_capabilities_discovers_and_validates_invocations() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let ws = Path::new(".");
     assert!(doc(CoreTools::os_capabilities(&json!({}), ws)).is_array());
     assert!(CoreTools::os_capabilities(&json!({"action": "invoke"}), ws).is_err());
@@ -221,6 +227,7 @@ fn os_capabilities_discovers_and_validates_invocations() {
 
 #[test]
 fn audit_tools_read_the_server_workspace_chain() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let ws = temp_dir("audit");
     let empty = doc(CoreTools::audit_query(&json!({"actor": "nobody"}), &ws));
     assert_eq!(empty, json!([]));
@@ -270,6 +277,7 @@ fn ledger_and_roster_tools_return_the_cli_documents_for_a_standalone_node() {
 
 #[test]
 fn commit_and_peer_tools_validate_arguments() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let ws = Path::new(".");
     assert!(CoreTools::commits_show(&json!({}), ws).is_err());
     assert!(CoreTools::peers_probe(&json!({}), ws).is_err());

@@ -201,7 +201,7 @@ pub fn evaluate(
 /// Durable experiment-log root, mirroring the evidence store: one record
 /// per candidate under `workspace/.susi/experiments/`.
 fn experiments_dir(workspace: &Path) -> std::path::PathBuf {
-    workspace.join(".susi").join("experiments")
+    susi_paths::workspace_state_dir(workspace).join("experiments")
 }
 
 /// Advance the candidate's durable experiment through the lifecycle this
@@ -351,7 +351,7 @@ pub fn evaluate_and_record(
 }
 
 fn record(workspace: &Path, evidence: &EvalEvidence) -> EaiResult<()> {
-    let susi_dir = workspace.join(".susi");
+    let susi_dir = susi_paths::workspace_state_dir(workspace);
     std::fs::create_dir_all(&susi_dir)
         .map_err(|e| EaiError::filesystem(format!("eval evidence dir create failed: {e}")))?;
     let mut line = serde_json::to_vec(evidence)
@@ -373,7 +373,7 @@ fn record(workspace: &Path, evidence: &EvalEvidence) -> EaiResult<()> {
 /// experiment produces — the only artifacts `susi release` /
 /// `susi-release-sync.sh` may later promote (VC-201-018).
 fn release_candidates_dir(workspace: &Path) -> std::path::PathBuf {
-    workspace.join(".susi").join("release-candidates")
+    susi_paths::workspace_state_dir(workspace).join("release-candidates")
 }
 
 /// Render `id` safe as a single filename component — a candidate id may
@@ -489,7 +489,7 @@ fn record_release_candidate(
 /// lines that fail to parse.
 #[must_use]
 pub fn read_all(workspace: &Path) -> Vec<EvalEvidence> {
-    let path = workspace.join(".susi").join("eval_evidence.jsonl");
+    let path = susi_paths::workspace_state_dir(workspace).join("eval_evidence.jsonl");
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };

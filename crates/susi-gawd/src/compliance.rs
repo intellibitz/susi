@@ -14,6 +14,162 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+/// Tracks `#[cfg(test)]` scopes across source lines so audits ignore test-only code.
+pub(crate) struct CfgTestSkipper {
+    pending_cfg_test: bool,
+    in_test_scope: bool,
+    saw_open_brace: bool,
+    brace_depth: i32,
+}
+
+impl CfgTestSkipper {
+    pub(crate) fn new() -> Self {
+        Self {
+            pending_cfg_test: false,
+            in_test_scope: false,
+            saw_open_brace: false,
+            brace_depth: 0,
+        }
+    }
+
+    /// Returns `true` when `line` belongs to a `#[cfg(test)]` attribute, declaration, or body.
+    pub(crate) fn is_test_line(&mut self, line: &str) -> bool {
+        if self.in_test_scope {
+            let (delta, saw_open) = brace_delta(line);
+            if saw_open {
+                self.saw_open_brace = true;
+            }
+            self.brace_depth += delta;
+            if self.saw_open_brace && self.brace_depth <= 0 {
+                self.in_test_scope = false;
+                self.saw_open_brace = false;
+                self.brace_depth = 0;
+            }
+            return true;
+        }
+
+        let trimmed = line.trim();
+        let after_attr = if !self.pending_cfg_test {
+            let Some(rest) = trimmed.strip_prefix("#[cfg(test)]") else {
+                return false;
+            };
+            let rest = rest.trim();
+            if rest.is_empty() || rest.starts_with("//") {
+                self.pending_cfg_test = true;
+                return true;
+            }
+            self.pending_cfg_test = true;
+            rest
+        } else {
+            trimmed
+        };
+
+        if after_attr.is_empty() || after_attr.starts_with("//") || after_attr.starts_with("#[") {
+            return true;
+        }
+
+        self.pending_cfg_test = false;
+        let (delta, saw_open) = brace_delta(after_attr);
+        if saw_open {
+            if delta > 0 {
+                self.in_test_scope = true;
+                self.saw_open_brace = true;
+                self.brace_depth = delta;
+            }
+            return true;
+        }
+
+        if !after_attr.contains(';') {
+            // Item header spans multiple lines before its opening `{` (e.g. `mod tests\n{`).
+            self.in_test_scope = true;
+            self.saw_open_brace = false;
+            self.brace_depth = 0;
+        }
+        true
+    }
+}
+
+fn brace_delta(line: &str) -> (i32, bool) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut delta = 0i32;
+    let mut saw_open = false;
+    let mut in_str = false;
+    let mut raw_hashes: Option<usize> = None;
+
+    while i < bytes.len() {
+        if in_str {
+            if let Some(hashes) = raw_hashes {
+                if bytes[i] == b'"'
+                    && i + hashes < bytes.len()
+                    && bytes[i + 1..=i + hashes].iter().all(|&b| b == b'#')
+                {
+                    in_str = false;
+                    raw_hashes = None;
+                    i += 1 + hashes;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            if bytes[i] == b'\\' {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            break;
+        }
+
+        if bytes[i] == b'r' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j] == b'#' {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'"' {
+                in_str = true;
+                raw_hashes = Some(j - (i + 1));
+                i = j + 1;
+                continue;
+            }
+        }
+
+        if bytes[i] == b'"' {
+            in_str = true;
+            raw_hashes = None;
+            i += 1;
+            continue;
+        }
+
+        if bytes[i] == b'\'' {
+            if bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\'') {
+                i += 4;
+                continue;
+            }
+            if bytes.get(i + 2) == Some(&b'\'') {
+                i += 3;
+                continue;
+            }
+        }
+
+        if bytes[i] == b'{' {
+            delta += 1;
+            saw_open = true;
+        } else if bytes[i] == b'}' {
+            delta -= 1;
+        }
+        i += 1;
+    }
+
+    (delta, saw_open)
+}
+
 pub struct SusiAdmin;
 
 impl SusiAdmin {
@@ -57,9 +213,20 @@ impl SusiAdmin {
 
         let hit_reports: Vec<String> = crate::susi_core::parallel::map(files, |path| {
             if let Ok(content) = fs::read_to_string(&path) {
+                let mut skipper = CfgTestSkipper::new();
+                let prod_lines: Vec<&str> = content
+                    .lines()
+                    .filter(|line| !skipper.is_test_line(line))
+                    .collect();
                 let mut local_hits = Vec::new();
                 for p in &patterns {
-                    if content.contains(p) {
+                    if !p.is_empty()
+                        && prod_lines.iter().any(|line| {
+                            crate::susi_error::redact::secret_match_starts(line, p)
+                                .next()
+                                .is_some()
+                        })
+                    {
                         local_hits.push(format!(
                             "- [FAIL] Security: Potential secret matching '{}' detected in {}.\n",
                             p,
@@ -249,10 +416,10 @@ impl SusiAdmin {
         let mut evidence_path = workspace.join(".agents/evidence.json");
 
         if !evidence_path.exists() {
-            evidence_path = workspace.join(".susi/evidence.json");
+            let state_dir = susi_paths::workspace_state_dir(workspace);
+            evidence_path = state_dir.join("evidence.json");
             if !evidence_path.exists() {
-                fs::create_dir_all(workspace.join(".susi"))
-                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
+                fs::create_dir_all(&state_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
                 crate::susi_config::atomic_write_bytes(
                     &evidence_path,
                     crate::self_core::AlphaSelf::EVIDENCE_JSON.as_bytes(),
@@ -550,5 +717,70 @@ mod intent_classify_tests {
             SusiAdmin::get_global_susi_dir(),
             susi_paths::SusiDirs::config_dir()
         );
+    }
+
+    #[test]
+    fn audit_compliance_ignores_substring_sk_words_and_cfg_test_modules() {
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+
+        let ws = temporary_home.path().join("clean-audit-ws");
+        std::fs::create_dir_all(ws.join("src/cli")).unwrap();
+        std::fs::write(ws.join(".gitignore"), ".susi/\n").unwrap();
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[package]\nname = \"clean-audit-ws\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ws.join("src/cli/defs.rs"),
+            "pub const CMD: &str = \"task-queue\";\npub fn risk_eval() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ws.join("src/cli_json.rs"),
+            "pub fn ok() {}\n\n#[cfg(test)]\n// comment between cfg and mod\n#[allow(clippy::unwrap_used)]\nmod inline_tests {\n    #[test]\n    fn fixture() { let _ = format!(\"sk-{}\", \"x\"); }\n}\n",
+        )
+        .unwrap();
+
+        let report = SusiAdmin::audit_compliance(&ws, None).expect("clean workspace audit");
+        assert!(
+            report.contains("- [PASS] Security: No hardcoded secrets detected."),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn audit_compliance_flags_real_secret_prefix_outside_cfg_test() {
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+
+        let ws = temporary_home.path().join("dirty-audit-ws");
+        std::fs::create_dir_all(ws.join("src")).unwrap();
+        std::fs::write(ws.join(".gitignore"), ".susi/\n").unwrap();
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[package]\nname = \"dirty-audit-ws\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ws.join("src/leak.rs"),
+            "pub const KEY: &str = \"sk-liveprod1234567890\";\n",
+        )
+        .unwrap();
+
+        let err = SusiAdmin::audit_compliance(&ws, None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Potential secret matching 'sk-'"), "{msg}");
     }
 }

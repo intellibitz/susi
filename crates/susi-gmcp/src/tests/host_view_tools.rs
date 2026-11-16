@@ -15,6 +15,7 @@ fn sent(result: EaiResult<String>) -> Value {
 
 #[test]
 fn host_tools_forward_actions_and_policy_workspaces() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HOST, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let ws_text = ws.display().to_string();

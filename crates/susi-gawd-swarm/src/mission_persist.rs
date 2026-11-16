@@ -374,7 +374,7 @@ impl PersistedMission {
     /// Workspace-local missions directory (`<workspace>/.susi/missions`).
     #[must_use]
     pub fn missions_dir(workspace: &Path) -> PathBuf {
-        workspace.join(".susi").join("missions")
+        susi_paths::workspace_state_dir(workspace).join("missions")
     }
 
     /// Workspace-local snapshots directory — one subdirectory per mission
@@ -382,8 +382,7 @@ impl PersistedMission {
     /// rollback touches only its own mission's files (T-DEEPSEEK-94).
     #[must_use]
     pub fn snapshots_dir(workspace: &Path, mission_id: &str) -> PathBuf {
-        workspace
-            .join(".susi")
+        susi_paths::workspace_state_dir(workspace)
             .join("mission-snapshots")
             .join(mission_id)
     }

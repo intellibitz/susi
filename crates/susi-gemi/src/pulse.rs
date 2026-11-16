@@ -146,9 +146,10 @@ fn workspace_suppressed(workspace: &Path) -> std::collections::HashSet<String> {
         std::collections::HashSet<String>,
     );
     static CACHE: Lazy<RwLock<HashMap<PathBuf, Entry>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-    let mtime = std::fs::metadata(workspace.join(".susi").join("mission_traces.jsonl"))
-        .and_then(|m| m.modified())
-        .ok();
+    let mtime =
+        std::fs::metadata(susi_paths::workspace_state_dir(workspace).join("mission_traces.jsonl"))
+            .and_then(|m| m.modified())
+            .ok();
     if let Some((cached_at, set)) = CACHE
         .read()
         .unwrap_or_else(|e| e.into_inner())

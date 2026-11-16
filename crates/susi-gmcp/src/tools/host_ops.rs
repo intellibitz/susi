@@ -86,7 +86,7 @@ fn absolute_path(arg: &serde_json::Value, key: &str) -> EaiResult<PathBuf> {
 }
 
 fn audit_log(workspace: &Path) -> PathBuf {
-    workspace.join(".susi").join("audit.log")
+    susi_paths::workspace_state_dir(workspace).join("audit.log")
 }
 
 impl CoreTools {

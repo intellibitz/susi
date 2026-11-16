@@ -113,7 +113,7 @@ impl AgentManager {
         if !workspace.is_dir() {
             bail!("agent workspace must be a directory");
         }
-        let root = workspace.join(".susi").join(kind.run_subdir());
+        let root = susi_paths::workspace_state_dir(&workspace).join(kind.run_subdir());
         Ok(Self {
             kind,
             workspace,

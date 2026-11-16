@@ -18,6 +18,7 @@ fn sent(result: EaiResult<String>) -> Value {
 
 #[test]
 fn adapter_tools_forward_kind_id_and_the_server_workspace() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let ws_text = ws.display().to_string();
@@ -70,6 +71,7 @@ fn adapter_tools_forward_kind_id_and_the_server_workspace() {
 
 #[test]
 fn adapter_setup_and_agents_retry_forward_expected_actions_and_workspace() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let setup = sent(CoreTools::adapter_setup(
@@ -88,6 +90,7 @@ fn adapter_setup_and_agents_retry_forward_expected_actions_and_workspace() {
 
 #[test]
 fn adapter_configure_resolves_granted_absolute_file_path() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let file = ws.join("susi-adapter-override.json");
@@ -105,6 +108,7 @@ fn adapter_configure_resolves_granted_absolute_file_path() {
 
 #[test]
 fn mcp_add_forwards_url_without_optional_args_and_rejects_bad_types() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let added = sent(CoreTools::mcp_add(
@@ -119,6 +123,7 @@ fn mcp_add_forwards_url_without_optional_args_and_rejects_bad_types() {
 
 #[test]
 fn adapter_reset_and_frameworks_retry_reject_mistyped_or_relative_arguments() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     assert!(CoreTools::adapter_reset(&json!({"kind": "mcp", "id": 99}), &ws).is_err());

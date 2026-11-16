@@ -2359,37 +2359,75 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         Self::stop_daemons(global_dir, false).signalled
     }
 
+    fn stop_systemd_units_with<FActive, FStop>(
+        units: &[String],
+        mut unit_is_active: FActive,
+        mut unit_stop: FStop,
+    ) -> usize
+    where
+        FActive: FnMut(&str) -> bool,
+        FStop: FnMut(&str) -> bool,
+    {
+        let mut stopped = 0usize;
+        for unit in units {
+            let was_active = unit_is_active(unit);
+            if unit_stop(unit) && was_active {
+                stopped += 1;
+            }
+        }
+        stopped
+    }
+
     #[allow(unsafe_code)]
     fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> StopOutcome {
+        // Capture the instance's published contract ports BEFORE stopping any
+        // systemd unit so a clean shutdown that unlinks `ports.json` does not
+        // make the subsequent wait check fall back to stale canonical ports.
+        let contract_ports = Self::host_contract_tcp_ports();
+
         // 1. The systemd transient unit spawned by ensure_daemon_running's
         // systemd-run path (Linux only; no-op everywhere else). Scoped stop
         // targets only this instance's unit; uninstall sweeps every
         // `susi-daemon*` unit regardless of the SUSI_HOME they were named for.
         #[cfg(target_os = "linux")]
-        {
+        let systemd_stopped = {
             let units = if scoped_to_instance {
                 vec![format!("{}.service", Self::daemon_unit_name())]
             } else {
                 Self::daemon_units()
             };
-            for unit in units {
-                // Best effort: hosts without a user bus print "Failed to connect
-                // to bus" — noise for a stop that has other paths to succeed.
-                let _ = Command::new("systemctl")
-                    .args(["--user", "stop"])
-                    .arg(&unit)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
+            Self::stop_systemd_units_with(
+                &units,
+                |unit| {
+                    Command::new("systemctl")
+                        .args(["--user", "is-active"])
+                        .arg(unit)
+                        .output()
+                        .ok()
+                        .is_some_and(|out| {
+                            let state = String::from_utf8_lossy(&out.stdout);
+                            matches!(
+                                state.trim(),
+                                "active" | "activating" | "reloading" | "deactivating"
+                            )
+                        })
+                },
+                |unit| {
+                    Command::new("systemctl")
+                        .args(["--user", "stop"])
+                        .arg(unit)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+                },
+            )
+        };
+        #[cfg(not(target_os = "linux"))]
+        let systemd_stopped = 0usize;
 
         let own_pid = std::process::id();
         let mut pids: Vec<u32> = Vec::new();
-        // The block this instance serves, read once while its daemon still
-        // publishes it: once the daemon is gone the resolver falls back to
-        // the canonical block, which a foreign process may legitimately hold.
-        let contract_ports = Self::host_contract_tcp_ports();
 
         // 2. Lock-file path — the common case.
         let global_lock = Self::get_lock_file(global_dir);
@@ -2429,7 +2467,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             }
         }
 
-        let signalled = pids.len();
+        let signalled = pids.len() + systemd_stopped;
         let released = Self::stop_and_wait(&pids, contract_ports);
 
         // The lock names a daemon only while that daemon lives; remove it
@@ -4000,5 +4038,25 @@ mod tests {
             elapsed < Duration::from_secs(3),
             "parent pipe blocked for {elapsed:?} waiting for 5s background grandchild to exit"
         );
+    }
+
+    #[test]
+    fn stop_systemd_units_counts_only_active_units_that_stop_cleanly() {
+        let units = vec![
+            "susi-daemon-one.service".to_string(),
+            "susi-daemon-two.service".to_string(),
+            "susi-daemon-three.service".to_string(),
+        ];
+        let mut stopped = Vec::new();
+        let count = SusiDaemon::stop_systemd_units_with(
+            &units,
+            |unit| unit != "susi-daemon-two.service",
+            |unit| {
+                stopped.push(unit.to_string());
+                unit != "susi-daemon-three.service"
+            },
+        );
+        assert_eq!(count, 1);
+        assert_eq!(stopped, units);
     }
 }

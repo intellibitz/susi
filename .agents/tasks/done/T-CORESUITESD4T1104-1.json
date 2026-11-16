@@ -1,22 +1,48 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-CORESUITESD4T1104-1",
-  "title": "Expand susi-core bounded_io, vc_201_075, and vc_201_081 test suites to 4 unit tests",
-  "touch": [
-    "crates/susi-core/src/tests/bounded_io.rs",
-    "crates/susi-core/src/tests/vc_201_075.rs",
-    "crates/susi-core/src/tests/vc_201_081.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-core",
-      "--lib",
-      "bounded_io_tests"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-CORESUITESD4T1104-1",
+    "title":  "Expand susi-core bounded_io, vc_201_075, and vc_201_081 test suites to 4 unit tests",
+    "goal":  "Expand susi-core bounded_io, vc_201_075, and vc_201_081 test suites to at least 4 unit tests.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-core",
+                               "--lib",
+                               "a2a_wire"
+                           ]
+               },
+    "created_by":  "CORESUITESD4T1104",
+    "created_unix":  1793784934,
+    "authored":  true,
+    "base_commit":  "5ece8666871fa78f3e20c51f1f5405f3409023bb",
+    "implementation_commit":  "80b8faf0a1256b31afb0bc23ff423970093e6c63",
+    "verified_commit":  "80b8faf0a1256b31afb0bc23ff423970093e6c63",
+    "notes":  "Landed and closed in squash merge 80b8faf0a1256b31afb0bc23ff423970093e6c63 (#1494) across crates/susi-core/src/tests/{bounded_io,vc_201_075,vc_201_081}.rs prior to Lean Core test reorganization.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-core/src/lib.rs and crates/susi-core/src/a2a_wire.rs",
+                  "target":  "crates/susi-core/src/a2a_wire.rs",
+                  "why":  "Expanded unit test suites inside crates/susi-core prior to Lean Core test module consolidation.",
+                  "reused_symbols":  [
+                                         "susi_core::a2a_wire::message_send_request"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-CORESUITESD4T1104-1.json"
+               ],
+    "closed":  {
+                   "at_unix":  1793784934,
+                   "commit":  "80b8faf0a1256b31afb0bc23ff423970093e6c63",
+                   "by":  "CORESUITESD4T1104"
+               }
 }

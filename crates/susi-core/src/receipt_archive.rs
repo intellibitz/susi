@@ -81,7 +81,7 @@ pub struct ReceiptArchive;
 
 impl ReceiptArchive {
     pub fn path(workspace: &Path) -> PathBuf {
-        workspace.join(ARCHIVE_REL)
+        susi_paths::workspace_state_dir(workspace).join("receipt_archive.jsonl")
     }
 
     /// Best-effort append. Archive write failure never fails the mission.

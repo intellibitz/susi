@@ -788,7 +788,7 @@ impl GawdAgentFleet {
 /// Glass-box proof of Mandate 37: Safety/Security cleared (or vetoed) before
 /// the parallel fleet. Persisted for `susi substrate` / mission inspectability.
 fn persist_governance_report(workspace: &Path, results: &[(String, String)], cleared: bool) {
-    let dir = workspace.join(".susi");
+    let dir = susi_paths::workspace_state_dir(workspace);
     let _ = std::fs::create_dir_all(&dir);
     let agents: Vec<serde_json::Value> = results
         .iter()

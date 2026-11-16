@@ -45,7 +45,7 @@ impl SandboxManager {
 
     pub fn save_mission_checkpoint(workspace: &Path, checkpoint: &NeuralCheckpoint) {
         let _ = crate::susi_config::atomic_write_bytes(
-            &workspace.join(".susi").join("mission_checkpoint.json"),
+            &susi_paths::workspace_state_dir(workspace).join("mission_checkpoint.json"),
             serde_json::to_string_pretty(checkpoint)
                 .unwrap_or_default()
                 .as_bytes(),
@@ -53,7 +53,7 @@ impl SandboxManager {
     }
 
     pub fn check_interrupted_checkpoint(workspace: &Path) -> Option<NeuralCheckpoint> {
-        let p = workspace.join(".susi/mission_checkpoint.json");
+        let p = susi_paths::workspace_state_dir(workspace).join("mission_checkpoint.json");
         if p.is_file() {
             fs::read_to_string(&p)
                 .ok()
@@ -106,11 +106,11 @@ impl SusiAuditLogger {
         // carry a credential-shaped string — mask it before signing.
         let details = crate::susi_config::redact_credentials(details);
         let details = details.as_str();
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
-        let audit_file = workspace.join(".susi/audit.log");
+        let audit_file = susi_dir.join("audit.log");
 
         // Retention (VC-202-018): rotate a full segment and prune expired
         // archives before this write lands — the policy bounds the tier,
@@ -159,7 +159,10 @@ impl SusiAuditLogger {
     /// on every drift audit and dashboard call; bytes are decoded lossily so
     /// one invalid byte no longer turns the whole read into "no activity".
     pub fn read_audit_log(workspace: &Path, limit: usize) -> String {
-        tail_lines(&workspace.join(".susi/audit.log"), limit)
+        tail_lines(
+            &susi_paths::workspace_state_dir(workspace).join("audit.log"),
+            limit,
+        )
     }
 }
 
@@ -204,7 +207,7 @@ impl SusiMemory {
     /// same as the rest of the codebase already threads it through
     /// `solve_clean`/`solve_stream` call sites.
     pub fn save_interaction(workspace: &Path, input: &str, output: &str, engine_version: &str) {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         let _ = fs::create_dir_all(&susi_dir);
         let memory_file = susi_dir.join("memory.jsonl");
 

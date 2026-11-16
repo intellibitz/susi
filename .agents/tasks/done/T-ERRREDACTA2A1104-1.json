@@ -1,27 +1,53 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ERRREDACTA2A1104-1",
-  "title": "test(error,gawd-a2a): add secret redaction and A2A task-store reaper contract tests",
-  "status": "done",
-  "completed_at": "2026-11-04T03:32:00Z",
-  "created_at": "2026-11-04T03:25:00Z",
-  "owner": "ERRREDACTA2A1104",
-  "touch": [
-    "crates/susi-error/src/redact.rs",
-    "crates/susi-gawd-a2a/src/capabilities.rs",
-    "crates/susi-gawd-a2a/src/task_store.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-error",
-      "-p",
-      "susi-gawd-a2a",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ERRREDACTA2A1104-1",
+    "title":  "test(error,gawd-a2a): add secret redaction and A2A task-store reaper contract tests",
+    "goal":  "Add contract unit tests covering secret redaction in susi-error and A2A capabilities / task-store reaper behavior in susi-gawd-a2a.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-error",
+                               "-p",
+                               "susi-gawd-a2a",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ERRREDACTA2A1104",
+    "created_unix":  1793762700,
+    "authored":  true,
+    "base_commit":  "f671eca090df9406455bbc1d7e91c277c7543bf4",
+    "implementation_commit":  "436055f3675c9b70655e6566d4cff7e68e4b012a",
+    "verified_commit":  "436055f3675c9b70655e6566d4cff7e68e4b012a",
+    "notes":  "Landed and closed in squash merge 436055f3675c9b70655e6566d4cff7e68e4b012a (#1415) across crates/susi-error/src/redact.rs and crates/susi-gawd-a2a/src/{capabilities,task_store}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-error/src/redact.rs, crates/susi-gawd-a2a/src/capabilities.rs, crates/susi-gawd-a2a/src/task_store.rs",
+                  "target":  "crates/susi-gawd-a2a/src/task_store.rs",
+                  "why":  "Expanded contract tests directly atop redact_patterns and TaskStore in susi-error and susi-gawd-a2a.",
+                  "reused_symbols":  [
+                                         "susi_error::redact::redact_patterns",
+                                         "susi_gawd_a2a::task_store::TaskStore"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ERRREDACTA2A1104-1.json",
+                   "crates/susi-error/src/redact.rs",
+                   "crates/susi-gawd-a2a/src/capabilities.rs",
+                   "crates/susi-gawd-a2a/src/task_store.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793763629,
+                   "commit":  "436055f3675c9b70655e6566d4cff7e68e4b012a",
+                   "by":  "ERRREDACTA2A1104"
+               }
 }

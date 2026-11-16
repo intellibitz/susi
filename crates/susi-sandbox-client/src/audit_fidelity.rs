@@ -199,7 +199,7 @@ impl Default for TraceConfig {
 }
 
 fn config_path(workspace: &Path) -> PathBuf {
-    workspace.join(".susi").join("trace.json")
+    susi_paths::workspace_state_dir(workspace).join("trace.json")
 }
 
 fn load_config(workspace: &Path) -> TraceConfig {
@@ -242,8 +242,7 @@ pub fn trace_enabled(workspace: &Path, subsystem: &str, level: TraceLevel) -> bo
 
 fn day_file(workspace: &Path, subsystem: &str, unix: u64) -> PathBuf {
     let days = unix / 86_400;
-    workspace
-        .join(".susi")
+    susi_paths::workspace_state_dir(workspace)
         .join("trace")
         .join(format!("{subsystem}-{days}.log"))
 }
@@ -258,7 +257,7 @@ fn unix_now() -> u64 {
 /// Remove day files past the retention window (file name carries the day).
 fn sweep_expired(workspace: &Path, now: u64, retain_days: u32) {
     let today = now / 86_400;
-    let dir = workspace.join(".susi").join("trace");
+    let dir = susi_paths::workspace_state_dir(workspace).join("trace");
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return;
     };
@@ -281,7 +280,7 @@ fn sweep_expired(workspace: &Path, now: u64, retain_days: u32) {
 /// oldest day files (any subsystem) until the directory is under the
 /// configured ceiling. Oldest by the day number in the filename.
 fn enforce_trace_total_cap(workspace: &Path, max_total_bytes: u64) {
-    let dir = workspace.join(".susi").join("trace");
+    let dir = susi_paths::workspace_state_dir(workspace).join("trace");
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return;
     };
@@ -406,7 +405,7 @@ impl Default for AuditPolicy {
 }
 
 fn audit_policy(workspace: &Path) -> AuditPolicy {
-    std::fs::read_to_string(workspace.join(".susi").join("audit-policy.json"))
+    std::fs::read_to_string(susi_paths::workspace_state_dir(workspace).join("audit-policy.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
@@ -447,7 +446,7 @@ struct AuditFile {
 }
 
 fn list_audit_files(workspace: &Path) -> Vec<AuditFile> {
-    let dir = workspace.join(".susi");
+    let dir = susi_paths::workspace_state_dir(workspace);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -526,7 +525,7 @@ fn prune_audit_archives(workspace: &Path, policy: &AuditPolicy, now: u64) {
 pub fn apply_audit_retention(workspace: &Path) -> Option<RotateAttestation> {
     let policy = audit_policy(workspace);
     let now = unix_now();
-    let active = workspace.join(".susi").join("audit.log");
+    let active = susi_paths::workspace_state_dir(workspace).join("audit.log");
     let mut rotated = None;
     if let Ok(meta) = std::fs::metadata(&active) {
         if meta.len() > policy.segment_bytes {
