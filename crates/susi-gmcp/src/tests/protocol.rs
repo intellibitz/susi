@@ -934,6 +934,7 @@ mod protocol_unit_tests {
             "Protocol Error:",
             "Reflex Error:",
             "Governance Violation:",
+            "[GOVERNANCE_BLOCK]",
             "[RECOVERY]",
             "[Error]",
             "Sandbox Error:",

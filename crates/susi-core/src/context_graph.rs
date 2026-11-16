@@ -877,12 +877,15 @@ impl ContextGraph {
         events
     }
 
-    /// Subgraph containing all nodes reachable from `start` within `depth` hops.
+    /// Subgraph containing all nodes reachable from `start` within `depth` hops,
+    /// ordered by BFS discovery (`start` first, then nearest hops).
     pub fn related(&self, start: &NodeId, depth: usize) -> Subgraph {
         let mut visited: HashSet<NodeId> = HashSet::new();
+        let mut order: Vec<NodeId> = Vec::new();
         let mut queue: VecDeque<(NodeId, usize)> = VecDeque::new();
         queue.push_back((start.clone(), 0));
         visited.insert(start.clone());
+        order.push(start.clone());
 
         while let Some((current, d)) = queue.pop_front() {
             if d >= depth {
@@ -897,6 +900,7 @@ impl ContextGraph {
                 for target in neighbors.read().unwrap_or_else(|e| e.into_inner()).iter() {
                     let target = target.0.clone();
                     if visited.insert(target.clone()) {
+                        order.push(target.clone());
                         queue.push_back((target, d + 1));
                     }
                 }
@@ -910,13 +914,14 @@ impl ContextGraph {
                 for source in neighbors.read().unwrap_or_else(|e| e.into_inner()).iter() {
                     let source = source.0.clone();
                     if visited.insert(source.clone()) {
+                        order.push(source.clone());
                         queue.push_back((source, d + 1));
                     }
                 }
             }
         }
 
-        let nodes: Vec<Node> = visited.iter().filter_map(|id| self.node(id)).collect();
+        let nodes: Vec<Node> = order.iter().filter_map(|id| self.node(id)).collect();
         let edge_ids: HashSet<String> = visited
             .iter()
             .filter_map(|id| {
@@ -1388,6 +1393,45 @@ mod tests {
         g.record_edge(e2);
         assert_eq!(g.related(&a, 1).nodes.len(), 2);
         assert_eq!(g.related(&a, 2).nodes.len(), 3);
+    }
+
+    #[test]
+    fn related_preserves_bfs_order_with_start_node_first() {
+        let g = ContextGraph::new();
+        let (hub, start) = (NodeId::stable("t", "hub"), NodeId::stable("t", "start"));
+        let put = |id: &NodeId, kind, t| {
+            let props = HashMap::new();
+            let node = Node {
+                id: id.clone(),
+                kind,
+                label: "n".into(),
+                created_at: t,
+                properties: props.clone(),
+            };
+            g.record_node(node);
+            if id != &hub {
+                let eid = ContextGraph::edge_id(id, &EdgeType::OccurredIn, &hub, t);
+                let edge = Edge {
+                    id: eid,
+                    source: id.clone(),
+                    target: hub.clone(),
+                    kind: EdgeType::OccurredIn,
+                    created_at: t,
+                    properties: props,
+                };
+                g.record_edge(edge);
+            }
+        };
+        put(&hub, NodeType::Observation, 1);
+        put(&start, NodeType::Observation, 1);
+        for i in 0..32_usize {
+            let sid = NodeId::stable("t", &format!("sib-{i}"));
+            put(&sid, NodeType::Telemetry, 2 + i as u64);
+        }
+        let sub = g.related(&start, 2);
+        assert_eq!(sub.nodes.len(), 34);
+        assert_eq!(sub.nodes[0].id, start);
+        assert_eq!(sub.nodes[1].id, hub);
     }
 
     #[test]

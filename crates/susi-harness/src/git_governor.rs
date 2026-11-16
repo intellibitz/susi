@@ -376,14 +376,14 @@ pub struct RetireBranchesReceipt {
 }
 
 #[derive(Debug, Clone)]
-struct GitOut {
+pub(crate) struct GitOut {
     code: i32,
-    stdout: Vec<u8>,
+    pub(crate) stdout: Vec<u8>,
     stderr: String,
 }
 
 impl GitOut {
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         self.code == 0
     }
 
@@ -426,7 +426,7 @@ fn validate_remote_name(remote: &str) -> EaiResult<&str> {
     Ok(trimmed)
 }
 
-fn run_git(
+pub(crate) fn run_git(
     repo: &Path,
     args: &[&str],
     stdin_bytes: Option<&[u8]>,
@@ -467,6 +467,40 @@ fn git_ok(repo: &Path, args: &[&str]) -> EaiResult<String> {
         )));
     }
     Ok(out.stdout_trimmed())
+}
+
+pub(crate) fn cat_file_batch_json(repo: &Path, specs: &[String]) -> EaiResult<Vec<Option<Value>>> {
+    if specs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input = format!("{}\n", specs.join("\n"));
+    let batch = run_git(repo, &["cat-file", "--batch"], Some(input.as_bytes()), &[])?;
+    if !batch.ok() {
+        return Ok(Vec::new());
+    }
+    let bytes = &batch.stdout;
+    let (mut cur, mut out) = (0usize, Vec::with_capacity(specs.len()));
+    while let Some(tail) = bytes.get(cur..) {
+        let Some(nl) = tail.iter().position(|&b| b == b'\n') else {
+            break;
+        };
+        let hdr = String::from_utf8_lossy(&tail[..nl]);
+        cur += nl + 1;
+        let parts: Vec<&str> = hdr.split_whitespace().collect();
+        if parts.len() < 3 || parts[1] != "blob" {
+            out.push(None);
+            continue;
+        }
+        let Ok(sz) = parts[2].parse::<usize>() else {
+            break;
+        };
+        let Some(body) = bytes.get(cur..cur.saturating_add(sz)) else {
+            break;
+        };
+        cur = cur.saturating_add(sz + 1).min(bytes.len());
+        out.push(serde_json::from_slice::<Value>(body).ok());
+    }
+    Ok(out)
 }
 
 fn is_ancestor(repo: &Path, anc: &str, desc: &str) -> EaiResult<bool> {
@@ -630,40 +664,8 @@ fn load_retired_rules(repo: &Path, main_oid: &str, remote: &str) -> EaiResult<Ve
     if blob_oids.is_empty() {
         return Ok(Vec::new());
     }
-    let batch_input = format!("{}\n", blob_oids.join("\n"));
-    let batch = run_git(
-        repo,
-        &["cat-file", "--batch"],
-        Some(batch_input.as_bytes()),
-        &[],
-    )?;
-    if !batch.ok() {
-        return Ok(Vec::new());
-    }
     let mut rules = Vec::new();
-    let bytes = &batch.stdout;
-    let mut cursor = 0usize;
-    while cursor < bytes.len() {
-        let Some(nl_rel) = bytes[cursor..].iter().position(|&b| b == b'\n') else {
-            break;
-        };
-        let header = String::from_utf8_lossy(&bytes[cursor..cursor + nl_rel]);
-        cursor += nl_rel + 1;
-        let parts: Vec<&str> = header.split_whitespace().collect();
-        if parts.len() < 3 || parts[1] != "blob" {
-            continue;
-        }
-        let Ok(size) = parts[2].parse::<usize>() else {
-            break;
-        };
-        if cursor + size > bytes.len() {
-            break;
-        }
-        let payload = &bytes[cursor..cursor + size];
-        cursor = (cursor + size + 1).min(bytes.len());
-        let Ok(doc) = serde_json::from_slice::<Value>(payload) else {
-            continue;
-        };
+    for doc in cat_file_batch_json(repo, &blob_oids)?.into_iter().flatten() {
         let task_id = doc["id"].as_str().unwrap_or("UNKNOWN").to_string();
         let Some(results) = doc["results"].as_array() else {
             continue;

@@ -100,6 +100,7 @@ pub mod queue;
 pub mod ratelimit;
 pub mod recursive;
 pub mod roi;
+pub mod rsi_scorecard;
 pub mod scheduler;
 pub mod secrets;
 pub mod smart;

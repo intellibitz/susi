@@ -373,7 +373,7 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "harness scorecard",
-        "runs scripts/check-rsi-scorecard.py, which the Rust-only migration deleted (5a90467ad): the CLI command itself no longer works, so there is no capability to expose until it is rebuilt natively",
+        "rebuilt natively in pure Rust (`susi_harness::rsi_scorecard`), reading local git commits, merge refs, and lifecycle ledger directly from the CLI",
     ),
     (
         "mcp serve",

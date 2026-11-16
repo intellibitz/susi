@@ -67,16 +67,41 @@ fn ensure_same_workspace(tx: &AgentTransaction, workspace: &Path) -> EaiResult<(
     )))
 }
 
-fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
-    let rel = rel.replace('\\', "/").trim_start_matches('/').to_string();
-    if rel.is_empty() || rel.contains("..") {
-        return Err(EaiError::governance(format!("tx path escape: {rel}")));
+fn confined_with_rel(workspace: &Path, raw: &str) -> EaiResult<(String, PathBuf)> {
+    let norm = raw.trim().replace('\\', "/");
+    let path = Path::new(&norm);
+    let err = |m: String| EaiError::governance(m);
+    let bad_parent = path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir));
+    if norm.is_empty() || bad_parent {
+        return Err(err(format!("tx path escape: {raw}")));
     }
-    // Resolve through the deepest existing ancestor: files a transaction
-    // creates under a symlinked dir must not escape the workspace (the old
-    // check waved through every path that did not exist yet).
-    crate::susi_config::confined_workspace_join(workspace, &rel)
-        .map_err(|e| EaiError::governance(format!("tx path outside workspace: {rel} ({e})")))
+    let rel = if path.is_absolute() {
+        let ws = workspace.canonicalize().map_err(|e| err(e.to_string()))?;
+        let (mut cur, mut pend) = (path, Vec::new());
+        while std::fs::symlink_metadata(cur).is_err() {
+            let Some((p, n)) = cur.parent().zip(cur.file_name()) else {
+                break;
+            };
+            pend.push(n.to_os_string());
+            cur = p;
+        }
+        let mut res = cur.canonicalize().map_err(|e| err(e.to_string()))?;
+        res.extend(pend.iter().rev());
+        let st = res.strip_prefix(&ws).map_err(|_| err(raw.to_owned()))?;
+        let text = st.to_str().filter(|s| !s.is_empty());
+        text.ok_or_else(|| err(raw.to_owned()))?.replace('\\', "/")
+    } else {
+        norm
+    };
+    let joined = crate::susi_config::confined_workspace_join(workspace, &rel)
+        .map_err(|e| err(format!("tx outside: {e}")))?;
+    Ok((rel, joined))
+}
+
+fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
+    confined_with_rel(workspace, rel).map(|(_, joined)| joined)
 }
 
 /// Process-wide transaction registry.
@@ -108,7 +133,7 @@ impl TxManager {
     ) -> EaiResult<AgentTransaction> {
         let mut files = Vec::new();
         for rel in file_rels {
-            let path = confined(workspace, rel)?;
+            let (normalized_rel, path) = confined_with_rel(workspace, rel)?;
             let content = if path.is_file() {
                 Some(
                     std::fs::read_to_string(&path)
@@ -118,7 +143,7 @@ impl TxManager {
                 None
             };
             files.push(FileSnapshot {
-                rel_path: rel.clone(),
+                rel_path: normalized_rel,
                 content,
             });
         }
@@ -422,6 +447,22 @@ mod tests {
         mgr.commit(&tx.id, &ws).unwrap();
         assert!(mgr.get(&tx.id).is_none());
         assert!(mgr.list_open().is_empty());
+
+        let abs_ok = ws.join("abs.txt");
+        std::fs::write(&abs_ok, "before").unwrap();
+        let abs_arg = [abs_ok.to_string_lossy().into()];
+        let abs_tx = mgr.begin(&ws, "in", &abs_arg, BTreeMap::new()).unwrap();
+        assert_eq!(abs_tx.files[0].rel_path, "abs.txt");
+        assert_eq!(abs_tx.files[0].content.as_deref(), Some("before"));
+        std::fs::write(&abs_ok, "after").unwrap();
+        mgr.abort(&abs_tx.id, &ws).unwrap();
+        assert_eq!(std::fs::read_to_string(&abs_ok).unwrap(), "before");
+        let out_arg = [std::env::temp_dir()
+            .join("out-tx.txt")
+            .to_string_lossy()
+            .into()];
+        assert!(mgr.begin(&ws, "out", &out_arg, BTreeMap::new()).is_err());
+
         let _ = std::fs::remove_dir_all(&ws);
     }
 }

@@ -1145,7 +1145,7 @@ pub(crate) fn is_tool_result_error(text: &str) -> bool {
     {
         return false;
     }
-    if "Error:|[Error]|[FAIL]|[CAPABILITY_GAP]|Protocol Error:|Reflex Error:|Governance Violation:|[RECOVERY]"
+    if "Error:|[Error]|[FAIL]|[CAPABILITY_GAP]|Protocol Error:|Reflex Error:|Governance Violation:|[GOVERNANCE_BLOCK]|[RECOVERY]"
         .split('|')
         .any(|prefix| text.starts_with(prefix))
     {

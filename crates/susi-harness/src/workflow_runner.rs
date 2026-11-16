@@ -230,12 +230,10 @@ impl ParallelWorkflowHarness {
                 repo_root.display()
             )));
         }
-        fs::create_dir_all(isolation_root.join("worktrees"))
-            .map_err(|e| EaiError::io(format!("create worktrees dir: {e}")))?;
-        fs::create_dir_all(isolation_root.join("targets"))
-            .map_err(|e| EaiError::io(format!("create targets dir: {e}")))?;
-        fs::create_dir_all(isolation_root.join("homes"))
-            .map_err(|e| EaiError::io(format!("create homes dir: {e}")))?;
+        for d in ["worktrees", "targets", "homes"] {
+            fs::create_dir_all(isolation_root.join(d))
+                .map_err(|e| EaiError::io(format!("create {d} dir: {e}")))?;
+        }
 
         Ok(Self {
             repo_root,
@@ -915,16 +913,7 @@ fn reconcile_repo_branch(
 }
 
 fn ensure_clean_merge_tree(dir: &Path, left: &str, right: &str) -> EaiResult<String> {
-    let mut cmd = susi_paths::console::background_command("git");
-    cmd.arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .current_dir(dir)
-        .args(["merge-tree", "--write-tree", left, right]);
-    susi_paths::console::apply_non_interactive_env(&mut cmd);
-    let out = cmd
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| EaiError::io(format!("git merge-tree failed to spawn: {e}")))?;
+    let out = git_raw(dir, &["merge-tree", "--write-tree", left, right])?;
     if !out.status.success() {
         let detail = String::from_utf8_lossy(&out.stdout);
         return Err(EaiError::governance(format!(
@@ -932,12 +921,8 @@ fn ensure_clean_merge_tree(dir: &Path, left: &str, right: &str) -> EaiResult<Str
             detail.trim()
         )));
     }
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_owned())
+    let head = String::from_utf8_lossy(&out.stdout);
+    Ok(head.lines().next().unwrap_or_default().trim().to_owned())
 }
 
 fn advance_local_main_if_safe(root: &Path, branch: &str, new_oid: &str) -> EaiResult<()> {
@@ -977,47 +962,34 @@ fn resolve_start_base(root: &Path, cfg: &RemoteReconcileConfig) -> EaiResult<Str
     }
 }
 
-fn has_remote_configured(dir: &Path, remote_name: &str) -> EaiResult<bool> {
-    let out = Command::new("git")
+fn git_raw(dir: &Path, args: &[&str]) -> EaiResult<std::process::Output> {
+    Command::new("git")
         .arg("--literal-pathspecs")
         .env("GIT_NO_REPLACE_OBJECTS", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .current_dir(dir)
-        .args(["remote", "get-url", remote_name])
+        .args(args)
         .output()
-        .map_err(|e| EaiError::io(format!("git remote get-url: {e}")))?;
-    Ok(out.status.success())
+        .map_err(|e| EaiError::io(format!("git {} spawn error: {e}", args.join(" "))))
+}
+
+fn has_remote_configured(dir: &Path, remote_name: &str) -> EaiResult<bool> {
+    Ok(git_raw(dir, &["remote", "get-url", remote_name])?
+        .status
+        .success())
 }
 
 fn read_optional_ref(dir: &Path, reference: &str) -> EaiResult<Option<String>> {
-    let out = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(dir)
-        .args(["rev-parse", "--verify", "--quiet", reference])
-        .output()
-        .map_err(|e| EaiError::io(format!("git rev-parse {reference}: {e}")))?;
+    let out = git_raw(dir, &["rev-parse", "--verify", "--quiet", reference])?;
     if !out.status.success() {
         return Ok(None);
     }
     let oid = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-    if oid.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(oid))
-    }
+    Ok((!oid.is_empty()).then_some(oid))
 }
 
 fn git_is_ancestor(dir: &Path, ancestor: &str, descendant: &str) -> EaiResult<bool> {
-    let out = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(dir)
-        .args(["merge-base", "--is-ancestor", ancestor, descendant])
-        .output()
-        .map_err(|e| EaiError::io(format!("git merge-base: {e}")))?;
+    let out = git_raw(dir, &["merge-base", "--is-ancestor", ancestor, descendant])?;
     match out.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
@@ -1029,14 +1001,10 @@ fn git_is_ancestor(dir: &Path, ancestor: &str, descendant: &str) -> EaiResult<bo
 }
 
 fn worktree_changed_paths(dir: &Path) -> EaiResult<Vec<String>> {
-    let out = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(dir)
-        .args(["status", "--porcelain", "-z", "--untracked-files=all"])
-        .output()
-        .map_err(|e| EaiError::io(format!("git status: {e}")))?;
+    let out = git_raw(
+        dir,
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
+    )?;
     if !out.status.success() {
         return Err(EaiError::io("git status failed"));
     }
@@ -1047,26 +1015,19 @@ fn worktree_changed_paths(dir: &Path) -> EaiResult<Vec<String>> {
             continue;
         }
         let status = &entry[..2];
-        let rel = String::from_utf8_lossy(&entry[3..]).into_owned();
-        paths.push(rel);
-        if status.contains(&b'R') || status.contains(&b'C') {
-            if let Some(orig) = iter.next() {
+        paths.push(String::from_utf8_lossy(&entry[3..]).into_owned());
+        if (status.contains(&b'R') || status.contains(&b'C'))
+            && iter.next().is_some_and(|orig| {
                 paths.push(String::from_utf8_lossy(orig).into_owned());
-            }
-        }
+                true
+            })
+        {}
     }
     Ok(paths)
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> EaiResult<String> {
-    let out = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .map_err(|e| EaiError::io(format!("git {:?} spawn error: {e}", args.first())))?;
+    let out = git_raw(dir, args)?;
     if !out.status.success() {
         return Err(EaiError::io(format!(
             "git {} failed: {}",

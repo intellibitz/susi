@@ -357,35 +357,52 @@ impl IpcBroker {
 
     /// Check whether `grantee` currently holds a valid grant for `scope`.
     pub fn is_permitted(&self, grantee: &str, scope: &PermissionScope) -> bool {
+        let now = now_secs();
         let key = enc(&scope.key(grantee));
         self.state_dirs("grants")
             .iter()
-            .find_map(|d| read_json::<PermissionGrant>(&d.join(&key)))
-            .is_some_and(|g| g.expires_at.is_none_or(|exp| exp > now_secs()))
+            .filter_map(|d| read_json::<PermissionGrant>(&d.join(&key)))
+            .any(|g| g.expires_at.is_none_or(|exp| exp > now))
     }
 
     /// Revoke an existing grant — searched across all rendezvous dirs and
-    /// removed wherever it was written.
+    /// removed from every sibling pid dir where it was written.
     pub fn revoke(&self, grantee: &str, scope: &PermissionScope) -> Option<PermissionGrant> {
         let key = enc(&scope.key(grantee));
+        let mut removed: Option<PermissionGrant> = None;
         for dir in self.state_dirs("grants") {
             let file = dir.join(&key);
             if let Some(grant) = read_json::<PermissionGrant>(&file) {
                 let _ = std::fs::remove_file(&file);
-                return Some(grant);
+                if removed.is_none() {
+                    removed = Some(grant);
+                }
             }
         }
-        None
+        removed
     }
 
-    /// List grants held by an identity.
+    /// List active (non-expired, deduplicated) grants held by an identity.
     pub fn grants_for(&self, grantee: &str) -> Vec<PermissionGrant> {
-        self.state_dirs("grants")
+        let now = now_secs();
+        let mut dedup: std::collections::BTreeMap<(String, String), PermissionGrant> =
+            std::collections::BTreeMap::new();
+        for grant in self
+            .state_dirs("grants")
             .iter()
             .flat_map(|d| scan_dir::<PermissionGrant>(d))
             .map(|(_, g)| g)
-            .filter(|g| g.grantee == grantee)
-            .collect()
+            .filter(|g| g.grantee == grantee && g.expires_at.is_none_or(|exp| exp > now))
+        {
+            let key = (grant.scope.resource.clone(), grant.scope.action.clone());
+            let replace = dedup
+                .get(&key)
+                .is_none_or(|e| grant.granted_at >= e.granted_at);
+            if replace {
+                dedup.insert(key, grant);
+            }
+        }
+        dedup.into_values().collect()
     }
 
     /// Send a message from `from` to `to`. Requires `from` to hold a dispatch
@@ -541,5 +558,22 @@ mod tests {
         assert_eq!(msgs[0].topic, "ping");
 
         let _ = std::fs::remove_dir_all(&bus_root);
+    }
+
+    #[test]
+    fn expired_grant_in_sibling_pid_dir_does_not_block_fresh_grant_and_revoke_clears_all() {
+        let rt = std::env::temp_dir().join(format!("sbx-{}-{}", std::process::id(), now_nanos()));
+        let mk = |p| IpcBroker::with_dir(rt.join("bus").join(p).join("broker"));
+        let (p1, p2, p3) = (mk("100001"), mk("100002"), mk("100003"));
+        let sc = PermissionScope::new("app://worker-b", "dispatch");
+        p1.grant("susi", "worker-a", sc.clone(), Some(0));
+        assert!(!p3.is_permitted("worker-a", &sc) && p3.grants_for("worker-a").is_empty());
+        p2.grant("susi", "worker-a", sc.clone(), Some(3600));
+        assert!(p3.is_permitted("worker-a", &sc) && p3.grants_for("worker-a").len() == 1);
+        p1.grant("susi", "worker-a", sc.clone(), Some(3600));
+        assert_eq!(p3.grants_for("worker-a").len(), 1);
+        assert!(p3.revoke("worker-a", &sc).is_some() && !p3.is_permitted("worker-a", &sc));
+        assert!(p3.grants_for("worker-a").is_empty());
+        let _ = std::fs::remove_dir_all(&rt);
     }
 }

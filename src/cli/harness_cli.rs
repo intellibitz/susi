@@ -242,8 +242,8 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             task,
             json,
             require_complete,
-            python,
-        } => scorecard(&events, &task, json, require_complete, &python, cwd),
+            python: _,
+        } => scorecard(&events, &task, json, require_complete, cwd),
     }
 }
 
@@ -347,41 +347,16 @@ fn open_harness_run_scope_with(
     Ok((child, effective_timeout))
 }
 
-/// Run the repository's scorecard against the lifecycle ledger.
-///
-/// The script owns the report format; this command makes it reachable from the
-/// binary, so a task's loop is measured by a caller instead of by a human who
-/// remembers to run a script.
-#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+/// Run the pure-Rust RSI loop scorecard against the repository and lifecycle ledger.
 fn scorecard(
     events: &Path,
     tasks: &[String],
     json: bool,
     require_complete: bool,
-    python: &Path,
     cwd: &Path,
 ) -> Result<()> {
-    let mut command = std::process::Command::new(python);
-    command
-        .arg("scripts/check-rsi-scorecard.py")
-        .arg("--events")
-        .arg(events);
-    for task in tasks {
-        command.arg("--task").arg(task);
-    }
-    if json {
-        command.arg("--json");
-    }
-    if require_complete {
-        command.arg("--require-complete");
-    }
-    let status = command
-        .current_dir(cwd)
-        .status()
-        .with_context(|| format!("run {} scripts/check-rsi-scorecard.py", python.display()))?;
-    if !status.success() {
-        bail!("scorecard exited with {status}");
-    }
+    let out = susi_harness::rsi_scorecard::run(cwd, events, tasks, json, require_complete)?;
+    print!("{out}");
     Ok(())
 }
 
