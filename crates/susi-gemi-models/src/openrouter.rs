@@ -6,8 +6,7 @@
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::fs;
-use std::path::PathBuf;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use crate::cloud::{effective_inference_endpoints, list_api_key_status, resolve_api_key};
 
@@ -28,43 +27,20 @@ pub struct OpenRouterRoute {
     pub documentation: String,
 }
 
-#[derive(Clone)]
-pub struct OpenRouterManager {
-    root: PathBuf,
-}
+crate::catalog::local_catalog!(
+    OpenRouterManager,
+    with_root,
+    OpenRouterRoute,
+    "openrouter",
+    "openrouter-models.json",
+    "unknown OpenRouter route {id}; use `susi openrouter list`",
+    |route, id| route.id == id || route.model == id || route.name.eq_ignore_ascii_case(id)
+);
 
 impl OpenRouterManager {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            root: susi_paths::SusiDirs::config_dir().join("openrouter"),
-        })
-    }
-
-    pub fn with_root(root: PathBuf) -> Self {
-        Self { root }
-    }
-
-    pub fn catalog() -> Result<Vec<OpenRouterRoute>> {
-        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
-            "openrouter-models.json",
-            include_str!("../../../config/openrouter-models.json"),
-        ))
-    }
-
-    pub fn definition(id: &str) -> Result<OpenRouterRoute> {
-        Self::catalog()?
-            .into_iter()
-            .find(|r| r.id == id || r.model == id || r.name.eq_ignore_ascii_case(id))
-            .with_context(|| format!("unknown OpenRouter route {id}; use `susi openrouter list`"))
-    }
-
-    fn preferred_model_path(&self) -> PathBuf {
-        self.root.join("preferred_model.txt")
-    }
-
     /// Model id pinned for the OpenRouter endpoint (empty → bundled default).
     pub fn preferred_model(&self) -> Option<String> {
-        crate::catalog::preferred(&self.preferred_model_path())
+        crate::catalog::preferred(&crate::catalog::preferred_path(&self.root))
     }
 
     pub fn effective_model(&self) -> String {
@@ -146,7 +122,7 @@ impl OpenRouterManager {
                 }
             };
             crate::susi_config::atomic_write_bytes(
-                &self.preferred_model_path(),
+                &crate::catalog::preferred_path(&self.root),
                 model_id.as_bytes(),
             )?;
             Ok(format!(
@@ -162,7 +138,7 @@ impl OpenRouterManager {
 
     pub fn clear_preferred_model(&self) -> Result<String> {
         crate::catalog::clear_preferred(
-            &self.preferred_model_path(),
+            &crate::catalog::preferred_path(&self.root),
             "cleared OpenRouter preferred model (using openrouter/auto)",
             "no OpenRouter preferred model was set",
         )

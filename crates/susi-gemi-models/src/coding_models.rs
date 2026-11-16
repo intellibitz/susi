@@ -13,11 +13,11 @@
 //! Paid probe / `HttpProvider` construction lives in the engines crate
 //! (`susi_gemi::coding_models_ext`) so this models crate never depends on engines.
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
-use std::collections::HashMap;
+#[cfg(test)]
 use std::fs;
-use std::path::PathBuf;
-use susi_error::{EaiResult as Result, ResultExt as Context};
+use susi_error::EaiResult as Result;
 
 use crate::catalog;
 
@@ -36,102 +36,43 @@ pub struct CodingModelDefinition {
     pub api_key_env: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CodingModelOverride {
-    pub engine: Option<String>,
-    pub model: Option<String>,
-    pub protocol_type: Option<String>,
-    pub api_key_env: Option<String>,
-    /// Mandate 35: preserve unknown keys on configure read-modify-write.
-    #[serde(flatten, default)]
-    pub extra: HashMap<String, Value>,
-}
+crate::catalog::cloud_model_controls!(
+    CodingModelManager,
+    CodingModelDefinition,
+    CodingModelOverride,
+    CodingModelEndpoint,
+    "coding"
+);
 
-/// Resolved endpoint + credential metadata for engines to build an `HttpProvider`.
-#[derive(Debug, Clone)]
-pub struct CodingModelEndpoint {
-    pub def: CodingModelDefinition,
-    pub api_base: String,
-    pub protocol_type: String,
-    pub api_key_env: String,
-    pub api_key: String,
-}
-
-#[derive(Clone)]
-pub struct CodingModelManager {
-    config: PathBuf,
-}
+crate::catalog::local_catalog!(
+    CodingModelManager,
+    with_config,
+    CodingModelDefinition,
+    "coding-models",
+    "coding-models.json",
+    "unknown coding model {id}; use `susi models list`",
+    |model, id| model.id == id || model.name.eq_ignore_ascii_case(id)
+);
 
 impl CodingModelManager {
-    pub fn new() -> Result<Self> {
-        let config = susi_paths::SusiDirs::config_dir().join("coding-models");
-        Ok(Self { config })
-    }
-
-    pub fn with_config(config: PathBuf) -> Self {
-        Self { config }
-    }
-
-    pub fn catalog() -> Result<Vec<CodingModelDefinition>> {
-        // Extension-pack API: host `~/.susi/extensions/<pack>/coding-models.json`
-        // overrides the bundled catalog (manifest may still point at config/).
-        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
-            "coding-models.json",
-            include_str!("../../../config/coding-models.json"),
-        ))
-    }
-
-    pub fn definition(id: &str) -> Result<CodingModelDefinition> {
-        Self::catalog()?
-            .into_iter()
-            .find(|m| m.id == id || m.name.eq_ignore_ascii_case(id))
-            .with_context(|| format!("unknown coding model {id}; use `susi models list`"))
-    }
-
     pub fn effective(&self, id: &str) -> Result<CodingModelDefinition> {
-        let mut def = Self::definition(id)?;
-        let path = self.config.join(format!("{}.json", def.id));
-        if let Ok(bytes) = fs::read(&path) {
-            let over: CodingModelOverride =
-                serde_json::from_slice(&bytes).context("invalid coding-model override")?;
-            catalog::apply_override(&mut def.engine, over.engine, false);
-            catalog::apply_override(&mut def.model, over.model, false);
-            catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
-            catalog::apply_override(&mut def.api_key_env, over.api_key_env, true);
-        }
-        def.validate()?;
-        Ok(def)
+        let def = Self::definition(id)?;
+        def.with_stored_override(&self.root)
     }
 
     pub fn configure(&self, id: &str, over: &CodingModelOverride) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        let path = self.config.join(format!("{}.json", def.id));
-        let mut merged = fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<CodingModelOverride>(&bytes).ok())
-            .unwrap_or_default();
-        if over.engine.is_some() {
-            merged.engine.clone_from(&over.engine);
-        }
-        if over.model.is_some() {
-            merged.model.clone_from(&over.model);
-        }
-        if over.protocol_type.is_some() {
-            merged.protocol_type.clone_from(&over.protocol_type);
-        }
-        if over.api_key_env.is_some() {
-            merged.api_key_env.clone_from(&over.api_key_env);
-        }
-        for (k, v) in &over.extra {
-            merged.extra.insert(k.clone(), v.clone());
-        }
-        crate::susi_config::write_json_override(&self.config, &def.id, &merged)?;
-        self.effective(&def.id)
-    }
-
-    pub fn reset(&self, id: &str) -> Result<CodingModelDefinition> {
-        let def = Self::definition(id)?;
-        crate::susi_config::clear_json_override(&self.config, &def.id)?;
+        let mut merged: CodingModelOverride =
+            catalog::read_override(&self.root, &def.id, "invalid coding-model override")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        merged.engine = over.engine.clone().or(merged.engine);
+        merged.model = over.model.clone().or(merged.model);
+        merged.protocol_type = over.protocol_type.clone().or(merged.protocol_type);
+        merged.api_key_env = over.api_key_env.clone().or(merged.api_key_env);
+        merged.extra.extend(over.extra.clone());
+        crate::susi_config::write_json_override(&self.root, &def.id, &merged)?;
         self.effective(&def.id)
     }
 
@@ -143,21 +84,6 @@ impl CodingModelManager {
             "endpoint {} ready; model id {}; credentials present",
             def.engine, def.model
         ))
-    }
-
-    /// Resolve endpoint + key metadata for engines to construct an HTTP provider.
-    pub fn resolve_endpoint(&self, id: &str) -> Result<CodingModelEndpoint> {
-        let def = self.effective(id)?;
-        self.preflight(&def.id)?;
-        let (endpoint, api_key) =
-            catalog::resolve_endpoint(&def.engine, &def.protocol_type, &def.api_key_env)?;
-        Ok(CodingModelEndpoint {
-            def,
-            api_base: endpoint.api_base.trim().to_string(),
-            protocol_type: endpoint.protocol_type,
-            api_key_env: endpoint.api_key_env,
-            api_key,
-        })
     }
 
     pub fn prefer(&self, id: &str) -> Result<String> {
@@ -200,16 +126,6 @@ impl CodingModelManager {
             return Ok(Some(def.id));
         }
         Ok(None)
-    }
-}
-
-impl CodingModelDefinition {
-    fn validate(&self) -> Result<()> {
-        catalog::validate_model(
-            [&self.id, &self.engine, &self.model],
-            &self.api_key_env,
-            "coding",
-        )
     }
 }
 
