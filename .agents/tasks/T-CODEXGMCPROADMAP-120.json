@@ -51,5 +51,6 @@
     "docs/gmcp/contract-203-017.md",
     "tests/gmcp_requirements/vc_203_017.rs",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
-  ]
+  ],
+  "implementation_commit": "884c291ab2192d05262c43ed292d808302c3e1fc"
 }
