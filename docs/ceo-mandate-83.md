@@ -126,6 +126,15 @@ Everything else in those mandates stands.
     a second look: each side writes to its own store, reads the other again,
     and withdraws when a rival arrived there since its first look. Run from
     a cloud session against this repository on 2026-11-16.
+  - *Rule 2, closing from such a host (Commercial `T-CLAUDECLOUDCLOSE-1`).*
+    `tasks close` works there too. The close receipt ("accepted, not yet on
+    `main`") is one more file on `main`, `.agents/closed/<task>.json`, read by
+    every tool beside the receipt refs: it keeps the task's paths reserved and
+    its agent in debt until the close is published, as a receipt ref does.
+    `workflow ship` then settles the publisher's claims on every host: work
+    landed on an open task renews the lease, and a task whose completed record
+    the publish put on `main` has its claim released and its receipt settled.
+    The task that wrote this paragraph was closed that way.
   - *Rule 6.* The ten minutes refuse nothing. Past them the commit guard and
     `workflow fresh` say plainly that a worktree is behind `origin/main`, or
     that its own commits wait unpublished, and for how long. The 20-commit
@@ -148,14 +157,14 @@ Everything else in those mandates stands.
 - **Not enforced:** rules 1, 2, 4 and 10 are conduct. The tool cannot see an
   agent waiting, idle or silent about a fix; rule 2 is enforced only through
   the lease, so an idle claim lapses within the hour. Whether a commit or a
-  publish is a meaningful step is not measured. `tasks close` still needs a
-  receipt ref a cloud session cannot write, so such a session archives its
-  task record with a commit, as before. A claim kept on `main` adds one commit
-  to `main` per claim, renewal and release. The one-hour
+  publish is a meaningful step is not measured. A claim kept on `main` adds one
+  commit to `main` per claim, renewal, close and release. The reason of an
+  abandoned task is recorded on a ref a cloud session cannot write; from such
+  a session the board item carries it. The one-hour
   lease is the implementing agent's choice of number; the CEO named none. A
   tool built before this change keeps the longer leases, and the ten-minute
   refusal if it was built in between, until it is rebuilt from `main`; one
-  built before claims were kept on `main` does not see those claims. This
+  built before claims and receipts were kept on `main` does not see them. This
   repository does not set the permission mode of an agent a person starts by
   hand. This mandate's presence is guarded by `tests/architecture_tests.rs`.
 
