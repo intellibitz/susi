@@ -232,9 +232,13 @@ fn find_repo_root(start: &Path) -> PathBuf {
 #[must_use]
 pub fn sample_operator_state(cwd: &Path) -> UnifiedOperatorState {
     let repo_root = find_repo_root(cwd);
-    let snapshot = sample_snapshot(&repo_root);
+    let (queue, blocked_work) = sample_tasks(&repo_root);
+    let snapshot = TopSnapshot {
+        providers: sample_providers(),
+        gpu: sample_gpu(),
+        queue,
+    };
     let resources = sample_system_resources();
-    let blocked_work = sample_blocked_work(&repo_root);
     let config = sample_config(&repo_root);
     let federation = sample_federation(&repo_root);
     let evidence = sample_evidence(&repo_root);
@@ -271,122 +275,50 @@ fn has_secret_env(name: &str) -> bool {
     crate::susi_config::env_or_cloud_env(name).is_ok_and(|v| !v.trim().is_empty())
 }
 
-/// Sample providers, GPU, and current task queue.
-fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
+/// Sample configured clouds in display order, then the first available local engine.
+fn sample_providers() -> Vec<ProviderRow> {
+    let clouds: &[(&str, &str, &[&str])] = &[
+        ("openai", "api.openai.com", &["OPENAI_API_KEY"]),
+        (
+            "gemini",
+            "generativelanguage.googleapis.com",
+            &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        ),
+        ("anthropic", "api.anthropic.com", &["ANTHROPIC_API_KEY"]),
+        ("deepseek", "api.deepseek.com", &["DEEPSEEK_API_KEY"]),
+    ];
     let mut providers = Vec::new();
-
-    // Measure live provider health and latency when configured
-    if has_secret_env("OPENAI_API_KEY") {
-        let (healthy, latency_ms) = probe_endpoint("api.openai.com", 443, 600);
-        providers.push(ProviderRow {
-            name: "openai".to_string(),
-            healthy,
-            latency_ms,
-        });
-    }
-    if has_secret_env("GEMINI_API_KEY") || has_secret_env("GOOGLE_API_KEY") {
-        let (healthy, latency_ms) = probe_endpoint("generativelanguage.googleapis.com", 443, 600);
-        providers.push(ProviderRow {
-            name: "gemini".to_string(),
-            healthy,
-            latency_ms,
-        });
-    }
-    if has_secret_env("ANTHROPIC_API_KEY") {
-        let (healthy, latency_ms) = probe_endpoint("api.anthropic.com", 443, 600);
-        providers.push(ProviderRow {
-            name: "anthropic".to_string(),
-            healthy,
-            latency_ms,
-        });
-    }
-    if has_secret_env("DEEPSEEK_API_KEY") {
-        let (healthy, latency_ms) = probe_endpoint("api.deepseek.com", 443, 600);
-        providers.push(ProviderRow {
-            name: "deepseek".to_string(),
-            healthy,
-            latency_ms,
-        });
-    }
-
-    // Measure local engine probe (Ollama on 11434, llama.cpp on 8080)
-    let start = std::time::Instant::now();
-    if std::net::TcpStream::connect_timeout(
-        &std::net::SocketAddr::from(([127, 0, 0, 1], 11434)),
-        Duration::from_millis(150),
-    )
-    .is_ok()
-    {
-        providers.push(ProviderRow {
-            name: "local (ollama)".to_string(),
-            healthy: true,
-            latency_ms: start.elapsed().as_millis().max(1) as u64,
-        });
-    } else if std::net::TcpStream::connect_timeout(
-        &std::net::SocketAddr::from(([127, 0, 0, 1], 8080)),
-        Duration::from_millis(150),
-    )
-    .is_ok()
-    {
-        providers.push(ProviderRow {
-            name: "local (llama.cpp)".to_string(),
-            healthy: true,
-            latency_ms: start.elapsed().as_millis().max(1) as u64,
-        });
-    } else {
-        providers.push(ProviderRow {
-            name: "local".to_string(),
-            healthy: false,
-            latency_ms: 0,
-        });
-    }
-
-    let gpu = sample_gpu();
-
-    let mut queue = Vec::new();
-    let tasks_dir = repo_root.join(".agents").join("tasks");
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let task_id = val
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        let title = val
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        let holder = val
-                            .get("claimed_by")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| val.get("created_by").and_then(|v| v.as_str()))
-                            .unwrap_or("open")
-                            .to_string();
-                        if !task_id.is_empty() {
-                            queue.push(QueueRow {
-                                task_id,
-                                holder,
-                                title,
-                            });
-                        }
-                    }
-                }
-            }
+    for &(name, host, keys) in clouds {
+        if keys.iter().any(|key| has_secret_env(key)) {
+            let (healthy, latency_ms) = probe_endpoint(host, 443, 600);
+            providers.push(ProviderRow {
+                name: name.to_owned(),
+                healthy,
+                latency_ms,
+            });
         }
     }
-    // Sort queue by task_id for deterministic view
-    queue.sort_by(|a, b| a.task_id.cmp(&b.task_id));
 
-    TopSnapshot {
-        providers,
-        gpu,
-        queue,
-    }
+    let start = std::time::Instant::now();
+    let engines = [("local (ollama)", 11434), ("local (llama.cpp)", 8080)];
+    let engine = engines.into_iter().find(|(_, port)| {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], *port));
+        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
+    });
+    let local = match engine {
+        Some((name, _)) => ProviderRow {
+            name: name.to_owned(),
+            healthy: true,
+            latency_ms: start.elapsed().as_millis().max(1) as u64,
+        },
+        None => ProviderRow {
+            name: "local".into(),
+            healthy: false,
+            latency_ms: 0,
+        },
+    };
+    providers.push(local);
+    providers
 }
 
 /// Sample GPU utilization using nvidia-smi if available.
@@ -439,66 +371,65 @@ fn sample_system_resources() -> Option<SystemResourceRow> {
     })
 }
 
-/// Sample blocked work with drill-down explaining reasons (e.g. unmet dependencies).
-fn sample_blocked_work(repo_root: &Path) -> Vec<BlockedWorkRow> {
-    let mut blocked = Vec::new();
-    let tasks_dir = repo_root.join(".agents").join("tasks");
-
-    // Gather set of open task IDs
+/// Derive the queue and its unmet dependencies from the same task records.
+fn sample_tasks(repo_root: &Path) -> (Vec<QueueRow>, Vec<BlockedWorkRow>) {
+    let Ok(entries) = fs::read_dir(repo_root.join(".agents").join("tasks")) else {
+        return (Vec::new(), Vec::new());
+    };
     let mut open_ids = HashSet::new();
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(id) = val.get("id").and_then(|v| v.as_str()) {
-                            open_ids.insert(id.to_string());
-                        }
-                    }
-                }
-            }
+    let mut tasks = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
         }
+        let Some(task) = fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        else {
+            continue;
+        };
+        let id = task["id"].as_str();
+        if let Some(id) = id {
+            open_ids.insert(id.to_owned());
+        }
+        let row = QueueRow {
+            task_id: id.unwrap_or_default().to_owned(),
+            holder: task["claimed_by"]
+                .as_str()
+                .or_else(|| task["created_by"].as_str())
+                .unwrap_or("open")
+                .to_owned(),
+            title: task["title"].as_str().unwrap_or_default().to_owned(),
+        };
+        let deps: Vec<String> = task["deps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|dep| dep.as_str().map(str::to_owned))
+            .collect();
+        tasks.push((row, deps));
     }
 
-    // Inspect dependencies
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let task_id = val
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        let title = val
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        if let Some(deps) = val.get("deps").and_then(|v| v.as_array()) {
-                            for dep in deps {
-                                if let Some(dep_id) = dep.as_str() {
-                                    if open_ids.contains(dep_id) {
-                                        blocked.push(BlockedWorkRow {
-                                            task_id: task_id.clone(),
-                                            title: title.clone(),
-                                            reason: format!("unmet dependency: {dep_id}"),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    let mut queue = Vec::new();
+    let mut blocked = Vec::new();
+    for (row, deps) in tasks {
+        for dep in deps {
+            if open_ids.contains(&dep) {
+                blocked.push(BlockedWorkRow {
+                    task_id: row.task_id.clone(),
+                    title: row.title.clone(),
+                    reason: format!("unmet dependency: {dep}"),
+                });
             }
         }
+        if !row.task_id.is_empty() {
+            queue.push(row);
+        }
     }
-
+    queue.sort_by(|a, b| a.task_id.cmp(&b.task_id));
     blocked.sort_by(|a, b| a.task_id.cmp(&b.task_id));
-    blocked
+    (queue, blocked)
 }
 
 /// Sample active configuration state.
@@ -711,7 +642,7 @@ mod inline_tests {
         .expect("write T-2");
         fs::write(done_dir.join("T-0.json"), r#"{"id":"T-0"}"#).expect("write done T-0");
 
-        let blocked = sample_blocked_work(&tmp);
+        let (_, blocked) = sample_tasks(&tmp);
         assert_eq!(blocked.len(), 1);
         assert_eq!(blocked[0].task_id, "T-2");
         assert_eq!(blocked[0].reason, "unmet dependency: T-1");
