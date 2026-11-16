@@ -462,7 +462,7 @@ impl CoreTools {
         // takes an optional, MAC-policy-admitted `workspace`.
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, true)?;
-        let indexed = super::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
+        let indexed = crate::tools::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
         ContextGraph::global().record_external_context(
             "ambient_pulse",
             "manual ambient pulse",
