@@ -212,6 +212,58 @@ fn listing_planes_that_read_no_catalog_prime_nothing() {
     }
 }
 
+/// Sharing command execution must retain the two durable namespaces, byte
+/// limits, refresh refusal, and catalog-specific lookup diagnostics.
+#[test]
+fn agent_and_framework_commands_keep_their_catalog_identity() {
+    let host = Host::new(&[]);
+    for (family, directory, label) in [
+        ("agents", "execution-agents", "agent"),
+        ("frameworks", "agent-engines", "framework"),
+    ] {
+        let task = host.workspace.join(".susi").join(directory).join("same-id");
+        std::fs::create_dir_all(&task).unwrap();
+        let record = serde_json::json!({
+            "id": "same-id", "agent": family,
+            "workspace": host.workspace.canonicalize().unwrap(), "prompt": "fixture",
+            "adapter": { "kind": "command", "program": "unused", "args": [] },
+            "status": "succeeded", "created_at": 1, "updated_at": 1
+        });
+        std::fs::write(task.join("run.json"), record.to_string()).unwrap();
+        std::fs::write(task.join("stderr.log"), format!("prefix-{family}")).unwrap();
+
+        for action in ["status", "cancel"] {
+            let result = host.run(&[family, action, "same-id"]);
+            assert_eq!(result.code, 0, "{}", result.context());
+            let row: serde_json::Value = serde_json::from_str(&result.stdout).unwrap();
+            assert_eq!(row["agent"], family);
+            assert_eq!(row["status"], "succeeded");
+        }
+        let tasks = host.run(&[family, "tasks"]);
+        assert_eq!(tasks.code, 0, "{}", tasks.context());
+        let rows: serde_json::Value = serde_json::from_str(&tasks.stdout).unwrap();
+        assert_eq!(rows.as_array().unwrap().len(), 1);
+        assert_eq!(rows[0]["agent"], family);
+        let logs = host.run(&[family, "logs", "same-id", "--stderr", "--bytes", "3"]);
+        assert_eq!(logs.code, 0, "{}", logs.context());
+        assert_eq!(logs.stdout, &family[family.len() - 3..]);
+        let refresh = host.run(&[family, "status", "same-id", "--refresh"]);
+        assert_ne!(refresh.code, 0);
+        assert!(refresh.stderr.contains("refresh is only for cloud tasks"));
+        let doctor = host.run(&[family, "doctor", "missing-fixture"]);
+        assert_ne!(doctor.code, 0);
+        assert!(doctor
+            .stderr
+            .contains(&format!("unknown {label} missing-fixture")));
+        assert!(doctor.primed().is_empty());
+    }
+    // Sharing the handler does not expose agents-only commands to frameworks.
+    assert_eq!(
+        host.run(&["frameworks", "send", "same-id", "hello"]).code,
+        2
+    );
+}
+
 /// Local reports (`review`, `os-clean`, `keys`) compose only the plane
 /// handlers: no CLI composition root, no cloud-endpoint registration, no
 /// prime. `keys` reads key presence and routing prefs from the host's files.

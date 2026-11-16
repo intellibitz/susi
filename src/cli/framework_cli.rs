@@ -1,94 +1,47 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
-use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
-use crate::anyhow::{bail, Result};
-use crate::cli_json::print_json;
+use super::agent_cli::{execute_catalog, AgentCommands};
+use crate::anyhow::Result;
 use std::path::Path;
 pub use susi_cli_defs::framework::FrameworkCommands;
-use susi_daemon::adapter_ops::{self, AdapterKind};
-use susi_gawd::external::{catalog, AgentManager, CatalogKind};
+use susi_gawd::external::CatalogKind;
 
 pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
-    let manager = AgentManager::frameworks(workspace)?;
-    match action {
-        FrameworkCommands::List => print_json(&catalog(CatalogKind::Framework)?)?,
-        // `susi_daemon::adapter_ops` builds the doctor/setup/configure/reset
-        // documents and checks retries; the MCP `adapter_*` and
-        // `*_retry` tools call the same functions.
-        FrameworkCommands::Setup { engine } => print_json(
-            &adapter_ops::setup(AdapterKind::Frameworks, &engine, workspace)
-                .map_err(crate::anyhow::Error::msg)?,
-        )?,
-        FrameworkCommands::Doctor { engine } => {
-            let rows = adapter_ops::doctor(AdapterKind::Frameworks, engine.as_deref(), workspace)
-                .map_err(crate::anyhow::Error::msg)?;
-            for row in &rows {
-                print_json(row)?;
-            }
-            if !adapter_ops::all_ready(&rows) {
-                bail!(
-                    "{}",
-                    adapter_ops::needs_setup_message(AdapterKind::Frameworks)
-                );
-            }
-        }
-        FrameworkCommands::Configure { engine, file } => {
-            let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
-            print_json(
-                &adapter_ops::configure(AdapterKind::Frameworks, &engine, doc, workspace)
-                    .map_err(crate::anyhow::Error::msg)?,
-            )?;
-        }
-        FrameworkCommands::Reset { engine } => print_json(
-            &adapter_ops::reset(AdapterKind::Frameworks, &engine, workspace)
-                .map_err(crate::anyhow::Error::msg)?,
-        )?,
-        FrameworkCommands::Run {
+    use AgentCommands as A;
+    use FrameworkCommands as F;
+    // Keep framework clap names/help intact; only the execution representation
+    // is shared. The framework catalog controls storage and worker dispatch.
+    let action = match action {
+        F::List => A::List,
+        F::Doctor { engine } => A::Doctor { agent: engine },
+        F::Setup { engine } => A::Setup { agent: engine },
+        F::Configure { engine, file } => A::Configure {
+            agent: engine,
+            file,
+        },
+        F::Reset { engine } => A::Reset { agent: engine },
+        F::Run {
             engine,
             wait,
             prompt,
-        } => {
-            let run = manager.prepare(&engine, &prompt)?;
-            launch(
-                &manager,
-                &run.id,
-                LaunchOpts {
-                    wait,
-                    worker_argv: &["frameworks", "worker", &run.id],
-                    banner: None,
-                    fail_label: "framework",
-                },
-            )?;
-        }
-        FrameworkCommands::Retry { task_id, wait } => {
-            let old =
-                adapter_ops::retry_source(&manager, &task_id).map_err(crate::anyhow::Error::msg)?;
-            let run = manager.prepare(&old.agent, &old.prompt)?;
-            launch(
-                &manager,
-                &run.id,
-                LaunchOpts {
-                    wait,
-                    worker_argv: &["frameworks", "worker", &run.id],
-                    banner: None,
-                    fail_label: "framework",
-                },
-            )?;
-        }
-        FrameworkCommands::Worker { task_id } => run_worker(manager, &task_id, "framework")?,
-        FrameworkCommands::Tasks => print_json(&manager.list()?)?,
-        FrameworkCommands::Status { task_id, refresh } => {
-            print_json(&if refresh {
-                manager.refresh(&task_id)?
-            } else {
-                manager.status(&task_id)?
-            })?;
-        }
-        FrameworkCommands::Logs {
+        } => A::Run {
+            agent: engine,
+            wait,
+            prompt,
+        },
+        F::Tasks => A::Tasks,
+        F::Status { task_id, refresh } => A::Status { task_id, refresh },
+        F::Logs {
             task_id,
             stderr,
             bytes,
-        } => print!("{}", manager.logs(&task_id, stderr, bytes)?),
-        FrameworkCommands::Cancel { task_id } => print_json(&manager.cancel(&task_id)?)?,
-    }
-    Ok(())
+        } => A::Logs {
+            task_id,
+            stderr,
+            bytes,
+        },
+        F::Cancel { task_id } => A::Cancel { task_id },
+        F::Retry { task_id, wait } => A::Retry { task_id, wait },
+        F::Worker { task_id } => A::Worker { task_id },
+    };
+    execute_catalog(action, workspace, CatalogKind::Framework)
 }

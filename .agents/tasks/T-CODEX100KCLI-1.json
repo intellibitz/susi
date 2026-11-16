@@ -1,0 +1,53 @@
+{
+  "id": "T-CODEX100KCLI-1",
+  "title": "Consolidate agent and framework CLI execution without changing their interfaces",
+  "goal": "Support the under-100k core goal by removing duplicate catalog CLI dispatch while preserving all CLI variants, options, JSON, errors, catalog storage and worker argv.",
+  "size": "m",
+  "status": "verified_pending_publication",
+  "created_by": "CODEXCORE100KCLI",
+  "created_unix": 1794819135,
+  "base_commit": "694a728da",
+  "deps": [],
+  "scopes": [
+    "src/cli/agent_cli.rs",
+    "src/cli/framework_cli.rs",
+    "tests/lazy_catalog_priming.rs",
+    ".agents/tasks/T-CODEX100KCLI-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lazy_catalog_priming",
+      "agent_and_framework_commands_keep_their_catalog_identity"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Compared root catalog/provider CLI wrappers, agent_cli and framework_cli, existing catalog_plane_cli launch helpers, susi-daemon adapter_ops, and AgentManager::for_kind/CatalogKind. Reused the existing agent execution and manager implementations; no external code or dependency is needed."
+  },
+  "results": {
+    "runtime_lines_before": 186,
+    "runtime_lines_after": 143,
+    "runtime_lines_removed": 43,
+    "test_lines_added": 52,
+    "tests_passed": 17,
+    "tests_failed": 0,
+    "checks": [
+      "cargo fmt --all --check",
+      "git diff --check",
+      "cargo test --offline --locked -p susi --bin susi cli::defs::tests (15 passed)",
+      "cargo test --offline --locked -p susi --test lazy_catalog_priming agent_and_framework_commands_keep_their_catalog_identity (1 passed)",
+      "cargo test --offline --locked -p susi --test lazy_catalog_priming listing_planes_that_read_no_catalog_prime_nothing (1 passed)"
+    ]
+  },
+  "limitations": [
+    "Local isolated worktree only; no external board post, commit or push. Parent read board clean at item 1604. Linux x86_64 verification; no Windows execution or detached-worker exercise in this task. Existing launch function and OS-specific worker logic are unchanged. Does not establish overall under-100k goal or complete protocol conformance."
+  ],
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+}
