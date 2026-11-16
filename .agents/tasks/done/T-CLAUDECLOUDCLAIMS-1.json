@@ -14,5 +14,18 @@
     ]
   },
   "created_by": "CLAUDECLOUDCLAIMS",
-  "created_unix": 1794827739
+  "created_unix": 1794827739,
+  "closed": {
+    "at_unix": 1794827900,
+    "commit": "d495a32e429abe9f9594adad59c98fd539b97eae",
+    "by": "CLAUDECLOUDCLAIMS"
+  },
+  "scopes": [
+    "AGENTS.md",
+    "docs/ceo-mandate-83.md"
+  ],
+  "limitations": [
+    "Wording only in this repository; the tool change is in intellibitz/susi-commercial-apps. This task itself was claimed, renewed by publishing and released through main from a cloud session.",
+    "Main is unqualified development, not a release."
+  ]
 }
