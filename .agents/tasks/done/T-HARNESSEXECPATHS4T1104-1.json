@@ -1,17 +1,53 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-HARNESSEXECPATHS4T1104-1",
-  "title": "test(harness,paths): expand unit and integration tests to 4 in executor, stdio, test_env, and isolate_home",
-  "touch": [
-    "crates/susi-harness/src/executor.rs",
-    "crates/susi-paths/src/stdio.rs",
-    "crates/susi-paths/src/test_env.rs",
-    "crates/susi-paths/tests/isolate_home.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-harness -p susi-paths",
-      "cargo clippy --offline --locked -p susi-harness -p susi-paths --tests -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-HARNESSEXECPATHS4T1104-1",
+    "title":  "test(harness,paths): expand unit and integration tests to 4 in executor, stdio, test_env, and isolate_home",
+    "goal":  "Expand unit and integration test suites to at least 4 tests across executor in susi-harness and stdio, test_env, and isolate_home in susi-paths.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-harness",
+                               "-p",
+                               "susi-paths"
+                           ]
+               },
+    "created_by":  "HARNESSEXECPATHS4T1104",
+    "created_unix":  1793780627,
+    "authored":  true,
+    "base_commit":  "b1faf965d55908c62f6db98fdfafc8fcbece8051",
+    "implementation_commit":  "b6b0b3b3cc228213b177d9d7903ddeb2c8e65ae4",
+    "verified_commit":  "03227dc1f7d8c313f3683286b2b9c90a10e8f2b7",
+    "notes":  "Implemented in b6b0b3b3cc228213b177d9d7903ddeb2c8e65ae4, closed in 03227dc1f7d8c313f3683286b2b9c90a10e8f2b7, and merged in b917fb460fae1890ca56c8059e0fdc2fe2272984 (#1478) across crates/susi-harness/src/executor.rs and crates/susi-paths/{src/stdio.rs,src/test_env.rs,tests/isolate_home.rs}.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-harness/src/executor.rs, crates/susi-paths/src/stdio.rs, crates/susi-paths/src/test_env.rs, crates/susi-paths/tests/isolate_home.rs",
+                  "target":  "crates/susi-paths/src/test_env.rs",
+                  "why":  "Expanded unit and integration tests directly atop ExecutorConfig, install_broken_pipe_guard, and isolate_home.",
+                  "reused_symbols":  [
+                                         "susi_harness::executor::ExecutorConfig",
+                                         "susi_paths::test_env::isolate_home"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-HARNESSEXECPATHS4T1104-1.json",
+                   "crates/susi-harness/src/executor.rs",
+                   "crates/susi-paths/src/stdio.rs",
+                   "crates/susi-paths/src/test_env.rs",
+                   "crates/susi-paths/tests/isolate_home.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793781094,
+                   "commit":  "b917fb460fae1890ca56c8059e0fdc2fe2272984",
+                   "by":  "HARNESSEXECPATHS4T1104"
+               }
 }

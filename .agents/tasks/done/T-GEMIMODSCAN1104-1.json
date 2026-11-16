@@ -1,24 +1,50 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GEMIMODSCAN1104-1",
-  "title": "Local Model Discovery Scan & Coding Model Catalog Override Contract Suite in susi-gemi-models",
-  "status": "done",
-  "completed_at": "2026-11-04T02:55:00Z",
-  "created_at": "2026-11-04T02:50:00Z",
-  "owner": "GEMIMODSCAN1104",
-  "touch": [
-    "crates/susi-gemi-models/src/lifecycle/scan.rs",
-    "crates/susi-gemi-models/src/coding_models.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gemi-models",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GEMIMODSCAN1104-1",
+    "title":  "Local Model Discovery Scan \u0026 Coding Model Catalog Override Contract Suite in susi-gemi-models",
+    "goal":  "Preserve coding-model extra fields and add local model discovery scan and coding model catalog override contract tests in crates/susi-gemi-models.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gemi-models",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GEMIMODSCAN1104",
+    "created_unix":  1793760600,
+    "authored":  true,
+    "base_commit":  "c24eafc30906a928849a1c2655a8cb37d21bfab6",
+    "implementation_commit":  "c7783f555b5c0b796b760788d7ed20408f7fec24",
+    "verified_commit":  "c7783f555b5c0b796b760788d7ed20408f7fec24",
+    "notes":  "Landed and closed in squash merge c7783f555b5c0b796b760788d7ed20408f7fec24 (#1404) across crates/susi-gemi-models/src/{coding_models.rs,lifecycle/scan.rs}.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gemi-models/src/lifecycle/scan.rs, crates/susi-gemi-models/src/coding_models.rs",
+                  "target":  "crates/susi-gemi-models/src/coding_models.rs",
+                  "why":  "Preserved extra fields and expanded contract tests directly atop CodingModelDefinition, CodingModelManager, and verify_local_models.",
+                  "reused_symbols":  [
+                                         "susi_gemi_models::coding_models::CodingModelDefinition",
+                                         "susi_gemi_models::lifecycle::scan::verify_local_models"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GEMIMODSCAN1104-1.json",
+                   "crates/susi-gemi-models/src/coding_models.rs",
+                   "crates/susi-gemi-models/src/lifecycle/scan.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793761432,
+                   "commit":  "c7783f555b5c0b796b760788d7ed20408f7fec24",
+                   "by":  "GEMIMODSCAN1104"
+               }
 }

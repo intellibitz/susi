@@ -1,24 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GEMIMODTYPES1104-1",
-  "title": "Zero-Surprise Starter Contract & GPU Telemetry Analytics in susi-gemi-models",
-  "status": "done",
-  "completed_at": "2026-11-04T02:36:00Z",
-  "created_at": "2026-11-04T02:30:00Z",
-  "owner": "GEMIMODTYPES1104",
-  "touch": [
-    "crates/susi-gemi-models/src/lifecycle/types.rs",
-    "crates/susi-gemi-models/src/gpu_telemetry.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gemi-models",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GEMIMODTYPES1104-1",
+    "title":  "Zero-Surprise Starter Contract \u0026 GPU Telemetry Analytics in susi-gemi-models",
+    "goal":  "Add zero-surprise starter contract tests and GPU telemetry aggregation helpers in crates/susi-gemi-models.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gemi-models",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GEMIMODTYPES1104",
+    "created_unix":  1793759400,
+    "authored":  true,
+    "base_commit":  "c952d77a70c7cff3d33aa3f6e43c7be17caab952",
+    "implementation_commit":  "fa08d4b7f4e1fa8fe6d473f6acf5340c5609865c",
+    "verified_commit":  "fa08d4b7f4e1fa8fe6d473f6acf5340c5609865c",
+    "notes":  "Landed and closed in squash merge fa08d4b7f4e1fa8fe6d473f6acf5340c5609865c (#1401); gpu_telemetry.rs was later retired during Lean Core GPU retirement while crates/susi-gemi-models/src/lifecycle/types.rs remains active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gemi-models/src/lifecycle/types.rs",
+                  "target":  "crates/susi-gemi-models/src/lifecycle/types.rs",
+                  "why":  "Added starter contract coverage directly atop ModelProvisioningOutcome and NoLocalModelInstalled in susi-gemi-models.",
+                  "reused_symbols":  [
+                                         "susi_gemi_models::lifecycle::types::ModelProvisioningOutcome",
+                                         "susi_gemi_models::lifecycle::types::NoLocalModelInstalled"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GEMIMODTYPES1104-1.json",
+                   "crates/susi-gemi-models/src/lifecycle/types.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793760258,
+                   "commit":  "fa08d4b7f4e1fa8fe6d473f6acf5340c5609865c",
+                   "by":  "GEMIMODTYPES1104"
+               }
 }

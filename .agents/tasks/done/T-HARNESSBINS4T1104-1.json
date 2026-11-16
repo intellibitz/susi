@@ -1,8 +1,14 @@
 {
+    "schema":  "susi.task_record/v1",
     "id":  "T-HARNESSBINS4T1104-1",
     "title":  "D-OS-8: Expand inline unit test suites to 4 in susi-harness CLI binaries",
+    "goal":  "Expand inline unit test suites to at least 4 tests across harness-author, harness-run, harness-supervise, and harness-susi CLI binaries in crates/susi-harness.",
+    "size":  "s",
+    "state":  "closed",
     "status":  "done",
-    "created_at":  "2026-11-04T08:22:00Z",
+    "deps":  [
+
+             ],
     "accept":  {
                    "cmd":  [
                                "cargo",
@@ -14,12 +20,33 @@
                                "--bins"
                            ]
                },
-    "scope":  [
-                  "crates/susi-harness/src/bin/harness-author.rs",
-                  "crates/susi-harness/src/bin/harness-run.rs",
-                  "crates/susi-harness/src/bin/harness-supervise.rs",
-                  "crates/susi-harness/src/bin/harness-susi.rs",
-                  ".agents/tasks/T-HARNESSBINS4T1104-1.json",
-                  ".agents/tasks/done/T-HARNESSBINS4T1104-1.json"
-              ]
+    "created_by":  "HARNESSBINS4T1104",
+    "created_unix":  1793780520,
+    "authored":  true,
+    "base_commit":  "0c190e8b285e05ca7c9474dfbc1d7a60c0e9b510",
+    "implementation_commit":  "5b02b074751dc835a1cfa2d174679ad9d6348669",
+    "verified_commit":  "5b02b074751dc835a1cfa2d174679ad9d6348669",
+    "notes":  "Landed and closed in squash merge 5b02b074751dc835a1cfa2d174679ad9d6348669 (#1479) across crates/susi-harness/src/bin/{harness-author,harness-run,harness-supervise,harness-susi}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-harness/src/bin/harness-author.rs, crates/susi-harness/src/bin/harness-run.rs, crates/susi-harness/src/bin/harness-supervise.rs, crates/susi-harness/src/bin/harness-susi.rs",
+                  "target":  "crates/susi-harness/src/bin/harness-author.rs",
+                  "why":  "Expanded inline #[cfg(test)] CLI option and entrypoint tests directly atop author_plan and validate_plan in susi-harness.",
+                  "reused_symbols":  [
+                                         "susi_harness::author::author_plan",
+                                         "susi_harness::validate::validate_plan"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-HARNESSBINS4T1104-1.json",
+                   "crates/susi-harness/src/bin/harness-author.rs",
+                   "crates/susi-harness/src/bin/harness-run.rs",
+                   "crates/susi-harness/src/bin/harness-supervise.rs",
+                   "crates/susi-harness/src/bin/harness-susi.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793780962,
+                   "commit":  "5b02b074751dc835a1cfa2d174679ad9d6348669",
+                   "by":  "HARNESSBINS4T1104"
+               }
 }

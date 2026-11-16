@@ -1,17 +1,53 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-HARNESSCATALOGNATIVE1104-1",
-  "title": "Expand inline unit tests for susi-harness roi and channel_bindings, susi-vendor-agents catalog, and susi-native-client",
-  "touch": [
-    "crates/susi-harness/src/roi.rs",
-    "crates/susi-harness/src/channel_bindings.rs",
-    "crates/susi-vendor-agents/src/external/catalog.rs",
-    "crates/susi-native-client/src/lib.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-harness -p susi-vendor-agents -p susi-native-client --lib",
-      "cargo clippy --offline --locked -p susi-harness -p susi-vendor-agents -p susi-native-client --all-targets -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-HARNESSCATALOGNATIVE1104-1",
+    "title":  "Expand inline unit tests for susi-harness roi and channel_bindings, susi-vendor-agents catalog, and susi-native-client",
+    "goal":  "Expand inline unit test suites across roi and channel_bindings in susi-harness, external catalog in susi-vendor-agents, and WasmHost in susi-native-client.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-harness",
+                               "-p",
+                               "susi-native-client",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "HARNESSCATALOGNATIVE1104",
+    "created_unix":  1793777160,
+    "authored":  true,
+    "base_commit":  "e7920c1bf62ef52498cb9eec4b0f99dcceae5cf4",
+    "implementation_commit":  "b9a7805d90d59f2a0d6ce9d42546c3daf2be56e5",
+    "verified_commit":  "e14ec3ab37ef8ea5d5b0b2c5f31695ce40edc555",
+    "notes":  "Implemented in b9a7805d90d59f2a0d6ce9d42546c3daf2be56e5, closed in e14ec3ab37ef8ea5d5b0b2c5f31695ce40edc555, and merged in 05c4b863e39388a86a568078c57720745afb62ce (#1463); susi-vendor-agents was later retired during Lean Core consolidation while susi-harness/{roi,channel_bindings}.rs and susi-native-client/src/lib.rs remain active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-harness/src/roi.rs, crates/susi-harness/src/channel_bindings.rs, crates/susi-native-client/src/lib.rs",
+                  "target":  "crates/susi-harness/src/roi.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop RoiReport::from_entries and WasmHost::execute_reflex.",
+                  "reused_symbols":  [
+                                         "susi_harness::roi::RoiReport",
+                                         "susi_native_client::WasmHost"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-HARNESSCATALOGNATIVE1104-1.json",
+                   "crates/susi-harness/src/channel_bindings.rs",
+                   "crates/susi-harness/src/roi.rs",
+                   "crates/susi-native-client/src/lib.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793777384,
+                   "commit":  "05c4b863e39388a86a568078c57720745afb62ce",
+                   "by":  "HARNESSCATALOGNATIVE1104"
+               }
 }

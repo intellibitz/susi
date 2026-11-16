@@ -1,24 +1,51 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GEMIMODSA4T1104-1",
-  "title": "Expand 5 crates/susi-gemi modules (confidence_escalation, consensus_mode, runtime_native, token_stream, learned_classifier) to 4 unit tests each",
-  "touch": [
-    "crates/susi-gemi/src/confidence_escalation.rs",
-    "crates/susi-gemi/src/consensus_mode.rs",
-    "crates/susi-gemi/src/engines/runtime_native.rs",
-    "crates/susi-gemi/src/engines/token_stream.rs",
-    "crates/susi-gemi/src/learned_classifier.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gemi",
-      "--lib",
-      "confidence_escalation"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GEMIMODSA4T1104-1",
+    "title":  "Expand 5 crates/susi-gemi modules (confidence_escalation, consensus_mode, runtime_native, token_stream, learned_classifier) to 4 unit tests each",
+    "goal":  "Expand inline unit test suites to at least 4 tests across confidence_escalation, consensus_mode, engines/runtime_native, engines/token_stream, and learned_classifier in crates/susi-gemi.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gemi",
+                               "--lib",
+                               "consensus_mode"
+                           ]
+               },
+    "created_by":  "GEMIMODSA4T1104",
+    "created_unix":  1793788908,
+    "authored":  true,
+    "base_commit":  "a40768294b2fa59129befd92a94bc0c18ab08ec1",
+    "implementation_commit":  "121dc5c3302ab2d1817dbdfd08d51f35c295782b",
+    "verified_commit":  "cd95df6da586ada5fc10e68ced2d7fb012e53631",
+    "notes":  "Implemented in 121dc5c3302ab2d1817dbdfd08d51f35c295782b, closed in cd95df6da586ada5fc10e68ced2d7fb012e53631, and merged in 13c023028cf2cbf151a8bb18109973e6add70606 (#1509); confidence_escalation.rs, engines/token_stream.rs, and learned_classifier.rs were later retired during Lean Core consolidation while consensus_mode.rs and engines/runtime_native.rs remain active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gemi/src/consensus_mode.rs, crates/susi-gemi/src/engines/runtime_native.rs",
+                  "target":  "crates/susi-gemi/src/consensus_mode.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop ConsensusResult and consensus in crates/susi-gemi.",
+                  "reused_symbols":  [
+                                         "susi_gemi::consensus_mode::ConsensusResult",
+                                         "susi_gemi::consensus_mode::consensus"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GEMIMODSA4T1104-1.json",
+                   "crates/susi-gemi/src/consensus_mode.rs",
+                   "crates/susi-gemi/src/engines/runtime_native.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793789231,
+                   "commit":  "13c023028cf2cbf151a8bb18109973e6add70606",
+                   "by":  "GEMIMODSA4T1104"
+               }
 }
