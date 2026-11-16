@@ -1,0 +1,36 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-7",
+  "title": "Share startup for the three metering gateway executables",
+  "goal": "Vision: V-6. Use one existing metering gateway implementation after admission across the installed operator commands; preserve every authentication mode, default, diagnostic and output stream.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--bin",
+      "susi-harness",
+      "--bin",
+      "harness-gateway"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794863067,
+  "scopes": [
+    "crates/susi-harness/src/gateway.rs",
+    "crates/susi-harness/src/ingress.rs",
+    "crates/susi-harness/src/bin/harness-gateway.rs",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "src/cli/harness_cli.rs",
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-7.json",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "gateway::serve, ingress::serve, require_accounts_off_loopback, GatewayState, ResponseCache, operator::resolve, Runtime::new, and each installed CLI entry point"
+  }
+}
