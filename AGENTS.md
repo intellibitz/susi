@@ -8,6 +8,25 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 85 (2026-11-16): No Agent Holds a Claim After It Is Done With It
+
+Read [CEO Mandate 85](docs/ceo-mandate-85.md). The CEO's words: "make a mandate
+that an agent cannot hold a claim, after it is done with it." It sharpens rule 2
+of Mandate 83 where work ends.
+
+- **Done means done:** the task's completed record is on `main`, or you handed
+  it off, released or abandoned it, or you stopped working on it for any reason
+  (session ended, other work, blocked and moved on).
+- **The claim ends in the same step:** `susi-commercial workflow finish <id>`
+  accepts, publishes and releases at once; `workflow ship` releases a finished
+  task's claim; when you stop without finishing, `susi-commercial tasks release
+  <id>` (publish or `--abandon <reason>` committed work, never drop it).
+- **Never hold a claim for later**, to reserve files, or until its lease runs
+  out: the one-hour lease is the last resort, not the release.
+- **A claim on done work holds nothing:** it reserves no files, blocks no agent
+  and is not shown as held; any agent's tool removes it. Before you end a
+  session, list what you hold and release it.
+
 ## CEO Mandate 84 (2026-11-16): Susi Core Stays Under 100,000 Lines
 
 Read [CEO Mandate 84](docs/ceo-mandate-84.md). The CEO's words: "susi core
@@ -395,6 +414,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 82 | **Commit, push, merge and pull about every ten minutes: a cadence, not a hard limit (2026-11-16).** Section above; [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md). |
 | 83 | **The ten agent operating rules (2026-11-16).** Section above; [`docs/ceo-mandate-83.md`](docs/ceo-mandate-83.md). |
 | 84 | **Susi core stays under 100,000 lines; until it does, it never grows (2026-11-16).** Section above; [`docs/ceo-mandate-84.md`](docs/ceo-mandate-84.md). |
+| 85 | **No agent holds a claim after it is done with it (2026-11-16).** Section above; [`docs/ceo-mandate-85.md`](docs/ceo-mandate-85.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
