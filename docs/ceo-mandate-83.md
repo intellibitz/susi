@@ -121,6 +121,11 @@ Everything else in those mandates stands.
   - *Rule 7.* Board commands run from a checkout of this repository use the
     agent's `susi-commercial-apps` clone, and a board item cannot be sent to
     this repository's `main`.
+- **Built here (`T-CLAUDEMANDATE83-2`, `crates/susi-core/src/native_board.rs`):**
+  this repository's own board check finds that clone too, under the agent's
+  root, when nothing else names a board. `susi-commercial workflow sync`
+  therefore runs in a core checkout with nothing set by hand; before, it
+  failed there unless the board's address was given in a variable.
 - **Already in place:** rule 5 through agent roots and isolated worktrees
   (Mandates 49, 65 and 77). Returning to a worktree of your own needs no
   command: enter it and run `susi-commercial workflow check`, which pulls it up
