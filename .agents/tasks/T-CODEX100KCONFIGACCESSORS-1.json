@@ -1,0 +1,73 @@
+{
+  "id": "T-CODEX100KCONFIGACCESSORS-1",
+  "title": "Consolidate typed bundled-default config accessor definitions",
+  "goal": "Vision: V-6. Reduce repeated physical runtime source while preserving all46public typed accessors, their documentation, serde types, config lookup keys and bundled-default behavior. Keep every specialized accessor and existing test unchanged.",
+  "status": "in_progress",
+  "size": "s",
+  "created_by": "CODEX100KCONFIGACCESSORS",
+  "created_unix": 1794832012,
+  "base_commit": "49a4a8e2aae575c150bdf42dd5f54cbf75353cf4",
+  "deps": [],
+  "scopes": [
+    "crates/susi-config/src/config.rs",
+    ".agents/tasks/T-CODEX100KCONFIGACCESSORS-1.json",
+    ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing SusiConfig::get_or_bundled_default and46identical typed wrappers; existing local declarative macros and completed setting-registry reduction; core and Commercial Apps accessor symbols; locked serde derive/default behavior.",
+    "reason": "A private table macro reuses the unchanged single fallback implementation and emits the same public signatures and literal lookup keys. No new helper policy, dependency or external source; specialized accessors retain distinct behavior."
+  },
+  "coordination": "Parent owns integration and publication; isolated worker and private state. Read-only Board item1759 clear at parent start and local latest read before edits; no external Board messages.",
+  "validation_plan": [
+    "Verify each identifier/type/key/documentation tuple against baseline and inverse-expanded wrapper body; every existing test remains byte-identical.",
+    "Run full susi-config library tests, strict all-target Clippy and formatting; preserve missing/wrong-type fallback, explicit values and public signatures.",
+    "Record actual runtime source delta without changing tests, count exclusions or dependency manifests."
+  ],
+  "phase": "verified_pending_parent_integration",
+  "validation": {
+    "config_lib": {
+      "command": "cargo test --offline --locked -p susi-config --lib",
+      "passed": 393,
+      "ignored": 1,
+      "seconds": 1.17
+    },
+    "cross_crate_accessors": {
+      "command": "cargo test --offline --locked -p susi-sandbox-client --lib test_config_accessors_match_bundled_default_single_source_of_truth",
+      "passed": 1
+    },
+    "strict_clippy": "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings passed",
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "independent_review": "Separate accessor_review agent verified all46name/type/key/doc tuples, exact macro semantics, other implementation unchanged modulo blank lines, and byte-identical existing test module; no blockers.",
+    "native_host": "x86_64-unknown-linux-gnu"
+  },
+  "parity": {
+    "base_commit": "49a4a8e2aae575c150bdf42dd5f54cbf75353cf4",
+    "file": "crates/susi-config/src/config.rs",
+    "before_lines": 983,
+    "after_lines": 905,
+    "runtime_lines_removed": 78,
+    "accessors": 46,
+    "name_type_key_doc_tuples_identical": true,
+    "macro_body_verified": true,
+    "other_source_unchanged_modulo_blank_lines": true,
+    "existing_test_module_byte_identical": true,
+    "existing_test_functions": 6,
+    "before_sha256": "82f031c9fc5bb71db1a95605e3595c7b57dd62f033b7f65d134a9d2451585577",
+    "after_sha256": "ea8bbb888cf7e68aa17899a1658c609449d138751a49c8a26a318b8eb9f2d361",
+    "ordered_api_docs_sha256": "cf08028b5b9867d61030f897a77f47ce45d3a68046bb9336b73069ab19b579b8"
+  },
+  "evidence": ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
+  "progress": "Verified78runtime-line reduction. No tests moved/removed, exclusions changed or functionality dropped. Source/local commit handoff pending parent integrated measurement/publication."
+}
