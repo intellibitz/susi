@@ -550,7 +550,7 @@ impl Provider {
             assert!(first.starts_with("POST /v1/chat/completions "), "unexpected local provider request: {first}");
             let request: Value = serde_json::from_slice(&body).unwrap(); recorded.lock().unwrap().push(request.clone());
             let tools = request["tools"].as_array();
-            let probe = tools.and_then(|v| v.iter().find(|t| t["function"]["description"] == TOOL_DESCRIPTION));
+            let probe = tools.and_then(|v| v.iter().find(|t| is_probe(t)));
             if probe.is_some() { while pause_tools.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) { std::thread::sleep(Duration::from_millis(5)); } }
             let result = request["messages"].as_array().and_then(|m| m.iter().rev().take_while(|m|m["role"]!="user").find(|m| m["role"] == "tool"));
             let message = if let Some(result) = result { json!({"role":"assistant","content":format!("ACP_BRIDGE_RESULT {}", result["content"])}) }
@@ -639,11 +639,9 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     assert_child_gone(&fx, "beta");
     let requests = provider.requests.lock().unwrap();
     assert!(
-        requests
-            .iter()
-            .any(|r| r["tools"].as_array().is_some_and(|ts| ts
-                .iter()
-                .any(|t| t["function"]["description"] == TOOL_DESCRIPTION))),
+        requests.iter().any(|r| r["tools"]
+            .as_array()
+            .is_some_and(|ts| ts.iter().any(is_probe))),
         "real model never received session schema"
     );
     for literal in literals {
@@ -739,10 +737,16 @@ fn cancellation_interrupts_a_pending_mcp_tool_call() {
 }
 
 fn has_probe(request: &Value) -> bool {
-    request["tools"].as_array().is_some_and(|ts| {
-        ts.iter()
-            .any(|t| t["function"]["description"] == TOOL_DESCRIPTION)
-    })
+    request["tools"]
+        .as_array()
+        .is_some_and(|ts| ts.iter().any(is_probe))
+}
+
+fn is_probe(tool: &Value) -> bool {
+    // The bridge may prefix server/tool provenance to the original description.
+    tool["function"]["description"]
+        .as_str()
+        .is_some_and(|description| description.ends_with(TOOL_DESCRIPTION))
 }
 
 fn contains_literal(value: &Value, literal: &str) -> bool {
