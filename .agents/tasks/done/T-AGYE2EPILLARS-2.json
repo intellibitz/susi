@@ -20,12 +20,17 @@
   },
   "created_by": "ANTIGRAVITY",
   "created_unix": 1794805358,
+  "closed": {
+    "at_unix": 1794805493,
+    "commit": "7acabdb1903806a3b9fd55143d1bf1aeb1dbd1af",
+    "by": "ANTIGRAVITY"
+  },
   "native_worker": "antigravity",
   "owner": "antigravity",
   "reuse": {
     "decision": "existing",
-    "searched": "Checked all StdioTransport::spawn call sites across crates/.",
-    "reason": "Reuses the existing IFS= read -r stdin synchronization pattern used by the sibling StdioTransport tests in crates/susi-harness/src/tests/mcp.rs."
+    "reason": "Reuses the existing IFS= read -r stdin synchronization pattern used by the sibling StdioTransport tests in crates/susi-harness/src/tests/mcp.rs.",
+    "searched": "Checked all StdioTransport::spawn call sites across crates/."
   },
   "schema": "susi.task_record/v1",
   "scopes": [
