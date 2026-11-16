@@ -2,8 +2,10 @@
 //! (`susi agents`, `susi frameworks`, and single-agent wrappers).
 
 use crate::anyhow::{bail, Result};
+use serde_json::{json, Value};
 use std::process::{Command, Stdio};
-use susi_gawd::external::{AgentManager, RunStatus};
+use susi_core::plane_bus_ipc::IpcPlaneBus;
+use susi_gawd::external::{AgentManager, CatalogKind, RunRecord, RunStatus};
 
 use crate::cli_json::print_json;
 
@@ -70,14 +72,28 @@ pub fn run_worker(manager: AgentManager, id: &str, fail_label: &str) -> Result<(
         .enable_io()
         .build()?;
     let signal_shutdown = std::sync::Arc::clone(&shutdown);
+    let signal_manager = manager.clone();
+    let signal_id = id.to_owned();
     let signal_thread = std::thread::spawn(move || {
-        rt.block_on(watch_worker_signals(signal_shutdown, stop_rx));
+        rt.block_on(watch_worker_signals(
+            || {
+                signal_shutdown.store(true, std::sync::atomic::Ordering::Release);
+                if let Err(error) = signal_manager.signal_cancel(&signal_id) {
+                    eprintln!("signal worker {signal_id}: {error}");
+                }
+            },
+            stop_rx,
+        ));
     });
-    let exec_result = manager.with_shutdown(shutdown).execute(id);
+    let exec_result = execute_worker(&manager.with_shutdown(shutdown), id);
     drop(stop_tx);
     let _ = signal_thread.join();
-    let run = exec_result?;
-    print_json(&run)?;
+    let (run, receipt) = exec_result?;
+    if let Some(receipt) = receipt {
+        print_json(&receipt)?;
+    } else {
+        print_json(&run)?;
+    }
     if matches!(
         run.status,
         RunStatus::Failed | RunStatus::Unknown | RunStatus::Cancelled
@@ -91,11 +107,74 @@ pub fn run_worker(manager: AgentManager, id: &str, fail_label: &str) -> Result<(
     Ok(())
 }
 
+const REGISTERED_WORKER: &str = "fleet_external_run_v1";
+
+/// Only healthy absence can select another transport. After dispatch, the
+/// native record must confirm the returned run before the operator sees success.
+fn execute_worker(manager: &AgentManager, id: &str) -> Result<(RunRecord, Option<Value>)> {
+    if let Some(scope) = susi_core::scoped_tools::current() {
+        scope.check().map_err(crate::anyhow::Error::msg)?;
+        return Ok((manager.execute(id)?, None));
+    }
+    let kind = match manager.kind() {
+        CatalogKind::Execution => "execution",
+        CatalogKind::Framework => "framework",
+    };
+    let workspace =
+        susi_paths::native_path::encode(manager.workspace()).map_err(crate::anyhow::Error::msg)?;
+    let args = json!({"workspace": workspace, "kind": kind, "run_id": id});
+    susi_harness::register_tool_backend();
+    let reply = susi_config::mcp_session::try_call_reply_with_info(
+        REGISTERED_WORKER,
+        &args,
+        Some(manager.workspace()),
+        Default::default(),
+    )?;
+    let receipt = if let Some(reply) = reply {
+        if reply.result["isError"].as_bool() == Some(true) {
+            bail!(
+                "{}",
+                reply.result["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("registered worker refused the task")
+            );
+        }
+        susi_config::mcp_session::json_result(reply.result, reply.protocol_version.as_deref())?
+    } else if let Some(receipt) = IpcPlaneBus::global()
+        .try_request_exact_once(REGISTERED_WORKER, args)
+        .map_err(crate::anyhow::Error::msg)?
+    {
+        receipt
+    } else {
+        return Ok((manager.execute(id)?, None));
+    };
+    let (committed, native) = manager.read_receipt(id)?;
+    confirm_worker_receipt(&native, &receipt)?;
+    Ok((committed, Some(native)))
+}
+
+fn confirm_worker_receipt(native: &Value, receipt: &Value) -> Result<()> {
+    let same = native
+        .as_object()
+        .zip(receipt.as_object())
+        .is_some_and(|(stored, reply)| {
+            // The owner timestamps the atomic save separately from constructing its reply.
+            stored.len() == reply.len()
+                && reply.get("updated_at").is_some_and(Value::is_u64)
+                && reply
+                    .iter()
+                    .all(|(key, value)| key == "updated_at" || stored.get(key) == Some(value))
+        });
+    if !same || native["status"] == "queued" {
+        bail!("registered worker response does not match the durable task");
+    }
+    Ok(())
+}
+
 async fn watch_worker_signals(
-    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    on_signal: impl Fn(),
     mut stop_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
-    use std::sync::atomic::Ordering;
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -110,19 +189,19 @@ async fn watch_worker_signals(
                         Some(s) => s.recv().await,
                         None => std::future::pending().await,
                     }
-                } => shutdown.store(true, Ordering::Release),
+                } => on_signal(),
                 Some(()) = async {
                     match sigterm.as_mut() {
                         Some(s) => s.recv().await,
                         None => std::future::pending().await,
                     }
-                } => shutdown.store(true, Ordering::Release),
+                } => on_signal(),
                 Some(()) = async {
                     match sighup.as_mut() {
                         Some(s) => s.recv().await,
                         None => std::future::pending().await,
                     }
-                } => shutdown.store(true, Ordering::Release),
+                } => on_signal(),
             }
         }
     }
@@ -132,9 +211,13 @@ async fn watch_worker_signals(
             _ = &mut stop_rx => {}
             res = tokio::signal::ctrl_c() => {
                 if res.is_ok() {
-                    shutdown.store(true, Ordering::Release);
+                    on_signal();
                 }
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/catalog_plane_worker.rs"]
+mod tests;

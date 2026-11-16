@@ -37,26 +37,10 @@ fn capability_topic(kind: &str, name: &str) -> String {
     format!("capability.{kind}.{name}")
 }
 
-fn is_caps_manifest_name(name: &str) -> bool {
-    name == "caps.json" || (name.starts_with("caps.") && name.ends_with(".json"))
-}
-
 fn read_dir_cap_manifests(dir: &Path) -> Vec<Value> {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut paths: Vec<PathBuf> = rd
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            is_caps_manifest_name(&name).then(|| e.path())
-        })
-        .collect();
-    paths.sort();
-    paths
+    crate::plane_bus_ipc::manifest_paths(dir, "caps.")
         .into_iter()
-        .filter_map(|p| read_cap_file(&p))
+        .filter_map(|path| read_cap_file(&path))
         .collect()
 }
 

@@ -5,50 +5,39 @@ use crate::external::{self, redact, AgentManager, CatalogKind};
 use crate::susi_core::agent_types::AgentProfile;
 use crate::susi_core::capture::EvidenceSession;
 use crate::susi_core::plane_bus::topics;
-use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
+use crate::susi_core::plane_bus::{workspace_path, PlaneBus, PlaneHandler};
 use serde_json::{json, Value};
-use std::path::PathBuf;
 use std::sync::Arc;
+use susi_config::JsonFields as _;
 
 struct AgentsPlaneHandler;
 
-fn workspace_path(payload: &Value) -> PathBuf {
-    payload
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
 fn catalog_kind(payload: &Value) -> CatalogKind {
-    match payload
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .unwrap_or("execution")
-    {
-        "framework" => CatalogKind::Framework,
+    match payload.field_str("kind") {
+        Some("framework") => CatalogKind::Framework,
         _ => CatalogKind::Execution,
     }
+}
+
+fn manager(payload: &Value) -> Result<AgentManager, String> {
+    AgentManager::for_kind(&workspace_path(payload), catalog_kind(payload))
+        .map_err(|e| e.to_string())
 }
 
 impl PlaneHandler for AgentsPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
         match topic {
             topics::AGENTS_EXTERNAL_RUN => {
-                let ws = workspace_path(&payload);
-                let kind = catalog_kind(&payload);
-                let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
-                if let Some(run_id) = payload.get("run_id").and_then(|v| v.as_str()) {
+                let manager = manager(&payload)?;
+                if let Some(run_id) = payload.field_str("run_id") {
                     let record = manager.execute(run_id).map_err(|e| e.to_string())?;
                     return serde_json::to_value(record).map_err(|e| e.to_string());
                 }
                 let agent = payload
-                    .get("agent")
-                    .and_then(|v| v.as_str())
+                    .field_str("agent")
                     .ok_or("agent or run_id required")?;
                 let prompt = payload
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
+                    .field_str("prompt")
                     .ok_or("prompt required when starting a run")?;
                 let record = manager.start(agent, prompt).map_err(|e| e.to_string())?;
                 serde_json::to_value(record).map_err(|e| e.to_string())
@@ -67,30 +56,20 @@ impl PlaneHandler for AgentsPlaneHandler {
                 Ok(json!({ "ok": true }))
             }
             topics::AGENTS_META_UPDATE_RANK => {
-                let name = payload
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .ok_or("name required")?;
+                let name = payload.field_str("name").ok_or("name required")?;
                 let delta = payload.get("delta").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                let source = payload
-                    .get("source")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("plane_bus");
+                let source = payload.field_str("source").unwrap_or("plane_bus");
                 AgentMetaRegistry::global().update_rank(name, delta, source);
                 Ok(json!({ "ok": true }))
             }
             topics::AGENTS_EXTERNAL_CATALOG => {
-                let ws = workspace_path(&payload);
-                let kind = catalog_kind(&payload);
-                let _ = ws;
-                let catalog = external::catalog(kind).map_err(|e| e.to_string())?;
+                let catalog =
+                    external::catalog(catalog_kind(&payload)).map_err(|e| e.to_string())?;
                 serde_json::to_value(catalog).map_err(|e| e.to_string())
             }
             topics::AGENTS_EXTERNAL_LIST => {
-                let ws = workspace_path(&payload);
-                let kind = catalog_kind(&payload);
-                let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
-                let catalog = external::catalog(kind).map_err(|e| e.to_string())?;
+                let manager = manager(&payload)?;
+                let catalog = external::catalog(manager.kind()).map_err(|e| e.to_string())?;
                 let rows: Vec<Value> = catalog
                     .into_iter()
                     .map(|agent| {
@@ -105,69 +84,33 @@ impl PlaneHandler for AgentsPlaneHandler {
                 Ok(json!(rows))
             }
             topics::AGENTS_EXTERNAL_LOGS => {
-                let ws = workspace_path(&payload);
-                let kind = catalog_kind(&payload);
-                let run_id = payload
-                    .get("run_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or("run_id required")?;
-                let tail = payload
-                    .get("tail")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(1024 * 1024);
-                let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
+                let run_id = payload.field_str("run_id").ok_or("run_id required")?;
+                let tail = payload.field_u64("tail").unwrap_or(1024 * 1024);
+                let manager = manager(&payload)?;
                 let logs = manager
                     .logs(run_id, false, tail)
                     .map_err(|e| e.to_string())?;
                 Ok(json!({ "text": redact(&logs) }))
             }
             topics::AGENTS_EXTERNAL_RUNS => {
-                let ws = workspace_path(&payload);
-                let kind = catalog_kind(&payload);
-                let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
+                let manager = manager(&payload)?;
                 let runs = manager.list().map_err(|e| e.to_string())?;
                 serde_json::to_value(runs).map_err(|e| e.to_string())
             }
             topics::AGENTS_EXTERNAL_CONTROL => {
-                let ws = workspace_path(&payload);
-                let id = payload
-                    .get("task_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or("task_id required")?;
-                let action = payload
-                    .get("action")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("status");
-                let kind = catalog_kind(&payload);
-                let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
+                let id = payload.field_str("task_id").ok_or("task_id required")?;
+                let action = payload.field_str("action").unwrap_or("status");
+                let manager = manager(&payload)?;
                 if action == "logs" {
-                    let stderr = payload
-                        .get("stderr")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let tail = payload
-                        .get("tail")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(65536);
+                    let stderr = payload.field_bool("stderr").unwrap_or(false);
+                    let tail = payload.field_u64("tail").unwrap_or(65536);
                     let text = manager.logs(id, stderr, tail).map_err(|e| e.to_string())?;
                     return Ok(json!({ "text": redact(&text) }));
                 }
                 let run = match action {
                     "cancel" => manager.cancel(id),
-                    "send" => manager.send(
-                        id,
-                        payload
-                            .get("message")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(""),
-                    ),
-                    _ if payload
-                        .get("refresh")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false) =>
-                    {
-                        manager.refresh(id)
-                    }
+                    "send" => manager.send(id, payload.field_str("message").unwrap_or("")),
+                    _ if payload.field_bool("refresh").unwrap_or(false) => manager.refresh(id),
                     _ => manager.status(id),
                 }
                 .map_err(|e| e.to_string())?;
@@ -175,14 +118,8 @@ impl PlaneHandler for AgentsPlaneHandler {
             }
             topics::AGENTS_EXTERNAL_MANAGED => {
                 let ws = workspace_path(&payload);
-                let name = payload
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .ok_or("name required")?;
-                let goal = payload
-                    .get("goal")
-                    .and_then(|v| v.as_str())
-                    .ok_or("goal required")?;
+                let name = payload.field_str("name").ok_or("name required")?;
+                let goal = payload.field_str("goal").ok_or("goal required")?;
                 let (kind, def) = external::resolve_managed(name).map_err(|e| e.to_string())?;
                 let manager = AgentManager::for_kind(&ws, kind).map_err(|e| e.to_string())?;
                 if let Err(e) = manager.adapter(&def.id).and_then(|a| a.preflight()) {
@@ -229,6 +166,7 @@ pub fn register() {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
 
     /// Isolate the meta registry and the manager's run dirs in a throwaway
     /// instance root; returns (guard, workspace).

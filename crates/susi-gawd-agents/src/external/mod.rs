@@ -155,6 +155,11 @@ impl AgentManager {
             })
     }
 
+    /// Canonical workspace owning this catalog's durable runs.
+    pub fn workspace(&self) -> &Path {
+        &self.workspace
+    }
+
     pub fn kind(&self) -> CatalogKind {
         self.kind
     }
@@ -263,29 +268,24 @@ impl AgentManager {
         }
         run.status = RunStatus::Running;
         self.save(&run)?;
-        let result: Result<()> = if run.adapter.is_cloud() {
-            Err(susi_error::EaiError::internal(
+        let (status, message) = match run.adapter {
+            Adapter::A2a { .. } => (
+                RunStatus::Unknown,
                 "A2A external agent plug is in susi-commercial-apps",
-            ))
-        } else if matches!(run.adapter, Adapter::Acp { .. }) {
-            Err(susi_error::EaiError::internal(
+            ),
+            Adapter::Acp { .. } => (
+                RunStatus::Failed,
                 "ACP external agent plug is in susi-commercial-apps",
-            ))
-        } else {
-            Err(susi_error::EaiError::internal(
+            ),
+            Adapter::Command { .. } => (
+                RunStatus::Failed,
                 "external process agent plug is in susi-commercial-apps",
-            ))
+            ),
         };
-        if let Err(e) = result {
-            // A cloud create may have succeeded despite a dropped response: never retry blindly.
-            run.status = if run.adapter.is_cloud() {
-                RunStatus::Unknown
-            } else {
-                RunStatus::Failed
-            };
-            run.error = Some(e.to_string());
-            run.pid = None;
-        }
+        // An unanswered cloud task is never safe to submit again.
+        run.status = status;
+        run.error = Some(susi_error::EaiError::internal(message).to_string());
+        run.pid = None;
         self.save(&run)?;
         Ok(run)
     }
@@ -307,8 +307,17 @@ impl AgentManager {
     }
 
     pub fn read(&self, id: &str) -> Result<RunRecord> {
-        let run: RunRecord =
-            serde_json::from_slice(&fs::read(self.run_dir(id)?.join("run.json"))?)?;
+        self.parse_run(id, &fs::read(self.run_dir(id)?.join("run.json"))?)
+    }
+
+    /// Read the typed result and the owner's complete native receipt from one snapshot.
+    pub fn read_receipt(&self, id: &str) -> Result<(RunRecord, serde_json::Value)> {
+        let bytes = fs::read(self.run_dir(id)?.join("run.json"))?;
+        Ok((self.parse_run(id, &bytes)?, serde_json::from_slice(&bytes)?))
+    }
+
+    fn parse_run(&self, id: &str, bytes: &[u8]) -> Result<RunRecord> {
+        let run: RunRecord = serde_json::from_slice(bytes)?;
         if run.id != id || run.workspace != self.workspace {
             bail!("task identity/workspace mismatch");
         }
@@ -430,12 +439,17 @@ impl AgentManager {
         }
     }
 
+    /// Notify the worker holding the run lease without taking ownership of it.
+    pub fn signal_cancel(&self, id: &str) -> Result<()> {
+        Ok(File::create(self.run_dir(id)?.join("cancel"))?.sync_all()?)
+    }
+
     pub fn cancel(&self, id: &str) -> Result<RunRecord> {
         let run = self.read(id)?;
         if !run.status.active() && !matches!(run.status, RunStatus::Waiting | RunStatus::Unknown) {
             return Ok(run);
         }
-        File::create(self.run_dir(id)?.join("cancel"))?.sync_all()?;
+        self.signal_cancel(id)?;
         // If the worker has exited, take ownership and perform remote cancellation directly.
         if let Ok(_lease) = self.acquire(id) {
             let mut run = self.read(id)?;
@@ -529,7 +543,21 @@ impl AgentManager {
     fn save(&self, run: &RunRecord) -> Result<()> {
         let mut run = run.clone();
         run.updated_at = now();
-        crate::susi_config::atomic_write_json_pretty(&self.run_dir(&run.id)?.join("run.json"), &run)
+        let path = self.run_dir(&run.id)?.join("run.json");
+        #[derive(Serialize, Deserialize)]
+        struct DurableRecord {
+            #[serde(flatten)]
+            run: RunRecord,
+            #[serde(flatten)]
+            owner_fields: serde_json::Map<String, serde_json::Value>,
+        }
+        // Native worktree and Board provenance belongs to the run's owner.
+        let owner_fields = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice::<DurableRecord>(&bytes)?.owner_fields,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+            Err(error) => return Err(error.into()),
+        };
+        crate::susi_config::atomic_write_json_pretty(&path, &DurableRecord { run, owner_fields })
     }
 
     fn cancel_requested(&self, id: &str) -> Result<bool> {

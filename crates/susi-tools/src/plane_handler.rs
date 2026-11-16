@@ -1,9 +1,8 @@
 //! Plane-bus handler for all `tools.*` topics.
 
 use crate::susi_core::plane_bus::topics;
-use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
+use crate::susi_core::plane_bus::{workspace_path, PlaneBus, PlaneHandler};
 use serde_json::{json, Value};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::client::GmcpClient;
@@ -14,14 +13,6 @@ struct ToolsPlaneHandler;
 /// Mission-scoped authority records: the egress-gate and token refusals a
 /// mission accumulated, so the orchestrator can surface them on the report.
 const MISSION_REFUSALS_TOPIC: &str = "tools.mission.refusals";
-
-fn workspace_path(payload: &Value) -> PathBuf {
-    payload
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 
 impl PlaneHandler for ToolsPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
