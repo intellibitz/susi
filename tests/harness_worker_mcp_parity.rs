@@ -269,7 +269,8 @@ fn server(root: &Path, mode: &str, behavior: &str) {
             "tools/list" if initialized => Ok(json!({"tools":catalog(&registry)})),
             "tools/call" if initialized => {
                 let name = params.get("name").and_then(Value::as_str);
-                let args = params.get("arguments");
+                let empty_args = json!({});
+                let args = params.get("arguments").or(Some(&empty_args));
                 match (name, args.filter(|args| args.is_object())) {
                     (Some(name), Some(_)) if registry.get(name).is_none() => {
                         Err((-32602, "Unknown tool"))
@@ -661,7 +662,7 @@ fn invalid_wire(root: &Path) -> Vec<Value> {
     for (i, params) in [
         json!([]),
         json!({"name":7,"arguments":{}}),
-        json!({"name":"list_dir"}),
+        json!({}),
         json!({"name":"unknown_tool","arguments":{}}),
     ]
     .into_iter()
@@ -692,6 +693,18 @@ fn invalid_wire(root: &Path) -> Vec<Value> {
         "invalid wire must not reach a native handler"
     );
     assert!(!root.join("workspace/notification.txt").exists());
+    // MCP arguments is optional. Omission means the native empty object;
+    // explicit null/nonobjects above remain invalid MCP arguments.
+    write_frame(
+        &mut input,
+        &json!({"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"list_dir"}}),
+    );
+    let omitted = read_frame(&mut output).unwrap();
+    assert_eq!(
+        omitted["result"]["content"][0]["text"],
+        Registry::builtin().execute(&root.join("workspace"), "list_dir", "{}", &[])
+    );
+    assert_eq!(call_count(root), 1);
     lease.close();
     rows
 }
