@@ -18,6 +18,7 @@ use susi_wire_client::host::{DuplexStreams, HostPolicy, McpHost};
 const POLL: Duration = Duration::from_millis(10);
 const MAX_SERVERS: usize = 16;
 const MAX_TOOLS: usize = 1024;
+const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) struct SessionFactory {
     base: Arc<GawdAcpExecutor>,
@@ -148,6 +149,7 @@ impl SessionTools {
             closed: AtomicBool::new(false),
         };
         let deadline = Instant::now() + handshake;
+        let mut remaining_bytes = MAX_CATALOG_BYTES;
         for (server_index, supplied) in spec.mcp_servers.iter().enumerate() {
             authorize(&session.admission, &supplied.command, None)?;
             let config = susi_tools::McpServerConfig {
@@ -172,12 +174,14 @@ impl SessionTools {
                     active: None,
                 },
                 processes,
+                (MAX_TOOLS - session.tools.len(), remaining_bytes),
             )?;
             session.servers.push(server);
             for (tool_index, tool) in catalog.into_iter().enumerate() {
-                if session.tools.len() >= MAX_TOOLS {
-                    return Err(format!("ACP session exceeds {MAX_TOOLS} MCP tools"));
-                }
+                // The host counted the same serialized definitions before
+                // retaining each page. Carry the budget across all peers.
+                remaining_bytes = remaining_bytes
+                    .saturating_sub(serde_json::to_vec(&tool).map_err(|e| e.to_string())?.len());
                 let name = tool
                     .get("name")
                     .and_then(Value::as_str)
@@ -471,6 +475,7 @@ impl Server {
         policy: &susi_core::mac_policy::MacPolicy,
         lease: Lease,
         processes: &Mutex<Vec<Weak<Process>>>,
+        (max_tools, max_bytes): (usize, usize),
     ) -> Result<(Self, Vec<Value>), String> {
         lease.check().map_err(|e| e.to_string())?;
         let mut command = susi_tools::authorized_stdio_command_literal(config, policy)?;
@@ -506,7 +511,9 @@ impl Server {
                 HostPolicy::strict("susi-acp", susi::SUSI_VERSION),
             )
             .map_err(|e| e.to_string())?;
-            let catalog = host.list_tools("session").map_err(|e| e.to_string())?;
+            let catalog = host
+                .list_tools_bounded("session", max_tools, max_bytes)
+                .map_err(|e| e.to_string())?;
             Ok((host, catalog))
         })();
         match setup {
