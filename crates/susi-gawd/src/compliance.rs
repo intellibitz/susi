@@ -410,22 +410,17 @@ impl SusiAdmin {
         ("[MISSION]", "Dynamic Task Fulfillment")
     }
 
-    /// Ingest a natural language intent into `evidence.json` (`entries[]`).
-    /// Genomic mode: `.agents/evidence.json`. World mode: `.susi/evidence.json`.
+    /// Ingest a redacted intent into local runtime history, never tracked source.
     pub fn ingest_natural_intent(workspace: &Path, intent: &str) -> EaiResult<String> {
-        let mut evidence_path = workspace.join(".agents/evidence.json");
-
+        let state_dir = susi_paths::workspace_state_dir(workspace);
+        let evidence_path = state_dir.join("evidence.json");
         if !evidence_path.exists() {
-            let state_dir = susi_paths::workspace_state_dir(workspace);
-            evidence_path = state_dir.join("evidence.json");
-            if !evidence_path.exists() {
-                fs::create_dir_all(&state_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
-                crate::susi_config::atomic_write_bytes(
-                    &evidence_path,
-                    crate::self_core::AlphaSelf::EVIDENCE_JSON.as_bytes(),
-                )
-                .map_err(|e| EaiError::filesystem(e.to_string()))?;
-            }
+            fs::create_dir_all(&state_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+            crate::susi_config::atomic_write_bytes(
+                &evidence_path,
+                crate::self_core::AlphaSelf::EVIDENCE_JSON.as_bytes(),
+            )
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
         }
 
         let (prefix, _category) = Self::classify_natural_intent(workspace, intent);
@@ -435,7 +430,7 @@ impl SusiAdmin {
         let mut doc: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| EaiError::config(format!("evidence.json: invalid JSON: {e}")))?;
 
-        // The ledger is committed and shared: store the intent redacted.
+        // Local history still stores only the redacted intent.
         let intent = crate::susi_config::redact_credentials(intent.trim());
         let intent = intent.as_str();
         let intent_trimmed = intent.to_lowercase();

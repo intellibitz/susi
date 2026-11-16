@@ -95,11 +95,11 @@ components allow Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause under the existi
 Audit nested exceptions, transitive/native/build/model/standard-library sources and AND/OR \
 obligations. Never relabel third-party code, broaden the allowlist or hide an audit failure. \
 Keep dependency, unsafe and size ratchets, typed errors and justified narrow FFI boundaries.
-9. Operational history, growing facts, evidence and completed records stay outside source, \
-in a local database when available; history may be absent. Missing history never proves \
-acceptance, dependency completion or qualification. Retain mandatory notices, live authority \
-and recovery data and artifact-bound provenance. Keep minimal active coordination only while \
-needed, then remove it. Revisit unfulfilled goals; update the current contract in place.
+9. Operational history, growing facts, evidence and completed records stay outside source, in a \
+local database when available; history may be absent. Missing history never proves acceptance, \
+dependency completion or qualification. Retain mandatory notices, live authority and recovery \
+data and artifact-bound provenance. Keep active coordination and task records minimal, true and \
+tidy; remove them when done. Link and revisit unfulfilled goals; update the contract in place.
 10. Drivers and engines compose across every container component with capability contracts, \
 cycle/termination checks and resource/time/depth budgets; nested work cannot amplify \
 permissions. Cloud sessions remain within user authorization. Concurrency follows measured \

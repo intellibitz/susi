@@ -51,8 +51,8 @@ impl AlphaSelf {
 
     /// Agent-governance identity ledger (`susi/identity/v1`) — not end-user docs.
     pub const IDENTITY_JSON: &'static str = include_str!("../../../.agents/identity.json");
-    /// Agent-governance evidence ledger (`susi/evidence/v1`) — not end-user docs.
-    pub const EVIDENCE_JSON: &'static str = include_str!("../../../.agents/evidence.json");
+    /// Empty, versioned compatibility seed; operational history is never embedded.
+    pub const EVIDENCE_JSON: &'static str = GEN_EVIDENCE_JSON;
     /// Agent-governance roadmap ledger (`susi/roadmap/v1`) — not end-user docs.
     pub const ROADMAP_JSON: &'static str = include_str!("../../../.agents/roadmap.json");
 
@@ -202,17 +202,18 @@ mod tests {
             "identity.json components must be compiled into binary"
         );
         assert!(
-            !AlphaSelf::PULSE_AXIOMS.is_empty(),
-            "evidence.json axioms must be compiled into binary"
+            AlphaSelf::PULSE_AXIOMS.is_empty(),
+            "operational history must not be compiled into binary"
         );
         assert!(
             AlphaSelf::IDENTITY_JSON.contains("susi/identity/v1"),
             "identity.json must declare schema"
         );
-        assert!(
-            AlphaSelf::EVIDENCE_JSON.contains("susi/evidence/v1"),
-            "evidence.json must declare schema"
-        );
+        let evidence: serde_json::Value = serde_json::from_str(AlphaSelf::EVIDENCE_JSON).unwrap();
+        assert_eq!(evidence["schema"], "susi/evidence/v1");
+        assert_eq!(evidence["version"], AlphaSelf::VERSION);
+        assert_eq!(evidence["entries"], serde_json::json!([]));
+        assert_eq!(AlphaSelf::rules_of(RuleKind::Evidence).count(), 0);
         assert!(
             AlphaSelf::ROADMAP_JSON.contains("susi/roadmap/v1"),
             "roadmap.json must declare schema"

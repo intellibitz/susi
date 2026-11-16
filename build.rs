@@ -33,7 +33,6 @@ fn main() {
     for (rel, schema) in [
         (".agents/identity.json", "susi/identity/v1"),
         (".agents/roadmap.json", "susi/roadmap/v1"),
-        (".agents/evidence.json", "susi/evidence/v1"),
     ] {
         sync_json_version(Path::new(rel), schema, &version);
         println!("cargo:rerun-if-changed={rel}");

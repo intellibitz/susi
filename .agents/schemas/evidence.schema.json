@@ -15,7 +15,7 @@
     "description": { "type": "string" },
     "entries": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": {
         "type": "object",
         "required": ["id", "type", "milestone", "anchor", "proof"],

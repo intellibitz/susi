@@ -139,7 +139,7 @@ mod inline_tests {
             contexts.insert(ctx.to_string());
         }
         assert!(contexts.contains("susi_genome_audit"));
-        assert!(contexts.contains("susi_pulse_axioms"));
+        assert!(!contexts.contains("susi_pulse_axioms"));
         assert!(contexts.contains("topology_lookup"));
         let _ = fs::remove_dir_all(&tmp);
     }

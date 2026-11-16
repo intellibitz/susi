@@ -6,8 +6,8 @@
 //! `docs/lean-core.md` is pinned on: wall clock, rustc CPU-seconds (all
 //! units; workspace and third-party apart), the critical path, the serial
 //! tail (wall seconds with fewer than four units compiling) and the heaviest
-//! units. One JSON line per run is appended to `.agents/build-time.jsonl`
-//! so the number is a record, not a claim.
+//! units. Measurements are retained in the workspace's local state directory;
+//! recording a measurement never changes checked-out source.
 //!
 //! Budgets are optional: `--budget-wall 60` and `--budget-cpu 1200` make the
 //! command fail when the measurement exceeds them, so the same command can
@@ -367,7 +367,7 @@ fn print_report(m: &Measurement) {
     }
 }
 
-/// Append one JSON line to `.agents/build-time.jsonl`.
+/// Retain a measurement in local workspace state, outside checked-out source.
 fn record(root: &Path, m: &Measurement) -> Result<()> {
     let commit = Command::new("git")
         .current_dir(root)
@@ -397,7 +397,7 @@ fn record(root: &Path, m: &Measurement) -> Result<()> {
         "critical_path": m.critical_path.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>(),
         "heaviest": m.heaviest.iter().map(|(n, d)| serde_json::json!({"crate": n, "cpu_s": round1(*d)})).collect::<Vec<_>>(),
     });
-    let dir = root.join(".agents");
+    let dir = susi_paths::workspace_state_dir(root).join("records");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("build-time.jsonl");
     let mut text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -457,5 +457,32 @@ const CONCURRENCY_DATA = [];
             .filter(|o| o.budget_wall == Some(60.0) && o.keep_target && o.package == "susi");
         assert!(o.is_some());
         assert!(parse(&["--bogus".into()]).is_err());
+    }
+
+    #[test]
+    fn measurements_accumulate_locally_without_changing_source_history() {
+        let root = susi_paths::tempfile::tempdir().unwrap();
+        let legacy = root.path().join(".agents/build-time.jsonl");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, "retained legacy source\n").unwrap();
+        let measurement = summarize("fixture", 20.5, parse_units(SAMPLE).unwrap());
+        record(root.path(), &measurement).unwrap();
+        record(root.path(), &measurement).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&legacy).unwrap(),
+            "retained legacy source\n"
+        );
+        let local = susi_paths::workspace_state_dir(root.path()).join("records/build-time.jsonl");
+        let text = std::fs::read_to_string(local).unwrap();
+        let records: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), 2);
+        for record in records {
+            assert_eq!(record["package"], "fixture");
+            assert_eq!(record["wall_s"], 20.5);
+            assert_eq!(record["units"], 5);
+        }
     }
 }

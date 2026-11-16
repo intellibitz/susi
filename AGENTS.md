@@ -86,7 +86,13 @@ the requester to inspect code or perform routine engineering steps.
    `Task: LOCAL-<name>`). Keep active task scopes and meaningful acceptance
    available to native tooling; a reservation or successful compile is not
    acceptance. Close only after the entire acceptance check passes on the actual
-   combined tree. A partial result never closes a broader goal.
+   combined tree. A partial result never closes a broader goal. Keep task
+   records tidy: an active record's place is its state, so no status in it says
+   done, failed or canceled while it is open. Close a finished task through its
+   acceptance; retire one that will not be done with its reason instead of
+   marking it; add no duplicate; keep every record readable, with its goal,
+   size and acceptance; and review an open task nobody has claimed or touched
+   for 14 days.
 10. Clean up finished worktrees only after every commit is on `origin/main`,
     the tree is clean, no live claim or running agent owns it, and no next task
     is reusing it. Remove only your own worktree, merged branch and private
@@ -114,7 +120,12 @@ never proves acceptance, a completed dependency or a qualified release.
 
 Use durable local records for outcomes that require later verification. Record
 current goals and revisit unfulfilled goals and moved upstream dependencies;
-never claim progress from a missing record. Preserve required artifact provenance
+never claim progress from a missing record. Keep goals tidy: record each one
+once, in the words it was given, and never edit it; link every task that serves
+it and never strip the link when rewriting the task; when a goal lives on as a
+standing rule, record where in a create-only carried note, which never claims
+the goal met; and account for every goal, taking up again or carrying one whose
+tasks are all closed. Preserve required artifact provenance
 with the artifact, independently of optional operational history. Review the
 current contract in place instead of adding a new numbered historical mandate.
 

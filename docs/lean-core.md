@@ -276,7 +276,8 @@ crate (rung 3).
 
 `cargo xtask build-time` (alias for `cargo run -p xtask --bin xtask -- build-time`) does the cold build into a temporary target
 directory with `--timings`, prints wall, CPU-seconds and the critical path,
-and appends a line to `.agents/build-time.jsonl`. The ship gate's own
+and retains measurements in local workspace state (`.susi/records/build-time.jsonl`),
+without changing source. Historical measurements may be absent. The ship gate's own
 whole-workspace build already records `timings.jsonl`; the two must agree in
 direction. Ceilings for CPU-seconds and critical-path length go into this
 table once the clean baseline is recorded.
