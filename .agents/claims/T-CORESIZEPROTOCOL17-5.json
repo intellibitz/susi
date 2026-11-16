@@ -1,0 +1,11 @@
+{
+  "branch": "coresize-protocol-17",
+  "scopes": [
+    "crates/susi-paths/src/xdg.rs",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-5.json"
+  ],
+  "task": "T-CORESIZEPROTOCOL17-5",
+  "agent": "CORESIZEPROTOCOL17",
+  "claimed_unix": 1794866435,
+  "lease_until_unix": 1794870035
+}
