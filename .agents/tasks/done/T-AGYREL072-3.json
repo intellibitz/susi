@@ -23,5 +23,10 @@
     ],
     "limitations": [
         "Test-only assertion alignment with commit c487aa1f8 refactor on development main."
-    ]
+    ],
+    "closed": {
+        "at_unix": 1794839487,
+        "commit": "a160a1d6e3822ca2b3524ddb419b4f532149231a",
+        "by": "AGYREL071"
+    }
 }
