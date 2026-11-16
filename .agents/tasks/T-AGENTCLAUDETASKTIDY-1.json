@@ -1,0 +1,33 @@
+{
+  "id": "T-AGENTCLAUDETASKTIDY-1",
+  "title": "Keep task records tidy in core's active contract",
+  "goal": "Vision: V-13. CEO directive 2026-11-16: agents must keep task records tidy. Core now keeps one active contract and updates it in place instead of adding numbered mandates (17cdfe427), so the rule goes into AGENTS.md item 9 and the self-build contract item 9 (no net line in core), pinned by architecture_tests. The commercial repository records it as Mandate 88 with tasks retire and tasks tidy (its T-AGENTCLAUDETASKTIDY-1).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDETASKTIDY",
+  "created_unix": 1794842751,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's active contract (AGENTS.md) and self-build contract as rewritten by 17cdfe427, its governance tests, and the commercial tool's tasks retire and tasks tidy. Text and tests only in core."
+  },
+  "scopes": [
+    "AGENTS.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/architecture_tests.rs",
+    ".agents/visions/V-13.json"
+  ],
+  "limitations": [
+    "Core holds the rule as contract text; the tooling that reports and retires is in the commercial repository.",
+    "The self-build clause was folded into item 9 with no net line added to core (Mandate 84)."
+  ]
+}
