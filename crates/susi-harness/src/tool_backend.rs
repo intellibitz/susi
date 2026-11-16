@@ -1,7 +1,8 @@
 //! Resolve installed tools through the existing authorized MCP registry.
 
 use crate::mcp::{HttpSocketTransport, McpClient, StdioTransport, Transport};
-use serde_json::Value;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
 use susi_config::mac_policy::MacPolicy;
@@ -36,6 +37,12 @@ impl Transport for Channel {
         match self {
             Self::Stdio(peer) => peer.set_timeout(timeout),
             Self::Http(peer) => peer.set_timeout(timeout),
+        }
+    }
+    fn set_call_timeout(&mut self, timeout: Option<Duration>) {
+        match self {
+            Self::Stdio(peer) => peer.set_call_timeout(timeout),
+            Self::Http(peer) => peer.set_call_timeout(timeout),
         }
     }
     fn close(&mut self) -> EaiResult<()> {
@@ -76,6 +83,14 @@ fn connect(server: &McpServerConfig, cwd: Option<&Path>) -> EaiResult<McpClient<
 
 /// Call a uniquely advertised tool once. No failed mutation is retried.
 pub(crate) fn call_result(name: &str, arguments: &Value, cwd: Option<&Path>) -> EaiResult<Value> {
+    call_with_revision(name, arguments, cwd).map(|(result, _)| result)
+}
+
+fn call_with_revision(
+    name: &str,
+    arguments: &Value,
+    cwd: Option<&Path>,
+) -> EaiResult<(Value, Option<String>)> {
     if name.is_empty() || !arguments.is_object() {
         return Err(EaiError::config(
             "MCP tool name and object arguments are required",
@@ -108,22 +123,243 @@ pub(crate) fn call_result(name: &str, arguments: &Value, cwd: Option<&Path>) -> 
             )));
         }
         if matches == 1 {
-            selected = Some(client);
+            let schema = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .map(|tool| tool.schema.clone());
+            let upload = tools.iter().any(|tool| tool.name == UPLOAD_TOOL);
+            selected = Some((client, schema.unwrap_or(Value::Null), upload));
         }
     }
-    let mut client = selected.ok_or_else(|| {
+    let (mut client, schema, upload) = selected.ok_or_else(|| {
         EaiError::config(format!(
             "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
         ))
     })?;
-    client.set_timeout(Duration::from_secs(600));
-    let result = client.call_result(name, arguments);
+    client.set_timeout(Duration::from_secs(60));
+    let result = transfer_call(&mut client, name, arguments, &schema, upload);
+    let revision = client.negotiated_protocol_version().map(str::to_owned);
     // Closing is cleanup, never a reason to replay a completed tool call.
     let _ = client.close();
-    result
+    result.map(|result| (result, revision))
 }
 
-fn json_result(result: Value) -> EaiResult<Value> {
+const UPLOAD_TOOL: &str = "susi_resource_upload";
+const CHUNK_BYTES: usize = 256 * 1024;
+const INLINE_BYTES: usize = 1024 * 1024;
+
+fn digest(bytes: &[u8]) -> String {
+    susi_paths::hex::encode(Sha256::digest(bytes))
+}
+
+fn transfer_error() -> EaiError {
+    EaiError::protocol("invalid session-owned MCP resource transfer")
+}
+
+fn is_error(result: &Value) -> EaiResult<bool> {
+    match result.get("isError") {
+        None => Ok(false),
+        Some(Value::Bool(flag)) => Ok(*flag),
+        _ => Err(transfer_error()),
+    }
+}
+
+fn resource_root(uri: &str, direction: &str) -> bool {
+    uri.strip_prefix("susi-resource://")
+        .and_then(|rest| rest.strip_suffix(&format!("/{direction}")))
+        .is_some_and(|token| {
+            token.len() == 64
+                && token
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
+fn upload_arguments<T: Transport>(
+    client: &mut McpClient<T>,
+    name: &str,
+    text: &str,
+) -> EaiResult<Value> {
+    let hash = digest(text.as_bytes());
+    let reply = client.call_result(
+        UPLOAD_TOOL,
+        &json!({"action":"begin","tool":name,"size":text.len(),"sha256":hash}),
+    )?;
+    let descriptor = json_result(reply, client.negotiated_protocol_version())?;
+    let uri = descriptor
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(transfer_error)?;
+    if !resource_root(uri, "request")
+        || descriptor["mimeType"] != "application/json"
+        || descriptor["size"].as_u64() != u64::try_from(text.len()).ok()
+        || descriptor["sha256"] != hash
+    {
+        return Err(transfer_error());
+    }
+    let mut offset = 0;
+    while offset < text.len() {
+        let mut end = (offset + CHUNK_BYTES).min(text.len());
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let reply = client.call_result(
+            UPLOAD_TOOL,
+            &json!({"action":"append","uri":uri,"offset":offset,"text":&text[offset..end]}),
+        )?;
+        let ack = json_result(reply, client.negotiated_protocol_version())?;
+        if ack["received"].as_u64() != u64::try_from(end).ok() {
+            return Err(transfer_error());
+        }
+        offset = end;
+    }
+    Ok(json!({"_resource":descriptor}))
+}
+
+fn resource_text<T: Transport>(
+    client: &mut McpClient<T>,
+    uri: &str,
+    mime: &str,
+) -> EaiResult<String> {
+    let response = client.read_resource(uri)?;
+    let contents = response
+        .get("contents")
+        .and_then(Value::as_array)
+        .filter(|contents| contents.len() == 1)
+        .ok_or_else(transfer_error)?;
+    let entry = &contents[0];
+    if entry["uri"] != uri || entry["mimeType"] != mime {
+        return Err(transfer_error());
+    }
+    entry
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(transfer_error)
+}
+
+fn hydrate<T: Transport>(client: &mut McpClient<T>, result: Value) -> EaiResult<Value> {
+    let Some(contents) = result.get("content").and_then(Value::as_array) else {
+        return Ok(result);
+    };
+    if contents.len() != 1 {
+        return Ok(result);
+    }
+    let block = &contents[0];
+    let (uri, manifest_text) = match block["type"].as_str() {
+        Some("resource_link") if block["_meta"]["susi/resource"] == "json-chunks-v1" => {
+            let uri = block
+                .get("uri")
+                .and_then(Value::as_str)
+                .ok_or_else(transfer_error)?;
+            if !resource_root(uri, "result")
+                || block["mimeType"] != "application/json"
+                || block["_meta"]["susi/content"] != "mcp-tool-result"
+            {
+                return Err(transfer_error());
+            }
+            let text = resource_text(client, uri, "application/json")?;
+            if block["size"].as_u64() != u64::try_from(text.len()).ok() {
+                return Err(transfer_error());
+            }
+            (uri, text)
+        }
+        Some("resource") => {
+            let resource = &block["resource"];
+            let Some(uri) = resource
+                .get("uri")
+                .and_then(Value::as_str)
+                .filter(|uri| resource_root(uri, "result"))
+            else {
+                return Ok(result);
+            };
+            if resource["mimeType"] != "application/json" {
+                return Err(transfer_error());
+            }
+            let text = resource
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(transfer_error)?;
+            (uri, text.to_owned())
+        }
+        _ => return Ok(result),
+    };
+    let manifest: Value = serde_json::from_str(&manifest_text).map_err(|_| transfer_error())?;
+    let size = manifest["size"].as_u64().ok_or_else(transfer_error)?;
+    let chunks = manifest["chunks"].as_u64().ok_or_else(transfer_error)?;
+    if manifest["format"] != "susi-json-chunks-v1"
+        || manifest["mimeType"] != "application/json"
+        || manifest["chunkUriTemplate"] != format!("{uri}/{{index}}")
+        || chunks == 0
+        || chunks > size
+    {
+        return Err(transfer_error());
+    }
+    let mut text = String::new();
+    for index in 0..chunks {
+        let chunk = resource_text(client, &format!("{uri}/{index}"), "text/plain")?;
+        if chunk.is_empty() || chunk.len() > CHUNK_BYTES {
+            return Err(transfer_error());
+        }
+        text.push_str(&chunk);
+        if u64::try_from(text.len()).map_err(|_| transfer_error())? > size {
+            return Err(transfer_error());
+        }
+    }
+    if u64::try_from(text.len()).ok() != Some(size) || manifest["sha256"] != digest(text.as_bytes())
+    {
+        return Err(transfer_error());
+    }
+    let hydrated: Value =
+        susi_config::protocol_json::parse(text.as_bytes()).map_err(|_| transfer_error())?;
+    if !hydrated.is_object()
+        || is_error(&hydrated)? != is_error(&result)?
+        || hydrated
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                blocks
+                    .iter()
+                    .any(|block| block["_meta"]["susi/resource"] == "json-chunks-v1")
+            })
+    {
+        return Err(transfer_error());
+    }
+    let _ = client.call_result(UPLOAD_TOOL, &json!({"action":"discard","uri":uri}));
+    Ok(hydrated)
+}
+
+fn transfer_call<T: Transport>(
+    client: &mut McpClient<T>,
+    name: &str,
+    arguments: &Value,
+    schema: &Value,
+    upload: bool,
+) -> EaiResult<Value> {
+    let text = serde_json::to_string(arguments).map_err(|_| transfer_error())?;
+    let resource_schema = schema
+        .get("oneOf")
+        .and_then(Value::as_array)
+        .is_some_and(|branches| {
+            branches.iter().any(|branch| {
+                branch
+                    .get("properties")
+                    .and_then(|properties| properties.get("_resource"))
+                    .is_some()
+            })
+        });
+    let staged = if text.len() > INLINE_BYTES && upload && resource_schema {
+        Some(upload_arguments(client, name, &text)?)
+    } else {
+        None
+    };
+    client.set_call_timeout(None);
+    let result = client.call_result(name, staged.as_ref().unwrap_or(arguments));
+    client.set_call_timeout(Some(Duration::from_secs(60)));
+    hydrate(client, result?)
+}
+
+fn json_result(result: Value, revision: Option<&str>) -> EaiResult<Value> {
     if result
         .get("isError")
         .is_some_and(|flag| flag != &Value::Bool(false))
@@ -131,7 +367,7 @@ fn json_result(result: Value) -> EaiResult<Value> {
         return Err(EaiError::internal("MCP provider returned a tool error"));
     }
     if let Some(structured) = result.get("structuredContent") {
-        if !structured.is_object() {
+        if !structured.is_object() && revision != Some("2026-07-28") {
             return Err(EaiError::internal(
                 "MCP structured content is not an object",
             ));
@@ -150,42 +386,40 @@ fn json_result(result: Value) -> EaiResult<Value> {
         .get("text")
         .and_then(Value::as_str)
         .ok_or_else(|| EaiError::internal("MCP provider returned malformed text content"))?;
-    serde_json::from_str(text)
+    susi_config::protocol_json::parse(text.as_bytes())
         .map_err(|error| EaiError::internal(format!("MCP tool JSON: {error}")))
 }
 
 /// Read structured content from a registered, authorized standard MCP tool.
 pub(crate) fn call_json(name: &str, arguments: &Value) -> EaiResult<Value> {
-    json_result(call_result(name, arguments, None)?)
+    let (result, revision) = call_with_revision(name, arguments, None)?;
+    json_result(result, revision.as_deref())
 }
 
-/// Call a local stdio tool with an OS-native working directory for this session.
-pub(crate) fn call_json_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResult<Value> {
-    json_result(call_result(name, arguments, Some(cwd))?)
+/// Return one native text block without changing empty or JSON-looking text.
+pub(crate) fn call_text_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResult<String> {
+    let result = call_result(name, arguments, Some(cwd))?;
+    if result
+        .get("isError")
+        .is_some_and(|flag| flag != &Value::Bool(false))
+    {
+        return Err(EaiError::internal("MCP provider returned a tool error"));
+    }
+    let blocks = result
+        .get("content")
+        .and_then(Value::as_array)
+        .filter(|blocks| blocks.len() == 1)
+        .ok_or_else(transfer_error)?;
+    if blocks[0]["type"] != "text" {
+        return Err(transfer_error());
+    }
+    blocks[0]
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(transfer_error)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn structured_results_keep_empty_text_and_tool_errors_fail_closed() {
-        assert_eq!(
-            json_result(json!({"structuredContent":{"text":""},"isError":false})).unwrap(),
-            json!({"text":""})
-        );
-        assert_eq!(
-            json_result(json!({"content":[{"type":"text","text":"[1,null]"}]})).unwrap(),
-            json!([1, null])
-        );
-        for result in [
-            json!({"structuredContent":{},"isError":true}),
-            json!({"structuredContent":{},"isError":"false"}),
-            json!({"structuredContent":[]}),
-            json!({"content":[]}),
-        ] {
-            assert!(json_result(result).is_err());
-        }
-    }
-}
+#[path = "tests/tool_backend.rs"]
+mod tests;

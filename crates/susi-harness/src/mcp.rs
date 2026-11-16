@@ -284,6 +284,12 @@ impl<T: Transport> McpClient<T> {
         self.request("tools/call", json!({"name":name,"arguments":arguments}))
     }
 
+    /// Read a resource through this same authorized MCP session.
+    pub fn read_resource(&mut self, uri: &str) -> EaiResult<Value> {
+        self.initialize()?;
+        self.request("resources/read", json!({"uri":uri}))
+    }
+
     /// Call one tool and return its text content.
     ///
     /// Non-text content is returned as its JSON form so a caller never gets an
@@ -400,7 +406,7 @@ fn read_stdio_message<R: BufRead>(reader: &mut R) -> EaiResult<Option<Value>> {
     if line.trim().is_empty() {
         return Ok(None);
     }
-    let message: Value = serde_json::from_str(line)
+    let message: Value = susi_config::protocol_json::parse(line.as_bytes())
         .map_err(|error| EaiError::internal(format!("mcp response: {error}")))?;
     let notification = message.get("id").is_none()
         && message.get("method").and_then(Value::as_str).is_some()
@@ -880,7 +886,7 @@ impl Transport for HttpSocketTransport {
         if text.trim().is_empty() {
             return Err(EaiError::network("mcp http response has no body"));
         }
-        serde_json::from_str(&text)
+        susi_config::protocol_json::parse(text.as_bytes())
             .map_err(|error| EaiError::internal(format!("mcp http response: {error}")))
     }
 

@@ -411,7 +411,7 @@ pub fn event_stream_messages<'a>(
     let mut data = String::new();
     lines.chain(std::iter::once("")).filter_map(move |line| {
         if line.is_empty() {
-            let message = serde_json::from_str(&data).ok();
+            let message = susi_config::protocol_json::parse(data.as_bytes()).ok();
             data.clear();
             return message;
         }
@@ -437,7 +437,7 @@ fn sse_result(body: &str, id: u64) -> Result<Value, String> {
 /// content rather than the header because sealed replies travel as
 /// `application/octet-stream`.
 fn response_result(text: &str, id: u64) -> Result<Value, String> {
-    match serde_json::from_str::<Value>(text) {
+    match susi_config::protocol_json::parse(text.as_bytes()) {
         Ok(msg) => match_response(&msg, id)
             .unwrap_or_else(|| Err("JSON response does not answer the request id".to_string())),
         Err(_) => sse_result(text, id),
