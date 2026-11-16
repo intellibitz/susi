@@ -1,0 +1,39 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.71",
+  "tag": "v0.21.71",
+  "commit": "1c6bd6ea0e633e51d2caba829a384bfa80aa354c",
+  "tagged": "2026-11-16T18:20:24+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-unknown-linux-gnu",
+    "source": "the release-qualify build gate on the qualified tree 6c0e9cd787bc (commit 6fc4792fce52; the tagged commit adds only releases/qualification/v0.21.71.json), Cargo.lock sha256 2ed213d3e5fb3de30e02401a88d55dec3f16924d3ab280f15696c8416205f92c",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine -j 3"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi", "bin": "susi", "sha256": "4d2474e93e6a762f2fdd1331d1178b5f7efd65ddfb371149ead8f4a686b8bea0" },
+    { "file": "susi-harness-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi-harness", "bin": "susi-harness", "sha256": "3cf5ff97259aef95792539967f13b8d951d810e6ba468929f43767f7032c43eb" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-pc-windows-msvc", "reason": "qualified on a Linux host; the Windows x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
+  ],
+  "checks": {
+    "qualification_record": "releases/qualification/v0.21.71.json",
+    "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke", "startup", "conformance"], "all_exit_0": true },
+    "workspace_tests": { "binaries": 264, "passed": 5889, "failed": 0, "ignored": 16 },
+    "performance_gates": { "startup_gate_schema": "susi-startup-gate-v2", "conformance_checks": 29, "conformance_max_check_ms": 515, "conformance_budget_ms": 2000, "ok": true },
+    "e2e_checks": "the release test gate ran cargo test --workspace --offline --locked --no-fail-fast across all 264 test binaries on the exact release tree; the dist binaries answered --version, passed startup-gate and 29 susi-conformance checks against an isolated daemon",
+    "locally_qualified": true,
+    "qualification_note": "qualified on x86_64-unknown-linux-gnu with release-qualify v0.21.71 --jobs 3 on commit 6fc4792fce528ee4ac5f2be8a33cbbebe2e2bc75 (tree 6c0e9cd787bc2b6d89b7e07e1f119e548e1c2375); every gate exited 0, 5889 tests passed across 264 binaries and 0 failed (16 ignored), startup-gate v2 passed (floor 2.52 ms), and 29 susi-conformance checks passed with max 515 ms / 2000 ms budget. Earlier on this release line, T-AGYREL071-1 bumped 0.21.70 -> 0.21.71 atop snapshot v0-21-71-rc1, synced main, fixed VC-203-017 bool assert and stdio isolate_home, re-recorded GMCP evidence, and launched taskkill via background_command in harness_mcp_execution_parity. Windows x86_64 is not qualified yet"
+  },
+  "provenance": [
+    "commit and tagged time: the annotated tag v0.21.71 created on Linux x86_64 (tag object e8ae7e8c3acadb11b41dba309b1395b54087afc5, tagger time 1794833424 +0530); once published: git cat-file -p v0.21.71; git for-each-ref --format=%(taggerdate:iso-strict)",
+    "sha256: the build and smoke gates of release-qualify (xtask/src/bin/release-qualify.rs) on Linux x86_64 (susi 32903264 bytes, susi-harness 2667408 bytes), recorded in releases/qualification/v0.21.71.json (sha256 a349f99a8a7b9aed754b1ec2189a9929b9715a916684bf4cf375d3d31498fd76) with each gate log digest",
+    "source: snapshot v0-21-71-rc1 merged with main through f9ecd6230c plus T-AGYREL071-1 (6fc4792fce52), qualified at 6fc4792fce528ee4ac5f2be8a33cbbebe2e2bc75 and tagged at 1c6bd6ea0e633e51d2caba829a384bfa80aa354c"
+  ]
+}
