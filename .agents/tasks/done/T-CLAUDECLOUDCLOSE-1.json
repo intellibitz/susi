@@ -16,11 +16,16 @@
   },
   "created_by": "CLAUDECLOUDCLOSE",
   "created_unix": 1794830243,
-  "scopes": [
-    "docs/ceo-mandate-83.md"
-  ],
+  "closed": {
+    "at_unix": 1794830369,
+    "commit": "be466fab01cd4e2187d1ad61aa5b79e0685a3938",
+    "by": "CLAUDECLOUDCLOSE"
+  },
   "limitations": [
     "Wording only in this repository; the tool change is in intellibitz/susi-commercial-apps. This task was claimed, renewed by publishing, closed and released through main from a cloud session, by the tool.",
     "Main is unqualified development, not a release."
+  ],
+  "scopes": [
+    "docs/ceo-mandate-83.md"
   ]
 }
