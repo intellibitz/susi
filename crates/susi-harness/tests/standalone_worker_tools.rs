@@ -73,6 +73,58 @@ fn standalone_directory_listing_preserves_native_results_and_policy() {
         "path traversal ('..') is not permitted"
     );
     assert!(list(r#"{"path":"z"}"#).starts_with("failed to read directory: "));
+    let call = |tool, input: serde_json::Value| {
+        registry.execute(&workspace, tool, &input.to_string(), &[])
+    };
+    let file = "nested/α.txt";
+    let write = serde_json::json!({"path":file, "content":"café"});
+    assert_eq!(
+        call("write_to_file", write.clone()),
+        format!("successfully wrote 5 bytes to '{file}'")
+    );
+    assert!(call("write_to_file", write).starts_with("refused:"));
+    assert_eq!(
+        call(
+            "append_to_file",
+            serde_json::json!({"path":file, "content":"第二\n"})
+        ),
+        format!("successfully appended 7 bytes to '{file}' (5 bytes before)")
+    );
+    assert_eq!(
+        call("view_file", serde_json::json!({"path":file})),
+        "    1: café\n    2: 第二\n"
+    );
+    assert_eq!(
+        call(
+            "view_file",
+            serde_json::json!({"path":file,"start_line":2,"end_line":0})
+        ),
+        "invalid line range: end_line precedes start_line"
+    );
+    assert_eq!(
+        call(
+            "replace_file_content",
+            serde_json::json!({"path":file, "target":"café","replacement":"one"})
+        ),
+        format!("successfully replaced target in '{file}'")
+    );
+    assert_eq!(
+        fs::read_to_string(workspace.join(file)).unwrap(),
+        "one\n第二\n"
+    );
+    assert_eq!(
+        call("append_to_file", serde_json::json!({"path":"../x"})),
+        "missing 'content' argument"
+    );
+    assert_eq!(
+        call(
+            "replace_file_content",
+            serde_json::json!({"path":"x","target":"x"})
+        ),
+        "missing 'replacement' argument"
+    );
+    fs::remove_file(workspace.join(file)).unwrap();
+    fs::remove_dir(workspace.join("nested")).unwrap();
     let config = home.join("mcp_config.json");
     for (tool_name, expected) in [
         ("unrelated_read", "café/\nz"),

@@ -81,7 +81,7 @@ pub(crate) fn try_call_result(
     Ok(call_with_revision(name, arguments, cwd)?.map(|(result, _)| result))
 }
 
-pub(crate) fn no_provider(name: &str, unavailable: usize) -> EaiError {
+fn no_provider(name: &str, unavailable: usize) -> EaiError {
     EaiError::config(format!(
         "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
     ))

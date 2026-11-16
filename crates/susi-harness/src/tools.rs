@@ -258,12 +258,13 @@ impl Registry {
                     &json!({"workspace": native_path, "arguments": args}),
                     Path::new("."),
                 ) {
-                    Ok(Some(text)) => Ok(text),
+                    Ok(Some(text)) => text,
                     Ok(None) if name == "list_dir" => return standalone_list_dir(workspace, &args),
-                    Ok(None) => Err(crate::tool_backend::no_provider(&tool, 0)),
-                    Err(error) => Err(error),
+                    Ok(None) => {
+                        standalone_file(workspace, name, &args).unwrap_or_else(|message| message)
+                    }
+                    Err(error) => format!("tool '{name}' provider failed: {error}"),
                 }
-                .unwrap_or_else(|error| format!("tool '{name}' provider failed: {error}"))
             }
             "run_command" => tool_run_command(workspace, &args),
             other => format!("unknown tool '{other}'"),
@@ -290,6 +291,113 @@ pub fn sanitize_path(workspace: &Path, rel: &str) -> Result<PathBuf, String> {
         }
     }
     Ok(workspace.join(clean_rel))
+}
+
+fn standalone_file(workspace: &Path, name: &str, args: &Value) -> Result<String, String> {
+    use std::fs;
+    use std::io::Write;
+    let field = |key: &str| {
+        args[key]
+            .as_str()
+            .ok_or_else(|| format!("missing '{key}' argument"))
+    };
+    let path = field("path")?;
+    if matches!(name, "write_to_file" | "append_to_file") {
+        let content = field("content")?;
+        let file = sanitize_path(workspace, path)?;
+        let refused = || {
+            format!(
+            "refused: '{path}' already exists, and write_to_file only creates files (overwriting a file \
+this call cannot reproduce in full loses the rest of it). To add to the end of it call \
+append_to_file; to change part of it call replace_file_content with the exact text to replace."
+        )
+        };
+        if name == "write_to_file" && file.exists() {
+            return Err(refused());
+        }
+        if let Some(parent) = file.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create parent directories: {error}"))?;
+        }
+        if name == "write_to_file" {
+            let result =
+                fs::File::create_new(&file).and_then(|mut file| file.write_all(content.as_bytes()));
+            match result {
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(refused())
+                }
+                Err(error) => return Err(format!("failed to write to '{path}': {error}")),
+                Ok(()) => {
+                    return Ok(format!(
+                        "successfully wrote {} bytes to '{path}'",
+                        content.len()
+                    ))
+                }
+            }
+        }
+        let existing = match fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(format!("failed to read '{path}': {error}")),
+        };
+        let addition = if existing.is_empty() || existing.ends_with(b"\n") {
+            content.to_owned()
+        } else {
+            format!("\n{content}")
+        };
+        fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(file)
+            .and_then(|mut file| file.write_all(addition.as_bytes()))
+            .map_err(|error| format!("failed to append to '{path}': {error}"))?;
+        return Ok(format!(
+            "successfully appended {} bytes to '{path}' ({} bytes before)",
+            content.len(),
+            existing.len()
+        ));
+    }
+    let edit = if name == "replace_file_content" {
+        Some((field("target")?, field("replacement")?))
+    } else {
+        None
+    };
+    let file = sanitize_path(workspace, path)?;
+    if !file.exists() {
+        return Err(format!("file '{path}' does not exist"));
+    }
+    let text =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read '{path}': {error}"))?;
+    if let Some((target, replacement)) = edit {
+        match text.matches(target).count() {
+            0 => return Err(format!("target substring not found in '{path}'")),
+            1 => {},
+            count => return Err(format!("target matches {count} occurrences in '{path}'; make target more specific to match exactly once")),
+        }
+        fs::write(file, text.replace(target, replacement))
+            .map_err(|error| format!("failed to write '{path}': {error}"))?;
+        return Ok(format!("successfully replaced target in '{path}'"));
+    }
+    if text.is_empty() {
+        return Ok("(empty file)".into());
+    }
+    let total = text.lines().count();
+    let start = (args["start_line"].as_u64().unwrap_or(1) as usize)
+        .saturating_sub(1)
+        .min(total);
+    let end = args["end_line"]
+        .as_u64()
+        .map_or(total, |n| (n as usize).min(total));
+    if end < start {
+        return Err("invalid line range: end_line precedes start_line".into());
+    }
+    Ok(text
+        .lines()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .map(|(offset, line)| format!("{:>5}: {line}\n", offset + 1))
+        .collect())
 }
 
 fn standalone_list_dir(workspace: &Path, args: &Value) -> String {
