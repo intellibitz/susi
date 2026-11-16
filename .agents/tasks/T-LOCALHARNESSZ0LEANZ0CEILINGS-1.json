@@ -13,6 +13,7 @@
   "created_by": "harness-lean-ceilings",
   "created_unix": 1794789172,
   "id": "T-LOCALHARNESSZ0LEANZ0CEILINGS-1",
+  "integration": "pending_native_receipt",
   "native_worker": "harness-lean-ceilings",
   "owner": "harness-lean-ceilings",
   "scopes": [
@@ -21,7 +22,7 @@
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
-  "status": "claimed",
+  "status": "verified",
   "title": "Record the ceiling raise that lets gated landings pass again",
   "workflow": "susi-local-v2"
 }
