@@ -198,6 +198,13 @@ publication; retry a lost integration race against the new head.
 - Production code has no panic-path macros. Justify every lint allowance inline;
   tests may use the existing test-only allowances. Keep exhaustive enum matches,
   `unsafe_op_in_unsafe_fn` denial and formatting checks.
+- Keep code tidy. Before publishing, run rustfmt and Clippy with `-D warnings` on
+  every crate a change affects, and leave no `dbg!`. Add no debt: a new lint
+  allowance gives its reason, a marker comment names its task or the work is
+  done now, and commented-out code is deleted. A file over 2,000 lines grows by
+  at most 25 lines in a change; new code goes into a focused module. Remove what
+  nothing uses in the change that leaves it unused. Follow the crate's existing
+  patterns; comments say why. Clear debt you meet in its own commit.
 - Return typed `Result<T, EaiError>` from I/O, state and IPC. Prefer infallible
   constructors; preserve poison recovery and pre-epoch timestamp fallback.
 - Keep the leaf dependency order `paths → error → config → core/sandbox →
