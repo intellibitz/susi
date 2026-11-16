@@ -1,0 +1,33 @@
+{
+  "id": "T-AGYREL072-9",
+  "title": "Wire acp_mcp_bridge child source via include_str for orphan_sources",
+  "goal": "Embed tests/acp_mcp_bridge/mcp_child.rs via include_str! in tests/acp_mcp_bridge.rs and write it to fx.root.join(\"mcp_child.rs\") before invoking rustc so tests/orphan_sources recognizes the fixture as statically reached without changing compiled behavior.",
+  "size": "xs",
+  "deps": [],
+  "scopes": [
+    "tests/acp_mcp_bridge.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Checked tests/orphan_sources.rs (lines 273-291 and 369-371) which already resolves include_str!(...) paths relative to the declaring test file; using include_str!(\"acp_mcp_bridge/mcp_child.rs\") reuses that mechanism cleanly."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "orphan_sources"
+    ]
+  },
+  "created_by": "AGYREL071",
+  "created_unix": 1794855104,
+  "closed": {
+    "at_unix": 1794855131,
+    "commit": "04b2ed373a987e65a66506275aaf762b7be650f5",
+    "by": "AGYREL071"
+  }
+}
