@@ -1,0 +1,15 @@
+{
+  "branch": "claude-docs-tidy",
+  "task": "T-AGENTCLAUDEDOCSTIDY-1",
+  "agent": "AGENTCLAUDEDOCSTIDY",
+  "head": "b1c43f91f9d37e8c513df1191b312cb1848e4aa6",
+  "closed_unix": 1794847384,
+  "scopes": [
+    "AGENTS.md",
+    "README.md",
+    "docs/README.md",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs",
+    ".agents/visions"
+  ]
+}
