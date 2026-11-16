@@ -23,8 +23,8 @@
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "base_commit": "5b739d7a083110a1dde7b0df895f7e45d7361b93",
   "limitations": [
     "Operations and evidence stage (`GMCP-203-017-06`) ships enriched credential-free `McpHost::snapshot()` diagnostics (`persistedTaskCount`, `allowedRootsCount`, `limits`), operator runbook/migration/rollback guidance in `docs/gmcp/contract-203-017.md`, configuration validation, W3C `traceparent` SSE redaction checks, and automated standards/contract drift detection (`gmcp_req_203_017_06_operations`); final `.M` vector mastery sealing (`T-CODEXGMCPROADMAP-120`) follows next.",
@@ -49,5 +49,11 @@
     "docs/gmcp/contract-203-017.md",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
   ],
-  "implementation_commit": "eba0ab0f38e061b1d8492c783a7ab58038c0010b"
+  "implementation_commit": "eba0ab0f38e061b1d8492c783a7ab58038c0010b",
+  "verified_commit": "096c61a326cf94da64c199099ee304ebb1167982",
+  "closed": {
+    "at_unix": 1794819536,
+    "commit": "096c61a326cf94da64c199099ee304ebb1167982",
+    "by": "AG2FEATURES"
+  }
 }
