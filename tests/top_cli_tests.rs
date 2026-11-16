@@ -124,6 +124,26 @@ fn test_top_filter_dimensions() {
 }
 
 #[test]
+fn filtered_output_preserves_unavailable_rows_aliases_and_json_precedence() {
+    let (code, evidence, stderr) = run_susi(&["top", "--filter", "EvIdEnCe"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(evidence.trim_end(), "── evidence ──");
+    let (code, full, stderr) = run_susi(&["top"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(full.contains(&format!("{}\n  (untracked)", evidence.trim_end())));
+    let (code, config, stderr) = run_susi(&["top", "--filter", "ConFiguration"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(config.contains("configuration") && config.contains("  profile: "));
+    let (code, out, stderr) = run_susi(&["top", "--filter", "unknown", "--json"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(serde_json::from_str::<UnifiedOperatorState>(&out).is_ok());
+    let (code, out, stderr) = run_susi(&["top", "--filter", "UnKnOwN"]);
+    assert_ne!(code, 0);
+    assert!(out.is_empty());
+    assert!(stderr.contains("Unknown filter dimension: 'unknown'"));
+}
+
+#[test]
 fn test_top_drill_down_explains_blocked_work() {
     let temp = std::env::temp_dir().join(format!(
         "susi-top-blocked-test-{}",
