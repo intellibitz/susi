@@ -6,6 +6,21 @@
   "result": "Actual client-supplied stdio MCP tools are available and executable in their owning ACP v1 session through the shipped susi acp serve command.",
   "goal_met": false,
   "full_acp_compliance_claimed": false,
+  "ordered_environment_follow_up": {
+    "checked_utc": "2026-11-16 12:05 UTC",
+    "problem": "ACP environment entries were collected into an unordered HashMap. On Windows distinct case aliases name the same environment variable, so map iteration could choose a nondeterministic value.",
+    "fix": "Prepare the existing authorized literal Command with no descriptor environment map, then apply the original ordered ACP entries directly with Command::env. Platform-native alias handling determines the final value; no ASCII-only restriction or stored-host-config behavior change.",
+    "selected_actual_cli_command": "cargo test --offline --locked -p susi --test acp_mcp_bridge supplied_mcp_ -- --ignored --nocapture",
+    "selected_actual_cli_passed": 2,
+    "selected_actual_cli_seconds": 17.03,
+    "suite_cases_available": 9,
+    "assertions": "Two actual MCP sessions reverse ASCII case-alias order; Unix retains distinct keys, Windows assertions require the last supplied alias value. A Unicode environment name and Unicode/dollar/newline value round-trip exactly. Existing fresh same-cwd A/B/A tool execution, results and evidence still pass.",
+    "strict_root_and_e2e_clippy_passed": true,
+    "native_host": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false,
+    "runtime_lines_added": 2,
+    "new_separate_test_lines": 79
+  },
   "size": {
     "main_before": 305517,
     "complete_socket_rust": 307527,
@@ -56,7 +71,7 @@
     "legacy_tool_cases": 21,
     "core_tool_worker_checks": "Scoped ownership/cancellation, plane37, registry14, capture19, cancellation12, recovery17 and affected-library strict Clippy passed in isolated worker worktrees; parent will repeat integrated affected suites."
   },
-  "independent_review": "Source review confirmed contained child ownership, literal command semantics, terminal cancellation versus transient EINTR, bounded pipe queues, nonblocking close, final reaping and early catalog bounds. No remaining reported blocker for this slice.",
+  "independent_review": "Source review confirmed contained child ownership, literal command semantics, terminal cancellation versus transient EINTR, bounded pipe queues, nonblocking close, final reaping and early catalog bounds. Parent subsequently found the Windows ordered-environment edge addressed by the follow-up above; native Windows execution remains pending.",
   "known_limits_and_follow_up": [
     "Do not claim full ACP compliance. Typed tool_call/tool_call_update lifecycle notifications and normal provider result-continuation remain concrete follow-up work.",
     "The initial E2E expectation requiring a subsequent provider role=tool request exceeded this slice and the existing GEMI fulfillment behavior. It was replaced with stronger exact ACP-result/hash/owning-evidence assertions; no new inference loop or fresh spend budget was introduced.",

@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
-use std::process::Child;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
@@ -155,18 +155,21 @@ impl SessionTools {
             let config = susi_tools::McpServerConfig {
                 command: supplied.command.clone(),
                 args: supplied.args.clone(),
-                env: Some(
-                    supplied
-                        .env
-                        .iter()
-                        .map(|v| (v.name.clone(), v.value.clone()))
-                        .collect(),
-                ),
+                env: None,
                 extra: HashMap::from([("cwd".into(), json!(spec.cwd))]),
             };
-            let (server, catalog) = Server::connect(
+            let mut command = susi_tools::authorized_stdio_command_literal(
                 &config,
                 susi_core::mac_policy::MacPolicy::global(),
+            )?;
+            // Command applies the platform's environment-name semantics. Keep
+            // input order so Windows aliases select the last supplied value,
+            // including Unicode names, without changing stored host configs.
+            for variable in &supplied.env {
+                command.env(&variable.name, &variable.value);
+            }
+            let (server, catalog) = Server::connect(
+                command,
                 Lease {
                     deadline,
                     cancel: Some(Arc::clone(&cancelled)),
@@ -471,14 +474,13 @@ struct Server {
 
 impl Server {
     fn connect(
-        config: &susi_tools::McpServerConfig,
-        policy: &susi_core::mac_policy::MacPolicy,
+        mut command: Command,
         lease: Lease,
         processes: &Mutex<Vec<Weak<Process>>>,
         (max_tools, max_bytes): (usize, usize),
     ) -> Result<(Self, Vec<Value>), String> {
         lease.check().map_err(|e| e.to_string())?;
-        let mut command = susi_tools::authorized_stdio_command_literal(config, policy)?;
+        let executable = command.get_program().to_string_lossy().into_owned();
         let (mut child, tree) =
             susi_harness::workload_process::spawn(&mut command).map_err(|e| e.to_string())?;
         let input = child.stdin.take();
@@ -521,7 +523,7 @@ impl Server {
                 io.lease.lock().unwrap_or_else(|e| e.into_inner()).take();
                 Ok((
                     Self {
-                        command: config.command.clone(),
+                        command: executable,
                         host: Mutex::new(host),
                         io,
                     },
