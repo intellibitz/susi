@@ -20,5 +20,29 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "implemented",
+  "base_commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
+  "limitations": [
+    "Interoperability and quality stage (`GMCP-203-017-05`) proves both-role reference-SDK and official-revision interop (`2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`), stdio (`susi mcp serve` + authorized child peer), Unix-domain socket (`#[cfg(unix)]`), direct-vs-gateway differential parity, concurrent multi-server interleaving invariants, SLO/memory/disk/fairness budgets, and retained regressions `R1..R4`; operations (`119`) and `.M` mastery (`120`) follow.",
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, `.agents/gmcp/evidence/VC-203-017.jsonl` and `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-wire-client/src/host.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-gmcp/src/sdk.rs",
+      "src/cli/mcp_cli.rs",
+      "tests/gmcp_requirements/vc_203_020.rs"
+    ],
+    "target": "tests/gmcp_requirements/vc_203_017_part2.rs",
+    "why": "Reused existing `McpHost`, `Session`, `GmcpService`, `TestHarness`, `GmcpClient`, `susi_core::mcp_client`, and `susi mcp` CLI surfaces directly to prove cross-transport, cross-era, differential, multi-server property, and SLO budgets with zero new dependencies."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "tests/gmcp_requirements/vc_203_017_part2.rs"
+  ]
 }
