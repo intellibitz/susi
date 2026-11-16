@@ -1,0 +1,29 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-1",
+  "title": "Share capability registry discovery and removal",
+  "goal": "Vision: V-6. Preserve local and remote IPC tool, provider and agent behavior while eliminating duplicate registry implementations.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "registry"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794855299,
+  "scopes": [
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-core/src/registry_ipc.rs",
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "The public registry facade, the IPC backend and susi_paths::sync already implement lookup, registration and poison recovery. Reuse the same primitives and preserve their explicit wire operations."
+  }
+}

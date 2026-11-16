@@ -26,6 +26,7 @@ pub mod server;
 mod wire;
 
 pub use client::{http_call, http_call_with_body, http_post_utf8, HttpCall};
+pub use connect::encode_base64;
 
 /// RFC 9110 token characters (header names, methods).
 pub(crate) fn is_token(text: &[u8]) -> bool {

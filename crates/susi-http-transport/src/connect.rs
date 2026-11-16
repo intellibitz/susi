@@ -308,7 +308,8 @@ fn tls<S: Read + Write + Send + 'static>(
     }
 }
 
-fn base64(input: &[u8]) -> String {
+/// Encode bytes with the standard Base64 alphabet and RFC 4648 padding.
+pub fn encode_base64(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
@@ -349,7 +350,7 @@ fn tunnel(
     if let Some((user, pass)) = &proxy.credentials {
         request.push_str(&format!(
             "Proxy-Authorization: Basic {}\r\n",
-            base64(format!("{user}:{pass}").as_bytes())
+            encode_base64(format!("{user}:{pass}").as_bytes())
         ));
     }
     request.push_str("\r\n");
@@ -456,11 +457,11 @@ mod tests {
 
     #[test]
     fn basic_credentials_encode_as_standard_base64() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"user:p@ss"), "dXNlcjpwQHNz");
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"f"), "Zg==");
+        assert_eq!(encode_base64(b"fo"), "Zm8=");
+        assert_eq!(encode_base64(b"foo"), "Zm9v");
+        assert_eq!(encode_base64(b"user:p@ss"), "dXNlcjpwQHNz");
     }
 
     #[test]

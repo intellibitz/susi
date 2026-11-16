@@ -1,0 +1,32 @@
+{
+  "id": "T-CORESIZEPROTOCOL17-1",
+  "title": "Share the standard Base64 encoder across core wire paths",
+  "goal": "Vision: V-6. Reuse one standard encoder for A2A binary parts, HTTP proxy authorization and OpenAI-compatible embedding results, preserving the established byte encodings and standalone operation.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib",
+      "protocol::codec::tests"
+    ]
+  },
+  "created_by": "CORESIZEPROTOCOL17",
+  "created_unix": 1794855412,
+  "scopes": [
+    "crates/susi-http-transport/src/connect.rs",
+    "crates/susi-http-transport/src/lib.rs",
+    "crates/susi-gawd-a2a/src/protocol/codec.rs",
+    "crates/susi-server/src/lib.rs",
+    "tests/lean_core_ceilings.rs",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reuse the padded Base64 serializer already used by the HTTP transport. Compared the A2A and embedding implementations and preserved their byte-level contracts."
+  }
+}
