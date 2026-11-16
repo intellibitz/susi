@@ -1,0 +1,138 @@
+{
+  "id": "T-CODEX100KACP-1",
+  "title": "Add staged official ACP v1 stdio interoperability without changing legacy wire APIs",
+  "goal": "Vision: V-6. Preserve all Susi capabilities while correcting verified Agent Client Protocol wire incompatibilities. This slice is not full ACP conformance: mandatory MCP stdio-server bridging remains outstanding.",
+  "size": "m",
+  "status": "completed",
+  "created_by": "CODEX100KACPV1",
+  "created_unix": 1794823542,
+  "base_commit": "a30aca7107633c3a7db471ec692403e821afaeb6",
+  "scopes": [
+    "crates/susi-gawd-acp/src/lib.rs",
+    "crates/susi-gawd-acp/src/stdio_v1.rs",
+    "crates/susi-gawd-acp/src/tests/stdio_v1.rs",
+    "src/cli/acp_cli.rs",
+    ".agents/tasks/T-CODEX100KACP-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing AcpEngine session admission, bounded history, prompt executor callbacks and shared cancellation tokens; existing public AcpStdioTransport and CLI wiring; official Apache-2.0 ACP schema/docs at 13b765828f961812f0c78ae577220e994209fa2f (2026-11-14).",
+    "reason": "A transport-local adapter reuses existing state/execution and preserves legacy HTTP/public wire contracts. No external code/schema copied into the repository or dependencies added."
+  },
+  "normative_reference": {
+    "repository": "https://github.com/agentclientprotocol/agent-client-protocol",
+    "commit": "13b765828f961812f0c78ae577220e994209fa2f",
+    "commit_date": "2026-11-14T12:51:38+01:00",
+    "schema": "schema/v1/schema.json",
+    "schema_sha256": "e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21",
+    "license": "Apache-2.0"
+  },
+  "limitations": [
+    "Nonempty mcpServers explicitly refused pending mandatory MCP stdio bridge; no full ACP baseline/certification claim.",
+    "Resource links are preserved as references for the existing text executor; this adapter does not fetch URIs.",
+    "Cancellation and EOF cleanup are cooperative; a non-cooperative executor can delay scoped worker joining.",
+    "Parent owns integration, pushes and external coordination; scoped local WIP commits authorized for Mandate 82 synchronization.",
+    "Inbound validation checks required fields and supported content, not the entire official schema; optional client capability/info fields are unused and treated as unsupported.",
+    "Generic blocking reader/writer can delay total return; cancellation signalling is independent of output locks, but an already in-flight write cannot be revoked."
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "2",
+      "-p",
+      "susi-gawd-acp",
+      "--lib"
+    ]
+  },
+  "sync": {
+    "merged_origin_main": "606f74c4e3d279d872e84b32123ef93e52cd7b9c",
+    "mandate": "82",
+    "local_identity": "CODEX100KACPV1",
+    "local_wip_commits": [
+      "f17d68000",
+      "8de663c6d",
+      "29b7e188f"
+    ],
+    "merge_commit": "014bb6e7ce5c3e72bec6dd4970a169a127c3765f"
+  },
+  "phase": "published_and_verified",
+  "validation": {
+    "acp_lib": {
+      "command": "cargo test --offline --locked -j2 -p susi-gawd-acp --lib",
+      "passed": 21,
+      "existing_tests_preserved": 11,
+      "new_tests": 10
+    },
+    "cli_tests": {
+      "command": "cargo test --offline --locked -j2 -p susi --bin susi cli::acp_cli",
+      "passed": 2
+    },
+    "cli_binary": {
+      "command": "cargo build --offline --locked -j2 -p susi --bin susi",
+      "status": "passed",
+      "smoke": "Actual binary numeric v1 initialize/session-new and legacy initialize; exits 0, no stdout banners/trailing output, no paid inference"
+    },
+    "clippy": {
+      "command": "cargo clippy --offline --locked -j2 -p susi-gawd-acp --all-targets -- -D warnings",
+      "status": "passed"
+    },
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "official_schema": {
+      "named_definition_samples": 6,
+      "additional_actual_cli_samples": 2,
+      "definitions": [
+        "InitializeResponse",
+        "NewSessionResponse",
+        "PromptRequest",
+        "ContentBlock",
+        "SessionNotification",
+        "PromptResponse"
+      ],
+      "validator": "Preinstalled jsonschema Draft202012Validator, audit-only external pin; no repo dependency/spec imports",
+      "claim": "Wire sample shape checks only, not normative full ACP certification"
+    },
+    "review_regressions": [
+      "Malformed idless notification gets no response",
+      "Exact cwd including trailing space admitted/stored without mutation",
+      "Exact opaque session ID rejects padded aliases",
+      "Frame acquisition bounded before parsing including no-newline input; overflow rejects connection/tail",
+      "Cancellation and EOF signal cooperative workers independently of blocked stdout",
+      "Canonical final output retained for empty, partial, full, multi-block and divergent deltas; divergent final uses official distinct messageId",
+      "Async output failure cancels other turns while reader held after worker sweep; queued prompt after closure never executes"
+    ],
+    "private_environment": {
+      "target": "/workspace/codex/susi-core-100k-acpv1-target",
+      "susi_home": "/workspace/codex/susi-core-100k-acpv1-state/home",
+      "cargo_jobs": 2
+    },
+    "independent_review": "http_dedup cleared all production blockers; final queued-prompt regression additionally asserts zero completed/cancelled turns and messages for C after join."
+  },
+  "source_delta": {
+    "base": "606f74c4e3d279d872e84b32123ef93e52cd7b9c",
+    "runtime_physical_lines_net": 492,
+    "test_physical_lines_net": 764,
+    "all_rust_physical_lines_net": 1256,
+    "note": "Positive standards-compatibility addition, not a line-count reduction; every new helper/test counted. No existing tests removed or dependencies changed."
+  },
+  "handoff": {
+    "owner": "parent /root",
+    "status": "Verified and ready for parent integration; independent reviewer cleared production findings.",
+    "artifacts": "Private acpv1-state schema-validation.json, schema-transcript.json, cli-validation.json, cli-schema-transcript.json and full origin-relative acpv1.patch"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json",
+  "closed": {
+    "at_unix": 1794826103,
+    "commit": "40d3ff32002be28ab817d5a530330e9089845c19",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "4606e85522fde18f3a6832305607d739b45464d3",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json"
+  }
+}
