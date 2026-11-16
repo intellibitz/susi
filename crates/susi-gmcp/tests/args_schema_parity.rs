@@ -8,18 +8,18 @@ fn catalog_metadata_and_schemas_preserve_the_wire_contract() {
     let definitions = susi_gmcp::tools::args::core_tool_definitions();
     let encoded = serde_json::to_vec(&definitions).unwrap();
     let fingerprint = format!("{:x}", Sha256::digest(encoded));
-    // Recorded from the unmodified catalog at 6a262d346, before consolidating
-    // declarations. This covers descriptions, field/default/nullable metadata,
-    // nested definitions, required-key ordering and the complete tool order.
+    // Relative to the 6a262d346 baseline, 6cc460a8b changed only the
+    // HarnessRun.rsi_log description. Restoring its old default path in
+    // either serialized catalog reproduces the original fingerprint.
     let (count, expected) = if cfg!(feature = "tools-rich") {
         (
             204,
-            "7a89f2f05efb8cfb8e7242036f60b36948348a4fa45045c58d830db764edf82d",
+            "a908870e822408487defe8c62d346110c43e512e7854bdc364ef22035a2c8cd4",
         )
     } else {
         (
             199,
-            "c8303f4bff9e9a13fd7da39094683ae27fc4b66912e74c50880710694ad02c52",
+            "cd59c259efb1f388fc5cab10c43558fb812ce637111b3a35f2fcd1e6ea3d12d5",
         )
     };
     assert_eq!(definitions.len(), count);

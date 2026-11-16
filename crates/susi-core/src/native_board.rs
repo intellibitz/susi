@@ -252,18 +252,7 @@ pub fn post_blackboard_local(
     if key.is_empty() {
         return Err("blackboard key must not be empty".to_owned());
     }
-    let author = match req
-        .author
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        Some(a) => {
-            validate_agent_word(a)?;
-            a.to_owned()
-        }
-        None => resolve_agent(None, workspace)?,
-    };
+    let author = resolve_agent(req.author.as_deref(), workspace)?;
     let value_str = serde_json::to_string(&req.value).unwrap_or_default();
     check_no_credentials(key, &value_str)?;
 
@@ -526,107 +515,64 @@ pub fn is_public_susi_remote_url(url: &str) -> bool {
 /// Fails closed if neither `SUSI_BOARD_URL` nor a non-public Git board remote is
 /// configured.
 pub fn resolve_board_target(workspace: Option<&Path>) -> Result<BoardTarget, String> {
-    if let Ok(url) = std::env::var(BOARD_URL_ENV) {
-        let trimmed = url.trim().trim_end_matches('/');
-        if !trimmed.is_empty() {
-            return Ok(BoardTarget::Http {
-                base_url: trimmed.to_owned(),
-                token: resolve_bearer_token(),
+    let workspace = workspace.filter(|path| path.exists());
+    // An empty override defers to Git configuration. Preserve the source of
+    // each value: per-repository URL caches belong under its common Git dir.
+    let setting = |env: &'static str, config: &'static str, normalize: fn(&str) -> &str| {
+        let use_value = |raw: String| {
+            let value = normalize(&raw);
+            (!value.is_empty()).then(|| value.to_owned())
+        };
+        std::env::var(env)
+            .ok()
+            .and_then(use_value)
+            .map(|value| (env, value))
+            .or_else(|| {
+                let value = git(workspace?, &["config", "--get", config]).ok()?;
+                use_value(value).map(|value| (config, value))
+            })
+    };
+
+    if let Some((_, base_url)) = setting(BOARD_URL_ENV, BOARD_URL_CONFIG, |s| {
+        s.trim().trim_end_matches('/')
+    }) {
+        return Ok(BoardTarget::Http {
+            base_url,
+            token: resolve_bearer_token(),
+        });
+    }
+    if let Some((source, remote)) = setting(REMOTE_URL_ENV, REMOTE_URL_CONFIG, str::trim) {
+        if is_public_susi_remote_url(&remote) {
+            return Err(format!("refusing `{source}={remote}`: refs/board/* is forbidden on public intellibitz/susi"));
+        }
+        let common = workspace
+            .filter(|_| source == REMOTE_URL_CONFIG)
+            .and_then(|dir| {
+                git(dir, &["rev-parse", "--git-common-dir"])
+                    .ok()
+                    .map(|raw| dir.join(raw))
             });
-        }
+        let work_dir = match common {
+            Some(base) => ensure_blob_cache_dir_in(&base, &remote)?,
+            None => ensure_blob_cache_dir(&remote)?,
+        };
+        return Ok(BoardTarget::Git { work_dir, remote });
     }
-
-    if let Some(dir) = workspace.filter(|p| p.exists()) {
-        if let Ok(url) = git(dir, &["config", "--get", BOARD_URL_CONFIG]) {
-            let trimmed = url.trim().trim_end_matches('/');
-            if !trimmed.is_empty() {
-                return Ok(BoardTarget::Http {
-                    base_url: trimmed.to_owned(),
-                    token: resolve_bearer_token(),
-                });
-            }
-        }
-    }
-
-    if let Ok(url) = std::env::var(REMOTE_URL_ENV) {
-        let trimmed = url.trim();
-        if !trimmed.is_empty() {
-            if is_public_susi_remote_url(trimmed) {
-                return Err(format!(
-                    "refusing `{REMOTE_URL_ENV}={trimmed}`: refs/board/* is forbidden on public intellibitz/susi"
-                ));
-            }
-            let cache_dir = ensure_blob_cache_dir(trimmed)?;
+    if let Some(dir) = workspace {
+        if let Some((_, remote)) = setting(REMOTE_ENV, REMOTE_CONFIG, str::trim) {
+            verify_non_public_remote(dir, &remote)?;
             return Ok(BoardTarget::Git {
-                work_dir: cache_dir,
-                remote: trimmed.to_owned(),
+                work_dir: dir.to_path_buf(),
+                remote,
             });
         }
-    }
-
-    if let Some(dir) = workspace.filter(|p| p.exists()) {
-        if let Ok(url) = git(dir, &["config", "--get", REMOTE_URL_CONFIG]) {
-            let trimmed = url.trim();
-            if !trimmed.is_empty() {
-                if is_public_susi_remote_url(trimmed) {
-                    return Err(format!(
-                        "refusing `{REMOTE_URL_CONFIG}={trimmed}`: refs/board/* is forbidden on public intellibitz/susi"
-                    ));
-                }
-                let cache_dir = match git(dir, &["rev-parse", "--git-common-dir"]) {
-                    Ok(raw_common) => {
-                        let common_path = Path::new(&raw_common);
-                        let resolved = if common_path.is_absolute() {
-                            common_path.to_path_buf()
-                        } else {
-                            dir.join(common_path)
-                        };
-                        ensure_blob_cache_dir_in(&resolved, trimmed)?
-                    }
-                    Err(_) => ensure_blob_cache_dir(trimmed)?,
-                };
-                return Ok(BoardTarget::Git {
-                    work_dir: cache_dir,
-                    remote: trimmed.to_owned(),
-                });
-            }
-        }
-    }
-
-    if let Some(dir) = workspace.filter(|p| p.exists()) {
-        if let Ok(remote_env) = std::env::var(REMOTE_ENV) {
-            let trimmed = remote_env.trim();
-            if !trimmed.is_empty() {
-                verify_non_public_remote(dir, trimmed)?;
+        for remote in ["board", "origin"] {
+            if git(dir, &["remote", "get-url", remote])
+                .is_ok_and(|url| !is_public_susi_remote_url(&url))
+            {
                 return Ok(BoardTarget::Git {
                     work_dir: dir.to_path_buf(),
-                    remote: trimmed.to_owned(),
-                });
-            }
-        }
-        if let Ok(cfg) = git(dir, &["config", "--get", REMOTE_CONFIG]) {
-            let trimmed = cfg.trim();
-            if !trimmed.is_empty() {
-                verify_non_public_remote(dir, trimmed)?;
-                return Ok(BoardTarget::Git {
-                    work_dir: dir.to_path_buf(),
-                    remote: trimmed.to_owned(),
-                });
-            }
-        }
-        if let Ok(board_url) = git(dir, &["remote", "get-url", "board"]) {
-            if !is_public_susi_remote_url(&board_url) {
-                return Ok(BoardTarget::Git {
-                    work_dir: dir.to_path_buf(),
-                    remote: "board".to_owned(),
-                });
-            }
-        }
-        if let Ok(origin_url) = git(dir, &["remote", "get-url", "origin"]) {
-            if !is_public_susi_remote_url(&origin_url) {
-                return Ok(BoardTarget::Git {
-                    work_dir: dir.to_path_buf(),
-                    remote: "origin".to_owned(),
+                    remote: remote.to_owned(),
                 });
             }
         }
@@ -738,6 +684,10 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 fn git_with(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
+    git_bytes(root, args, stdin).map(|bytes| String::from_utf8_lossy(&bytes).trim().to_owned())
+}
+
+fn git_bytes(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let mut child = susi_paths::console::background_command("git")
         .current_dir(root)
         .args(args)
@@ -751,12 +701,22 @@ fn git_with(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("cannot run Git: {e}"))?;
-    if let Some(bytes) = stdin {
-        if let Some(mut pipe) = child.stdin.take() {
-            pipe.write_all(bytes).map_err(|e| e.to_string())?;
+    // Drain output while sending the list: either pipe can fill first.
+    let out = std::thread::scope(|scope| {
+        let writer = child
+            .stdin
+            .take()
+            .zip(stdin)
+            .map(|(mut pipe, bytes)| scope.spawn(move || pipe.write_all(bytes)));
+        let out = child.wait_with_output();
+        if let Some(writer) = writer {
+            writer
+                .join()
+                .map_err(|_| std::io::Error::other("Git input writer panicked"))??;
         }
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        out
+    })
+    .map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -764,7 +724,7 @@ fn git_with(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, 
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    Ok(out.stdout)
 }
 
 fn check_no_credentials(title: &str, body: &str) -> Result<(), String> {
@@ -889,15 +849,55 @@ fn sync_git(root: &Path, remote: &str) -> Result<Vec<String>, String> {
     Ok(findings)
 }
 
+// Git frames each blob by its byte count. Board JSON may be pretty-printed
+// or contain invalid bytes, so a newline or NUL in a body is not a separator.
+fn board_page(root: &Path, refs: &[(u64, String)]) -> Vec<Result<BoardItem, String>> {
+    let request: String = refs
+        .iter()
+        .map(|(_, sha)| format!("{sha}^{{blob}}\n"))
+        .collect();
+    let bytes = git_bytes(
+        root,
+        &["cat-file", "--batch=%(objectname) %(objectsize)"],
+        Some(request.as_bytes()),
+    )
+    .unwrap_or_default();
+    let mut remaining = bytes.as_slice();
+    refs.iter()
+        .map(|(_, sha)| {
+            let body = (|| {
+                let frame = std::mem::take(&mut remaining);
+                let (header, rest) = frame.split_at(frame.iter().position(|&b| b == b'\n')?);
+                let (found, size) = std::str::from_utf8(header).ok()?.split_once(' ')?;
+                if size == "missing" && found.strip_suffix("^{blob}") == Some(sha.as_str()) {
+                    remaining = &rest[1..];
+                    return None;
+                }
+                let size = size.parse::<usize>().ok()?;
+                let (body, rest) = rest[1..].split_at_checked(size)?;
+                remaining = rest.strip_prefix(b"\n")?;
+                (found == sha).then_some(body)
+            })();
+            let text = match body {
+                Some(bytes) => String::from_utf8_lossy(bytes),
+                None => git(root, &["cat-file", "blob", sha])?.into(),
+            };
+            serde_json::from_str(text.trim()).map_err(|e| e.to_string())
+        })
+        .collect()
+}
+
 /// Load and verify contiguous chain integrity of all locally cached board items
 /// inside `root`.
 pub fn load_git(root: &Path) -> Result<(Vec<StoredBoardItem>, Vec<String>), String> {
     let mut stored = Vec::new();
     let mut findings = Vec::new();
     let mut previous: Option<(u64, String)> = None;
-    for (n, sha) in local_items(root)? {
-        let parsed = git(root, &["cat-file", "blob", &sha])
-            .and_then(|text| serde_json::from_str::<BoardItem>(&text).map_err(|e| e.to_string()));
+    let refs: Vec<_> = local_items(root)?.into_iter().collect();
+    let parsed = refs
+        .chunks(FETCH_CHUNK)
+        .flat_map(|page| board_page(root, page));
+    for ((n, sha), parsed) in refs.iter().cloned().zip(parsed) {
         match parsed {
             Ok(item) => {
                 if item.schema != SCHEMA {
@@ -1249,10 +1249,8 @@ pub fn board_status(target: &BoardTarget, agent: &str) -> Result<BoardStatus, St
             serde_json::from_slice::<BoardStatus>(&bytes)
                 .map_err(|e| format!("invalid board status JSON from {url}: {e}"))
         }
-        BoardTarget::Git { work_dir, remote } => {
-            let mut findings = sync_git(work_dir, remote)?;
-            let (items, shape) = load_git(work_dir)?;
-            findings.extend(shape);
+        BoardTarget::Git { .. } => {
+            let (items, findings) = list_items(target)?;
             Ok(compute_status(&items, findings, agent))
         }
     }
@@ -1265,7 +1263,7 @@ pub fn check_board(
     agent: &str,
     allow_empty: bool,
 ) -> Result<BoardStatus, String> {
-    match target {
+    let status = match target {
         BoardTarget::Http { base_url, token } => {
             let url = format!("{base_url}/v1/board/check");
             let req = BoardCheckRequest {
@@ -1277,17 +1275,13 @@ pub fn check_board(
             if !(200..300).contains(&status_code) {
                 return Err(parse_http_error(status_code, &bytes, &url));
             }
-            let status: BoardStatus = serde_json::from_slice(&bytes)
-                .map_err(|e| format!("invalid /v1/board/check response: {e}"))?;
-            enforce_status(&status, agent, allow_empty)?;
-            Ok(status)
+            serde_json::from_slice(&bytes)
+                .map_err(|e| format!("invalid /v1/board/check response: {e}"))?
         }
-        BoardTarget::Git { .. } => {
-            let status = board_status(target, agent)?;
-            enforce_status(&status, agent, allow_empty)?;
-            Ok(status)
-        }
-    }
+        BoardTarget::Git { .. } => board_status(target, agent)?,
+    };
+    enforce_status(&status, agent, allow_empty)?;
+    Ok(status)
 }
 
 /// Post an item onto the Susi Native Board via HTTP or Git.
