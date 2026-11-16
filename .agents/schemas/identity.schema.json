@@ -20,6 +20,16 @@
     "title": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "audience": { "const": "agent-governance" },
+    "core_architecture": {
+      "type": "object",
+      "required": ["pillars", "gawd_capabilities", "mandate"],
+      "additionalProperties": false,
+      "properties": {
+        "pillars": { "const": ["gawd", "gemi", "gmcp"] },
+        "gawd_capabilities": { "const": ["a2a", "acp", "harness"] },
+        "mandate": { "const": 80 }
+      }
+    },
     "canonical_addressing": { "type": "string" },
     "citation_drift_note": { "type": "string" },
     "host_contract": {
