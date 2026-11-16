@@ -16,6 +16,11 @@
   },
   "created_by": "CLAUDECLOUDBOARDDOCS",
   "created_unix": 1794819557,
+  "closed": {
+    "at_unix": 1794819628,
+    "commit": "087f8add55fa34958af22510a091ec768ec8503b",
+    "by": "CLAUDECLOUDBOARDDOCS"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "docs/ceo-mandate-76.md, AGENTS.md and docs/cloud-sessions.md in this repository, the Commercial edition of Mandate 76 and Commercial docs/susi-board.md, and the Commercial implementation (crates/susi-dev-workflow/src/board/inbox.rs). Documentation of a capability that exists; nothing is built here."
