@@ -303,6 +303,25 @@ fn event_streams_yield_the_response_matching_the_request_id() {
     assert_eq!(last["id"], 8);
     assert!(response_from_event_stream(": keep-alive\n\n", None).is_err());
 }
+
+#[test]
+fn event_streams_keep_first_match_and_last_fallback_with_lenient_cr_lines() {
+    let stream = "data: broken\n\ndata: \nretry: 100\n\n\
+                  data: {\"id\":7,\r\r\ndata: \"result\":\"first\"}\r\r\n\r\r\n\
+                  data: {\"id\":7,\"result\":\"second\"}\n\n\
+                  data: {\"id\":9,\"method\":\"notifications/progress\"}\n\n\
+                  data: {\"id\":8,\"error\":null}";
+    assert_eq!(
+        response_from_event_stream(stream, Some(&json!(7))).unwrap()["result"],
+        "first"
+    );
+    for id in [None, Some(json!(99))] {
+        assert_eq!(
+            response_from_event_stream(stream, id.as_ref()).unwrap(),
+            json!({"id": 8, "error": null})
+        );
+    }
+}
 /// One recorded HTTP request: lowercase header map and body.
 struct Recorded {
     request_line: String,

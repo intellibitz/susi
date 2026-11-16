@@ -405,28 +405,34 @@ fn match_response(msg: &Value, id: u64) -> Option<Result<Value, String>> {
     )
 }
 
-/// Extract the JSON-RPC response for `id` from an SSE body. Per the SSE
-/// spec an event's `data:` lines join with `\n` and a blank line
-/// dispatches it; priming events (empty data, `id:`/`retry:` only) and
-/// unrelated notifications are skipped.
-fn sse_result(body: &str, id: u64) -> Result<Value, String> {
+/// Decode JSON data frames from buffered SSE lines, including the final frame
+/// at EOF. Callers retain their line normalization and response-selection policy;
+/// control fields, empty priming frames and malformed JSON are skipped.
+pub fn event_stream_messages<'a>(
+    lines: impl Iterator<Item = &'a str> + 'a,
+) -> impl Iterator<Item = Value> + 'a {
     let mut data = String::new();
-    for line in body.lines().chain(std::iter::once("")) {
+    lines.chain(std::iter::once("")).filter_map(move |line| {
         if line.is_empty() {
-            if let Ok(msg) = serde_json::from_str::<Value>(&data) {
-                if let Some(result) = match_response(&msg, id) {
-                    return result;
-                }
-            }
+            let message = serde_json::from_str(&data).ok();
             data.clear();
-        } else if let Some(field) = line.strip_prefix("data:") {
+            return message;
+        }
+        if let Some(field) = line.strip_prefix("data:") {
             if !data.is_empty() {
                 data.push('\n');
             }
             data.push_str(field.strip_prefix(' ').unwrap_or(field));
         }
-    }
-    Err("no matching response frame in SSE stream".to_string())
+        None
+    })
+}
+
+/// Extract the response for `id`, skipping control frames and unrelated messages.
+fn sse_result(body: &str, id: u64) -> Result<Value, String> {
+    event_stream_messages(body.lines())
+        .find_map(|message| match_response(&message, id))
+        .unwrap_or_else(|| Err("no matching response frame in SSE stream".to_string()))
 }
 
 /// Response `id` from either spec-valid body shape: a single
