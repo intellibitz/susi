@@ -115,35 +115,42 @@ impl<T: AsyncRead + Unpin> AsyncRead for TokioIo<T> {
     }
 }
 
-impl<T: AsyncWrite + Unpin> AsyncWrite for TokioIo<T> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
-    }
+// Both write traits forward to the same Tokio AsyncWrite implementation.
+macro_rules! forward_async_write {
+    ($wrapper:ident, $write:path) => {
+        impl<T: AsyncWrite + Unpin> $write for $wrapper<T> {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+                buf: &[u8],
+            ) -> Poll<io::Result<usize>> {
+                Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+            }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
+            fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+            }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
-    }
+            fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+            }
 
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
-    }
+            fn poll_write_vectored(
+                self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+                bufs: &[IoSlice<'_>],
+            ) -> Poll<io::Result<usize>> {
+                Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
+            }
 
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
+            fn is_write_vectored(&self) -> bool {
+                self.inner.is_write_vectored()
+            }
+        }
+    };
 }
+
+forward_async_write!(TokioIo, AsyncWrite);
 
 impl<T: AsyncRead + Unpin> hyper::rt::Read for TokioIo<T> {
     fn poll_read(
@@ -172,35 +179,7 @@ impl<T: AsyncRead + Unpin> hyper::rt::Read for TokioIo<T> {
     }
 }
 
-impl<T: AsyncWrite + Unpin> hyper::rt::Write for TokioIo<T> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
-    }
-
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
-}
+forward_async_write!(TokioIo, hyper::rt::Write);
 
 struct PrefixedIo<I> {
     prefix: [u8; 24],
@@ -227,35 +206,7 @@ impl<I: AsyncRead + Unpin> AsyncRead for PrefixedIo<I> {
     }
 }
 
-impl<I: AsyncWrite + Unpin> AsyncWrite for PrefixedIo<I> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
-    }
-
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
-}
+forward_async_write!(PrefixedIo, AsyncWrite);
 
 /// HTTP/1.1 settings mirror on [`Builder`].
 pub struct Http1Builder<'a, E> {

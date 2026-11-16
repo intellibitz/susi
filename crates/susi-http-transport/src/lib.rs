@@ -27,6 +27,14 @@ mod wire;
 
 pub use client::{http_call, http_call_with_body, http_post_utf8, HttpCall};
 
+/// RFC 9110 token characters (header names, methods).
+pub(crate) fn is_token(text: &[u8]) -> bool {
+    !text.is_empty()
+        && text
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 #[cfg(test)]
 mod surface_tests {
     use super::*;

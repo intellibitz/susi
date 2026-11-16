@@ -219,31 +219,6 @@ fn remove_dot_segments(path_and_query: &str) -> String {
     }
 }
 
-/// RFC 9110 token characters (header names, methods).
-fn is_token(name: &str) -> bool {
-    !name.is_empty()
-        && name.bytes().all(|b| {
-            b.is_ascii_alphanumeric()
-                || matches!(
-                    b,
-                    b'!' | b'#'
-                        | b'$'
-                        | b'%'
-                        | b'&'
-                        | b'\''
-                        | b'*'
-                        | b'+'
-                        | b'-'
-                        | b'.'
-                        | b'^'
-                        | b'_'
-                        | b'`'
-                        | b'|'
-                        | b'~'
-                )
-        })
-}
-
 /// A field value may not carry CR, LF, NUL or other controls (header
 /// injection); tab and obs-text are allowed, as `http::HeaderValue` allows.
 fn is_field_value(value: &str) -> bool {
@@ -274,7 +249,7 @@ pub(crate) fn request_head(
         head.push_str("Accept: */*\r\n");
     }
     for (name, value) in headers {
-        if !is_token(name) {
+        if !crate::is_token(name.as_bytes()) {
             return Err(format!("invalid header name {name:?}"));
         }
         if !is_field_value(value) {
@@ -390,7 +365,7 @@ fn read_one_head(reader: &mut impl BufRead, budget: &mut usize) -> io::Result<He
             .ok_or_else(|| invalid("header line without a colon"))?;
         let name = std::str::from_utf8(&line[..colon])
             .ok()
-            .filter(|name| is_token(name))
+            .filter(|name| crate::is_token(name.as_bytes()))
             .ok_or_else(|| invalid("invalid header name in response"))?
             .to_ascii_lowercase();
         let value = &line[colon + 1..];
