@@ -496,7 +496,6 @@ fn sample_federation(repo_root: &Path) -> Option<FederationStateRow> {
 
 /// Sample retained acceptance through the authorized protocol tool registry.
 fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
-    use susi_core::plane_bus::tools;
     let repo = repo_root.canonicalize().ok()?;
     let mut command = susi_paths::console::background_command("git");
     command
@@ -526,25 +525,9 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
     }
     let head = String::from_utf8(output.stdout).ok()?;
     let head = head.trim();
-    let registry = susi_config::mcp::read_mcp_config(&susi_config::mcp::mcp_config_path()).ok()?;
-    let mut names: Vec<_> = registry
-        .mcp_servers
-        .keys()
-        .map(|server| format!("{server}:workflow_tasks_report"))
-        .filter(|name| tools::exists(name))
-        .collect();
-    // Presence checks can match a prefix; require the exact advertised tool.
-    let catalog = tools::list_tools();
-    let advertised = catalog.as_array()?;
-    names.retain(|name| advertised.iter().any(|tool| tool["name"] == *name));
-    let [name] = names.as_slice() else {
-        return None;
-    };
     let args =
         serde_json::json!({"repo":susi_paths::native_path::encode(&repo).ok()?,"accepted_in":head});
-    let server = name.strip_suffix(":workflow_tasks_report")?;
-    let result =
-        tools::execute_external_tool(server, "workflow_tasks_report", &args.to_string()).ok()?;
+    let result = susi_config::mcp_session::call_json("workflow_tasks_report", &args, None).ok()?;
     let verified_receipts = completion_count(&result, head)?;
 
     // Preserve the existing metadata-presence indicator; it is not a new
@@ -558,23 +541,7 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
     })
 }
 
-fn completion_count(raw: &str, head: &str) -> Option<usize> {
-    let result: serde_json::Value = serde_json::from_str(raw).ok()?;
-    if result
-        .get("isError")
-        .is_some_and(|value| value != &serde_json::Value::Bool(false))
-    {
-        return None;
-    }
-    let reply = if let Some(value) = result.get("structuredContent") {
-        value.clone()
-    } else {
-        let blocks = result["content"].as_array()?;
-        if blocks.len() != 1 || blocks[0]["type"] != "text" {
-            return None;
-        }
-        serde_json::from_str(blocks[0]["text"].as_str()?).ok()?
-    };
+fn completion_count(reply: &serde_json::Value, head: &str) -> Option<usize> {
     if reply["schema"] != "susi-completed-report-v1" || reply["accepted_in"] != head {
         return None;
     }
@@ -718,7 +685,7 @@ mod inline_tests {
         assert_eq!(blocked[0].task_id, "T-2");
         assert_eq!(blocked[0].reason, "unmet dependency: T-1");
 
-        assert!(completion_count(r#"{"id":"T-0"}"#, "head").is_none());
+        assert!(completion_count(&serde_json::json!({"id":"T-0"}), "head").is_none());
 
         let _ = fs::remove_dir_all(&tmp);
     }

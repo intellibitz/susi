@@ -132,10 +132,11 @@ functional authorization input, not an activity log. Moving it to a local record
 replacement that preserves shared authorization and recovery semantics; the
 current guard does not read a local database.
 
-The guard that honours the record is the built `local-snapshot`. A clone keeps
-printing the old `DELETED` lines until the tool it runs (on `PATH`, or
-`SUSI_SNAPSHOT_BIN`) is rebuilt from a `main` that has this change:
-`cargo build --offline --locked -p xtask --bin local-snapshot`.
+`local-snapshot` calls the storage guard through the installed
+`workflow_harness_v1` MCP provider. The provider must support the directed-deletion
+contract; rebuilding the core command alone does not install that implementation.
+An unavailable provider produces a visible audit error or advisory witness
+warning, never a successful empty audit.
 
 The guard writes nothing to the remote and nothing local except its own refs
 (it creates, advances and, for an accepted directed deletion, drops them).
@@ -166,11 +167,16 @@ contains the dropped commits republishes them with its normal fast-forward. A
 finding remains only when the lost commits are in no later submission, which
 is exactly when someone has to act.
 
-The harness publishes the same way. The guard lives in the harness
-(`crates/susi-harness/src/storage_guard.rs`; `local-snapshot` compiles the same
-file), and `submit-main`, `integrate` and `release-promote` run it after every
-live publication, from the command line and through the daemon. A finding
-arrives as a note beside the receipt; the receipt and its digest are unchanged.
+The harness publishes the same way. Its
+[`storage_guard`](../crates/susi-harness/src/storage_guard.rs) module preserves
+the public audit/report API and delegates the algorithm over MCP; `xtask`
+reexports that adapter for `local-snapshot` and `local-workflow`.
+`submit-main`, `integrate` and `release-promote` run the advisory witness after
+live publication, from the command line and through the daemon. A finding or
+unavailable-provider warning arrives beside the receipt without invalidating
+or replaying an accepted publication. See the
+[implementation-service boundary](architecture.md#implementation-services-and-protocol-adapters)
+for registry and native environment permissions.
 
 `cargo local-workflow ship` and `ship --retry`, the gated landing, do it as
 well, whatever the ship's result. Susi Commercial Apps ships with this same

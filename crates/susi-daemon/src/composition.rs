@@ -355,6 +355,7 @@ pub fn wire_plane_handlers() {
     static WIRED: OnceLock<()> = OnceLock::new();
     WIRED.get_or_init(|| {
         crate::boot_trace::phase("plane-bus: handlers", || {
+            susi_harness::register_tool_backend();
             susi_gemi::plane_handler::register();
             susi_gawd::plane_handler::register();
             susi_tools::plane_handler::register();

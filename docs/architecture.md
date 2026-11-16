@@ -2,13 +2,13 @@
 
 This is the narrative architecture of the open Susi core: what the five-port
 socket is, which pillars serve it, how the planes talk to each other inside
-one host, how the commercial suite reaches core without linking it, and where
+one host, how independently hosted implementations reach it, and where
 the lean-core program is taking the codebase. The enforceable crate-boundary
 contract, checked by `tests/architecture_tests.rs`, stays in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md); verification and qualification
 guidance is [`docs/evidence.md`](evidence.md).
 
-Scoped claim (Mandate 45): Susi is an evidence-gated agent-of-agents substrate
+Susi is an evidence-gated agent-of-agents substrate
 on your machine, not a replacement host OS and not a chatbot wrapper. "RSI"
 is defined under "What RSI means here" below; it is a scoped claim, not a
 statement that the baseline rewrites its own source unattended.
@@ -19,7 +19,7 @@ susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud i
 
 | Problem in today's AI stack | How `susi` solves it on one local socket |
 |---|---|
-| **Fragmented local & cloud APIs** | Point any OpenAI/Anthropic SDK, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across local engines (`Ollama`, `vLLM`, `llama.cpp`, `GGUF`) and cloud APIs through one inspectable policy (`susi os route`). |
+| **Fragmented local & cloud APIs** | Point a compatible inference client, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across configured local and remote inference endpoints through one inspectable policy (`susi os route`). |
 | **Opaque model routing & wasted spend** | Evidence-ranked **Brain** (`susi brain`) learns which provider succeeds per workload class (`reflex`, `chat`, `code`, `reasoning`), quarantines out-of-credit keys, and enforces `SUSI_BUDGET=low\|balanced\|max`. |
 | **Hallucinated agent claims** | **Evidence-gated completion**: missions record live tool receipts (`EvidenceSession` / `ToolReceipt`), verify citations against the workspace, and seal actions into an append-only HMAC-SHA256 audit chain. |
 | **Data egress & untrusted tools** | `local_only` privacy policy keeps model and tool traffic on this machine and its local network (internet egress blocked; the LAN stays reachable), and `host_only` on this machine alone (loopback only: no LAN, discovery, gossip, off-host peers or off-host clients); deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
@@ -27,14 +27,14 @@ susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud i
 ```mermaid
 flowchart LR
     subgraph Clients["Clients, Editors & Agent SDKs"]
-        MCPClient["MCP Clients (Claude Code, Cursor, IDEs)"]
-        OAI["OpenAI & Anthropic SDKs"]
+        MCPClient["MCP Clients and Editors"]
+        OAI["Compatible Inference Clients"]
         A2APeer["A2A Peers & Custom Apps"]
     end
 
     subgraph Host["susi Host Contract (127.0.0.1)"]
         P9090["Port 9090 / 9093: MCP HTTP & SSE"]
-        P9091["Port 9091: OpenAI /v1 & Anthropic /v1/messages"]
+        P9091["Port 9091: Inference /v1 & /v1/messages"]
         P9094["Port 9094: A2A JSON-RPC & Agent Card"]
     end
 
@@ -46,8 +46,8 @@ flowchart LR
     end
 
     subgraph Backends["Local & Cloud AI Ecosystem"]
-        Local["Local AI: Ollama, llama.cpp, vLLM, GGUF"]
-        Cloud["Cloud AI: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter"]
+        Local["Configured Local Inference Engines"]
+        Cloud["Configured Remote Inference Endpoints"]
         Ext["Admitted MCP Servers & Extension Packs"]
     end
 
@@ -72,24 +72,28 @@ JIT or WASI-common runtime is linked anywhere in the workspace.
 | Pillar | Crate(s) | Role in the Open-Standards RSI AI OS Router |
 |---|---|---|
 | **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a`, `susi-gawd-acp`, `susi-harness` | ACP and parallel multi-agent harness workflow; evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
-| **GEMI** | `susi-gemi`, `susi-gemi-models` | Unified local (Ollama, llama.cpp, vLLM, GGUF/Candle) and cloud (OpenAI, Anthropic, Gemini, OpenRouter) inference router (`:9091`) |
-| **GMCP** | `susi-gmcp` | Standards-compliant MCP 2025-11-25 HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources |
+| **GEMI** | `susi-gemi`, `susi-gemi-models` | Inference routing across configured local and remote backends (`:9091`) |
+| **GMCP** | `susi-gmcp` | MCP HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources, with negotiated protocol revisions |
 
-Note (2026-11-08): the GEMI row still names GGUF/Candle because that was the
-tree when it was written. The in-process Candle engine left core in the
-lean-core program and is off in the default build (`local-engine` feature);
-a default build serves local in-process inference only through a plug wired
-on the plane bus (the commercial `susi-plug-host`), and otherwise routes to
-the HTTP engines you run (Ollama, llama.cpp, vLLM, ...) or to cloud providers.
-The record is in [`docs/lean-core.md`](lean-core.md) and
-[`docs/evidence.md`](evidence.md).
+Local generative model execution uses a configured HTTP engine or an attached implementation
+backend. The compatibility-named local provider and `local-engine` feature do
+not supply an embedded model engine. A missing backend remains an explicit
+capability error. See [current limitations](evidence.md) and
+[extraction requirements](lean-core.md); neither this table nor a passing build
+certifies complete protocol conformance.
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including external coding agents and agent frameworks from an installed extension pack or `~/.susi/execution-agents/` adapter files via `susi agents` / `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmi, the pure-Rust interpreter inside the compatibility-named `susi-vendor-wasmtime` crate; no Wasmtime is linked) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start over what is already installed (engines / Candle fallback); it launches no third-party engine, CLI or MCP server (`tests/core_boot_starts_nothing.rs`). Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin content; the desktop, any visual view and curated plugin packs live in Susi Commercial Apps. Install + optional API keys still apply.
+Models, agents and tools enter through configured endpoints, installed extension
+packs and registered MCP servers (`susi mcp-add` / `susi mcp enable`). Agent
+adapters may also come from `~/.susi/execution-agents/`. Startup discovers what
+is already present; it launches no third-party engine, agent CLI or MCP server
+(`tests/core_boot_starts_nothing.rs`). Explicit authorized requests may start
+admitted implementation processes. Core ships no UI and bundles no plugin
+content; interfaces and implementation packages are hosted separately.
 
 ## One operating layer, two AI ecosystems
 
-- **Local AI OS layer** — discovers and manages local runtimes, GGUF/Ollama
-  models, GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
+- **Local AI OS layer** — discovers configured local runtimes and model stores,
+  GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
   Wasm reflexes, workspace memory, and host-resident agents. `local_only`
   policy keeps traffic on this machine and its local network: it blocks every
   known internet-bound tool path, not only URLs with obvious network-shaped
@@ -97,8 +101,8 @@ The record is in [`docs/lean-core.md`](lean-core.md) and
   `host_only` policy keeps it on this machine alone: only loopback targets,
   no discovery or gossip toward other hosts, no off-host peer calls, and
   off-host clients dropped by every listener whatever `bind_address` says.
-- **Cloud AI OS layer** — admits OpenAI-compatible, Anthropic, Gemini,
-  OpenRouter, MCP, A2A, and managed CLI peers through the same capability,
+- **Cloud AI OS layer** — admits compatible inference endpoints, MCP, A2A,
+  and managed CLI peers through the same capability,
   budget, evidence, audit, and placement contracts. Credentials remain
   operator-owned; SUSI neither invents nor silently purchases access.
 - **One decision plane** — a completion is placed locally, in cloud, or on an
@@ -135,25 +139,31 @@ each upgrade locally; missing orchestration is engineering work, not completed R
 
 ---
 
-## Genome
+<a id="genome"></a>
 
-susi's constitutional source of truth is machine-readable and **compiled into
-the binary** at build time (`susi-gawd-agents` `build.rs` → `AlphaSelf`). The
-ledgers live in [`.agents/`](../.agents/) — agent-governance data, not end-user
-docs:
+## Current contract metadata
+
+Build-time metadata describes the active contract and roadmap. It does not
+embed completed mission history or establish that a capability has passed its
+acceptance. The `susi-gawd-agents` build generates active rule tables for
+`AlphaSelf` from identity and roadmap inputs, and an empty evidence value for
+legacy schema/API compatibility.
 
 | File | Role |
 |------|------|
-| [`.agents/identity.json`](../.agents/identity.json) | Constitutional mandates, component topology, protocols (`susi/identity/v1`) |
-| [`.agents/roadmap.json`](../.agents/roadmap.json) | Evolutionary vectors (`susi/roadmap/v1`) |
-| [`docs/gmcp-roadmap.md`](gmcp-roadmap.md) | Standards-traceable GMCP completion program and task map |
-| [`.agents/evidence.json`](../.agents/evidence.json) | Append-only mission / audit ledger (`susi/evidence/v1`) |
-| [`.agents/tasks/`](../.agents/tasks/) | The shared task queue: one file per task, each with an acceptance command (`susi tasks`) |
-| [`.agents/lanes/`](../.agents/lanes/) | Which agent works which learning-loop stage: one file per agent |
+| [`.agents/identity.json`](../.agents/identity.json) | Current rules, component topology and protocols (`susi/identity/v1`) |
+| [`.agents/roadmap.json`](../.agents/roadmap.json) | Current goals (`susi/roadmap/v1`), not completion evidence |
+| [`docs/gmcp-roadmap.md`](gmcp-roadmap.md) | Standards-traceable GMCP requirements and qualification program |
+| [`.agents/evidence.json`](../.agents/evidence.json) | Empty compatibility template (`susi/evidence/v1`); no compiled activity history |
+| [`.agents/tasks/`](../.agents/tasks/) | Active task intent, scopes and acceptance commands |
+| [`.agents/lanes/`](../.agents/lanes/) | Active worker placement in the learning loop |
 | [`.agents/schemas/`](../.agents/schemas/) | JSON Schema contracts for identity, roadmap and evidence |
 
-When this README and `identity.json` disagree, source code wins and both are
-updated in the same change.
+Retained run history belongs in local storage outside source. Missing history
+never proves acceptance, authorization or release qualification. Required
+artifact provenance and legal notices remain with their artifacts. See
+[record storage](evidence.md#record-storage). If documentation and executable
+behavior disagree, correct the active contract and documentation together.
 
 ---
 
@@ -261,30 +271,56 @@ legacy `~/.susi` keeps everything in that root; else the per-OS cache dir
 (Windows `%LOCALAPPDATA%\intellibitz\susi\cache`, Linux `$XDG_CACHE_HOME/susi`
 or `~/.cache/susi`).
 
-## The plug bridge to the commercial suite
+<a id="the-plug-bridge-to-the-commercial-suite"></a>
 
-Implementation capabilities reach the running open core over the bus rendezvous
-above, not by linking core's crates
-into a commercial binary. Core publishes the ports; the commercial repository
-(`susi-commercial-apps`, its `docs/plug-bridge.md`) ships
-`susi-plug-host`, a std-only process that joins the rendezvous as its own pid
-directory with the secret core minted, answers core's wire format exactly, and
-serves the capabilities core gave up in the lean-core program:
+## Implementation services and protocol adapters
 
-| topic (published by core) | core caller | served by (commercial) |
+Transferred implementations execute in separately hosted packages. Core retains
+the public contracts, authorization, discovery, transport and composition.
+The shared MCP client lives in `susi_config::mcp_client`; authorized discovery,
+owned sessions and session-bound resource transfer live in
+`susi_config::mcp_session`. The harness retains compatibility entry points and
+supplies its HTTP adapter at composition. A provider may reuse this generic
+protocol library without placing its implementation in core.
+
+| MCP contract | Core caller | Implementation responsibility |
 |---|---|---|
-| `gpu_fabric.local_engine.*` | `susi-gemi` `local_plug` | `susi-gpu-fabric` local-engine plug |
-| `ecosystem_hub.mcp.call`, `ecosystem_hub.mcp.list_tools` | `susi-tools` MCP client | `susi-ecosystem-hub` MCP plug |
-| `gpu_fabric.embed.texts`, `gpu_fabric.embed.install` | `susi-gmcp` `embed_provider` | `susi-gpu-fabric` embedding plug |
-| `desktop.browser.capture` | `susi-gmcp` `browser_automate` | `susi-desktop` page capture |
+| `workflow_harness_v1` | `susi-harness` workflow, storage guard and scorecard adapters | Git reconciliation, storage audit and lifecycle reporting |
+| `worker_view_file`, `worker_list_dir`, `worker_write_to_file`, `worker_append_to_file`, `worker_replace_file_content` | Harness file-tool contracts after existing authorization and argument checks | Workspace-confined filesystem operations |
+| `swarm_storage_v1` | `susi-gawd-swarm::writer_isolation` | Workspace revision, private scope creation and retirement, conflict-aware folding |
 
-Rules that hold on both sides: a plug host never mints the bus secret (with no
-secret under the root, core has not run there and the host refuses to join);
-core's `is_wired(topic)` decides whether a capability is served, and an
-unserved one is reported as a typed capability gap, never faked; a killed host
-leaves endpoint files that core prunes on its next failed connect. A second
-isolated instance is `SUSI_HOME=<dir> SUSI_PORT_OFFSET=100 susi start` with
-`SUSI_HOME=<dir> susi-plug-host`.
+Providers come from the ordinary MCP registry and must advertise the requested
+tool. Selection pins one provider; current authority is checked before the call.
+A missing or changed provider is an error, and a lost mutation response does not
+permit replay. Native paths retain their lossless wire representation. Large
+arguments and results use session-owned resources when the provider advertises
+the corresponding transfer contract; other calls retain inline behavior. Native Git context requires
+an explicit `inherit_parent_env` flag and an exact executable
+`process.env_inherit` grant in addition to execution permission. Peers without that explicit flag and grant keep their isolated environment. The worker's `run_command` still executes
+under its existing local policy. Writer-isolation state belongs to the caller,
+not a provider process global.
+
+Some capabilities still use the authenticated plane-bus rendezvous described
+above. These topic names remain compatibility contracts:
+
+| Topic | Core caller | Implementation capability |
+|---|---|---|
+| `gpu_fabric.local_engine.*` | `susi-gemi` `local_plug` | Local inference |
+| `ecosystem_hub.mcp.call`, `ecosystem_hub.mcp.list_tools` | `susi-tools` MCP client | Tool execution and discovery |
+| `gpu_fabric.embed.texts`, `gpu_fabric.embed.install` | `susi-gmcp` `embed_provider` | Embeddings |
+| `desktop.browser.capture` | `susi-gmcp` `browser_automate` | Page capture |
+
+A bus implementation process uses the secret minted by core and refuses to join
+without it. `is_wired(topic)` determines availability; an unserved capability
+returns a typed error. Failed connections cause stale endpoint pruning.
+See the implementation package's installation contract for its admitted MCP
+entries or bus process. An isolated core instance uses its own `SUSI_HOME` and
+port offset.
+
+These transfers do not complete the implementation extraction. The whole agent
+engine and other concrete code still remain in core, and the under-100,000-line
+goal remains unmet. Each further removal requires a working destination and
+actual socket parity, including relevant platform and failure behavior.
 
 ---
 

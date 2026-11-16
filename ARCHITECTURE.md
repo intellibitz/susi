@@ -2,13 +2,13 @@
 
 This document is the **enforceable** crate-boundary contract for the SUSI
 substrate. It maps a ports-and-adapters modularization checklist onto SUSI’s
-identity — the three Apache-2.0 core pillars (**GAWD** / **GEMI** / **GMCP** /
-**ACP** / **Susi Harness**), host-contract ports, `CapabilityRegistry`,
+identity — the three Apache-2.0 core pillars (**GAWD**, including ACP and Susi Harness;
+**GEMI**; **GMCP**), host-contract ports, `CapabilityRegistry`,
 extension packs, evidence-gated swarm — **without** renaming the workspace into
 a foreign `apps/core/modules/adapters` tree.
 
 The narrative architecture (the socket, its pillars, the plane bus and its
-loopback rendezvous, the plug bridge to the commercial suite, the lean-core
+loopback rendezvous, implementation services and protocol adapters, the lean-core
 direction and the command reference) is [`docs/architecture.md`](docs/architecture.md);
 verified claims and admitted gaps are [`docs/evidence.md`](docs/evidence.md).
 This file remains the enforceable contract. The one Wasm runtime in the
@@ -27,7 +27,7 @@ CLI (susi) / daemon / HTTP servers
         ↓
 composition roots (wire hooks, packs, discovery, bind)
         ↓
-three primary core pillars: GAWD (swarm/agents/a2a) · GEMI (inference/models) · GMCP (MCP socket) · ACP (Agent Client/Communication Protocol socket) · Susi Harness (parallel multi-agent workflow)
+three primary core pillars: GAWD (swarm/agents/A2A/ACP/harness) · GEMI (inference/models) · GMCP (MCP socket)
         ↕  (in-process only: `susi_core::plane_bus` — no Cargo edges between planes)
         ↓
 susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)
@@ -41,6 +41,14 @@ infrastructure adapters: sandbox · native (Wasmi) · Docker / HTTP / MCP client
 networking clients, UI, OS daemon APIs, Candle, Wasmi, Bollard, or `rmcp`.
 
 Concrete implementations are assembled only at composition roots.
+
+The workflow governor, storage audit, scorecard, five harness filesystem tools
+and swarm writer-isolation operations are MCP adapters; their implementations
+execute in admitted provider processes. Shared client/session machinery lives
+in `susi-config`, with HTTP transport supplied by application composition.
+`run_command` retains its local policy. This is a partial extraction: the agent
+engine remains in core until its complete socket behavior is qualified. See
+[implementation services](docs/architecture.md#implementation-services-and-protocol-adapters).
 
 ## Local and cloud operating planes
 
@@ -80,7 +88,7 @@ never consume an unterminated source tail.
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-gawd-acp` for the public ACP compatibility path; std, serde, concurrency libs (no async runtime: the peer MCP session client runs on `plain_http`, a std `http://` HTTP/1.1 module, and provider futures are runtime-agnostic) | feature planes; HTTP client crates; `susi-adapters-llm`, `susi-http-transport`, tokio | providers/tools via registry | process registry | receipt archive paths |
 | `susi-vendor-wasmtime` | The one wasm crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses. Inputs are compiled binary `.wasm` only — the WebAssembly text format is a dev-dependency of this crate's own tests, never a host input | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmi, wasmparser, wasm-encoder (normal), `wat` (dev only) | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | `susi-vendor-wasmtime`, feature planes | no | no | loopback HTTP |
-| `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
+| `susi-config` | Configuration, extension packs, versioned JSON store and shared authorized MCP protocol client | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode`, `mcp`, `mcp_client`, `mcp_session` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP client libraries, everything above paths/error; applications supply HTTP transport | MCP providers through registry | config files, owned sessions | config I/O and authorized stdio; HTTP through injected transport |
 | `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` / `http_post_utf8` | `dual_transport`, `http_conn`, `http_call`, `http_post_utf8`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
@@ -350,7 +358,7 @@ Exactly two process-entry assembly paths:
 2. **Daemon** — `SusiDaemon::run_daemon_loop` (cwd = substrate home) → lock →
    `wire_daemon_engine_hooks` (plane handlers + hooks, no discovery) → bind
    host-contract ports 9090–9094 → `register_contract_providers` (configured
-   cloud endpoints, Candle fallback, tool registry; a supervised one-shot,
+   cloud endpoints, local-inference provider adapter, tool registry; a supervised one-shot,
    seconds) beside the leaf services → background
    `bootstrap_zero_config_substrate` once those providers are in. The
    contract never waits on discovery, and discovery never runs ahead of the
