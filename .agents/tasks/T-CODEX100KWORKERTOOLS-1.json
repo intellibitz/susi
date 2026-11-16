@@ -43,7 +43,7 @@
     "handoff": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-boundary-handoff.json",
     "validation": "passed explicit custom harness:40 transported,17 local refusals,40 raw characterizations,10 wire rejections,one lost mutation/no replay; strict Clippy, formatting,diffcheck passed. Default invocation skipped; malformed --run invocation exits2.",
     "report": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-parity-evidence.json",
-    "fixture_root": "/workspace/codex/susi-core-100k-worker-tools/target/worker-mcp-parity/453249-1794834932398740954",
+    "fixture_root": "/workspace/codex/susi-core-100k-worker-tools/target/worker-mcp-parity/456385-1794835155839100761",
     "source_sha256": "3fb2976bc31382acdad62fa63217d2716003928d68953fc8d74d303eb35220dc",
     "runtime_lines_changed": 0,
     "reduction_credit": 0,
@@ -53,7 +53,9 @@
       "large command output, command timeout and existing path-race behavior",
       "full protocol conformance or release qualification",
       "typed MCP isError mapping: native handlers return untyped strings",
-      "outer-suite forced termination is bounded by child self-expiry, not a demonstrated immediate nested-group cleanup"
-    ]
+      "outer-suite forced termination is bounded by child self-expiry, not a demonstrated immediate nested-group cleanup",
+      "Existing native view_file reversed-range slice panic was neither changed nor transported; reversed-range behavior remains an explicit preservation gap."
+    ],
+    "tested_head": "dee911a0e43811e1a0dfe64ae310811ed61b29d7"
   }
 }
