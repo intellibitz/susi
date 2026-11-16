@@ -3,7 +3,7 @@
   "title": "Prove direct and MCP harness execution parity in an isolated offline fixture",
   "goal": "Vision: V-6. Make the next capability-preserving boundary concrete with one actual accepted task and no-replay evidence through existing harness_run/runs/status; retain every current implementation and access policy.",
   "size": "m",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KHARNESSPARITY",
   "scopes": [
     "tests/harness_mcp_execution_parity.rs"
@@ -57,5 +57,16 @@
     ]
   },
   "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json",
-  "phase": "parent_integrated_and_verified"
+  "phase": "published_and_verified",
+  "closed": {
+    "at_unix": 1794826103,
+    "commit": "c588ae3ab78e5446b4222ea988fd1bb4867b235c",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "4606e85522fde18f3a6832305607d739b45464d3",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json"
+  }
 }

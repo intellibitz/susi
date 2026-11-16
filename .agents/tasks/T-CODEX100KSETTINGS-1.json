@@ -82,5 +82,6 @@
   "limitations": [
     "Scoped Linux development checks, not release qualification.",
     "The complete socket under-100k goal remains open. No test or runtime code was moved or excluded."
-  ]
+  ],
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-settings.json"
 }

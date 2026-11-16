@@ -3,7 +3,7 @@
   "title": "Add staged official ACP v1 stdio interoperability without changing legacy wire APIs",
   "goal": "Vision: V-6. Preserve all Susi capabilities while correcting verified Agent Client Protocol wire incompatibilities. This slice is not full ACP conformance: mandatory MCP stdio-server bridging remains outstanding.",
   "size": "m",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KACPV1",
   "created_unix": 1794823542,
   "base_commit": "a30aca7107633c3a7db471ec692403e821afaeb6",
@@ -59,7 +59,7 @@
     ],
     "merge_commit": "014bb6e7ce5c3e72bec6dd4970a169a127c3765f"
   },
-  "phase": "parent_integrated_and_verified",
+  "phase": "published_and_verified",
   "validation": {
     "acp_lib": {
       "command": "cargo test --offline --locked -j2 -p susi-gawd-acp --lib",
@@ -123,5 +123,16 @@
     "status": "Verified and ready for parent integration; independent reviewer cleared production findings.",
     "artifacts": "Private acpv1-state schema-validation.json, schema-transcript.json, cli-validation.json, cli-schema-transcript.json and full origin-relative acpv1.patch"
   },
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json",
+  "closed": {
+    "at_unix": 1794826103,
+    "commit": "40d3ff32002be28ab817d5a530330e9089845c19",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "4606e85522fde18f3a6832305607d739b45464d3",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json"
+  }
 }
