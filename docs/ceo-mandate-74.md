@@ -62,7 +62,10 @@ storage bucket only.
    publishing. `susi-commercial workflow fresh` reports how far a worktree is
    behind; the commit guard prints a note when it is behind at all and refuses
    the commit beyond a limit (20 commits; an unreachable remote never
-   refuses). A merge is never refused: it is the remedy. At start and resume
+   refuses). Mandate 82 ([`docs/ceo-mandate-82.md`](ceo-mandate-82.md),
+   2026-11-16) adds a clock: pull and merge at least every ten minutes while
+   working, and a commit is refused once a worktree has been behind for longer.
+   A merge is never refused: it is the remedy. At start and resume
    the tool pulls for you: `susi-commercial workflow check` and
    `workflow fresh --pull` merge `origin/main` into a worktree that has no
    uncommitted changes, and never touch one that has.

@@ -8,6 +8,26 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 82 (2026-11-16): Every Agent Pulls and Merges `origin/main` Every Ten Minutes
+
+Read [CEO Mandate 82](docs/ceo-mandate-82.md). While it works, every agent
+fetches `origin/main` and merges it into the worktree it is working in at least
+every ten minutes, in each repository it is working in. This adds a clock to
+Mandate 74 (latest remote before starting, when resuming and before every
+commit) and stands beside Mandate 80 (review ready work for integration every
+ten minutes): one clock, taking work in and handing work out.
+
+- **How:** commit your work, then `git fetch origin main && git merge
+  origin/main` (or `susi-commercial workflow sync`). For a clean worktree,
+  `susi-commercial workflow fresh --pull`; with `--watch` it repeats every ten
+  minutes until stopped.
+- **Never forced:** resolve a conflict; no rebase of shared history, no force,
+  no empty merge to satisfy the clock. An unreachable remote is not a
+  violation. A merge is never refused.
+- **Enforced:** the commit guard refuses a commit once a worktree has been
+  behind `origin/main` for more than ten minutes, counted from the tool's first
+  notice, with no override. It adds no gate to `main`.
+
 ## CEO Mandate 81 (2026-11-15): Release Cuts Must Sync the Local Host Binary and Live Daemon
 
 Read [CEO Mandate 81](docs/ceo-mandate-81.md). Cutting or publishing any
@@ -201,7 +221,8 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   `susi-commercial workflow fresh` reports the lag; the commit
   guard notes any lag and refuses a commit more than 20 commits behind
   (`git config susi.maxBehind <n>` changes the limit; an unreachable remote
-  never refuses; a merge is never refused).
+  never refuses; a merge is never refused). Under Mandate 82 it also refuses a
+  commit once the worktree has been behind for more than ten minutes.
 - **GitHub is portable Git storage only:** Pure Git transport (`origin` for
   `susi` and `susi-commercial-apps`); zero GitHub Actions, zero hosted PR/status
   gates, zero `gh` CLI or GitHub API lock-in; moving clouds is a remote URL change.
@@ -316,6 +337,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 79 | **Vision-driven continuous self-improvement (2026-11-12).** Section above; [`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md). |
 | 80 | **Three core pillars and synchronized Step 1 delivery (2026-11-15).** Directive at the top of this file; [`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md). |
 | 81 | **Release cuts must sync the local host binary and live daemon (2026-11-15).** Section above; [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md). |
+| 82 | **Every agent pulls and merges `origin/main` every ten minutes (2026-11-16).** Section above; [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

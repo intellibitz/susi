@@ -10,7 +10,7 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–81). Follow its native isolated workflow
+requirements (identity.json Mandates 62–82). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
@@ -22,6 +22,13 @@ CEO alone holds push authority, exercised by the CEO or by the agents the CEO
 authorizes; no pull request, patch or commit from outside is accepted; the world
 is free to fork and work in its own fork. Susi Commercial Apps
 (`intellibitz/susi-commercial-apps`) is private, closed source and licensed.
+
+Read `docs/ceo-mandate-82.md` (Mandate 82, 2026-11-16): while you work, pull and
+merge `origin/main` into your worktree at least every ten minutes, in each
+repository you are working in. Commit your work, then run `susi-commercial
+workflow sync`, which fetches and merges `origin/main`; resolve a conflict,
+never force or skip it. A worktree left behind for more than ten minutes is
+refused its next commit until it has merged.
 
 Read `docs/ceo-mandate-81.md` (Mandate 81, 2026-11-15): cutting or publishing
 any qualified release for this host must sync `~/.susi/bin/susi` (`susi.exe`),

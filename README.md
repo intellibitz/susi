@@ -180,7 +180,7 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–81).
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–82).
 The current mandate documents:
 
 - [`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md) and
@@ -199,6 +199,8 @@ The current mandate documents:
 - [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md): every qualified release
   cut syncs the local host binary and live daemon, with Linux/Windows timer
   parity and `RunLevel=Limited`.
+- [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md): every agent pulls and
+  merges `origin/main` at least every ten minutes while it works.
 
 Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every

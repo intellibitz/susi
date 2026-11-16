@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-7",
+  "statement": "every agent must merge and pull every 10 minutes",
+  "set_by": "ceo",
+  "recorded_by": "CLAUDEMANDATE82",
+  "set_unix": 1794821955
+}
