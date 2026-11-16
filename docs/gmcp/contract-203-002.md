@@ -167,8 +167,8 @@ vector's `MCP-2026-0728-basic-index-0047` row.
 
 ## Evidence locations
 
-`.agents/gmcp/evidence/VC-203-002.jsonl` is this vector's append-only
-evidence artifact (convention: `.agents/gmcp/evidence/README.md`). Each
+`.susi/records/gmcp/evidence/VC-203-002.jsonl` is this vector's current local
+evidence snapshot (convention: `.agents/gmcp/evidence/README.md`). Each
 work package records its requirement id, check command, exit status,
 detail, timestamp, artifact hash, and identity.
 

@@ -125,11 +125,11 @@ Published budgets, enforced by `tests/gmcp_requirements.rs::gmcp_req_203_007_05_
 
 ## Fixtures
 
-Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-203-007.jsonl, keyed by row id; the tests consume them. The shared conformance harness runs the same fixtures against each adapter.
+Positive and negative fixtures live in `.agents/gmcp/fixtures/`; current run records live in .susi/records/gmcp/evidence/VC-203-007.jsonl, keyed by row id. The tests consume both. The shared conformance harness runs the same fixtures against each adapter.
 
 ## Evidence locations
 
-.agents/gmcp/evidence/VC-203-007.jsonl holds the retained evidence; the acceptance test binds this document to the ledger.
+.susi/records/gmcp/evidence/VC-203-007.jsonl holds the retained evidence; the acceptance test binds this document to the ledger.
 
 ## Ambiguities resolved
 
@@ -184,7 +184,7 @@ bash scripts/gmcp-record-evidence.sh
 
 ### Incident triage
 
-Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-limit startup refusal on `stderr`, or non-JSON frame leak on `stdout` as a release-blocking incident. Preserve the CLI JSON output, server `stderr` diagnostic log, offending input frame or `config.json`, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` records before mutating state. Verify adapter parity across `susi mcp serve` and in-process `StdioGate` + `BoundedLines` via `cargo test --offline --locked --test gmcp_requirements gmcp_req_203_007_06_operations`.
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-limit startup refusal on `stderr`, or non-JSON frame leak on `stdout` as a release-blocking incident. Preserve the CLI JSON output, server `stderr` diagnostic log, offending input frame or `config.json`, and latest `.susi/records/gmcp/evidence/VC-203-*.jsonl` records before mutating state. Verify adapter parity across `susi mcp serve` and in-process `StdioGate` + `BoundedLines` via `cargo test --offline --locked --test gmcp_requirements gmcp_req_203_007_06_operations`.
 
 ### Migration (re-pinning the transport SPI standard)
 
@@ -195,7 +195,7 @@ Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-
 
 ### Rollback
 
-The vendored transport specs, ledger, fixtures, contract, and evidence logs are versioned Git artifacts. Revert a broken re-pin or framing limit regression with `git revert <commit>`, validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), and re-run `cargo test --locked --test gmcp_requirements gmcp_req_203_007_06_operations` plus the evidence recorder; never delete historical JSONL evidence lines or rewrite prior proof records.
+The vendored transport specs, ledger, fixtures and contract are versioned Git artifacts. Operational evidence uses local current snapshots. Revert a broken re-pin or framing limit regression with `git revert <commit>`, validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), and re-run `cargo test --locked --test gmcp_requirements gmcp_req_203_007_06_operations` plus the evidence recorder; refresh local proof after the checks pass; missing history never qualifies a release.
 
 ## Production guarantees and non-claims
 

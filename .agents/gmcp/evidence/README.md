@@ -1,39 +1,34 @@
 # GMCP evidence
 
-Immutable evidence artifacts for the VC-203 program. Convention (see
-`docs/gmcp/contract-203-001.md`):
+Current operational proof lives in ignored `.susi/records/gmcp/evidence/`,
+one JSONL snapshot per vector (`VC-203-<NNN>.jsonl`). Each snapshot retains only
+the latest record per requirement. Historical source JSONL files remain readable
+for compatibility; no recorder appends to them. Optional history may be absent.
+A present local snapshot takes precedence, including when corrupt or stale;
+readers never substitute older source proof to conceal a local failure.
 
-- One append-only JSONL file per vector: `VC-203-<NNN>.jsonl`.
-- Each line records one retained proof event: the ledger row id it satisfies,
-  the check that ran (command + exit), the artifact hash, and the recording
-  identity — enough for an independent reader to re-derive the verdict.
-- Records are never edited or deleted; a superseded proof is a new line that
-  names the record it replaces in `supersedes` (its `recorded_unix`,
-  `identity` and `artifact_sha256`). A requirement is judged by its newest
-  record: the one no later record supersedes, the latest `recorded_unix`
-  among those.
-- Each record binds to the code its check passed on: `tested_commit` is that
-  commit, and `tested_artifacts` the sha256 of
-  `git ls-tree -r --full-tree <tested_commit> -- <artifacts>` over the files
-  the checks read: the vector's existing production paths,
-  `tests/gmcp_requirements.rs`, the ledger, `sources.json`, `spec/`,
-  `fixtures/`, `docs/gmcp`, `docs/gmcp-roadmap.md`,
-  `scripts/check-gmcp-ledger.sh` and `crates/susi-gmcp/src`. The raw GMCP
-  manifest tree row is replaced with the marker `susi-gmcp manifest without
-  package.version` plus a newline and its committed content, omitting only
-  `version = ...` inside `[package]`. Features and dependency specifications
-  remain bound; an ordinary package release number does not stale evidence. A record whose digest is no
-  longer HEAD's is stale; in a full clone `tested_commit` must also exist
-  and be in HEAD's history.
-- `scripts/gmcp-record-evidence.sh` re-records, in two phases on a clean
-  HEAD: first the requirement checks (commit what it appends), then
-  `--mastery`, which runs the mastery tests on that commit and records the
-  `-M` records only if they pass. A mastery test never reads its own `-M`
-  record, so that record states exactly what the test proved;
-  `gmcp_mastery_records_are_retained_and_current` checks it instead: one
-  newest `-M` record per vector, naming the vector's mastery test, bound and
-  current, and (in a full clone) recorded at a commit whose evidence holds
-  exactly the requirement records HEAD judges by. Recording the requirement
-  checks without the `--mastery` phase fails it.
-- `susi tasks audit` and `gmcp_vc_203_<NNN>_mastery` read these files; a
-  missing, malformed, stale or unbound record fails the mastery gate closed.
+Each record names the requirement, actual check command and exit status,
+recording identity and time, ledger digest (`artifact_sha256`), tested source
+commit (`tested_commit`) and artifact tree digest (`tested_artifacts`). The
+artifact digest binds the vector's production paths, tests, ledger, pinned
+specifications, fixtures, contracts and GMCP source. Only the GMCP manifest's
+`package.version` is normalized; features and dependencies remain bound.
+Source ancestry and exact artifact checks remain required. Missing, malformed,
+stale or unbound proof fails qualification; file existence proves no capability.
+
+Run `cargo local-release record-gmcp [VC-203-NNN ...]` on a clean committed tree,
+then `cargo local-release record-gmcp --mastery [VC-203-NNN ...]` on the same tree.
+The shell compatibility entry point is `scripts/gmcp-record-evidence.sh`.
+Both phases record only after every selected test actually runs and passes,
+and refuse changed source or concurrent evidence changes. Local files use
+atomic replacement, reject redirected paths and are bounded to 16 MiB each.
+
+A new mastery record additionally binds `requirements_sha256`, the SHA-256 of
+canonical JSON mapping requirement IDs to the exact latest requirement records
+that its test read. This detects a later replacement even on the same source
+commit. Legacy mastery records retain their committed-input comparison; legacy
+supersession chains are still validated. Mastery never consumes its own output.
+
+Local snapshots are operational state, not release certificates. Preserve the
+required source, test, toolchain, artifact and license provenance with a release
+artifact independently of these optional local records.

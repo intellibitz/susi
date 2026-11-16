@@ -239,11 +239,11 @@ Every interaction completes within its declared deadline or is cancelled with a 
 
 ## Fixtures
 
-Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-203-013.jsonl, keyed by row id; the tests in tests/gmcp_requirements.rs consume them.
+Positive and negative fixtures live in `.agents/gmcp/fixtures/`; current run records live in `.susi/records/gmcp/evidence/VC-203-013.jsonl`, keyed by row id. The tests in `tests/gmcp_requirements.rs` consume both.
 
 ## Evidence locations
 
-.agents/gmcp/evidence/VC-203-013.jsonl holds the retained evidence; tests/gmcp_requirements.rs::gmcp_req_203_013_01_contract binds this document to the ledger.
+.susi/records/gmcp/evidence/VC-203-013.jsonl holds the retained evidence; tests/gmcp_requirements.rs::gmcp_req_203_013_01_contract binds this document to the ledger.
 
 ## Ambiguities resolved
 

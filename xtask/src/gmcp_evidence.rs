@@ -1,15 +1,98 @@
-//! Native, append-only GMCP evidence recording after actual named tests pass.
+//! Native current GMCP evidence snapshots after actual named tests pass.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::Write,
-    path::{Component, Path},
+    io::{Read, Write},
+    path::{Component, Path, PathBuf},
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const PREFIX: &str = "cargo test --locked --test gmcp_requirements ";
+const LOCAL: &str = ".susi/records/gmcp/evidence";
+const LEGACY: &str = ".agents/gmcp/evidence";
+const MAX_EVIDENCE_BYTES: u64 = 16 * 1024 * 1024;
+
+// Only absence permits a legacy fallback. Corrupt or redirected local state
+// must not silently select older proof from source.
+fn read_record(path: &Path) -> Result<Option<String>> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(meta) if !meta.is_file() => return Err("evidence must be a regular file".into()),
+        Ok(_) => {}
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(MAX_EVIDENCE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_EVIDENCE_BYTES {
+        return Err("evidence exceeds the 16 MiB recording bound".into());
+    }
+    Ok(Some(String::from_utf8(bytes)?))
+}
+
+fn local_directory(root: &Path, create: bool) -> Result<PathBuf> {
+    let mut path = root.to_path_buf();
+    for part in LOCAL.split('/') {
+        path.push(part);
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if !meta.is_dir() => {
+                return Err("local evidence directory must not be redirected".into())
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if create {
+                    fs::create_dir(&path)?;
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(path)
+}
+
+fn requirements_digest(records: &[Value], mastery_id: &str) -> Result<String> {
+    let requirements: BTreeMap<&str, &Value> = records
+        .iter()
+        .filter(|record| record["requirement"] != mastery_id)
+        .map(|record| {
+            Ok((
+                record["requirement"]
+                    .as_str()
+                    .ok_or("missing requirement")?,
+                record,
+            ))
+        })
+        .collect::<Result<_>>()?;
+    if requirements.is_empty() {
+        return Err("mastery requires requirement evidence".into());
+    }
+    Ok(Sha256::digest(serde_json::to_vec(&requirements)?)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn write_snapshot(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temp = path.with_extension(format!("jsonl.{}.tmp", std::process::id()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)?;
+    let result = (|| -> Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
 fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let output = Command::new("git").current_dir(root).args(args).output()?;
     if !output.status.success() {
@@ -163,17 +246,35 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         .to_owned();
     let mastery = args.first().is_some_and(|arg| arg == "--mastery");
     let mut vectors: Vec<String> = args[usize::from(mastery)..].to_vec();
-    let directory = root.join(".agents/gmcp/evidence");
+    let directory = local_directory(root, false)?;
+    if !git(root, &["ls-files", "--", LOCAL])?.is_empty() {
+        return Err("local GMCP evidence must not be tracked source".into());
+    }
+    let ignored = Command::new("git")
+        .current_dir(root)
+        .args([
+            "check-ignore",
+            "--quiet",
+            "--no-index",
+            ".susi/records/gmcp/evidence/probe",
+        ])
+        .status()?;
+    if !ignored.success() {
+        return Err("local GMCP evidence directory must be ignored".into());
+    }
     if vectors.is_empty() {
-        for entry in fs::read_dir(&directory)? {
-            let path = entry?.path();
-            if path.extension().is_some_and(|e| e == "jsonl") {
-                if let Some(stem) = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| s.starts_with("VC-203-"))
-                {
-                    vectors.push(stem.into());
+        for dir in [root.join(LEGACY), directory.clone()] {
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            for entry in entries {
+                let path = entry?.path();
+                if path.extension().is_some_and(|e| e == "jsonl") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        vectors.push(stem.into());
+                    }
                 }
             }
         }
@@ -228,16 +329,20 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
             return Err("invalid GMCP vector".into());
         }
         let path = directory.join(format!("{vector}.jsonl"));
-        if fs::symlink_metadata(&path)?.file_type().is_symlink() {
-            return Err("evidence file must not be redirected".into());
-        }
-        let original = fs::read_to_string(&path)?;
+        let before = read_record(&path)?;
+        let original = match &before {
+            Some(value) => value.clone(),
+            None => read_record(&root.join(LEGACY).join(format!("{vector}.jsonl")))?
+                .ok_or("no current or legacy evidence; no proof can be inferred")?,
+        };
+        let current = newest(&original)?;
+        let inputs = requirements_digest(&current, &format!("GMCP-{}-M", &vector[3..]))?;
         let mut records = Vec::new();
-        for record in newest(&original)? {
-            let name = test_name(&record, &source)?;
+        for record in &current {
+            let name = test_name(record, &source)?;
             if name.starts_with("gmcp_vc_") == mastery {
                 checks.insert(name.to_owned());
-                records.push(record);
+                records.push(record.clone());
             }
         }
         if records.is_empty() {
@@ -254,7 +359,14 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
             root,
             &["show", &format!("{head}:crates/susi-gmcp/Cargo.toml")],
         )?)?;
-        planned.push((path, original, records, tree_digest(&tree, &manifest)));
+        planned.push((
+            path,
+            before,
+            current,
+            records,
+            tree_digest(&tree, &manifest),
+            inputs,
+        ));
     }
     if checks.is_empty() {
         return Err("no checks selected; no evidence recorded".into());
@@ -311,32 +423,62 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
-    // Prepare every append before writing. History is retained byte-for-byte.
+    // Keep only the latest proof for each requirement. Optional history stays
+    // in legacy source unchanged; new snapshots never append to that source.
+    local_directory(root, true)?;
     let mut updates = Vec::new();
-    for (path, original, records, digest) in planned {
-        if fs::read_to_string(&path)? != original {
+    for (path, before, current, records, digest, inputs) in planned {
+        if read_record(&path)? != before {
             return Err("evidence changed during checks".into());
         }
-        let mut bytes = original.as_bytes().to_vec();
-        if !bytes.is_empty() && !bytes.ends_with(b"\n") {
-            bytes.push(b'\n');
-        }
+        let mut snapshot: BTreeMap<String, Value> = current
+            .into_iter()
+            .map(|record| {
+                (
+                    record["requirement"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    record,
+                )
+            })
+            .collect();
         for record in records {
-            let value = json!({"requirement":record["requirement"],"check":record["check"],"exit":0,"detail":record["detail"],"recorded_unix":now,"artifact_sha256":ledger_sha,"identity":identity,"tested_commit":head,"tested_artifacts":digest,"supersedes":{"recorded_unix":record["recorded_unix"],"identity":record["identity"],"artifact_sha256":record["artifact_sha256"]}});
-            serde_json::to_writer(&mut bytes, &value)?;
+            let mut value = json!({"requirement":record["requirement"],"check":record["check"],"exit":0,"detail":record["detail"],"recorded_unix":now,"artifact_sha256":ledger_sha,"identity":identity,"tested_commit":head,"tested_artifacts":digest});
+            if mastery {
+                value["requirements_sha256"] = json!(inputs);
+            }
+            snapshot.insert(
+                record["requirement"]
+                    .as_str()
+                    .ok_or("missing requirement")?
+                    .to_owned(),
+                value,
+            );
+        }
+        let mut bytes = Vec::new();
+        for record in snapshot.values() {
+            serde_json::to_writer(&mut bytes, record)?;
             bytes.push(b'\n');
         }
-        updates.push((path, original, bytes));
+        if bytes.len() as u64 > MAX_EVIDENCE_BYTES {
+            return Err("evidence snapshot exceeds recording bound".into());
+        }
+        updates.push((path, before, bytes));
     }
     for (path, _, bytes) in &updates {
-        if let Err(error) = fs::write(path, bytes) {
-            for (path, original, _) in &updates {
-                fs::write(path, original)?;
+        if let Err(error) = write_snapshot(path, bytes) {
+            for (path, before, _) in &updates {
+                match before {
+                    Some(value) => write_snapshot(path, value.as_bytes())?,
+                    None if path.exists() => fs::remove_file(path)?,
+                    None => {}
+                }
             }
-            return Err(error.into());
+            return Err(error);
         }
     }
-    println!("Recorded {} passing checks against {head}; commit these append-only records before the next phase.",checks.len());
+    println!("Recorded {} passing checks against {head} in ignored {LOCAL}; run the remaining phase on the same source commit.",checks.len());
     Ok(())
 }
 #[cfg(test)]
@@ -367,5 +509,158 @@ mod tests {
             tree_digest(b"tree\n", a),
             tree_digest(b"tree\n", &a.replace("x = \"1\"", "x = \"2\""))
         );
+    }
+    fn fixture(label: &str) -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "gmcp-record-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn local_snapshot_inputs_are_exact_order_independent_and_nonempty() {
+        let records = vec![
+            json!({"requirement":"R-2","exit":0,"tested_commit":"a"}),
+            json!({"requirement":"R-1","exit":0,"tested_commit":"a"}),
+            json!({"requirement":"M","exit":0}),
+        ];
+        let before = requirements_digest(&records, "M").unwrap();
+        let mut reordered = records.clone();
+        reordered.reverse();
+        assert_eq!(before, requirements_digest(&reordered, "M").unwrap());
+        reordered[0]["exit"] = json!(1);
+        assert_eq!(before, requirements_digest(&reordered, "M").unwrap());
+        reordered[1]["tested_commit"] = json!("b");
+        assert_ne!(before, requirements_digest(&reordered, "M").unwrap());
+        assert!(requirements_digest(&[json!({"requirement":"M"})], "M").is_err());
+    }
+
+    #[test]
+    fn local_snapshots_are_bounded_atomic_and_do_not_follow_redirection() {
+        let root = fixture("atomic");
+        let dir = local_directory(&root, true).unwrap();
+        let path = dir.join("VC-203-001.jsonl");
+        assert_eq!(read_record(&path).unwrap(), None);
+        write_snapshot(&path, b"first\n").unwrap();
+        let temp = path.with_extension(format!("jsonl.{}.tmp", std::process::id()));
+        fs::write(&temp, b"owned elsewhere").unwrap();
+        assert!(write_snapshot(&path, b"replacement\n").is_err());
+        assert_eq!(fs::read(&temp).unwrap(), b"owned elsewhere");
+        assert_eq!(read_record(&path).unwrap().unwrap(), "first\n");
+        fs::remove_file(&temp).unwrap();
+        write_snapshot(&path, b"replacement\n").unwrap();
+        assert_eq!(read_record(&path).unwrap().unwrap(), "replacement\n");
+        let large = fs::File::create(&path).unwrap();
+        large.set_len(MAX_EVIDENCE_BYTES + 1).unwrap();
+        drop(large);
+        assert!(read_record(&path).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(read_record(&path).is_err());
+        #[cfg(unix)]
+        {
+            let redirected = fixture("redirect");
+            std::os::unix::fs::symlink(&root, redirected.join(".susi")).unwrap();
+            assert!(local_directory(&redirected, true).is_err());
+            fs::remove_dir_all(redirected).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn recorder_fixture() -> PathBuf {
+        let root = fixture("native");
+        for path in ["src", "tests", "crates/susi-gmcp", ".agents/gmcp/evidence"] {
+            fs::create_dir_all(root.join(path)).unwrap();
+        }
+        fs::write(root.join(".gitignore"), ".susi/\ntarget/\n").unwrap();
+        fs::write(root.join("Cargo.toml"),"[package]\nname = \"gmcp-record-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[workspace]\n").unwrap();
+        fs::write(root.join("src/lib.rs"), "").unwrap();
+        fs::write(root.join("fixture.txt"), "ready").unwrap();
+        fs::write(
+            root.join("crates/susi-gmcp/Cargo.toml"),
+            "[package]\nname = \"susi-gmcp\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(root.join(".agents/gmcp/requirements-ledger.json"),json!({"requirements":[{"trace":{"vector":"VC-203-001","production_path":"fixture.txt"}}]}).to_string()).unwrap();
+        fs::write(root.join("tests/gmcp_requirements.rs"),r#"#[test]
+fn gmcp_req_203_001_01_contract() {
+    assert_eq!(std::fs::read_to_string("fixture.txt").unwrap(), "ready");
+}
+#[test]
+fn gmcp_vc_203_001_mastery() {
+    let proof = std::fs::read_to_string(".susi/records/gmcp/evidence/VC-203-001.jsonl").unwrap();
+    assert!(proof.lines().any(|line| line.contains("\"requirement\":\"GMCP-203-001-01\"") && line.contains("\"tested_commit\":")));
+}
+"#).unwrap();
+        let req = json!({"requirement":"GMCP-203-001-01","check":format!("{PREFIX}gmcp_req_203_001_01_contract"),"recorded_unix":1,"identity":"fixture","artifact_sha256":"seed"});
+        let mastery = json!({"requirement":"GMCP-203-001-M","check":format!("{PREFIX}gmcp_vc_203_001_mastery"),"recorded_unix":1,"identity":"fixture","artifact_sha256":"seed"});
+        fs::write(
+            root.join(LEGACY).join("VC-203-001.jsonl"),
+            format!("{req}\n{mastery}\n"),
+        )
+        .unwrap();
+        let mut cargo = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut cargo).unwrap();
+        assert!(cargo
+            .current_dir(&root)
+            .args(["generate-lockfile", "--offline"])
+            .status()
+            .unwrap()
+            .success());
+        git(&root, &["init", "-b", "main"]).unwrap();
+        git(&root, &["config", "user.name", "fixture"]).unwrap();
+        git(&root, &["config", "user.email", "fixture@localhost"]).unwrap();
+        git(&root, &["add", "."]).unwrap();
+        git(&root, &["commit", "-m", "fixture"]).unwrap();
+        root
+    }
+
+    #[test]
+    fn native_recording_keeps_source_clean_current_and_fails_without_executed_checks() {
+        let root = recorder_fixture();
+        let legacy = root.join(LEGACY).join("VC-203-001.jsonl");
+        let original = fs::read(&legacy).unwrap();
+        let local = root.join(LOCAL).join("VC-203-001.jsonl");
+        let head = String::from_utf8(git(&root, &["rev-parse", "HEAD"]).unwrap()).unwrap();
+        run(&root, &["VC-203-001".into()]).unwrap();
+        assert_eq!(fs::read(&legacy).unwrap(), original);
+        assert!(git(&root, &["status", "--porcelain"]).unwrap().is_empty());
+        run(&root, &["--mastery".into(), "VC-203-001".into()]).unwrap();
+        let records = newest(&fs::read_to_string(&local).unwrap()).unwrap();
+        assert_eq!(records.len(), 2);
+        for record in &records {
+            assert_eq!(record["tested_commit"], head.trim());
+            assert_eq!(record["exit"], 0);
+        }
+        let mastery = records
+            .iter()
+            .find(|r| r["requirement"] == "GMCP-203-001-M")
+            .unwrap();
+        assert_eq!(
+            mastery["requirements_sha256"],
+            requirements_digest(&records, "GMCP-203-001-M").unwrap()
+        );
+        run(&root, &["VC-203-001".into()]).unwrap();
+        assert_eq!(fs::read_to_string(&local).unwrap().lines().count(), 2);
+        let before = fs::read(&local).unwrap();
+        fs::write(root.join("fixture.txt"), "fails").unwrap();
+        git(&root, &["add", "fixture.txt"]).unwrap();
+        git(&root, &["commit", "-m", "failing fixture"]).unwrap();
+        assert!(run(&root, &["VC-203-001".into()]).is_err());
+        assert_eq!(fs::read(&local).unwrap(), before);
+        fs::write(&local, "corrupt local record").unwrap();
+        assert!(run(&root, &["VC-203-001".into()]).is_err());
+        assert_eq!(fs::read(&legacy).unwrap(), original);
+        fs::remove_file(&local).unwrap();
+        fs::remove_file(&legacy).unwrap();
+        git(&root, &["add", "-u"]).unwrap();
+        git(&root, &["commit", "-m", "missing history"]).unwrap();
+        assert!(run(&root, &["VC-203-001".into()]).is_err());
+        assert!(!local.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }

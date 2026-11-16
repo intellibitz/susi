@@ -2271,6 +2271,14 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Wait on conditions rather than fixed sleeps",
         "Pin a count or phrase only when it is the contract",
         "Remove tests and fixtures with the code they cover",
+        "Keep code tidy",
+        "run rustfmt and Clippy with `-D warnings` on every crate a change affects",
+        "a new lint allowance gives its reason",
+        "a marker comment names its task or the work is done now",
+        "commented-out code is deleted",
+        "A file over 2,000 lines grows by at most 25 lines in a change",
+        "Remove what nothing uses in the change that leaves it unused",
+        "Clear debt you meet in its own commit",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2324,12 +2332,12 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     assert!(
         flat("crates/susi-core/src/self_build.rs").contains("Link and revisit unfulfilled goals")
     );
-    assert!(
-        flat("crates/susi-core/src/self_build.rs").contains("keep contract, docs and tests tidy")
-    );
+    assert!(flat("crates/susi-core/src/self_build.rs")
+        .contains("keep contract, docs, tests, code tidy"));
     for lint in [
         "ignore_without_reason = \"deny\"",
         "should_panic_without_expect = \"deny\"",
+        "dbg_macro = \"deny\"",
     ] {
         assert!(
             flat("Cargo.toml").contains(lint),

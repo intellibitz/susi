@@ -146,8 +146,8 @@ with this contract:
 
 ## Evidence locations
 
-`.agents/gmcp/evidence/VC-203-008.jsonl` is this vector's append-only
-evidence artifact (convention: `.agents/gmcp/evidence/README.md`). Each
+`.susi/records/gmcp/evidence/VC-203-008.jsonl` is this vector's current local
+evidence snapshot (convention: `.agents/gmcp/evidence/README.md`). Each
 record carries `requirement`, `check`, `exit`, `detail`, `recorded_unix`,
 `artifact_sha256`, and `identity`; artifact hashes sign the canonical
 ledger bytes so a changed corpus invalidates stale proof.

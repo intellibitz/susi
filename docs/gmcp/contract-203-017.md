@@ -329,8 +329,8 @@ authorities pinned in `.agents/gmcp/sources.json` and vendored under `.agents/gm
   `gmcp_vc_203_017_mastery`).
 - **Pinned upstream corpus & ledger**: `.agents/gmcp/sources.json`,
   `.agents/gmcp/requirements-ledger.json` (`CLAIM-04`), and `.agents/gmcp/spec/`.
-- **Retained append-only evidence & verdict**:
-  `.agents/gmcp/evidence/VC-203-017.jsonl` and
+- **Current local evidence and legacy verdict**:
+  `.susi/records/gmcp/evidence/VC-203-017.jsonl` and
   `.agents/roadmap-verdicts/VC-203-017.json` remained absent during stages
   `.01` through `.06` (`T-CODEXGMCPROADMAP-114`..`119`) and are sealed in
   `T-CODEXGMCPROADMAP-120` (`[GMCP 203.017.M] Mastery`) via two-phase
@@ -417,7 +417,7 @@ cargo test --locked --test gmcp_requirements gmcp_req_203_017_06_operations
 
 ### Incident triage
 
-Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), cross-server credential or root leak, unrequested `CreateTaskResult` acceptance, unredacted Bearer token in `McpHost::snapshot()` or SSE `notifications/message`, `MacPolicy` bypass on stdio/HTTP egress, or sibling server hang during peer disconnect/flood as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi mcp status`, `McpHost::snapshot()`, quarantined `.corrupt` task-store artifacts, and the latest `.agents/gmcp/evidence/*.jsonl` records before remediation, then re-verify `gmcp_req_203_017_01_contract` through `gmcp_req_203_017_06_operations`.
+Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), cross-server credential or root leak, unrequested `CreateTaskResult` acceptance, unredacted Bearer token in `McpHost::snapshot()` or SSE `notifications/message`, `MacPolicy` bypass on stdio/HTTP egress, or sibling server hang during peer disconnect/flood as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi mcp status`, `McpHost::snapshot()`, quarantined `.corrupt` task-store artifacts, and the latest `.susi/records/gmcp/evidence/*.jsonl` records before remediation, then re-verify `gmcp_req_203_017_01_contract` through `gmcp_req_203_017_06_operations`.
 
 ### Migration
 
@@ -429,7 +429,7 @@ Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), cro
 
 1. **Per-server live disconnect & config rollback**: Invoke `McpHost::disconnect(server_id)` (issuing `DELETE /mcp` for stateful HTTP sessions or terminating stdio child peers) and `susi mcp disable <server>` / `susi mcp reset <server>` to remove a misbehaving peer immediately while sibling connected servers remain online.
 2. **Task handle store recovery**: If a persisted task store is corrupted on disk, `PersistedTaskHandleStore::open_or_quarantine` renames the damaged file to `.corrupt` for forensics and initializes a clean `0600` store without crashing the host.
-3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir` and `susi mcp ledger --drift --refetched .agents/gmcp/spec` (`verified: true`), re-run `gmcp_req_203_017_06_operations`, and append fresh GMCP evidence records without truncating `.agents/gmcp/evidence/*.jsonl`.
+3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir` and `susi mcp ledger --drift --refetched .agents/gmcp/spec` (`verified: true`), re-run `gmcp_req_203_017_06_operations`, and refresh current `.susi/records/gmcp/evidence/*.jsonl` snapshots after both recording phases pass.
 
 ### Production guarantees and non-claims
 

@@ -140,8 +140,8 @@ Totals: **1,713 rows** over 72 pinned documents — 943 on `2026-07-28`, 641 on
 - `requirements-ledger.json` stays under 10 MB at this baseline (currently
   ~2 MB); growth is bounded by upstream spec size.
 - `--drift` covers all 72 pinned files in one CI job (< 5 min network-bound).
-- Evidence files are append-only JSONL; a vector's evidence budget is
-  unbounded in count but bounded in per-record size (≤ 64 KiB per line).
+- Local evidence snapshots keep one current record per requirement and are
+  bounded to 16 MiB per vector. Optional run history does not grow source.
 
 ## Fixtures
 
@@ -154,8 +154,10 @@ modern path) and `negative/request-null-id.json` (violates
 
 ## Evidence locations
 
-`.agents/gmcp/evidence/VC-203-<NNN>.jsonl` is the intended evidence location
-per vector (see `evidence/README.md`). Some referenced artifacts are missing,
+`.susi/records/gmcp/evidence/VC-203-<NNN>.jsonl` holds current local evidence
+per vector (see `.agents/gmcp/evidence/README.md`). The ledger retains its
+legacy `.agents/gmcp/evidence/` logical trace names; readers prefer local
+snapshots and fall back only when absent. Some referenced artifacts are missing,
 and existing historical records are not authenticated or revalidated by the
 ledger verifier. Source pins protect the vendored corpus; they do not prove
 that the implementation satisfies its requirements.

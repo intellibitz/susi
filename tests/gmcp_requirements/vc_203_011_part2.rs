@@ -575,7 +575,7 @@ fn gmcp_vc_203_011_mastery() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-011.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-011.jsonl"))
         .expect("VC-203-011 must retain an evidence artifact");
     let artifacts = evidence_artifacts(root, "VC-203-011");
     let head_digest =
