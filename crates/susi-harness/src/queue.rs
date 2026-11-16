@@ -287,7 +287,7 @@ fn retained_completion_ids(repo: &Path, requested: &BTreeSet<String>) -> BTreeSe
         let reply = crate::tool_backend::call_json(
             "workflow_tasks_completed",
             &serde_json::json!({
-                "repo":repo,"ids":requested,"accepted_in":head
+                "repo":susi_paths::native_path::encode(&repo).ok()?,"ids":requested,"accepted_in":head
             }),
         )
         .ok()?;

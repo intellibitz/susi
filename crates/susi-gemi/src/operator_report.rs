@@ -559,18 +559,61 @@ fn sample_federation(repo_root: &Path) -> Option<FederationStateRow> {
     })
 }
 
-/// Sample evidence state: verified completed tasks and audit log integrity.
+/// Sample retained acceptance through the authorized protocol tool registry.
 fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
-    let done_dir = repo_root.join(".agents").join("tasks").join("done");
-    let verified_receipts = fs::read_dir(done_dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
-                .count()
-        })
-        .unwrap_or(0);
+    use susi_core::plane_bus::tools;
+    let repo = repo_root.canonicalize().ok()?;
+    let mut command = susi_paths::console::background_command("git");
+    command
+        .current_dir(&repo)
+        .args([
+            "--no-replace-objects",
+            "rev-parse",
+            "--verify",
+            "HEAD^{commit}",
+        ])
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .stdin(std::process::Stdio::null());
+    for key in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_GRAFT_FILE",
+    ] {
+        command.env_remove(key);
+    }
+    let output =
+        susi_core::bounded_cmd::output_within(&mut command, Duration::from_secs(120)).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let head = String::from_utf8(output.stdout).ok()?;
+    let head = head.trim();
+    let registry = susi_config::mcp::read_mcp_config(&susi_config::mcp::mcp_config_path()).ok()?;
+    let mut names: Vec<_> = registry
+        .mcp_servers
+        .keys()
+        .map(|server| format!("{server}:workflow_tasks_report"))
+        .filter(|name| tools::exists(name))
+        .collect();
+    // Presence checks can match a prefix; require the exact advertised tool.
+    let catalog = tools::list_tools();
+    let advertised = catalog.as_array()?;
+    names.retain(|name| advertised.iter().any(|tool| tool["name"] == *name));
+    let [name] = names.as_slice() else {
+        return None;
+    };
+    let args =
+        serde_json::json!({"repo":susi_paths::native_path::encode(&repo).ok()?,"accepted_in":head});
+    let server = name.strip_suffix(":workflow_tasks_report")?;
+    let result =
+        tools::execute_external_tool(server, "workflow_tasks_report", &args.to_string()).ok()?;
+    let verified_receipts = completion_count(&result, head)?;
 
+    // Preserve the existing metadata-presence indicator; it is not a new
+    // cryptographic audit or independent release-qualification result.
     let audit_chain_intact =
         repo_root.join(".agents").join("roadmap.json").exists() || repo_root.join(".git").exists();
 
@@ -579,6 +622,33 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
         audit_chain_intact,
     })
 }
+
+fn completion_count(raw: &str, head: &str) -> Option<usize> {
+    let result: serde_json::Value = serde_json::from_str(raw).ok()?;
+    if result
+        .get("isError")
+        .is_some_and(|value| value != &serde_json::Value::Bool(false))
+    {
+        return None;
+    }
+    let reply = if let Some(value) = result.get("structuredContent") {
+        value.clone()
+    } else {
+        let blocks = result["content"].as_array()?;
+        if blocks.len() != 1 || blocks[0]["type"] != "text" {
+            return None;
+        }
+        serde_json::from_str(blocks[0]["text"].as_str()?).ok()?
+    };
+    if reply["schema"] != "susi-completed-report-v1" || reply["accepted_in"] != head {
+        return None;
+    }
+    usize::try_from(reply["verified_receipts"].as_u64()?).ok()
+}
+
+#[cfg(test)]
+#[path = "tests/operator_completion.rs"]
+mod completion_tests;
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
@@ -689,16 +759,14 @@ mod inline_tests {
     }
 
     #[test]
-    fn sample_blocked_work_and_sample_evidence_inspect_tasks_and_done_receipts() {
+    fn sample_blocked_work_inspects_active_dependencies() {
         let tmp = std::env::temp_dir().join(format!(
             "susi_operator_report_sample_{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&tmp);
         let tasks_dir = tmp.join(".agents").join("tasks");
-        let done_dir = tasks_dir.join("done");
-        fs::create_dir_all(&done_dir).expect("create done dir");
-        fs::write(tmp.join(".agents").join("roadmap.json"), "{}").expect("write roadmap");
+        fs::create_dir_all(&tasks_dir).expect("create task dir");
         fs::write(
             tasks_dir.join("T-1.json"),
             r#"{"id":"T-1","title":"Prerequisite","deps":[]}"#,
@@ -709,16 +777,13 @@ mod inline_tests {
             r#"{"id":"T-2","title":"Dependent","deps":["T-1"]}"#,
         )
         .expect("write T-2");
-        fs::write(done_dir.join("T-0.json"), r#"{"id":"T-0"}"#).expect("write done T-0");
 
         let blocked = sample_blocked_work(&tmp);
         assert_eq!(blocked.len(), 1);
         assert_eq!(blocked[0].task_id, "T-2");
         assert_eq!(blocked[0].reason, "unmet dependency: T-1");
 
-        let evidence = sample_evidence(&tmp).expect("sample evidence");
-        assert_eq!(evidence.verified_receipts, 1);
-        assert!(evidence.audit_chain_intact);
+        assert!(completion_count(r#"{"id":"T-0"}"#, "head").is_none());
 
         let _ = fs::remove_dir_all(&tmp);
     }
