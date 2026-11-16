@@ -285,6 +285,16 @@ Keep releases tidy. Cut each version once and never move, re-cut or delete its
 tag; follow a broken release with a new version. Publish the tag, its record and
 its qualification record together, agreeing on the commit. Each release says what
 it ships, from its commits' task trailers. Open a candidate line only when none
-serves the version; never move or delete one, and leave superseded lines for an
-authorized decision. Remove local build outputs and test-release directories once
-the release is published.
+serves the version; never move one, and retire it once it has ended (below).
+Remove local build outputs and test-release directories once the release is
+published.
+
+Keep candidates tidy. A release candidate is `refs/candidates/release/vX.Y.Z-rcN`
+and a distilled feature `refs/candidates/distill/<feature>`; one version has one
+open line, advanced by fast-forward, with a new rcN only when the open line
+cannot fast-forward. Open a line under a task and announce it; release or settle
+a line that has not moved for three days. This contract authorizes deleting a
+candidate line once it has ended (released, superseded or merged into a release):
+delete exactly those lines, each only at the object observed, in one atomic push,
+and record each in `.agents/storage/directed-deletions.txt` in the same session.
+Never delete an open line or any other ref under this authorization.
