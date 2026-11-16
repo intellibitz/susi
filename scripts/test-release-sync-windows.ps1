@@ -332,31 +332,49 @@ public class SusiPromotionFixture {
     # using a child process's isolated home, never the real installed Susi.
     $ShellHome = Join-Path $Scratch 'shell-home'
     $ShellInstall = Join-Path $ShellHome '.susi'
-    $ShellBin = Join-Path $ShellInstall 'bin'
-    New-Item -ItemType Directory -Path $ShellBin -Force | Out-Null
-    Copy-Item $Candidate (Join-Path $ShellBin 'susi.exe')
-    Copy-Item $OwnedBin (Join-Path $ShellBin 'susi.prev.exe')
-        # The sync script runs under Git for Windows' bash. Find it from git
-        # itself: `bash.exe` on PATH can be the WSL launcher in System32.
-        $GitExecPath = (& git --exec-path).Trim()
-        Check ($LASTEXITCODE -eq 0 -and $GitExecPath) 'git --exec-path failed'
-        $Shell = Join-Path (Split-Path (Split-Path (Split-Path $GitExecPath))) 'bin\bash.exe'
-        Check (Test-Path -LiteralPath $Shell -PathType Leaf) "Git for Windows bash not found at $Shell"
-        $StartInfo = New-Object Diagnostics.ProcessStartInfo
-        $StartInfo.FileName = $Shell
-        $StartInfo.Arguments = '"' + (Join-Path $Harness 'susi-release-sync.sh') + '" --rollback'
-        $StartInfo.UseShellExecute = $false
-        $StartInfo.CreateNoWindow = $true
-        $StartInfo.RedirectStandardOutput = $true
-        $StartInfo.RedirectStandardError = $true
-        $StartInfo.EnvironmentVariables['HOME'] = $ShellHome
-        $StartInfo.EnvironmentVariables['SUSI_HOME'] = (Join-Path $Scratch 'inherited-dev-home')
+    $CustomInstall = Join-Path $Scratch 'custom-install'
+    foreach ($Install in $ShellInstall, $CustomInstall) {
+        $BinDir = Join-Path $Install 'bin'
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+        Copy-Item $Candidate (Join-Path $BinDir 'susi.exe')
+        Copy-Item $OwnedBin (Join-Path $BinDir 'susi.prev.exe')
+    }
+    # The sync script runs under Git for Windows' bash. Find it from git
+    # itself: `bash.exe` on PATH can be the WSL launcher in System32.
+    $GitExecPath = (& git --exec-path).Trim()
+    Check ($LASTEXITCODE -eq 0 -and $GitExecPath) 'git --exec-path failed'
+    $Shell = Join-Path (Split-Path (Split-Path (Split-Path $GitExecPath))) 'bin\bash.exe'
+    Check (Test-Path -LiteralPath $Shell -PathType Leaf) "Git for Windows bash not found at $Shell"
+    $StartInfo = New-Object Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $Shell
+    $StartInfo.Arguments = '"' + (Join-Path $Harness 'susi-release-sync.sh') + '" --rollback'
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    $StartInfo.EnvironmentVariables['HOME'] = $ShellHome
+    $DefaultExe = Join-Path $ShellInstall 'bin/susi.exe'
+    $MissingInstall = Join-Path $Scratch 'missing-previous'
+    foreach ($Install in $MissingInstall, $CustomInstall, $ShellInstall) {
+        if ($Install -eq $ShellInstall) {
+            $StartInfo.EnvironmentVariables.Remove('SUSI_HOME')
+        } else {
+            $StartInfo.EnvironmentVariables['SUSI_HOME'] = $Install
+        }
         $ShellProcess = [Diagnostics.Process]::Start($StartInfo)
         Check ($ShellProcess.WaitForExit(30000)) 'Shell rollback integration timed out'
         $ShellOutput = $ShellProcess.StandardOutput.ReadToEnd() + $ShellProcess.StandardError.ReadToEnd()
+        if ($Install -ne $ShellInstall) {
+            Check ((Get-FileHash $DefaultExe).Hash -eq $NewHash) 'An explicit home changed the default installation'
+        }
+        if ($Install -eq $MissingInstall) {
+            Check ($ShellProcess.ExitCode -ne 0 -and $ShellOutput -match 'no previous binary') "Missing previous binary was not reported: $ShellOutput"
+            continue
+        }
         Check ($ShellProcess.ExitCode -eq 0) "Shell rollback integration failed: $ShellOutput"
-        Check ((Get-FileHash (Join-Path $ShellBin 'susi.exe')).Hash -eq $OriginalHash) 'Shell selected the wrong canonical executable'
-        Check ((Get-Content (Join-Path $ShellInstall 'fixture-runtime-home.txt') -Raw) -eq $ShellInstall) 'Native executable received a different installation home'
+        Check ((Get-FileHash (Join-Path $Install 'bin/susi.exe')).Hash -eq $OriginalHash) 'Shell selected the wrong executable'
+        Check ((Get-Content (Join-Path $Install 'fixture-runtime-home.txt') -Raw) -eq $Install) 'Native executable received a different installation home'
+    }
     # Run the real release-record checks on Windows paths: the record must name
     # the tag and the commit it points at, and the reference checksum is
     # reported for a matching and a differing build, never enforced. Windows

@@ -16,5 +16,19 @@
     ]
   },
   "created_by": "CORESIZEPROTOCOL17",
-  "created_unix": 1794860347
+  "created_unix": 1794860347,
+  "scopes": [
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/git_governor",
+    "crates/susi-harness/src/tests/git_governor.rs",
+    "crates/susi-harness/tests/standalone_git_workflows.rs",
+    "crates/susi-wire-client/src/host.rs",
+    "crates/susi-wire-client/src/mcp.rs",
+    "scripts/test-release-sync-windows.ps1",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-4.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "The published Apache core at 43664bd065 contains the complete standalone Git implementation and regression fixtures. Commercial Apps already serves these operations through workflow_harness_v1. Reuse the authorized MCP session and existing Rust wire client. Windows rollback qualification reuses the native release harness and its pinned fixture binaries for the default and explicit SUSI_HOME paths."
+  }
 }
