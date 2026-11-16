@@ -209,10 +209,8 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             legacy,
             token,
         } => {
-            let mut s = open_host_cli_session(&addr, token, legacy)?;
-            let doc = s.discover().map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            let doc = with_cli_host(&addr, token, legacy, |h| h.discover("cli"))?;
             print_json(&doc)?;
-            let _ = s.close();
             Ok(false)
         }
         McpCommands::Resources {
@@ -220,20 +218,16 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             templates,
             token,
         } => {
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            let resources = s
-                .list_all_resources()
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-            let out = if templates {
-                let tmpl = s
-                    .list_all_resource_templates()
-                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                serde_json::json!({ "resources": resources, "resourceTemplates": tmpl })
-            } else {
-                serde_json::json!({ "resources": resources })
-            };
+            let out = with_cli_host(&addr, token, false, |h| {
+                let resources = h.list_resources("cli")?;
+                if templates {
+                    let tmpl = h.list_resource_templates("cli")?;
+                    Ok(serde_json::json!({ "resources": resources, "resourceTemplates": tmpl }))
+                } else {
+                    Ok(serde_json::json!({ "resources": resources }))
+                }
+            })?;
             print_json(&out)?;
-            let _ = s.close();
             Ok(false)
         }
         McpCommands::Read {
@@ -242,30 +236,22 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             app,
             token,
         } => {
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            if app {
-                let info = s
-                    .inspect_app_resource(&uri)
-                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                print_json(
-                    &serde_json::json!({ "uri": info.uri, "mimeType": info.mime_type, "payloadBytes": info.payload_bytes, "csp": info.csp, "permissions": info.permissions, "domain": info.domain, "meta": info.meta,}),
-                )?;
-            } else {
-                let doc = s
-                    .read_resource(&uri)
-                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                print_json(&doc)?;
-            }
-            let _ = s.close();
+            let doc = with_cli_host(&addr, token, false, |h| {
+                if app {
+                    let info = h.inspect_app("cli", &uri)?;
+                    Ok(
+                        serde_json::json!({ "uri": info.uri, "mimeType": info.mime_type, "payloadBytes": info.payload_bytes, "csp": info.csp, "permissions": info.permissions, "domain": info.domain, "meta": info.meta }),
+                    )
+                } else {
+                    h.read_resource("cli", &uri)
+                }
+            })?;
+            print_json(&doc)?;
             Ok(false)
         }
         McpCommands::Prompts { addr, token } => {
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            let prompts = s
-                .list_all_prompts()
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            let prompts = with_cli_host(&addr, token, false, |h| h.list_prompts("cli"))?;
             print_json(&serde_json::json!({ "prompts": prompts }))?;
-            let _ = s.close();
             Ok(false)
         }
         McpCommands::Prompt {
@@ -276,12 +262,10 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         } => {
             let parsed: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| crate::anyhow::anyhow!("args must be valid JSON: {e}"))?;
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            let doc = s
-                .get_prompt(&name, Some(&parsed))
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            let doc = with_cli_host(&addr, token, false, |h| {
+                h.get_prompt("cli", &name, Some(&parsed))
+            })?;
             print_json(&doc)?;
-            let _ = s.close();
             Ok(false)
         }
         McpCommands::Complete {
@@ -292,17 +276,26 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             value,
             token,
         } => {
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            let doc = match kind.as_str() {
-                "prompt" | "ref/prompt" => s.complete_prompt(&target, &arg, &value, None),
-                "resource" | "ref/resource" => s.complete_resource(&target, &arg, &value, None),
+            let is_resource = match kind.as_str() {
+                "prompt" | "ref/prompt" => false,
+                "resource" | "ref/resource" => true,
                 other => {
                     bail!("unsupported completion kind `{other}` (expected `prompt` or `resource`)")
                 }
-            }
-            .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            };
+            let doc = with_cli_host(&addr, token, false, |h| {
+                h.complete(
+                    "cli",
+                    susi_wire_client::host::CompletionQuery {
+                        is_resource,
+                        target: &target,
+                        arg_name: &arg,
+                        arg_value: &value,
+                        context_args: None,
+                    },
+                )
+            })?;
             print_json(&doc)?;
-            let _ = s.close();
             Ok(false)
         }
         McpCommands::Task {
@@ -312,61 +305,135 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             responses,
             token,
         } => {
-            let mut s = open_host_cli_session(&addr, token, false)?;
-            match op.as_str() {
-                "get" => {
-                    let snap = s
-                        .get_task(&task_id)
-                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                    print_json(
-                        &serde_json::json!({ "taskId": snap.handle.task_id, "status": snap.handle.status.as_str(), "statusMessage": snap.handle.status_message, "result": snap.result, "error": snap.error, "inputRequests": snap.input_requests.iter().map(|e| serde_json::json!({ "key": e.key, "method": e.method, "params": e.params,})).collect::<Vec<_>>(),}),
-                    )?;
-                }
+            let out = match op.as_str() {
+                "get" => with_cli_host(&addr, token, false, |h| {
+                    let snap = h.get_task("cli", &task_id)?;
+                    Ok(
+                        serde_json::json!({ "taskId": snap.handle.task_id, "status": snap.handle.status.as_str(), "statusMessage": snap.handle.status_message, "result": snap.result, "error": snap.error, "inputRequests": snap.input_requests.iter().map(|e| serde_json::json!({ "key": e.key, "method": e.method, "params": e.params })).collect::<Vec<_>>() }),
+                    )
+                })?,
                 "update" => {
                     let parsed: serde_json::Value = serde_json::from_str(&responses)
                         .map_err(|e| crate::anyhow::anyhow!("responses must be valid JSON: {e}"))?;
-                    s.update_task(&task_id, &parsed)
-                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                    print_json(&serde_json::json!({ "taskId": task_id, "updated": true }))?;
+                    with_cli_host(&addr, token, false, |h| {
+                        h.update_task("cli", &task_id, &parsed)?;
+                        Ok(serde_json::json!({ "taskId": task_id, "updated": true }))
+                    })?
                 }
-                "cancel" => {
-                    s.cancel_task(&task_id)
-                        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-                    print_json(&serde_json::json!({ "taskId": task_id, "cancelled": true }))?;
-                }
+                "cancel" => with_cli_host(&addr, token, false, |h| {
+                    h.cancel_task("cli", &task_id)?;
+                    Ok(serde_json::json!({ "taskId": task_id, "cancelled": true }))
+                })?,
                 other => {
                     bail!("unsupported task op `{other}` (expected `get`, `update`, or `cancel`)")
                 }
-            }
-            let _ = s.close();
+            };
+            print_json(&out)?;
             Ok(false)
         }
     }
 }
 
-fn open_host_cli_session(
-    addr: &str,
-    token: Option<String>,
-    force_legacy: bool,
-) -> Result<susi_wire_client::mcp::Session> {
+fn with_cli_host<T, F>(target: &str, token: Option<String>, force_legacy: bool, op: F) -> Result<T>
+where
+    F: FnOnce(
+        &mut susi_wire_client::host::McpHost,
+    ) -> std::result::Result<T, susi_wire_client::mcp::WireError>,
+{
+    use std::io::BufReader;
     use std::time::Duration;
-    use susi_wire_client::mcp::Session;
-    let clean = addr
-        .strip_prefix("http://")
-        .or_else(|| addr.strip_prefix("https://"))
-        .unwrap_or(addr)
-        .split('/')
-        .next()
-        .unwrap_or(addr);
-    let bearer = token.or_else(|| default_bearer(clean));
+    use susi_wire_client::host::{DuplexStreams, HostPolicy, HttpEndpoint, McpHost};
+
+    let mut host = McpHost::new();
+    let policy = HostPolicy::strict("susi-cli", env!("CARGO_PKG_VERSION"))
+        .with_tasks(true)
+        .with_apps(true);
     let timeout = Duration::from_secs(20);
-    if force_legacy {
-        return Session::open(clean, bearer.as_deref(), timeout)
-            .map_err(|e| crate::anyhow::anyhow!("{e}"));
+
+    let connect_http = |host: &mut McpHost, raw: &str, tok: Option<String>| -> Result<()> {
+        let clean = raw
+            .strip_prefix("http://")
+            .or_else(|| raw.strip_prefix("https://"))
+            .unwrap_or(raw)
+            .split('/')
+            .next()
+            .unwrap_or(raw);
+        let bearer = tok.or_else(|| default_bearer(clean));
+        let ep = HttpEndpoint {
+            addr: clean,
+            bearer: bearer.as_deref(),
+            timeout,
+        };
+        if force_legacy {
+            host.connect_http_session("cli", ep, policy.clone_meta())
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            return Ok(());
+        }
+        if host
+            .connect_http_2026_07_28("cli", ep, policy.clone_meta())
+            .is_err()
+        {
+            host.connect_http_session("cli", ep, policy.clone_meta())
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+        }
+        Ok(())
+    };
+
+    if is_network_endpoint(target) {
+        connect_http(&mut host, target, token)?;
+    } else {
+        let cfg_text = std::fs::read_to_string(susi_tools::GmcpClient::get_config_path())
+            .map_err(|e| crate::anyhow::anyhow!("read mcp_config.json for `{target}`: {e}"))?;
+        let cfg: susi_tools::McpConfig = serde_json::from_str(&cfg_text)
+            .map_err(|e| crate::anyhow::anyhow!("parse mcp_config.json: {e}"))?;
+        let srv = cfg
+            .mcp_servers
+            .get(target)
+            .ok_or_else(|| crate::anyhow::anyhow!("MCP server `{target}` is not configured"))?;
+        let mac = susi_core::mac_policy::MacPolicy::global();
+        susi_tools::authorize_mcp_transport(srv, mac).map_err(crate::anyhow::Error::msg)?;
+        if srv
+            .http_scope()
+            .map_err(crate::anyhow::Error::msg)?
+            .is_some()
+        {
+            let cfg_tok = token.or_else(|| {
+                srv.extra
+                    .get("auth_token")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+            connect_http(&mut host, &srv.command, cfg_tok)?;
+        } else {
+            let mut child = susi_tools::spawn_authorized_stdio_peer(srv, mac)
+                .map_err(crate::anyhow::Error::msg)?;
+            let out = BufReader::new(
+                child
+                    .stdout
+                    .take()
+                    .ok_or_else(|| crate::anyhow::anyhow!("stdio child missing stdout"))?,
+            );
+            let inp = child
+                .stdin
+                .take()
+                .ok_or_else(|| crate::anyhow::anyhow!("stdio child missing stdin"))?;
+            host.connect_duplex(
+                "cli",
+                DuplexStreams {
+                    reader: Box::new(out),
+                    writer: Box::new(inp),
+                    on_close: Some(Box::new(move || {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    })),
+                },
+                policy,
+            )
+            .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+        }
     }
-    match Session::open_2026_07_28(clean, bearer.as_deref(), timeout) {
-        Ok(s) => Ok(s),
-        Err(_) => Session::open(clean, bearer.as_deref(), timeout)
-            .map_err(|e| crate::anyhow::anyhow!("{e}")),
-    }
+
+    let res = op(&mut host).map_err(|e| crate::anyhow::anyhow!("{e}"));
+    let _ = host.disconnect("cli");
+    res
 }

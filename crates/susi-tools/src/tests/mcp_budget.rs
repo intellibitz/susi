@@ -1,6 +1,5 @@
 use super::*;
 use susi_core::mac_policy::PrivacyMode;
-
 fn server(command: &str, capabilities: Option<Value>) -> McpServerConfig {
     let mut extra = HashMap::new();
     if let Some(c) = capabilities {
@@ -13,34 +12,28 @@ fn server(command: &str, capabilities: Option<Value>) -> McpServerConfig {
         extra,
     }
 }
-
 fn local_only() -> MacPolicy {
     MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, false)
 }
-
 #[test]
 fn subprocess_server_requires_process_exec() {
     let err = authorize_transport(&server("npx", None), &local_only()).unwrap_err();
     assert!(err.contains(actions::PROCESS_EXEC), "{err}");
     assert!(err.contains("`npx`"), "{err}");
-
     let balanced = MacPolicy::new([7u8; 32], PrivacyMode::Balanced, false);
     assert_eq!(authorize_transport(&server("npx", None), &balanced), Ok(()));
-
     let policy = local_only();
     policy
         .grant("susi", actions::PROCESS_EXEC, "npx", None)
         .unwrap();
     assert_eq!(authorize_transport(&server("npx", None), &policy), Ok(()));
 }
-
 #[test]
 fn remote_http_requires_network_egress_but_loopback_does_not() {
     let policy = local_only();
     let err =
         authorize_transport(&server("https://mcp.example.com/mcp", None), &policy).unwrap_err();
     assert!(err.contains(actions::NETWORK_EGRESS), "{err}");
-
     for loopback in [
         "http://127.0.0.1:9090/mcp",
         "http://localhost:9093",
@@ -52,19 +45,16 @@ fn remote_http_requires_network_egress_but_loopback_does_not() {
             "{loopback} must stay local"
         );
     }
-
     let open = MacPolicy::new([7u8; 32], PrivacyMode::Open, false);
     assert_eq!(
         authorize_transport(&server("https://mcp.example.com/mcp", None), &open),
         Ok(())
     );
 }
-
 #[test]
 fn declared_capabilities_are_validated_and_gated() {
     let policy = local_only();
     let local = "http://127.0.0.1:9090/mcp";
-
     assert_eq!(
         authorize_transport(
             &server(local, Some(json!(["tools", "filesystem"]))),
@@ -72,33 +62,26 @@ fn declared_capabilities_are_validated_and_gated() {
         ),
         Ok(())
     );
-
     let err = authorize_transport(&server(local, Some(json!(["network"]))), &policy).unwrap_err();
     assert!(err.contains(actions::NETWORK_EGRESS), "{err}");
-
     let err = authorize_transport(&server(local, Some(json!(["tools", "telepathy"]))), &policy)
         .unwrap_err();
     assert_eq!(err, "MCP capability `telepathy` is not supported");
-
     let err = authorize_transport(&server(local, Some(json!([42]))), &policy).unwrap_err();
     assert_eq!(err, "MCP capability must be a string");
-
     let err = authorize_transport(&server(local, Some(json!("tools"))), &policy).unwrap_err();
     assert_eq!(err, "MCP capabilities must be a list");
-
     assert_eq!(
         authorize_transport(&server(local, Some(json!([]))), &policy),
         Ok(())
     );
 }
-
 #[test]
 fn transport_denial_precedes_capability_validation() {
     let err =
         authorize_transport(&server("npx", Some(json!("not-a-list"))), &local_only()).unwrap_err();
     assert!(err.contains(actions::PROCESS_EXEC), "{err}");
 }
-
 #[test]
 fn balanced_policy_permits_loopback_and_subprocess_with_filesystem_capability() {
     let balanced = MacPolicy::new([9u8; 32], PrivacyMode::Balanced, false);
@@ -110,7 +93,6 @@ fn balanced_policy_permits_loopback_and_subprocess_with_filesystem_capability() 
         Ok(())
     );
 }
-
 #[test]
 fn registered_http_scope_uses_parsed_authority_and_omits_credentials() {
     let mut config = http_config(HashMap::new());
@@ -142,7 +124,6 @@ fn registered_http_scope_uses_parsed_authority_and_omits_credentials() {
         );
     }
 }
-
 fn http_config(extra: HashMap<String, Value>) -> McpServerConfig {
     McpServerConfig {
         command: "http://127.0.0.1:1".to_string(),
@@ -151,7 +132,6 @@ fn http_config(extra: HashMap<String, Value>) -> McpServerConfig {
         extra,
     }
 }
-
 #[test]
 fn connect_failure_cooldown_short_circuits_respawn() {
     let config = McpServerConfig {
@@ -179,7 +159,6 @@ fn connect_failure_cooldown_short_circuits_respawn() {
         .contains("connect cooled after a recent failure"));
     assert!(start.elapsed() < Duration::from_secs(1));
 }
-
 #[test]
 fn http_transport_builds_config_and_fails_closed() {
     let mut extra = HashMap::new();
@@ -193,7 +172,6 @@ fn http_transport_builds_config_and_fails_closed() {
     .expect_err("port 1 must refuse");
     assert!(!err.is_empty());
 }
-
 #[test]
 fn http_transport_rejects_non_string_header_values() {
     let mut extra = HashMap::new();
@@ -206,7 +184,6 @@ fn http_transport_rejects_non_string_header_values() {
     .expect_err("numeric header must be rejected");
     assert!(err.contains("header values must be strings"));
 }
-
 #[test]
 fn http_transport_rejects_invalid_header_names() {
     let mut extra = HashMap::new();
@@ -218,14 +195,12 @@ fn http_transport_rejects_invalid_header_names() {
     )
     .is_err());
 }
-
 #[test]
 fn http_transport_rejects_unparseable_command_url() {
     let mut config = http_config(HashMap::new());
     config.command = "http://".to_string();
     assert!(list_tools_blocking(config, Duration::from_secs(1), Duration::from_secs(1)).is_err());
 }
-
 #[test]
 fn stdio_transport_honours_cwd_workspace_template() {
     let mut extra = HashMap::new();
@@ -238,7 +213,6 @@ fn stdio_transport_honours_cwd_workspace_template() {
     };
     assert!(list_tools_blocking(config, Duration::from_secs(1), Duration::from_secs(1)).is_err());
 }
-
 #[test]
 fn call_blocking_result_returns_errors_not_panics() {
     let config = McpServerConfig {
@@ -256,7 +230,6 @@ fn call_blocking_result_returns_errors_not_panics() {
     );
     assert!(res.is_err());
 }
-
 /// The stdio sink starts its child with `CREATE_NO_WINDOW`, observed in
 /// the child: it is alone in a console of its own (a child without the
 /// flag shares the runner's console) and no window shows that console (a
@@ -291,7 +264,6 @@ fn stdio_child_runs_in_its_own_hidden_console() {
     };
     let mut child = spawn_stdio_command(&config).unwrap();
     drop(child.stdin.take());
-    // Bounded: a test fails, never hangs.
     let deadline = Instant::now() + Duration::from_secs(120);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() > deadline {

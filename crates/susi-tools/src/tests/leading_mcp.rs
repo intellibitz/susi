@@ -1,10 +1,7 @@
 use super::*;
-
 #[test]
 fn mcp_launcher_native_lookup_does_not_execute_or_accept_relative_path() {
     let dir = susi_paths::tempfile::tempdir().unwrap();
-    // Node ships an extensionless Unix shell launcher next to npx.cmd.
-    // Native Windows must choose the .cmd, not try executing that script.
     fs::write(dir.path().join("npx"), "#!/bin/sh\nexit 1\n").unwrap();
     #[cfg(unix)]
     {
@@ -13,7 +10,6 @@ fn mcp_launcher_native_lookup_does_not_execute_or_accept_relative_path() {
     }
     for name in ["npx.cmd", "uvx.exe"] {
         let path = dir.path().join(name);
-        // Deliberately invalid executables: discovery must not run them.
         fs::write(&path, "not an executable program").unwrap();
         #[cfg(unix)]
         {
@@ -31,7 +27,6 @@ fn mcp_launcher_native_lookup_does_not_execute_or_accept_relative_path() {
         resolve_runner_in("missing", std::iter::once(dir.path().to_path_buf()), true).is_none()
     );
 }
-
 #[test]
 fn damaged_user_disabled_list_is_an_error_not_empty() {
     let dir = std::env::temp_dir().join(format!(
@@ -57,14 +52,12 @@ fn damaged_user_disabled_list_is_an_error_not_empty() {
     );
     let _ = fs::remove_dir_all(&dir);
 }
-
 /// A synthetic pack-format catalog row (the shape commercial packs ship
 /// in `leading-mcp.json`); core bundles no real one.
 fn synthetic_definition() -> LeadingMcpDefinition {
     serde_json::from_value(serde_json::json!({ "id": "acme-files", "name": "Acme Files MCP", "rank": 1, "documentation": "https://example.invalid/acme-files", "package": "@example/acme-files-mcp", "runner": "npx", "args": ["-y", "@example/acme-files-mcp", "{workspace}"], "env_keys": ["ACME_TOKEN"], "category": "fs"}))
     .expect("synthetic leading-mcp row")
 }
-
 #[test]
 fn pack_catalog_rows_parse_and_validate() {
     let def = synthetic_definition();
@@ -77,13 +70,8 @@ fn pack_catalog_rows_parse_and_validate() {
     bad.env_keys = vec!["NOT-A-NAME".into()];
     assert!(bad.validate().is_err());
 }
-
 #[test]
 fn expand_workspace_and_env_placeholders() {
-    // Every env writer in this crate's tests holds ENV_LOCK: a concurrent
-    // setenv can make another thread's getenv (HOME / XDG_CONFIG_HOME
-    // path resolution) miss, which sent client::tests' second MCP admit
-    // to a different config file.
     let _env = crate::susi_core::commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -102,7 +90,6 @@ fn expand_workspace_and_env_placeholders() {
     assert_eq!(args[2], "literal");
     std::env::remove_var("SUSI_TEST_PG");
 }
-
 #[test]
 fn expand_workspace_embedded_in_path_args() {
     let args = expand_args(
@@ -111,8 +98,6 @@ fn expand_workspace_embedded_in_path_args() {
     )
     .unwrap();
     assert_eq!(args[1], "/tmp/ws/.susi/agent.sqlite");
-    // {env:} stays exact-match only — secrets must not splice into
-    // compound strings.
     let _env = crate::susi_core::commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -121,7 +106,6 @@ fn expand_workspace_embedded_in_path_args() {
     assert_eq!(args[0], "x-{env:SUSI_TEST_EMBED}");
     std::env::remove_var("SUSI_TEST_EMBED");
 }
-
 #[test]
 fn override_store_round_trip() {
     let root = std::env::temp_dir().join(format!(
@@ -132,8 +116,6 @@ fn override_store_round_trip() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    // Exercise the per-id override store on a synthetic pack row without
-    // touching the user's real catalog or mcp_config.
     let overrides = root.join("overrides");
     let def = synthetic_definition();
     let over = LeadingMcpOverride {
@@ -151,7 +133,6 @@ fn override_store_round_trip() {
     assert!(!overrides.join("acme-files.json").exists());
     let _ = fs::remove_dir_all(root);
 }
-
 /// The explicit admission path from an installed pack: with a synthetic
 /// pack's one-row `leading-mcp.json` loaded, nothing is enabled on its
 /// own; `configure` / `reset` touch only the per-id override; `enable`
@@ -186,7 +167,6 @@ fn manager_admits_a_pack_row_only_on_explicit_request() {
     )
     .unwrap();
     crate::susi_sandbox::extensions::load_pack("acme").unwrap();
-
     let ws = dir.join("ws");
     fs::create_dir_all(&ws).unwrap();
     let ws = ws.canonicalize().unwrap();
@@ -195,7 +175,6 @@ fn manager_admits_a_pack_row_only_on_explicit_request() {
     let mcp_config = GmcpClient::get_config_path();
     assert!(!manager.is_enabled("acme-files").unwrap());
     assert!(!mcp_config.exists(), "nothing is admitted on its own");
-
     let over = LeadingMcpOverride {
         args: Some(vec!["--stdio".into()]),
         ..Default::default()
@@ -210,14 +189,12 @@ fn manager_admits_a_pack_row_only_on_explicit_request() {
     let reset = manager.reset("acme-files").unwrap();
     assert_eq!(reset.args, ["-y", "@example/acme-files-mcp", "{workspace}"]);
     assert!(!overrides.join("acme-files.json").exists());
-
     let srv = manager.enable("acme-files").unwrap();
     assert_eq!(srv.command, bin.display().to_string());
     assert_eq!(srv.args.last().unwrap(), &ws.display().to_string());
     let cfg = GmcpClient::read_mcp_config(&mcp_config).unwrap();
     assert_eq!(cfg.mcp_servers.len(), 1);
     assert!(cfg.mcp_servers.contains_key("acme-files"));
-
     assert!(manager.disable("acme-files").unwrap());
     assert!(GmcpClient::read_mcp_config(&mcp_config)
         .unwrap()
@@ -226,7 +203,6 @@ fn manager_admits_a_pack_row_only_on_explicit_request() {
     assert!(load_user_disabled(&overrides)
         .unwrap()
         .contains(&"acme-files".to_string()));
-
     let admitted = GmcpClient::admit_mcp_server("legacy", &bin.display().to_string(), &[]);
     assert_eq!(admitted, "SUCCESS_ADMITTED");
     let rows = manager.status().unwrap();
@@ -238,7 +214,6 @@ fn manager_admits_a_pack_row_only_on_explicit_request() {
     assert!(manager.disable("legacy").unwrap());
     assert!(manager.disable("not-configured").is_err());
 }
-
 #[test]
 fn enabled_config_launcher_overrides_catalog_runner() {
     let root = std::env::temp_dir().join(format!(

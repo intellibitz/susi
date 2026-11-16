@@ -254,7 +254,7 @@ fn http_jsonrpc_exchange(
     headers: &[(String, String)],
     request_body: &Value,
     timeout: Duration,
-) -> Result<Value, String> {
+) -> Result<(Option<String>, Option<Value>), String> {
     let host_lookup = parsed.host.trim_matches(['[', ']']);
     let sock_addr: SocketAddr = if parsed
         .host
@@ -271,14 +271,13 @@ fn http_jsonrpc_exchange(
             .next()
             .ok_or_else(|| "unable to resolve MCP HTTP host".to_string())?
     };
-    let connect_budget = timeout.min(Duration::from_secs(10));
-    let mut stream =
-        TcpStream::connect_timeout(&sock_addr, connect_budget).map_err(|e| e.to_string())?;
+    let mut stream = TcpStream::connect_timeout(&sock_addr, timeout.min(Duration::from_secs(10)))
+        .map_err(|e| e.to_string())?;
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
     let payload = serde_json::to_vec(request_body).map_err(|e| e.to_string())?;
     let mut req = format!(
-        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: {}\r\n",
+        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n",
         parsed.path, parsed.host, parsed.port, payload.len()
     );
     for (k, v) in headers {
@@ -290,18 +289,80 @@ fn http_jsonrpc_exchange(
         .and_then(|()| stream.write_all(&payload))
         .and_then(|()| stream.flush())
         .map_err(|e| e.to_string())?;
-    let mut raw = String::new();
-    stream.read_to_string(&mut raw).map_err(|e| e.to_string())?;
-    let (_, body) = raw
+    let mut raw = Vec::new();
+    stream
+        .take(16 * 1024 * 1024)
+        .read_to_end(&mut raw)
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&raw);
+    let (head, raw_body) = text
         .split_once("\r\n\r\n")
         .ok_or_else(|| "malformed HTTP response from MCP server".to_string())?;
-    serde_json::from_str::<Value>(body.trim()).map_err(|e| e.to_string())
+    let status: u16 = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| "malformed HTTP status line from MCP server".to_string())?;
+    if status >= 400 {
+        return Err(format!("MCP HTTP {status}: {}", raw_body.trim()));
+    }
+    let mut session_id = None;
+    let mut chunked = false;
+    for line in head.lines().skip(1) {
+        if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("mcp-session-id") {
+                session_id = Some(v.trim().to_string());
+            } else if k.trim().eq_ignore_ascii_case("transfer-encoding")
+                && v.to_ascii_lowercase().contains("chunked")
+            {
+                chunked = true;
+            }
+        }
+    }
+    let body = if chunked {
+        decode_chunked_text(raw_body)
+    } else {
+        raw_body.to_string()
+    };
+    let trimmed = body.trim();
+    if trimmed.is_empty() || status == 202 {
+        return Ok((session_id, None));
+    }
+    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+        return Ok((session_id, Some(val)));
+    }
+    let want_id = request_body.get("id");
+    for line in body.lines() {
+        if let Some(data) = line.strip_prefix("data:") {
+            if let Ok(val) = serde_json::from_str::<Value>(data.trim()) {
+                if want_id.is_none() || val.get("id") == want_id {
+                    return Ok((session_id, Some(val)));
+                }
+            }
+        }
+    }
+    Err("MCP HTTP response carried no matching JSON-RPC payload".to_string())
+}
+
+fn decode_chunked_text(mut input: &str) -> String {
+    let mut out = String::new();
+    while let Some((size_line, rest)) = input.split_once("\r\n") {
+        let hex = size_line.split(';').next().unwrap_or("").trim();
+        let Ok(len) = usize::from_str_radix(hex, 16) else {
+            break;
+        };
+        if len == 0 || rest.len() < len {
+            break;
+        }
+        out.push_str(&rest[..len]);
+        input = rest[len..].strip_prefix("\r\n").unwrap_or(&rest[len..]);
+    }
+    out
 }
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
     let mut command = Command::new(&config.command);
-    // A stdio server is a console program launched unattended (from the
-    // detached daemon too); without this Windows opens a window for it.
     susi_paths::console::without_window(&mut command)
         .args(&config.args)
         .stdin(Stdio::piped())
@@ -417,28 +478,35 @@ fn execute_mcp_rpc(
                 return Err(e);
             }
         };
-        let init_req = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": { "name": "susi", "version": "0.1.0" }
+        let init_req = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"susi","version":"0.1.0"}}});
+        let (sid, init_val) = match http_jsonrpc_exchange(&parsed, &headers, &init_req, handshake) {
+            Ok(pair) => pair,
+            Err(e) => {
+                record_connect_failure(&key);
+                return Err(e);
             }
-        });
-        if let Err(e) = http_jsonrpc_exchange(&parsed, &headers, &init_req, handshake) {
-            record_connect_failure(&key);
-            return Err(e);
-        }
+        };
         clear_connect_failure(&key);
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": method,
-            "params": params
-        });
-        let resp = http_jsonrpc_exchange(&parsed, &headers, &req, lease)?;
+        let mut sess_headers = headers;
+        if let Some(id) = sid {
+            sess_headers.push(("Mcp-Session-Id".to_string(), id));
+        }
+        let ver = init_val
+            .as_ref()
+            .and_then(|v| v.get("result"))
+            .and_then(|r| r.get("protocolVersion"))
+            .and_then(Value::as_str)
+            .unwrap_or("2025-11-25");
+        sess_headers.push(("MCP-Protocol-Version".to_string(), ver.to_string()));
+        let _ = http_jsonrpc_exchange(
+            &parsed,
+            &sess_headers,
+            &json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            handshake,
+        );
+        let req = json!({"jsonrpc":"2.0","id":2,"method":method,"params":params});
+        let (_, resp_opt) = http_jsonrpc_exchange(&parsed, &sess_headers, &req, lease)?;
+        let resp = resp_opt.ok_or_else(|| "MCP HTTP response carried empty body".to_string())?;
         if let Some(err) = resp.get("error") {
             return Err(err.to_string());
         }
@@ -667,6 +735,11 @@ pub(crate) fn list_tools(config_: McpServerConfig) -> Result<Vec<(String, String
         Duration::from_secs(cfg.execution_lease_secs().min(30)),
         Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10)),
     )
+}
+
+/// Enforce `MacPolicy` transport and capability authorization for `server` (`CLAIM-04` / `HOST-002`).
+pub fn authorize_mcp_transport(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
+    authorize_transport(server, policy)
 }
 
 /// Authorize `config` against `policy` (`CLAIM-04` / `HOST-002`) and spawn an

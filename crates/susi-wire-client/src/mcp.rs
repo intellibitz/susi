@@ -57,13 +57,9 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Why a call failed.
 #[derive(Debug)]
 pub enum WireError {
-    /// Connect, send or read failure.
     Io(String),
-    /// A non-2xx status, with an excerpt of the body.
     Http(u16, String),
-    /// The server answered with a JSON-RPC error.
     Rpc(i64, String),
-    /// The reply did not follow the protocol.
     Protocol(String),
 }
 
@@ -92,51 +88,33 @@ pub type ServerRequestHandler<'a> = dyn FnMut(&str, &Value) -> Result<Value, Wir
 
 /// Per-call capabilities, progress correlation, and callbacks for [`Session::request_host`].
 pub struct HostCall<'a> {
-    /// Client capabilities advertised on `2026-07-28` `_meta`.
     pub client_capabilities: &'a Value,
-    /// Optional `_meta.progressToken` correlated on `notifications/progress`.
     pub progress_token: Option<&'a Value>,
-    /// Receiver for server `notifications/*` frames.
     pub on_notification: &'a mut dyn FnMut(&Value),
-    /// Dispatcher for server-to-client MRTR JSON-RPC requests.
     pub on_server_request: &'a mut ServerRequestHandler<'a>,
 }
 
 /// Structured HTTP `401` / `403` `WWW-Authenticate` challenge metadata (`HOST-010`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthChallenge {
-    /// HTTP status code (`401` or `403`).
     pub status: u16,
-    /// Authentication scheme (typically `"Bearer"`).
     pub scheme: String,
-    /// Optional `realm` parameter.
     pub realm: Option<String>,
-    /// Optional RFC 9728 `resource_metadata` discovery URL.
     pub resource_metadata: Option<String>,
-    /// Optional space-delimited `scope` requirement.
     pub scope: Option<String>,
-    /// Optional OAuth 2.1 `error` code (e.g. `"invalid_token"`, `"insufficient_scope"`).
     pub error: Option<String>,
-    /// Optional OAuth 2.1 `error_description`.
     pub error_description: Option<String>,
 }
 
 /// Headless inspection summary of an MCP Apps `ui://` resource (`HOST-009`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppResourceSummary {
-    /// Canonical `ui://` URI read from the server.
     pub uri: String,
-    /// Declared resource MIME type advertised by the server.
     pub mime_type: Option<String>,
-    /// Payload size in bytes (never rendered or executed inside headless Core).
     pub payload_bytes: usize,
-    /// Optional Content-Security-Policy descriptor from `_meta`.
     pub csp: Option<Value>,
-    /// Optional sandbox / capability permissions descriptor from `_meta`.
     pub permissions: Option<Value>,
-    /// Optional app origin/domain hint from `_meta`.
     pub domain: Option<String>,
-    /// Full preserved `_meta` object on the resource content item.
     pub meta: Value,
 }
 
@@ -155,7 +133,6 @@ impl fmt::Debug for SubscriptionStream {
 }
 
 impl SubscriptionStream {
-    /// Whether `notifications/subscriptions/acknowledged` has been observed.
     #[must_use]
     pub fn is_acknowledged(&self) -> bool {
         self.acknowledged
@@ -267,18 +244,12 @@ pub struct Session {
 }
 
 impl Session {
-    /// Connect to `addr` (`host:port`), send `initialize` and
-    /// `notifications/initialized`, and keep the session id and the
-    /// negotiated protocol revision. `timeout` bounds each request. An
-    /// address that resolves to anything but loopback is refused before a
-    /// byte is sent: the bearer travels in plaintext.
     pub fn open(addr: &str, bearer: Option<&str>, timeout: Duration) -> Result<Self, WireError> {
         Self::open_with_capabilities(addr, bearer, &json!({}), timeout)
     }
 
     /// Connect to `addr` (`host:port`) while advertising caller-supplied
     /// `capabilities` (for example namespaced `extensions`) in `initialize`,
-    /// retaining the server's `result.capabilities` for inspection.
     pub fn open_with_capabilities(
         addr: &str,
         bearer: Option<&str>,
@@ -335,7 +306,6 @@ impl Session {
             .header("mcp-session-id")
             .map(str::to_string)
             .ok_or_else(|| WireError::Protocol(format!("{addr} returned no Mcp-Session-Id")))?;
-        // From here on the server holds a session: drop releases it.
         session.open = true;
         let result = read_result(init, 1, &mut |_| {})?;
         session.version = negotiated_version(&result)?;
@@ -347,16 +317,11 @@ impl Session {
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        // Only the status matters (GMCP answers 202 with no body); the
-        // reply is dropped unread, as the peer client does.
         session.post(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         Ok(session)
     }
 
     /// Connect to `addr` (`host:port`) on the stateless `2026-07-28` MCP path,
-    /// running `server/discover` without opening or holding a legacy session.
-    /// An address that resolves to anything but loopback is refused before a
-    /// byte is sent.
     pub fn open_2026_07_28(
         addr: &str,
         bearer: Option<&str>,
@@ -804,7 +769,6 @@ impl Session {
     /// Execute a host-mode JSON-RPC request that delivers every `notifications/*`
     /// frame (correlating `notifications/progress` to `progress_token` when set)
     /// and dispatches live server-to-client MRTR requests (`roots/list`,
-    /// `sampling/createMessage`, `elicitation/create`) via `call.on_server_request`.
     pub fn request_host(
         &mut self,
         method: &str,
@@ -932,7 +896,6 @@ impl Session {
     }
 
     /// Return canonical capability discovery document (`server/discover` on `2026-07-28`,
-    /// or retained `initialize` snapshot on stateful sessions).
     pub fn discover(&mut self) -> Result<Value, WireError> {
         if self.version == PROTOCOL_VERSION_2026_07_28 {
             let mut doc = self.request_with_capabilities(
@@ -1019,7 +982,6 @@ impl Session {
     }
 
     /// Subscribe to resource updates (`resources/subscribe` on `2025-11-25`..`2025-03-26`,
-    /// or tracked URI set for `subscriptions/listen` on `2026-07-28`, `HOST-005`).
     pub fn subscribe_resource(&mut self, uri: &str) -> Result<(), WireError> {
         if uri.trim().is_empty() {
             return Err(WireError::Protocol("resource URI must be non-empty".into()));
@@ -1290,8 +1252,6 @@ impl Session {
             Some(Instant::now() + budget),
         )
         .map_err(WireError::Io)?;
-        // Only the status matters: the body is never read whole, at most a
-        // short excerpt for the error.
         if (200..300).contains(&response.status) || response.status == 405 {
             Ok(())
         } else {
@@ -1398,7 +1358,6 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
-    /// Canonical wire string for this task status.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -1444,8 +1403,6 @@ pub struct TaskHandle {
 }
 
 impl TaskHandle {
-    /// Parse a task handle from a `CreateTaskResult` or `GetTaskResult` JSON
-    /// value, validating `resultType` against `expected_result_type`.
     pub fn from_value(value: &Value, expected_result_type: &str) -> Result<Self, WireError> {
         let result_type = value.get("resultType").and_then(Value::as_str);
         if result_type != Some(expected_result_type) {
@@ -1495,7 +1452,6 @@ pub struct TaskSnapshot {
 }
 
 impl TaskSnapshot {
-    /// Parse and validate a `GetTaskResult` payload (`resultType: "complete"`).
     pub fn from_get_result(value: &Value) -> Result<Self, WireError> {
         let handle = TaskHandle::from_value(value, "complete")?;
         let input_requests = parse_input_requests(value.get("inputRequests"))?;
@@ -1530,11 +1486,10 @@ pub struct PersistedTaskHandle {
     pub last_updated_at: String,
     pub ttl_ms: Option<u64>,
     pub poll_interval_ms: Option<u64>,
+    pub extra: Map<String, Value>,
 }
 
 impl PersistedTaskHandle {
-    /// Build a persistable record from `addr`, negotiated `protocol_version`,
-    /// and a server-issued [`TaskHandle`].
     #[must_use]
     pub fn from_handle(addr: &str, protocol_version: &str, handle: &TaskHandle) -> Self {
         Self {
@@ -1547,17 +1502,61 @@ impl PersistedTaskHandle {
             last_updated_at: handle.last_updated_at.clone(),
             ttl_ms: handle.ttl_ms,
             poll_interval_ms: handle.poll_interval_ms,
+            extra: Map::new(),
+        }
+    }
+
+    /// Reconstruct a live [`TaskHandle`] from this persisted record for crash/restart resume.
+    #[must_use]
+    pub fn to_task_handle(&self) -> TaskHandle {
+        TaskHandle {
+            task_id: self.task_id.clone(),
+            status: self.status,
+            status_message: self.status_message.clone(),
+            created_at: self.created_at.clone(),
+            last_updated_at: self.last_updated_at.clone(),
+            ttl_ms: self.ttl_ms,
+            poll_interval_ms: self.poll_interval_ms,
         }
     }
 
     fn to_json(&self) -> Value {
-        json!({ "addr": self.addr, "taskId": self.task_id, "protocolVersion": self.protocol_version, "status": self.status.as_str(), "statusMessage": self.status_message, "createdAt": self.created_at, "lastUpdatedAt": self.last_updated_at, "ttlMs": self.ttl_ms, "pollIntervalMs": self.poll_interval_ms,})
+        let mut map = self.extra.clone();
+        map.insert("addr".into(), json!(self.addr));
+        map.insert("taskId".into(), json!(self.task_id));
+        map.insert("protocolVersion".into(), json!(self.protocol_version));
+        map.insert("status".into(), json!(self.status.as_str()));
+        map.insert("statusMessage".into(), json!(self.status_message));
+        map.insert("createdAt".into(), json!(self.created_at));
+        map.insert("lastUpdatedAt".into(), json!(self.last_updated_at));
+        map.insert("ttlMs".into(), json!(self.ttl_ms));
+        map.insert("pollIntervalMs".into(), json!(self.poll_interval_ms));
+        Value::Object(map)
     }
 
     fn from_json(value: &Value) -> Result<Self, WireError> {
         let addr = required_nonempty_str(value, "addr")?;
         let protocol_version = required_nonempty_str(value, "protocolVersion")?;
         let handle = TaskHandle::from_fields(value)?;
+        let mut extra = Map::new();
+        if let Some(obj) = value.as_object() {
+            for (k, v) in obj {
+                if !matches!(
+                    k.as_str(),
+                    "addr"
+                        | "taskId"
+                        | "protocolVersion"
+                        | "status"
+                        | "statusMessage"
+                        | "createdAt"
+                        | "lastUpdatedAt"
+                        | "ttlMs"
+                        | "pollIntervalMs"
+                ) {
+                    extra.insert(k.clone(), v.clone());
+                }
+            }
+        }
         Ok(Self {
             addr,
             task_id: handle.task_id,
@@ -1568,6 +1567,7 @@ impl PersistedTaskHandle {
             last_updated_at: handle.last_updated_at,
             ttl_ms: handle.ttl_ms,
             poll_interval_ms: handle.poll_interval_ms,
+            extra,
         })
     }
 }
@@ -1580,8 +1580,6 @@ pub struct PersistedTaskHandleStore {
 }
 
 impl PersistedTaskHandleStore {
-    /// Open an existing store file or prepare a new empty store if `path` does
-    /// not exist. Fails closed on corrupted or schema-invalid JSON.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, WireError> {
         let path = path.into();
         let bytes = match fs::read(&path) {
@@ -1973,11 +1971,8 @@ fn negotiated_version(result: &Value) -> Result<String, WireError> {
 
 /// What one JSON-RPC message means for the request `id`.
 enum Frame {
-    /// The response to `id`: its result or its error.
     Answer(Result<Value, WireError>),
-    /// A progress or log notification for the caller.
     Notification,
-    /// Anything else: other ids, server requests, other notifications.
     Other,
 }
 
@@ -2025,8 +2020,6 @@ fn read_result<R: io::BufRead>(
         .header("content-type")
         .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("text/event-stream"));
     if streaming {
-        // An event stream may run long (progress on a long mission): each
-        // event is capped by the SSE reader instead of the whole stream.
         return sse_result(BufReader::new(response.body), id, on_notification);
     }
     let mut bytes = Vec::new();

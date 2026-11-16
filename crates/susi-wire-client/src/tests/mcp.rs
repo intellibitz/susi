@@ -2,13 +2,11 @@ use super::*;
 use std::io::Write;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
-
 fn sse(body: &str, id: u64) -> (Result<Value, WireError>, Vec<Value>) {
     let mut seen = Vec::new();
     let result = sse_result(body.as_bytes(), id, &mut |n| seen.push(n.clone()));
     (result, seen)
 }
-
 #[test]
 fn sse_picks_matching_id_skips_control_frames_and_relays_progress() {
     let body = "data: \nid: 0\nretry: 3000\n\n\
@@ -33,7 +31,6 @@ fn sse_picks_matching_id_skips_control_frames_and_relays_progress() {
         ]
     );
 }
-
 #[test]
 fn sse_surfaces_rpc_errors() {
     let body = "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}";
@@ -45,19 +42,16 @@ fn sse_surfaces_rpc_errors() {
         other => panic!("expected an rpc error, got {other:?}"),
     }
 }
-
 #[test]
 fn sse_misses_when_no_frame_matches() {
     let (result, _) = sse("data: {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{}}", 2);
     assert!(matches!(result, Err(WireError::Protocol(_))));
 }
-
 #[test]
 fn sse_joins_multiline_data_fields() {
     let body = "data: {\"jsonrpc\":\"2.0\",\ndata: \"id\":2,\"result\":{\"ok\":true}}\n\n";
     assert_eq!(sse(body, 2).0.unwrap(), json!({"ok": true}));
 }
-
 #[test]
 fn server_requests_sharing_an_id_are_not_responses() {
     let body = "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"elicitation/create\"}\n\n\
@@ -66,7 +60,6 @@ fn server_requests_sharing_an_id_are_not_responses() {
     assert_eq!(result.unwrap(), json!({}));
     assert!(seen.is_empty());
 }
-
 #[test]
 fn json_bodies_are_matched_and_sniffed() {
     let read =
@@ -77,12 +70,10 @@ fn json_bodies_are_matched_and_sniffed() {
     let other_id =
             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{}}";
     assert!(read(other_id).is_err());
-    // No event-stream content type, but the body is SSE: sniffed.
     let sniffed =
         b"HTTP/1.1 200 OK\r\n\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"x\":1}}\n\n";
     assert_eq!(read(sniffed).unwrap(), json!({"x": 1}));
 }
-
 #[test]
 fn negotiation_accepts_only_spoken_versions() {
     assert_eq!(
@@ -92,7 +83,6 @@ fn negotiation_accepts_only_spoken_versions() {
     assert!(negotiated_version(&json!({"protocolVersion": "1999-01-01"})).is_err());
     assert!(negotiated_version(&json!({})).is_err());
 }
-
 #[test]
 fn addresses_split_into_host_and_port() {
     assert_eq!(
@@ -104,7 +94,6 @@ fn addresses_split_into_host_and_port() {
     assert!(split_addr(":9093").is_err());
     assert!(split_addr("host:port").is_err());
 }
-
 #[test]
 fn only_loopback_addresses_are_accepted() {
     assert!(ensure_loopback("127.0.0.1", 9093).is_ok());
@@ -113,11 +102,9 @@ fn only_loopback_addresses_are_accepted() {
         let err = ensure_loopback(remote, 9093).unwrap_err();
         assert!(err.to_string().contains("not a loopback"), "{err}");
     }
-    // Refused before any connection: nothing listens on TEST-NET-1.
     let err = Session::open("192.0.2.1:9093", Some("tok"), Duration::from_secs(5)).unwrap_err();
     assert!(matches!(err, WireError::Protocol(_)), "{err}");
 }
-
 /// The release reads only the status: a huge error body costs a short
 /// excerpt, not the whole body.
 #[test]
@@ -142,7 +129,6 @@ fn release_reads_only_a_short_excerpt_of_the_reply() {
     }
     drop(server);
 }
-
 #[test]
 fn errors_display_their_cause() {
     assert_eq!(WireError::Http(401, String::new()).to_string(), "HTTP 401");
@@ -155,10 +141,8 @@ fn errors_display_their_cause() {
         "rpc error -32602: Unknown tool"
     );
 }
-
 /// One recorded request: method, headers (lower-cased names), body.
 type Seen = Arc<Mutex<Vec<(String, Vec<(String, String)>, String)>>>;
-
 /// A scripted Streamable HTTP server: answers each connection with the
 /// next canned reply and records what the client sent.
 fn scripted(replies: Vec<&'static str>) -> (String, Seen, std::thread::JoinHandle<()>) {
@@ -201,7 +185,6 @@ fn scripted(replies: Vec<&'static str>) -> (String, Seen, std::thread::JoinHandl
     });
     (addr, seen, handle)
 }
-
 #[test]
 fn session_handshakes_calls_with_progress_and_releases() {
     let (addr, seen, server) = scripted(vec![
@@ -225,7 +208,6 @@ fn session_handshakes_calls_with_progress_and_releases() {
     assert_eq!(progress, 1);
     session.close().unwrap();
     server.join().unwrap();
-
     let seen = seen.lock().unwrap();
     let methods: Vec<&str> = seen.iter().map(|(m, _, _)| m.as_str()).collect();
     assert_eq!(methods, ["POST", "POST", "POST", "DELETE"]);
@@ -250,7 +232,6 @@ fn session_handshakes_calls_with_progress_and_releases() {
     assert_eq!(call["params"]["name"], "echo");
     assert_eq!(call["params"]["_meta"]["progressToken"], "p1");
 }
-
 #[test]
 fn unsupported_version_fails_and_still_releases_the_session() {
     let (addr, seen, server) = scripted(vec![
@@ -265,7 +246,6 @@ fn unsupported_version_fails_and_still_releases_the_session() {
     assert_eq!(seen.last().map(|(m, _, _)| m.as_str()), Some("DELETE"));
     assert!(seen[0].1.iter().all(|(k, _)| k != "authorization"));
 }
-
 #[test]
 fn http_errors_carry_status_and_body() {
     let (addr, _, server) = scripted(vec![
@@ -277,7 +257,6 @@ fn http_errors_carry_status_and_body() {
     }
     server.join().unwrap();
 }
-
 /// A server that keeps the stream alive with comments but never answers
 /// is cut off at the call's total budget, not kept open by each byte.
 #[test]
@@ -307,7 +286,6 @@ fn keep_alive_comments_do_not_extend_the_budget() {
     );
     assert!(err.to_string().contains("time budget"), "{err}");
 }
-
 /// A peer that accepts and never answers costs the caller's short
 /// budget, not the 20-second handshake default.
 #[test]
@@ -328,7 +306,6 @@ fn a_short_budget_bounds_the_handshake_too() {
         started.elapsed()
     );
 }
-
 #[test]
 fn open_with_capabilities_exchanges_and_retains_server_extensions() {
     let (addr, seen, server) = scripted(vec![
@@ -348,7 +325,6 @@ fn open_with_capabilities_exchanges_and_retains_server_extensions() {
     assert!(session.server_capabilities().get("extensions").is_some());
     session.close().unwrap();
     server.join().unwrap();
-
     let seen = seen.lock().unwrap();
     let init: Value = serde_json::from_str(&seen[0].2).unwrap();
     assert_eq!(init["params"]["capabilities"], client_caps);
@@ -360,7 +336,6 @@ fn open_with_capabilities_exchanges_and_retains_server_extensions() {
     )
     .is_err());
 }
-
 #[test]
 fn open_2026_07_28_discovers_statelessly_and_detects_tasks_extension() {
     let (addr, seen, server) = scripted(vec![
@@ -372,7 +347,6 @@ fn open_2026_07_28_discovers_statelessly_and_detects_tasks_extension() {
     assert!(session.supports_server_tasks());
     drop(session); // Must not issue DELETE /mcp when stateless.
     server.join().unwrap();
-
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].0, "POST");
@@ -395,7 +369,6 @@ fn open_2026_07_28_discovers_statelessly_and_detects_tasks_extension() {
         json!({})
     );
 }
-
 #[test]
 fn open_2026_07_28_rejects_missing_version_advertisement() {
     let (addr, _seen, server) = scripted(vec![
@@ -406,7 +379,6 @@ fn open_2026_07_28_rejects_missing_version_advertisement() {
     assert!(matches!(err, WireError::Protocol(_)), "{err}");
     server.join().unwrap();
 }
-
 #[test]
 fn call_tool_with_tasks_gates_capability_and_rejects_unexpected_task_result() {
     let (addr, seen, server) = scripted(vec![
@@ -420,25 +392,19 @@ fn call_tool_with_tasks_gates_capability_and_rejects_unexpected_task_result() {
              {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"task\",\"taskId\":\"task-list\",\"status\":\"working\",\"createdAt\":\"2026-11-15T00:00:00Z\",\"lastUpdatedAt\":\"2026-11-15T00:00:00Z\"}}",
         ]);
     let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
-
     let outcome = session
         .call_tool_with_tasks("mission_run", &json!({"x": 1}), true, &mut |_| {})
         .unwrap();
     assert!(matches!(outcome, CallToolOutcome::Task(ref h) if h.task_id == "task-abc"));
-
-    // Follow-up without opt-in must omit tasks capability and reject forged CreateTaskResult.
     let forged_err = session
         .call_tool_with_tasks("mission_run", &json!({"x": 2}), false, &mut |_| {})
         .unwrap_err();
     assert!(matches!(forged_err, WireError::Protocol(_)), "{forged_err}");
-
-    // Non-tools/call returning CreateTaskResult must also fail closed.
     let list_err = session
         .request("tools/list", &json!({}), &mut |_| {})
         .unwrap_err();
     assert!(matches!(list_err, WireError::Protocol(_)), "{list_err}");
     server.join().unwrap();
-
     let seen = seen.lock().unwrap();
     let req2: Value = serde_json::from_str(&seen[1].2).unwrap();
     let req3: Value = serde_json::from_str(&seen[2].2).unwrap();
@@ -460,7 +426,6 @@ fn call_tool_with_tasks_gates_capability_and_rejects_unexpected_task_result() {
         json!({})
     );
 }
-
 #[test]
 fn task_rpcs_inject_mcp_name_and_retry_only_idempotent_transient_failures() {
     let (addr, seen, server) = scripted(vec![
@@ -479,8 +444,6 @@ fn task_rpcs_inject_mcp_name_and_retry_only_idempotent_transient_failures() {
     let mut session = Session::open_2026_07_28(&addr, None, Duration::from_secs(5)).unwrap();
     let snap = session.get_task("t-9").unwrap();
     assert_eq!(snap.handle.status, TaskStatus::Working);
-
-    // tasks/update must NOT retry on transient 503.
     let update_err = session
         .update_task("t-9", &json!({"req-1": {"ok": true}}))
         .unwrap_err();
@@ -488,15 +451,10 @@ fn task_rpcs_inject_mcp_name_and_retry_only_idempotent_transient_failures() {
         matches!(update_err, WireError::Http(503, _)),
         "{update_err}"
     );
-
-    // tasks/cancel IS idempotent and retries 503 -> 200.
     session.cancel_task("t-9").unwrap();
-
-    // 400 JSON-RPC error (-32021) parses into WireError::Rpc without retrying.
     let rpc_err = session.get_task("t-9").unwrap_err();
     assert!(matches!(rpc_err, WireError::Rpc(-32021, _)), "{rpc_err}");
     server.join().unwrap();
-
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 7);
     for entry in &seen[1..] {
@@ -507,10 +465,8 @@ fn task_rpcs_inject_mcp_name_and_retry_only_idempotent_transient_failures() {
         );
     }
 }
-
 #[test]
 fn poll_task_until_done_handles_mrtr_honors_poll_interval_and_rejects_reuse_or_ttl() {
-    // Multi-round-trip flow: working -> input_required (roots/list) -> completed
     let (addr, _seen, server) = scripted(vec![
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
@@ -543,8 +499,6 @@ fn poll_task_until_done_handles_mrtr_honors_poll_interval_and_rejects_reuse_or_t
     assert_eq!(done.handle.status, TaskStatus::Completed);
     assert_eq!(done.result.unwrap()["content"][0]["text"], "done");
     server.join().unwrap();
-
-    // Reuse of already-answered inputRequests key fails closed.
     let (addr2, _seen2, server2) = scripted(vec![
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
@@ -568,12 +522,8 @@ fn poll_task_until_done_handles_mrtr_honors_poll_interval_and_rejects_reuse_or_t
         .unwrap_err();
     assert!(matches!(reuse_err, WireError::Protocol(_)), "{reuse_err}");
     server2.join().unwrap();
-
-    // Disallowed MRTR method is rejected.
     let bad_snap = json!({ "resultType": "complete", "taskId": "t-bad", "status": "input_required", "createdAt": "t0", "lastUpdatedAt": "t1", "inputRequests": { "evil": { "method": "tools/call", "params": {}}}});
     assert!(TaskSnapshot::from_get_result(&bad_snap).is_err());
-
-    // ttlMs deadline stops infinite working loops before sleeping past ttlMs.
     let (addr3, _seen3, server3) = scripted(vec![
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
@@ -596,7 +546,6 @@ fn poll_task_until_done_handles_mrtr_honors_poll_interval_and_rejects_reuse_or_t
     assert!(matches!(ttl_err, WireError::Protocol(_)), "{ttl_err}");
     server3.join().unwrap();
 }
-
 #[test]
 fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption() {
     let dir = std::env::temp_dir().join(format!(
@@ -610,7 +559,6 @@ fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption()
     let path = dir.join("handles.json");
     let mut store = PersistedTaskHandleStore::open(&path).unwrap();
     assert!(store.list().is_empty());
-
     let handle = TaskHandle {
         task_id: "task-persist-1".into(),
         status: TaskStatus::Working,
@@ -628,12 +576,10 @@ fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption()
         ))
         .unwrap();
     drop(store);
-
     let mut reopened = PersistedTaskHandleStore::open(&path).unwrap();
     let entry = reopened.get("task-persist-1").unwrap();
     assert_eq!(entry.addr, "127.0.0.1:8080");
     assert_eq!(entry.status, TaskStatus::Working);
-
     let snap = TaskSnapshot::from_get_result(&json!({ "resultType": "complete", "taskId": "task-persist-1", "status": "completed", "statusMessage": "done", "createdAt": "2026-11-15T00:00:00Z", "lastUpdatedAt": "2026-11-15T00:00:05Z", "ttlMs": 60_000, "result": {"ok": true}}))
     .unwrap();
     assert!(reopened.update_from_snapshot(&snap).unwrap());
@@ -650,8 +596,6 @@ fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption()
         .unwrap()
         .list()
         .is_empty());
-
-    // Corrupt JSON must fail closed instead of wiping store.
     fs::write(&path, b"{broken json").unwrap();
     assert!(matches!(
         PersistedTaskHandleStore::open(&path),
@@ -659,26 +603,21 @@ fn persisted_task_handle_store_survives_restart_and_fails_closed_on_corruption()
     ));
     let _ = fs::remove_dir_all(&dir);
 }
-
 #[test]
 fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelled() {
     let (addr, _seen, server) = scripted(vec![
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}}}}",
-            // 1. Direct synchronous CallToolResult
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"content\":[{\"type\":\"text\",\"text\":\"sync-direct\"}],\"isError\":false}}",
-            // 2. CreateTaskResult -> Completed with isError: true (must return Ok(CallToolResult))
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-tool-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-tool-err\",\"status\":\"completed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"tool-fault\"}],\"isError\":true}}}",
-            // 3. CreateTaskResult -> Failed (must surface structured WireError::Rpc)
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-rpc-err\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"resultType\":\"complete\",\"taskId\":\"t-rpc-err\",\"status\":\"failed\",\"statusMessage\":\"rpc crashed\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t1\",\"ttlMs\":5000,\"error\":{\"code\":-32603,\"message\":\"downstream crash\"}}}",
-            // 4. CreateTaskResult -> Cancelled (must surface WireError::Protocol)
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
              {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"task\",\"taskId\":\"t-cancel\",\"status\":\"working\",\"createdAt\":\"t0\",\"lastUpdatedAt\":\"t0\",\"ttlMs\":5000,\"pollIntervalMs\":5}}",
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
@@ -689,13 +628,11 @@ fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelle
         .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
         .unwrap();
     assert_eq!(direct["content"][0]["text"], "sync-direct");
-
     let tool_err = session
         .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
         .unwrap();
     assert_eq!(tool_err["isError"], json!(true));
     assert_eq!(tool_err["content"][0]["text"], "tool-fault");
-
     let rpc_err = session
         .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
         .unwrap_err();
@@ -703,7 +640,6 @@ fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelle
         matches!(&rpc_err, WireError::Rpc(-32603, msg) if msg == "downstream crash"),
         "{rpc_err:?}"
     );
-
     let cancel_err = session
         .call_tool_resolving_tasks("echo", &json!({}), None, |_| Ok(json!({})))
         .unwrap_err();
@@ -713,7 +649,6 @@ fn call_tool_resolving_tasks_bridges_sync_completed_is_error_failed_and_cancelle
     );
     server.join().unwrap();
 }
-
 #[test]
 fn task_ack_and_task_id_validation_reject_forged_result_types_and_control_chars() {
     let (addr, _seen, server) = scripted(vec![

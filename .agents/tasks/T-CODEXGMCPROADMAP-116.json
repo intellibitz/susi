@@ -19,5 +19,32 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "in_progress",
+  "base_commit": "7a533a0a42787171d667acb2e2c91cd5c9168990",
+  "limitations": [
+    "Integration stage (`GMCP-203-017-03`) wires `susi mcp` CLI host commands through registered `mcp_config.json` HTTP and stdio servers under `MacPolicy` (`authorize_mcp_transport` + `spawn_authorized_stdio_peer`), adds Mandate 35 unknown-field retention and `McpHost::resume_persisted_task` / `update_task` crash-restart migration, and verifies parity across direct, SDK, daemon HTTP, gateway, and CLI entry points; adversarial, interop, operations, and `.M` mastery ship across `T-CODEXGMCPROADMAP-117..120`.",
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, Core ships headless MCP host protocol integration while interactive Apps viewports live in Susi Commercial Apps, and `.agents/gmcp/evidence/VC-203-017.jsonl` plus `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "extend",
+    "searched": [
+      "src/cli/mcp_cli.rs",
+      "crates/susi-wire-client/src/host.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-tools/src/mcp_budget.rs",
+      "crates/susi-gmcp/src/sdk.rs"
+    ],
+    "target": "src/cli/mcp_cli.rs",
+    "why": "Wired `susi mcp` host subcommands through `McpHost`, `GmcpClient` `mcp_config.json`, and `authorize_mcp_transport` / `spawn_authorized_stdio_peer`, and added `McpHost::resume_persisted_task` + Mandate 35 `PersistedTaskHandle.extra` preservation without adding workspace or external dependencies."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "crates/susi-tools/src",
+    "crates/susi-wire-client/src",
+    "src/cli/mcp_cli.rs",
+    "tests/gmcp_requirements"
+  ]
 }

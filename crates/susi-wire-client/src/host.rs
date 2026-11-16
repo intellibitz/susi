@@ -47,7 +47,6 @@ pub struct RootEntry {
 }
 
 impl RootEntry {
-    /// Construct and validate a confined `file://` root URI.
     pub fn new(uri: impl Into<String>, name: Option<String>) -> Result<Self, WireError> {
         let uri = uri.into();
         if !uri.starts_with("file://") {
@@ -103,7 +102,6 @@ impl fmt::Debug for HostPolicy {
 }
 
 impl HostPolicy {
-    /// Create a default zero-trust policy (no roots, sampling, elicitation, or extensions advertised).
     #[must_use]
     pub fn strict(name: impl Into<String>, version: impl Into<String>) -> Self {
         Self {
@@ -113,6 +111,19 @@ impl HostPolicy {
                 principal: None,
             },
             ..Self::default()
+        }
+    }
+
+    #[must_use]
+    pub fn clone_meta(&self) -> Self {
+        Self {
+            identity: self.identity.clone(),
+            roots: self.roots.clone(),
+            sampling: None,
+            elicitation: None,
+            enable_tasks: self.enable_tasks,
+            enable_apps: self.enable_apps,
+            extra_extensions: self.extra_extensions.clone(),
         }
     }
 
@@ -164,7 +175,6 @@ impl HostPolicy {
         self
     }
 
-    /// Construct the exact `ClientCapabilities` JSON object advertised to this server.
     #[must_use]
     pub fn advertised_capabilities(&self) -> Value {
         let mut caps = Map::new();
@@ -190,7 +200,6 @@ impl HostPolicy {
         Value::Object(caps)
     }
 
-    /// Dispatch a single server-to-client MRTR request against this server's policy.
     pub fn dispatch_mrtr(&mut self, method: &str, params: &Value) -> Result<Value, WireError> {
         match method {
             "roots/list" => {
@@ -234,7 +243,6 @@ impl HostPolicy {
         }
     }
 
-    /// Fulfill a batch of `2026-07-28` MRTR `InputRequestEntry` items (`HOST-007`, `HOST-008`).
     pub fn fulfill_input_requests(
         &mut self,
         entries: &[InputRequestEntry],
@@ -611,7 +619,6 @@ impl McpHost {
         Ok(())
     }
 
-    /// Connect a stateless `2026-07-28` Streamable HTTP server under `server_id`.
     pub fn connect_http_2026_07_28(
         &mut self,
         server_id: impl Into<String>,
@@ -634,7 +641,6 @@ impl McpHost {
         Ok(summary)
     }
 
-    /// Connect a stateful `2025-11-25`..`2025-03-26` Streamable HTTP server under `server_id`.
     pub fn connect_http_session(
         &mut self,
         server_id: impl Into<String>,
@@ -664,7 +670,6 @@ impl McpHost {
         Ok(summary)
     }
 
-    /// Connect a line-delimited JSON-RPC 2.0 stdio or duplex server under `server_id`.
     pub fn connect_duplex(
         &mut self,
         server_id: impl Into<String>,
@@ -713,7 +718,6 @@ impl McpHost {
         self.servers.keys().cloned().collect()
     }
 
-    /// Inspectable snapshot of all connected servers (`HOST-012`, `HOST-013`).
     #[must_use]
     pub fn snapshot(&self) -> Value {
         let entries: Vec<Value> = self.servers.iter().map(|(id, srv)| {
@@ -856,36 +860,67 @@ impl McpHost {
                 if let Some(store) = &mut srv.task_store {
                     let _ = store.update_from_snapshot(&snapshot)?;
                 }
-                match snapshot.handle.status {
-                    TaskStatus::Completed => snapshot
-                        .result
-                        .ok_or_else(|| WireError::Protocol("completed task missing result".into())),
-                    TaskStatus::Failed => {
-                        let code = snapshot
-                            .error
-                            .as_ref()
-                            .and_then(|e| e.get("code"))
-                            .and_then(Value::as_i64)
-                            .unwrap_or(-32603);
-                        let msg = snapshot
-                            .error
-                            .as_ref()
-                            .and_then(|e| e.get("message"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("task failed")
-                            .to_string();
-                        Err(WireError::Rpc(code, msg))
-                    }
-                    other @ (TaskStatus::Working
-                    | TaskStatus::InputRequired
-                    | TaskStatus::Cancelled) => Err(WireError::Protocol(format!(
-                        "task {} settled in non-completed status {}",
-                        snapshot.handle.task_id,
-                        other.as_str()
-                    ))),
-                }
+                settle_task_snapshot(snapshot)
             }
         }
+    }
+
+    pub fn resume_persisted_task(
+        &mut self,
+        server_id: &str,
+        task_id: &str,
+        max_wait: Option<Duration>,
+    ) -> Result<Value, WireError> {
+        let srv = self.srv_mut(server_id)?;
+        if !srv.policy.enable_tasks {
+            return Err(WireError::Protocol(format!(
+                "tasks are not enabled on host policy for `{server_id}`"
+            )));
+        }
+        let persisted = srv
+            .task_store
+            .as_ref()
+            .and_then(|st| st.get(task_id))
+            .cloned()
+            .ok_or_else(|| {
+                WireError::Protocol(format!(
+                    "persisted task `{task_id}` not found on `{server_id}`"
+                ))
+            })?;
+        let PeerBackend::Http(s, addr) = &mut srv.backend else {
+            return Err(WireError::Protocol(
+                "ext-tasks resume requires an HTTP session".into(),
+            ));
+        };
+        if persisted.addr != *addr {
+            return Err(WireError::Protocol(format!(
+                "persisted task `{task_id}` bound to `{}`, cannot resume against `{addr}`",
+                persisted.addr
+            )));
+        }
+        let handle = persisted.to_task_handle();
+        let policy_ref = &mut srv.policy;
+        let snapshot = s.poll_task_until_done(&handle, max_wait, |entries| {
+            policy_ref.fulfill_input_requests(entries)
+        })?;
+        if let Some(store) = &mut srv.task_store {
+            let _ = store.update_from_snapshot(&snapshot)?;
+        }
+        settle_task_snapshot(snapshot)
+    }
+
+    pub fn update_task(
+        &mut self,
+        server_id: &str,
+        task_id: &str,
+        input_responses: &Value,
+    ) -> Result<(), WireError> {
+        let PeerBackend::Http(s, _) = &mut self.srv_mut(server_id)?.backend else {
+            return Err(WireError::Protocol(
+                "tasks/update requires HTTP session".into(),
+            ));
+        };
+        s.update_task(task_id, input_responses)
     }
 
     pub fn start_task_tool(
@@ -1135,5 +1170,36 @@ impl McpHost {
 
     pub fn drain_notifications(&mut self, server_id: &str) -> Result<Vec<Value>, WireError> {
         Ok(std::mem::take(&mut self.srv_mut(server_id)?.notifications))
+    }
+}
+
+fn settle_task_snapshot(snapshot: TaskSnapshot) -> Result<Value, WireError> {
+    match snapshot.handle.status {
+        TaskStatus::Completed => snapshot
+            .result
+            .ok_or_else(|| WireError::Protocol("completed task missing result".into())),
+        TaskStatus::Failed => {
+            let code = snapshot
+                .error
+                .as_ref()
+                .and_then(|e| e.get("code"))
+                .and_then(Value::as_i64)
+                .unwrap_or(-32603);
+            let msg = snapshot
+                .error
+                .as_ref()
+                .and_then(|e| e.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("task failed")
+                .to_string();
+            Err(WireError::Rpc(code, msg))
+        }
+        other @ (TaskStatus::Working | TaskStatus::InputRequired | TaskStatus::Cancelled) => {
+            Err(WireError::Protocol(format!(
+                "task {} settled in non-completed status {}",
+                snapshot.handle.task_id,
+                other.as_str()
+            )))
+        }
     }
 }
