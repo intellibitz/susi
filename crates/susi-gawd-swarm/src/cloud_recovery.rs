@@ -284,35 +284,40 @@ pub(crate) fn recover_with_chat(
     // reborrow and the caller's `&mut` stays usable after the scope ends.
     let report_ref = &mut *report;
     let tool_scope = crate::susi_core::scoped_tools::current();
+    let cancel = tool_scope
+        .as_ref()
+        .and_then(|_| crate::susi_core::progress::current_cancel());
     let outcome = std::thread::scope(|scope| {
         scope
             .spawn(move || {
-                crate::susi_core::scoped_tools::with_scope(tool_scope, || -> EaiResult<()> {
-                    // The workspace-keyed session map resolves the *last*
-                    // activated session — a concurrent mission on the same
-                    // workspace would steal this mission's receipt writes or
-                    // fail its citation checks. Enter the mission's own
-                    // session scope so `for_workspace` resolves it first.
-                    let _evidence_scope =
-                        crate::susi_core::capture::EvidenceSession::enter(session);
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| EaiError::internal(e.to_string()))?;
-                    runtime.block_on(recover_with_providers_chat(
-                        report_ref,
-                        registry,
-                        providers,
-                        workspace,
-                        Duration::from_secs(60),
-                        true,
-                        model_hint,
-                        generative,
-                        requires,
-                        chat,
-                        allow_agent_delegation,
-                    ));
-                    Ok(())
+                crate::susi_core::scoped_tools::with_scope(tool_scope, || {
+                    crate::susi_core::progress::with_cancel(cancel, || -> EaiResult<()> {
+                        // The workspace-keyed session map resolves the *last*
+                        // activated session — a concurrent mission on the same
+                        // workspace would steal this mission's receipt writes or
+                        // fail its citation checks. Enter the mission's own
+                        // session scope so `for_workspace` resolves it first.
+                        let _evidence_scope =
+                            crate::susi_core::capture::EvidenceSession::enter(session);
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| EaiError::internal(e.to_string()))?;
+                        runtime.block_on(recover_with_providers_chat(
+                            report_ref,
+                            registry,
+                            providers,
+                            workspace,
+                            Duration::from_secs(60),
+                            true,
+                            model_hint,
+                            generative,
+                            requires,
+                            chat,
+                            allow_agent_delegation,
+                        ));
+                        Ok(())
+                    })
                 })
             })
             .join()
@@ -675,6 +680,9 @@ async fn recover_with_providers_chat(
             let evidence = tool_scope
                 .as_ref()
                 .and_then(|_| crate::susi_core::capture::EvidenceSession::current());
+            let cancel = tool_scope
+                .as_ref()
+                .and_then(|_| crate::susi_core::progress::current_cancel());
             // Local rungs get a floor far above the failover budget: the
             // local-first ladder admits 30B-class MoE GGUFs whose CPU decode
             // is ~1-3 tok/s, so loading plus a 256-token recovery answer can
@@ -684,13 +692,13 @@ async fn recover_with_providers_chat(
             let local = tokio::time::timeout(timeout.max(LOCAL_ATTEMPT_TIMEOUT), async {
                 let raw = tokio::task::spawn_blocking(move || crate::susi_core::scoped_tools::with_scope(tool_scope.clone(), || {
                     let _evidence = tool_scope.as_ref().map(|_| crate::susi_core::capture::EvidenceSession::enter(evidence));
-                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_full_chat(
+                    crate::susi_core::progress::with_cancel(cancel, || crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_full_chat(
                         &prompt,
                         &workspace_owned,
                         attempted_model.as_deref(),
                         requires_owned.as_deref(),
                         chat_owned,
-                    )
+                    ))
                 }))
                 .await
                 .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;

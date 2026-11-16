@@ -34,6 +34,9 @@ where
     let evidence = tools
         .as_ref()
         .and_then(|_| crate::capture::EvidenceSession::current());
+    let cancel = tools
+        .as_ref()
+        .and_then(|_| crate::progress::current_cancel());
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
@@ -41,7 +44,7 @@ where
                     let _evidence = tools
                         .as_ref()
                         .map(|_| crate::capture::EvidenceSession::enter(evidence.clone()));
-                    loop {
+                    crate::progress::with_cancel(cancel.clone(), || loop {
                         let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
                         let Some((index, item)) = next else {
                             break;
@@ -51,7 +54,7 @@ where
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .push((index, result));
-                    }
+                    })
                 })
             });
         }

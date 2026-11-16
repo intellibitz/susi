@@ -141,3 +141,60 @@ fn scoped_tools_pass_both_tokens_to_blocking_owner() {
     assert!(parent.load(Ordering::Acquire));
     assert!(!child.load(Ordering::Acquire));
 }
+
+#[test]
+fn scoped_tools_parallel_workers_keep_child_cancellation_separate_from_turn() {
+    let (provider, scope, parent) = probe("ok");
+    let child = Arc::new(AtomicBool::new(false));
+    with_scope(Some(scope), || {
+        crate::progress::with_cancel(Some(child.clone()), || {
+            // Cancelling through the handed-off child token suppresses the
+            // provider result, without cancelling the wider session turn.
+            let results = crate::parallel::map((0..16).collect(), |_| {
+                assert!(Arc::ptr_eq(
+                    &crate::progress::current_cancel().unwrap(),
+                    &child
+                ));
+                current()
+                    .unwrap()
+                    .call("probe", &json!({"cancel":true}), Path::new("."), None)
+            });
+            assert!(results.iter().all(Result::is_err));
+            assert!(child.load(Ordering::Acquire));
+            assert!(!parent.load(Ordering::Acquire));
+            let calls = provider.calls.load(Ordering::Acquire);
+            assert!(calls > 0);
+            // The original turn still binds when its child remains live.
+            child.store(false, Ordering::Release);
+            parent.store(true, Ordering::Release);
+            let results = crate::parallel::map((0..16).collect(), |_| {
+                assert!(Arc::ptr_eq(
+                    &crate::progress::current_cancel().unwrap(),
+                    &child
+                ));
+                current()
+                    .unwrap()
+                    .call("probe", &json!({}), Path::new("."), None)
+            });
+            assert!(results.iter().all(Result::is_err));
+            assert!(!child.load(Ordering::Acquire));
+            assert_eq!(provider.calls.load(Ordering::Acquire), calls);
+        })
+    });
+    assert!(crate::progress::current_cancel().is_none());
+}
+
+#[test]
+fn scoped_tools_parallel_handoff_leaves_unscoped_worker_behavior_unchanged() {
+    if crate::parallel::threads() < 2 {
+        return;
+    }
+    let cancel = Arc::new(AtomicBool::new(true));
+    crate::progress::with_cancel(Some(cancel), || {
+        let inherited = crate::parallel::map((0..16).collect(), |_| {
+            crate::progress::current_cancel().is_some()
+        });
+        assert_eq!(inherited, vec![false; 16]);
+        assert!(crate::progress::is_cancelled());
+    });
+}
