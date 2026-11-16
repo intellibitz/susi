@@ -1,0 +1,31 @@
+{
+  "id": "T-CLAUDEFINISHMAIN-1",
+  "title": "Mandate 83 records that workflow finish works for a claim kept on main",
+  "goal": "Vision: V-8. workflow finish now publishes the close receipt with the release in one commit on main for a claim kept there (commercial T-CLAUDEFINISHMAIN-1). Make docs/ceo-mandate-83.md say so.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_mandate_83"
+    ]
+  },
+  "created_by": "CLAUDEFINISHMAIN",
+  "created_unix": 1794831156,
+  "closed": {
+    "at_unix": 1794831292,
+    "commit": "c04fec9eedf85c883bea136eebd76bfd274dc948",
+    "by": "CLAUDEFINISHMAIN"
+  },
+  "limitations": [
+    "Wording only in this repository; the tool change is in intellibitz/susi-commercial-apps. Core's own finish script uses the same deferral switches and was not run from a cloud session.",
+    "Main is unqualified development, not a release."
+  ],
+  "scopes": [
+    "docs/ceo-mandate-83.md"
+  ]
+}

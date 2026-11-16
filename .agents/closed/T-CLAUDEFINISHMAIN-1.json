@@ -1,0 +1,10 @@
+{
+  "branch": "claude-finish-main",
+  "task": "T-CLAUDEFINISHMAIN-1",
+  "agent": "CLAUDEFINISHMAIN",
+  "head": "c04fec9eedf85c883bea136eebd76bfd274dc948",
+  "closed_unix": 1794831292,
+  "scopes": [
+    "docs/ceo-mandate-83.md"
+  ]
+}
