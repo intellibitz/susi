@@ -91,6 +91,10 @@ fn call_with_revision(
     arguments: &Value,
     cwd: Option<&Path>,
 ) -> EaiResult<(Value, Option<String>)> {
+    #[cfg(test)]
+    if let Some(result) = fixture::dispatch(name, arguments, cwd) {
+        return result;
+    }
     if name.is_empty() || !arguments.is_object() {
         return Err(EaiError::config(
             "MCP tool name and object arguments are required",
@@ -423,3 +427,7 @@ pub(crate) fn call_text_in(name: &str, arguments: &Value, cwd: &Path) -> EaiResu
 #[cfg(test)]
 #[path = "tests/tool_backend.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/tool_backend_fixture.rs"]
+pub(crate) mod fixture;

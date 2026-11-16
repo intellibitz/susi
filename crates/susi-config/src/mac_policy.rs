@@ -121,6 +121,7 @@ pub mod actions {
     pub const FILESYSTEM_READ: &str = "filesystem.read";
     pub const FILESYSTEM_WRITE: &str = "filesystem.write";
     pub const PROCESS_EXEC: &str = "process.exec";
+    pub const PROCESS_ENV_INHERIT: &str = "process.env_inherit";
     pub const SANDBOX_EXEC: &str = "sandbox.exec";
     pub const NETWORK_EGRESS: &str = "network.egress";
     pub const TRANSMIT: &str = "transmit";

@@ -181,9 +181,12 @@ fn decode_chunked_text(mut input: &str) -> String {
 }
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
-    susi_config::mcp::prepare_stdio_command(config)
-        .spawn()
-        .map_err(|error| error.to_string())
+    let mut command = if config.extra.contains_key("inherit_parent_env") {
+        susi_config::mcp::prepare_authorized_stdio_command(config, MacPolicy::global())?
+    } else {
+        susi_config::mcp::prepare_stdio_command(config)
+    };
+    command.spawn().map_err(|error| error.to_string())
 }
 
 fn read_jsonrpc_response(

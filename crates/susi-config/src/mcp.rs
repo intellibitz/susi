@@ -3,11 +3,12 @@
 use crate::mac_policy::{actions, MacPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
     net::IpAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -27,6 +28,9 @@ pub struct GlobalMcpEntry {
 /// One configured MCP server: a stdio command (`command` + `args`, optional
 /// `env`, `extra.cwd`) or a streamable-HTTP URL in `command`
 /// (`extra.auth_token`, `extra.headers`).
+/// `extra.native_command` may carry a canonical native path whose permission
+/// identity is `command`; parent environment inheritance requires an explicit
+/// flag and an exact executable capability in addition to execution permission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
     pub command: String,
@@ -200,6 +204,7 @@ impl McpServerConfig {
 /// Enforce transport and declared capability permissions before dispatch.
 pub fn authorize_mcp_transport(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
     let endpoint = server.http_scope()?;
+    let program = stdio_program(server)?;
     let resource = endpoint
         .as_ref()
         .map_or(server.command.as_str(), |(url, _)| url.as_str());
@@ -216,6 +221,24 @@ pub fn authorize_mcp_transport(server: &McpServerConfig, policy: &MacPolicy) -> 
         None => require(actions::PROCESS_EXEC)?,
         Some((_, false)) => require(actions::NETWORK_EGRESS)?,
         Some((_, true)) => {}
+    }
+    if inherits_parent_environment(server)? {
+        let path = program.as_path();
+        if endpoint.is_some()
+            || !path.is_absolute()
+            || !path.is_file()
+            || fs::canonicalize(path).ok().as_deref() != Some(path)
+        {
+            return Err("MCP parent environment requires a canonical local executable".into());
+        }
+        if !policy.grants_for("susi").iter().any(|token| {
+            token.action == actions::PROCESS_ENV_INHERIT && token.resource == server.command
+        }) {
+            return Err(format!(
+                "MCP access denied: `{resource}` requires an exact `{}` grant",
+                actions::PROCESS_ENV_INHERIT
+            ));
+        }
     }
     if let Some(declared) = server.extra.get("capabilities") {
         for capability in declared
@@ -235,6 +258,42 @@ pub fn authorize_mcp_transport(server: &McpServerConfig, policy: &MacPolicy) -> 
         }
     }
     Ok(())
+}
+
+/// Stable ASCII permission identity for a lossless native executable path DTO.
+pub fn native_executable_identity(path: &Path) -> Result<String, String> {
+    let encoded = susi_paths::native_path::encode(path)?;
+    let bytes = serde_json::to_vec(&encoded).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "native-executable:sha256:{}",
+        susi_paths::hex::encode(Sha256::digest(bytes))
+    ))
+}
+
+fn stdio_program(config: &McpServerConfig) -> Result<PathBuf, String> {
+    let Some(encoded) = config.extra.get("native_command") else {
+        return Ok(PathBuf::from(&config.command));
+    };
+    if config.http_scope()?.is_some() {
+        return Err("HTTP MCP peers cannot declare a native executable".into());
+    }
+    let path = susi_paths::native_path::decode(encoded)?;
+    if !path.is_absolute()
+        || !path.is_file()
+        || fs::canonicalize(&path).ok().as_deref() != Some(path.as_path())
+        || native_executable_identity(&path)? != config.command
+    {
+        return Err("MCP native executable identity or canonical path does not match".into());
+    }
+    Ok(path)
+}
+
+fn inherits_parent_environment(config: &McpServerConfig) -> Result<bool, String> {
+    match config.extra.get("inherit_parent_env") {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        _ => Err("MCP inherit_parent_env must be a boolean".into()),
+    }
 }
 
 fn is_valid_header_name(name: &str) -> bool {
@@ -276,24 +335,42 @@ pub fn prepare_authorized_stdio_command(
         return Err("spawn_authorized_stdio_peer requires a stdio command, not an HTTP URL".into());
     }
     authorize_mcp_transport(config, policy)?;
-    Ok(prepare_stdio_command(config))
+    Ok(stdio_command(
+        config,
+        false,
+        inherits_parent_environment(config)?,
+        &stdio_program(config)?,
+    ))
 }
 
 /// Prepare stored configuration without performing policy authorization.
 /// Transport owners must authorize before dispatch, or use
 /// [`prepare_authorized_stdio_command`] to perform both steps.
 pub fn prepare_stdio_command(config: &McpServerConfig) -> Command {
-    stdio_command(config, false)
+    match stdio_program(config) {
+        Ok(program) => stdio_command(config, false, false, &program),
+        // Preserve this infallible preparation API while refusing malformed
+        // native identities at spawn. Authorized callers receive the error.
+        Err(_) => Command::new(""),
+    }
 }
 
-fn stdio_command(config: &McpServerConfig, literal_environment: bool) -> Command {
-    let mut command = Command::new(&config.command);
+fn stdio_command(
+    config: &McpServerConfig,
+    literal_environment: bool,
+    inherit_parent: bool,
+    program: &Path,
+) -> Command {
+    let mut command = Command::new(program);
     susi_paths::console::without_window(&mut command)
         .args(&config.args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     command.env_clear();
+    if inherit_parent {
+        command.envs(std::env::vars_os());
+    }
     susi_paths::test_env::inherit_registry_isolation(&mut command);
     for key in [
         "PATH",
@@ -369,11 +446,14 @@ pub fn authorized_stdio_command_literal(
     config: &McpServerConfig,
     policy: &MacPolicy,
 ) -> Result<Command, String> {
+    if inherits_parent_environment(config)? {
+        return Err("client-supplied MCP peers cannot inherit the parent environment".into());
+    }
     if config.parse_http_url()?.is_some() {
         return Err("stdio MCP requires an executable, not an HTTP URL".into());
     }
     authorize_mcp_transport(config, policy)?;
-    Ok(stdio_command(config, true))
+    Ok(stdio_command(config, true, false, &stdio_program(config)?))
 }
 
 #[cfg(test)]
@@ -679,5 +759,124 @@ mod tests {
         );
         assert!(!environment.contains_key(std::ffi::OsStr::new("FIXTURE_UNDECLARED")));
         assert!(prepare_authorized_stdio_command(&config, &local_only()).is_err());
+    }
+
+    #[test]
+    fn parent_environment_requires_explicit_exact_executable_admission() {
+        let executable = fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let mut config = server(executable.to_str().unwrap(), None);
+        let policy = local_only();
+        config
+            .extra
+            .insert("inherit_parent_env".into(), json!(true));
+        assert!(prepare_authorized_stdio_command(&config, &policy).is_err());
+        policy
+            .grant("susi", actions::PROCESS_EXEC, &config.command, None)
+            .unwrap();
+        assert!(prepare_authorized_stdio_command(&config, &policy).is_err());
+        policy
+            .grant("susi", actions::PROCESS_ENV_INHERIT, "*", None)
+            .unwrap();
+        assert!(prepare_authorized_stdio_command(&config, &policy).is_err());
+        policy
+            .grant("susi", actions::PROCESS_ENV_INHERIT, &config.command, None)
+            .unwrap();
+        let command = prepare_authorized_stdio_command(&config, &policy).unwrap();
+        let environment: HashMap<_, _> = command.get_envs().collect();
+        // Compare without printing environment values, which may be sensitive.
+        assert!(std::env::vars_os().all(|(key, value)| {
+            susi_paths::console::NON_INTERACTIVE_ENV
+                .iter()
+                .any(|(name, _)| key == *name)
+                || environment
+                    .get(key.as_os_str())
+                    .is_some_and(|actual| *actual == Some(value.as_os_str()))
+        }));
+        assert!(authorized_stdio_command_literal(&config, &policy).is_err());
+        policy
+            .revoke("susi", actions::PROCESS_ENV_INHERIT, &config.command)
+            .unwrap();
+        assert!(prepare_authorized_stdio_command(&config, &policy).is_err());
+        config.command = "http://127.0.0.1:9/mcp".into();
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
+        config.command = "relative-peer".into();
+        policy
+            .grant("susi", actions::PROCESS_EXEC, &config.command, None)
+            .unwrap();
+        policy
+            .grant("susi", actions::PROCESS_ENV_INHERIT, &config.command, None)
+            .unwrap();
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
+        config
+            .extra
+            .insert("inherit_parent_env".into(), json!("true"));
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn native_executable_identity_binds_lossless_path_and_exact_permissions() {
+        let root = susi_paths::tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        let name = {
+            use std::os::unix::ffi::OsStringExt;
+            std::ffi::OsString::from_vec(b"peer-\xff".to_vec())
+        };
+        #[cfg(windows)]
+        let name = {
+            use std::os::windows::ffi::OsStringExt;
+            std::ffi::OsString::from_wide(&[112, 101, 101, 114, 0xd800, 46, 101, 120, 101])
+        };
+        let path = root.path().join(name);
+        fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+        let path = fs::canonicalize(path).unwrap();
+        assert!(path.to_str().is_none());
+        let identity = native_executable_identity(&path).unwrap();
+        assert!(identity.is_ascii());
+        let mut config = server(&identity, None);
+        config.args.push("--help".into());
+        config.extra.insert(
+            "native_command".into(),
+            susi_paths::native_path::encode(&path).unwrap(),
+        );
+        config
+            .extra
+            .insert("inherit_parent_env".into(), json!(true));
+        let policy = local_only();
+        policy
+            .grant("susi", actions::PROCESS_EXEC, &identity, None)
+            .unwrap();
+        assert!(prepare_authorized_stdio_command(&config, &policy).is_err());
+        policy
+            .grant("susi", actions::PROCESS_ENV_INHERIT, &identity, None)
+            .unwrap();
+        let mut command = prepare_authorized_stdio_command(&config, &policy).unwrap();
+        assert_eq!(command.get_program(), path.as_os_str());
+        #[cfg(unix)]
+        {
+            // libtest parses argv[0] as Unicode; that is unrelated to the
+            // native executable path passed to the OS by Command.
+            use std::os::unix::process::CommandExt;
+            command.arg0("native-path-fixture");
+        }
+        #[cfg(unix)]
+        assert!(command.output().unwrap().status.success());
+        #[cfg(windows)]
+        {
+            // Windows Command has no argv[0] override. Qualify OS launch;
+            // product CLI behavior is covered by the installed-layout test.
+            command.spawn().unwrap().wait().unwrap();
+        }
+        config.command.push('0');
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
+        assert!(prepare_stdio_command(&config).spawn().is_err());
+        config.command = "http://127.0.0.1:9/mcp".into();
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
+        config.command = identity;
+        config.extra.insert(
+            "native_command".into(),
+            json!({"platform":"unknown","units":[]}),
+        );
+        assert!(authorize_mcp_transport(&config, &policy).is_err());
     }
 }

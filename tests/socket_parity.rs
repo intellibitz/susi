@@ -378,7 +378,7 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "harness scorecard",
-        "rebuilt natively in pure Rust (`susi_harness::rsi_scorecard`), reading local git commits, merge refs, and lifecycle ledger directly from the CLI",
+        "local workflow contract: the CLI resolves the installed Rust scorecard implementation through the authorized workflow_harness_v1 MCP tool",
     ),
     (
         "mcp serve",
