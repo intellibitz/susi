@@ -1,0 +1,29 @@
+{
+  "id": "T-CLAUDEPUSHABANDON-1",
+  "title": "Core's push policy admits the task queue's refs/abandoned records",
+  "goal": "Vision: V-9. Found while clearing the orphaned reservation by CEO direction 2026-11-16: core's pre-push policy admits the queue's metadata blobs (refs/claims, refs/claim-agents, refs/claim-generation, refs/closed) but not refs/abandoned, the record of why an accepted task was given up. So tasks release --abandon failed in every core checkout, on laptops too, with unsupported ref namespace. Admit refs/abandoned as the same kind of blob, and pin it in the policy's test.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "native_push_policy",
+      "metadata_blob"
+    ]
+  },
+  "created_by": "CLAUDEPUSHABANDON",
+  "created_unix": 1794833836,
+  "scopes": [
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "limitations": [
+    "Admits the namespace on the local transport check only; whether the remote accepts the push is the remote's own decision (a cloud session's storage refuses it).",
+    "Main is unqualified development, not a release."
+  ]
+}

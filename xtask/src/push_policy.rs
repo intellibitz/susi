@@ -350,12 +350,14 @@ pub fn validate(root: &Path, input: &str, push_url: Option<&str>) -> Result<(), 
             "refs/claim-agents/",
             "refs/claim-generation/",
             "refs/closed/",
+            "refs/abandoned/",
         ]
         .iter()
         .any(|prefix| remote.starts_with(prefix))
         {
-            // Task leases, the claim generation counter and close receipts are
-            // blobs, not source branches. `susi tasks claim` moves
+            // Task leases, the claim generation counter, close receipts and
+            // the record of why an accepted task was given up are blobs, not
+            // source branches. `susi tasks claim` moves
             // refs/claim-generation/current in the same atomic push as the
             // claim; refusing it refused every claim. Their coordinator owns
             // authorization and leases; transport must not build.
