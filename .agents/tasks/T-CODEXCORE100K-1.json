@@ -40,7 +40,8 @@
     "T-CODEX100KACPEVENTE2E-1",
     "T-CODEX100KACPEVENTBRIDGE-1",
     "T-CODEX100KMODELSHA1-1",
-    "T-CODEX100KWORKERTOOLS-1"
+    "T-CODEX100KWORKERTOOLS-1",
+    "T-CODEX100KHTTPWRITE-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -96,17 +97,19 @@
     ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json",
     ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
     ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
-    ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json"
+    ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json",
+    ".agents/evidence/core-under-100k/2026-11-16-http-write-token.json",
+    ".agents/evidence/core-under-100k/2026-11-16-http-write-integrated.json"
   ],
   "progress": {
-    "runtime_rust": 301355,
+    "runtime_rust": 301283,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 307809,
-    "genuine_runtime_lines_removed": 2505,
-    "remaining_to_remove": 207810,
+    "complete_socket_rust": 307737,
+    "genuine_runtime_lines_removed": 2577,
+    "remaining_to_remove": 207738,
     "upstream_runtime_lines_added": 84,
     "correctness_lines_added": 104,
-    "net_runtime_lines_removed": -594,
+    "net_runtime_lines_removed": -522,
     "standards_compatibility_lines_added": 2995
   },
   "publication_cadence": {

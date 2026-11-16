@@ -1,0 +1,126 @@
+{
+  "task": "T-CODEXCORE100K-1",
+  "component_task": "T-CODEX100KHTTPWRITE-1",
+  "vision": "V-6",
+  "checked_unix": 1794836550,
+  "source_commit": "b619238f2ba04fbad34d70ab68652f8c6112e005",
+  "component_source": "4c611791783d7c0a21c924d593990641a32ca249",
+  "goal_met": false,
+  "release_qualification_claimed": false,
+  "change": "Share three identical AsyncWrite/Hyper Write forwarding implementations and the existing server/client RFC token predicate. No public API, dependency, parser policy, platform or test changes.",
+  "source_parity": {
+    "base": "c92012b8d81a55989920d46d216904c7ce4585b2",
+    "three_write_method_bodies_identical_ignoring_indentation": true,
+    "methods_per_impl": 5,
+    "generic_bound": "AsyncWrite + Unpin; PrefixedIo generic I renamed T only",
+    "shared_token_body_identical_to_old_server": true,
+    "existing_test_tails_byte_identical": true,
+    "files": {
+      "crates/susi-http-transport/src/http_conn.rs": {
+        "old_lines": 545,
+        "new_lines": 496,
+        "removed": 49,
+        "base_sha256": "99d11209d302ab7039b87ba263a09703348cdfdace0e2c64a1d5bdc2eac54a0f",
+        "source_sha256": "c16345b4483dc75117b321ff634f8546024661d6c41923f147a8f7fb3832852a"
+      },
+      "crates/susi-http-transport/src/lib.rs": {
+        "old_lines": 93,
+        "new_lines": 101,
+        "removed": -8,
+        "base_sha256": "a2015cc0dd84bac186f8d4ce97e7728da5b1b84c9f1c8fb817f206580d66e451",
+        "source_sha256": "69466fd05c4c74339ccc3017c32cea2994adca321d6cc9977baef86b8d1077d8"
+      },
+      "crates/susi-http-transport/src/server.rs": {
+        "old_lines": 2343,
+        "new_lines": 2337,
+        "removed": 6,
+        "base_sha256": "8b3f9c25823d2f9fccbf93c7b93c912ec0471fb9bdb4759ccecfa653d991b462",
+        "source_sha256": "02db94f66d7423f51205679528f53888cd9dfa3a36b2407b1df0755943d2e130"
+      },
+      "crates/susi-http-transport/src/wire.rs": {
+        "old_lines": 579,
+        "new_lines": 554,
+        "removed": 25,
+        "base_sha256": "a14bb52801d1d5a2be241567760ba583b7df8e12a45466e44ff4ad7a08054ec5",
+        "source_sha256": "c4ef7f4a1843e3c819e9b5dec9f0b7dd346b26a182d692c07ca6d75bddbe4240"
+      }
+    },
+    "runtime_lines_removed": 72
+  },
+  "parent_validation": {
+    "package_tests": {
+      "command": "cargo test --offline --locked -p susi-http-transport",
+      "passed": 48,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.12,
+      "doctests_executed": 0
+    },
+    "token_differential": {
+      "comparisons": 1194242,
+      "status": "passed"
+    },
+    "source_review": "Parent checked exact four-Rust-file diff, reproduced all 15 method bodies ignoring indentation and preserved test tails, then regenerated/compiled actual old/new Rust token functions and ran the full byte/scalar corpus.",
+    "strict_clippy": "cargo clippy --offline --locked -p susi-http-transport --all-targets -- -D warnings passed",
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "socket_boundary_tests": 1,
+    "socket_parity_tests": 6,
+    "task_record_tests": 3,
+    "platform": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false
+  },
+  "size": {
+    "before_complete_socket_rust": 307809,
+    "runtime_rust": 301283,
+    "vendor_facade_rust": 6454,
+    "complete_socket_rust": 307737,
+    "runtime_lines_removed": 72,
+    "remaining_to_remove": 207738,
+    "strict_limit": 100000,
+    "test_rust": 136790,
+    "tooling_rust": 72174,
+    "command": "cargo core-size",
+    "executed": 1,
+    "failed": 1,
+    "counting_contract_changed": false
+  },
+  "broad_rewrite": "Full Hyper replacement was not attempted: chunk grammar, header order, blocking TLS, timeout, HTTP/2 admission and shutdown contracts require separate equivalence work. No 400-800-line reduction claim.",
+  "component_evidence": ".agents/evidence/core-under-100k/2026-11-16-http-write-token.json",
+  "board_read": {
+    "last_item": 1838,
+    "findings": [],
+    "requests": [],
+    "stops": [],
+    "messages_posted": false
+  },
+  "logs": {
+    "source": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-source.log",
+      "sha256": "70ebfeb55056c84e3a233797384db25f65c62d9074f0e3f4903b7fbca92aba75"
+    },
+    "tests": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-tests.log",
+      "sha256": "a2b036f0ccbfa76c0d0497307820d50980d0623ee450197f6ef7a24c4f13b3ad"
+    },
+    "clippy": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-clippy.log",
+      "sha256": "54f5f62d4954ed1741cc1aa3c8112eeff7f2593e9dca887712eb611f48252ad2"
+    },
+    "differential": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-differential.log",
+      "sha256": "35f614e9c854c988cbc52690d03aede6febd64d875eb6f4aaf9f01c7de1936bb"
+    },
+    "boundaries": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-boundaries.log",
+      "sha256": "05f432b11a722de4e7c826257c377e1cd2682edf2da05bb1c224c86abcf8fec1"
+    },
+    "fmt": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "size": {
+      "path": "/workspace/codex/core-100k-state/logs/http-write-parent-size.log",
+      "sha256": "83bf8a4a28e247b71612554303b574df54b2d47a2e74d6678b57ed7bf4c2c24a"
+    }
+  }
+}
