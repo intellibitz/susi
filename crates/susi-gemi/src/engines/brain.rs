@@ -1025,7 +1025,7 @@ pub fn rank_with_quota(
 pub fn apply_mission_verdicts(workspace: &std::path::Path) {
     use std::time::SystemTime;
     static SEEN: Mutex<BTreeMap<PathBuf, Option<SystemTime>>> = Mutex::new(BTreeMap::new());
-    let traces = workspace.join(".susi").join("mission_traces.jsonl");
+    let traces = susi_paths::workspace_state_dir(workspace).join("mission_traces.jsonl");
     let mtime = std::fs::metadata(&traces).and_then(|m| m.modified()).ok();
     {
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());

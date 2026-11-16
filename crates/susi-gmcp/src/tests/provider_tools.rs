@@ -22,6 +22,7 @@ fn sent(result: EaiResult<String>) -> Value {
 
 #[test]
 fn provider_tools_forward_their_action_and_typed_arguments() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
     let ws = Path::new(".");
     let list = sent(CoreTools::provider_list(&json!({"vendor": "frontier"}), ws));
@@ -92,6 +93,7 @@ fn provider_tools_forward_their_action_and_typed_arguments() {
 
 #[test]
 fn provider_setup_reset_pull_and_prefer_forward_expected_actions() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
     let ws = Path::new(".");
     assert_eq!(
@@ -123,6 +125,7 @@ fn provider_setup_reset_pull_and_prefer_forward_expected_actions() {
 
 #[test]
 fn keys_prefer_check_and_models_forward_vendor_and_clear_flags() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
     let ws = Path::new(".");
     assert_eq!(
@@ -144,6 +147,7 @@ fn keys_prefer_check_and_models_forward_vendor_and_clear_flags() {
 
 #[test]
 fn brain_classify_explain_matrix_cache_reset_and_probe_forward_expected_actions() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
     let ws = Path::new(".");
     assert_eq!(
@@ -177,6 +181,7 @@ fn brain_classify_explain_matrix_cache_reset_and_probe_forward_expected_actions(
 
 #[test]
 fn brain_status_and_provider_models_forward_optional_filters_and_limits() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
     let ws = Path::new(".");
     assert_eq!(

@@ -111,7 +111,7 @@ pub const ACCESS_SPLIT_TRAINING: &str = "training";
 pub const ACCESS_SPLIT_MEMORY: &str = "memory";
 
 fn access_log_path(workspace: &std::path::Path) -> std::path::PathBuf {
-    workspace.join(".susi").join("eval_access_log.jsonl")
+    susi_paths::workspace_state_dir(workspace).join("eval_access_log.jsonl")
 }
 
 /// Append one fixture read to `workspace/.susi/eval_access_log.jsonl`
@@ -135,7 +135,7 @@ pub fn record_access(
             "eval access fixture id must be nonblank".to_string(),
         ));
     }
-    let susi_dir = workspace.join(".susi");
+    let susi_dir = susi_paths::workspace_state_dir(workspace);
     std::fs::create_dir_all(&susi_dir)
         .map_err(|e| EaiError::filesystem(format!("eval access dir create failed: {e}")))?;
     let mut line = serde_json::to_vec(&AccessRecord {

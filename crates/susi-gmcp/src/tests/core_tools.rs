@@ -117,6 +117,7 @@ mod inference_routing_tool_tests {
     /// former HTTP placement query enforced hold on this tool.
     #[test]
     fn inference_placement_accepts_constraints_and_refuses_malformed_ones() {
+        let _isolated = crate::test_isolation::enter_isolated_home();
         PlaneBus::global().register(topics::GEMI_ROUTING_PLAN, Arc::new(EchoPlan));
         let ws = Path::new(".");
         let planned: serde_json::Value = serde_json::from_str(

@@ -15,6 +15,7 @@ fn sent(result: EaiResult<String>) -> Value {
 
 #[test]
 fn harness_tools_require_and_confine_the_repository() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let ledger = ws.join("susi-harness-tool-l.jsonl");
@@ -93,6 +94,7 @@ fn harness_tools_require_and_confine_the_repository() {
 
 #[test]
 fn harness_models_forwards_mode_provider_and_optional_repo() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let out = sent(CoreTools::harness_models(
@@ -106,6 +108,7 @@ fn harness_models_forwards_mode_provider_and_optional_repo() {
 
 #[test]
 fn harness_author_requires_repo_and_confines_out_and_roadmap_paths() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     assert!(CoreTools::harness_author(&json!({"vector": "VC-1"}), &ws)
@@ -134,6 +137,7 @@ fn harness_author_requires_repo_and_confines_out_and_roadmap_paths() {
 
 #[test]
 fn harness_budget_confines_optional_ledger_and_repo_arguments() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     let ledger = ws.join("budget-ledger.jsonl");
@@ -148,6 +152,7 @@ fn harness_budget_confines_optional_ledger_and_repo_arguments() {
 
 #[test]
 fn harness_status_and_run_reject_relative_events_or_plan_paths() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
     let ws = std::env::temp_dir();
     assert!(CoreTools::harness_status(&json!({"events": "rel-events.jsonl"}), &ws).is_err());

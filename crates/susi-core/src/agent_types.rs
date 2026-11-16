@@ -180,7 +180,7 @@ impl HighDensityContextStore {
     /// Persist the live swarm blackboard under the workspace for glass-box review.
     /// Bodies are secret-redacted before write (Mandate 38).
     pub fn persist_inspectable(&self, workspace: &Path) -> std::path::PathBuf {
-        let dir = workspace.join(".susi");
+        let dir = susi_paths::workspace_state_dir(workspace);
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("last_blackboard.json");
         let mut entries = Vec::new();
@@ -217,7 +217,7 @@ impl HighDensityContextStore {
 /// again on read. `susi blackboard show` prints it and MCP `blackboard_show`
 /// returns it; the error names the missing file.
 pub fn read_persisted_blackboard(workspace: &Path) -> Result<String, String> {
-    let path = workspace.join(".susi").join("last_blackboard.json");
+    let path = susi_paths::workspace_state_dir(workspace).join("last_blackboard.json");
     if !path.is_file() {
         return Err(format!(
             "no mission blackboard at {} — run a swarm mission first",

@@ -80,6 +80,18 @@ type StreamMap = Arc<RwLock<HashMap<String, std::sync::mpsc::Sender<Value>>>>;
 /// `routes.json` and `caps.json`.
 static NEXT_COPY_ID: AtomicU64 = AtomicU64::new(1);
 
+struct RendezvousSlot {
+    /// Shared secret for this bus root, loaded from `<bus>/secret`.
+    secret: Arc<str>,
+    /// Exclusive lock on `<rendezvous>/owner.lock`, held for this copy's
+    /// lifetime: the OS releases it when the process exits however it
+    /// exits, so a sweep can tell a dead copy's dir from a live one without
+    /// trusting a pid that may have been reused.
+    owner: Option<std::fs::File>,
+}
+
+type SlotMap = Arc<RwLock<HashMap<PathBuf, RendezvousSlot>>>;
+
 /// Process-scoped IPC plane bus — same method surface as
 /// [`crate::susi_core::plane_bus::PlaneBus`]. Every cell process backs its
 /// `PlaneBus` with this, so a handler registered by one module resolves from
@@ -89,15 +101,12 @@ pub struct IpcPlaneBus {
     prefixes: HandlerMap,
     streams: StreamMap,
     stream_seq: AtomicU64,
-    rendezvous: PathBuf,
+    /// Fixed rendezvous directory when constructed with [`Self::with_rendezvous`];
+    /// `None` resolves `SusiDirs::cache_dir()/bus/<pid>` dynamically on each
+    /// use so env/HOME isolation in tests never freezes `~/.susi/bus`.
+    fixed_rendezvous: Option<PathBuf>,
     endpoint: OnceLock<SocketAddr>,
-    /// Shared secret every `/handle` and `/stream` request must carry.
-    secret: Arc<str>,
-    /// Exclusive lock on `<rendezvous>/owner.lock`, held for this copy's
-    /// lifetime: the OS releases it when the process exits however it
-    /// exits, so a sweep can tell a dead copy's dir from a live one without
-    /// trusting a pid that may have been reused.
-    _owner: Option<std::fs::File>,
+    slots: SlotMap,
     copy_id: u64,
     batch_depth: std::sync::atomic::AtomicUsize,
     dirty_routes: std::sync::atomic::AtomicBool,
@@ -110,12 +119,22 @@ impl Default for IpcPlaneBus {
 }
 
 impl IpcPlaneBus {
-    /// Bus for this process: rendezvous under `SusiDirs::cache_dir()/bus/<pid>`.
+    /// Bus for this process: rendezvous resolved dynamically from
+    /// `SusiDirs::cache_dir()/bus/<pid>` on demand.
     pub fn new() -> Self {
-        let dir = SusiDirs::cache_dir()
-            .join("bus")
-            .join(std::process::id().to_string());
-        Self::with_rendezvous(dir)
+        let copy_id = NEXT_COPY_ID.fetch_add(1, Ordering::Relaxed);
+        Self {
+            handlers: Arc::new(RwLock::new(HashMap::new())),
+            prefixes: Arc::new(RwLock::new(HashMap::new())),
+            streams: Arc::new(RwLock::new(HashMap::new())),
+            stream_seq: AtomicU64::new(0),
+            fixed_rendezvous: None,
+            endpoint: OnceLock::new(),
+            slots: Arc::new(RwLock::new(HashMap::new())),
+            copy_id,
+            batch_depth: std::sync::atomic::AtomicUsize::new(0),
+            dirty_routes: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     /// The shared bus for this process: every module routes through it, so a
@@ -135,47 +154,105 @@ impl IpcPlaneBus {
         if owner.is_some() {
             spawn_sweep(&rendezvous);
         }
-        let secret = bus_secret(rendezvous.parent()).into();
+        let secret: Arc<str> = bus_secret(rendezvous.parent()).into();
         let copy_id = NEXT_COPY_ID.fetch_add(1, Ordering::Relaxed);
+        let mut slots = HashMap::new();
+        slots.insert(rendezvous.clone(), RendezvousSlot { secret, owner });
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             prefixes: Arc::new(RwLock::new(HashMap::new())),
             streams: Arc::new(RwLock::new(HashMap::new())),
             stream_seq: AtomicU64::new(0),
-            rendezvous,
+            fixed_rendezvous: Some(rendezvous),
             endpoint: OnceLock::new(),
-            secret,
-            _owner: owner,
+            slots: Arc::new(RwLock::new(slots)),
             copy_id,
             batch_depth: std::sync::atomic::AtomicUsize::new(0),
             dirty_routes: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
+    fn current_rendezvous(&self) -> PathBuf {
+        match &self.fixed_rendezvous {
+            Some(dir) => dir.clone(),
+            None => SusiDirs::cache_dir()
+                .join("bus")
+                .join(std::process::id().to_string()),
+        }
+    }
+
+    fn ensure_slot(&self, dir: &Path) -> (bool, Arc<str>) {
+        if let Some(slot) = self
+            .slots
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(dir)
+        {
+            return (slot.owner.is_some(), Arc::clone(&slot.secret));
+        }
+        let mut guard = self.slots.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(slot) = guard.get(dir) {
+            return (slot.owner.is_some(), Arc::clone(&slot.secret));
+        }
+        let owner = claim_rendezvous(dir);
+        if owner.is_some() {
+            spawn_sweep(dir);
+        }
+        let secret: Arc<str> = bus_secret(dir.parent()).into();
+        let owned = owner.is_some();
+        let out_secret = Arc::clone(&secret);
+        guard.insert(dir.to_path_buf(), RendezvousSlot { secret, owner });
+        (owned, out_secret)
+    }
+
+    pub(crate) fn prepare_rendezvous(&self) {
+        let dir = self.current_rendezvous();
+        let _ = self.ensure_slot(&dir);
+    }
+
+    #[cfg(test)]
+    fn secret(&self) -> Arc<str> {
+        let dir = self.current_rendezvous();
+        self.ensure_slot(&dir).1
+    }
+
+    fn is_owner_dir(&self, dir: &Path) -> bool {
+        if let Some(slot) = self
+            .slots
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(dir)
+        {
+            return slot.owner.is_some();
+        }
+        self.fixed_rendezvous.is_none() && dir.parent().is_some_and(is_bus_root)
+    }
+
     /// This copy's rendezvous dir — capability metadata and other
     /// process-scoped IPC state share the same `<cache>/bus/<pid>` tree.
-    pub fn rendezvous(&self) -> &Path {
-        &self.rendezvous
+    pub fn rendezvous(&self) -> PathBuf {
+        self.current_rendezvous()
     }
 
     /// Single route manifest path for this copy: `<rendezvous>/routes.json`
     /// when holding the `<cache>/bus/<pid>` owner lock, or
     /// `<rendezvous>/routes.<copy_id>.json` for shared in-process test dirs.
     pub fn routes_file(&self) -> PathBuf {
-        if self._owner.is_some() {
-            self.rendezvous.join("routes.json")
+        let dir = self.current_rendezvous();
+        if self.is_owner_dir(&dir) {
+            dir.join("routes.json")
         } else {
-            self.rendezvous
-                .join(format!("routes.{}.json", self.copy_id))
+            dir.join(format!("routes.{}.json", self.copy_id))
         }
     }
 
     /// Single capability manifest path paired with [`Self::routes_file`].
     pub fn caps_file(&self) -> PathBuf {
-        if self._owner.is_some() {
-            self.rendezvous.join("caps.json")
+        let dir = self.current_rendezvous();
+        if self.is_owner_dir(&dir) {
+            dir.join("caps.json")
         } else {
-            self.rendezvous.join(format!("caps.{}.json", self.copy_id))
+            dir.join(format!("caps.{}.json", self.copy_id))
         }
     }
 
@@ -207,7 +284,7 @@ impl IpcPlaneBus {
     /// other's registrations; writes always stay in the owning process's
     /// dir so `sweep_dead_processes` keeps ownership/liveness tracking.
     pub fn rendezvous_dirs(&self) -> Vec<PathBuf> {
-        sibling_pid_dirs(&self.rendezvous)
+        sibling_pid_dirs(&self.current_rendezvous())
     }
 
     /// This copy's callback endpoint; binds the listener on first use.
@@ -234,7 +311,7 @@ impl IpcPlaneBus {
         let handlers = Arc::clone(&self.handlers);
         let prefixes = Arc::clone(&self.prefixes);
         let streams = Arc::clone(&self.streams);
-        let secret = Arc::clone(&self.secret);
+        let slots = Arc::clone(&self.slots);
         std::thread::spawn(move || {
             // Threads are spawned before the bus key is checked, so any
             // local process could otherwise pin unbounded threads (each up
@@ -253,10 +330,10 @@ impl IpcPlaneBus {
                 let handlers = Arc::clone(&handlers);
                 let prefixes = Arc::clone(&prefixes);
                 let streams = Arc::clone(&streams);
-                let secret = Arc::clone(&secret);
+                let slots = Arc::clone(&slots);
                 std::thread::spawn(move || {
                     let _slot = slot;
-                    serve_conn(conn, handlers, prefixes, streams, &secret);
+                    serve_conn(conn, handlers, prefixes, streams, &slots);
                 });
             }
         });
@@ -278,11 +355,13 @@ impl IpcPlaneBus {
             .keys()
             .cloned()
             .collect();
-        let path = self.routes_file();
         if topics.is_empty() && prefixes.is_empty() {
+            let path = self.routes_file();
             let _ = std::fs::remove_file(&path);
             return;
         }
+        self.prepare_rendezvous();
+        let path = self.routes_file();
         let Some(ep) = self.endpoint() else { return };
         topics.sort();
         prefixes.sort();
@@ -391,7 +470,7 @@ impl IpcPlaneBus {
         if removed {
             self.mark_or_flush_routes();
         }
-        let file = self.rendezvous.join("topics").join(enc(topic));
+        let file = self.current_rendezvous().join("topics").join(enc(topic));
         let owns_file = read_endpoint_key(&file)
             .is_some_and(|(ep, _)| self.endpoint.get().is_some_and(|e| *e == ep));
         if owns_file {
@@ -411,11 +490,15 @@ impl IpcPlaneBus {
         {
             return invoke(h, topic, payload);
         }
-        for (file, ep) in self.candidates(topic) {
-            match Self::remote(ep, topic, &payload, &self.secret) {
-                Remote::Answered(res) => return res,
-                Remote::Unreachable => prune_stale_route_file(&file, ep, None),
-                Remote::Miss => prune_stale_route_file(&file, ep, Some(topic)),
+        let candidates = self.candidates(topic);
+        if !candidates.is_empty() {
+            let (_, secret) = self.ensure_slot(&self.current_rendezvous());
+            for (file, ep) in candidates {
+                match Self::remote(ep, topic, &payload, &secret) {
+                    Remote::Answered(res) => return res,
+                    Remote::Unreachable => prune_stale_route_file(&file, ep, None),
+                    Remote::Miss => prune_stale_route_file(&file, ep, Some(topic)),
+                }
             }
         }
         if let Some(h) = self.local_prefix(topic) {
@@ -454,7 +537,10 @@ impl IpcPlaneBus {
             .unwrap_or_else(|e| e.into_inner())
             .insert(id.clone(), tx);
         let sid = match self.endpoint() {
-            Some(ep) => format!("ipc://{ep}/{id}"),
+            Some(ep) => {
+                self.prepare_rendezvous();
+                format!("ipc://{ep}/{id}")
+            }
             None => id,
         };
         (sid, rx)
@@ -475,8 +561,9 @@ impl IpcPlaneBus {
                     let _ = tx.send(chunk);
                 }
             } else if let Ok(ep) = addr.parse::<SocketAddr>() {
+                let (_, secret) = self.ensure_slot(&self.current_rendezvous());
                 let body = json!({ "id": id, "chunk": chunk }).to_string();
-                let _ = post(ep, "/stream", &body, &self.secret);
+                let _ = post(ep, "/stream", &body, &secret);
             }
         } else if let Some(tx) = self
             .streams
@@ -768,12 +855,22 @@ fn post(addr: SocketAddr, path: &str, body: &str, secret: &str) -> Option<String
     buf.split("\r\n\r\n").nth(1).map(str::to_string)
 }
 
+fn any_slot_matches(slots: &RwLock<HashMap<PathBuf, RendezvousSlot>>, presented: &str) -> bool {
+    let guard = slots.read().unwrap_or_else(|p| p.into_inner());
+    guard
+        .values()
+        .any(|slot| key_matches(presented, &slot.secret))
+}
+
 /// Read one HTTP/1.0 request: headers, then exactly Content-Length bytes.
 /// Returns `(path, presented bus key, body)`.
-/// The body is only read once the bus key matches `secret` and its declared
-/// length is within [`MAX_BODY`], so an unauthenticated peer cannot make
-/// the server buffer arbitrary data.
-fn read_request(stream: &mut TcpStream, secret: &str) -> Option<(String, String, String)> {
+/// The body is only read once the bus key matches a claimed rendezvous slot
+/// and its declared length is within [`MAX_BODY`], so an unauthenticated peer
+/// cannot make the server buffer arbitrary data.
+fn read_request(
+    stream: &mut TcpStream,
+    slots: &RwLock<HashMap<PathBuf, RendezvousSlot>>,
+) -> Option<(String, String, String)> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 8192];
     let head_end = loop {
@@ -809,7 +906,7 @@ fn read_request(stream: &mut TcpStream, secret: &str) -> Option<(String, String,
                 .then(|| l[bus_key_prefix.len()..].trim().to_string())
         })
         .unwrap_or_default();
-    if !key_matches(&presented, secret) || content_len > MAX_BODY {
+    if !any_slot_matches(slots, &presented) || content_len > MAX_BODY {
         return Some((path, presented, String::new()));
     }
     let mut body = buf[head_end..].to_vec();
@@ -840,18 +937,18 @@ fn serve_conn(
     handlers: HandlerMap,
     prefixes: HandlerMap,
     streams: StreamMap,
-    secret: &str,
+    slots: &RwLock<HashMap<PathBuf, RendezvousSlot>>,
 ) {
     // Each connection holds a thread: a peer that never finishes its
     // request (or never reads the answer) must not pin it forever.
     let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = conn.set_write_timeout(Some(Duration::from_secs(30)));
-    let Some((path, presented, body)) = read_request(&mut conn, secret) else {
+    let Some((path, presented, body)) = read_request(&mut conn, slots) else {
         return;
     };
     // Loopback is reachable by every local user and by web pages (no-CORS
     // POSTs); only the substrate owner's processes can read the secret.
-    if !key_matches(&presented, secret) {
+    if !any_slot_matches(slots, &presented) {
         respond(&mut conn, "403 Forbidden", r#"{"err":"bus key required"}"#);
         return;
     }
@@ -1235,7 +1332,8 @@ mod tests {
             assert!(!resp.contains("\"n\":7"), "handler must not run: {resp}");
         }
         // The owner's processes share the secret and are served.
-        let resp = raw_handle(ep, Some(&a.secret));
+        let secret = a.secret();
+        let resp = raw_handle(ep, Some(&secret));
         assert!(resp.starts_with("HTTP/1.0 200"), "{resp}");
 
         #[cfg(unix)]
@@ -1254,8 +1352,8 @@ mod tests {
         let dir = tempdir("shared");
         let a = IpcPlaneBus::with_rendezvous(dir.join("1"));
         let b = IpcPlaneBus::with_rendezvous(dir.join("2"));
-        assert_eq!(a.secret, b.secret);
-        assert_eq!(a.secret.len(), 64);
+        assert_eq!(a.secret(), b.secret());
+        assert_eq!(a.secret().len(), 64);
     }
 
     #[test]
@@ -1484,7 +1582,7 @@ mod tests {
         let ep = copy.endpoint().unwrap();
         let ask = |topic: &str| -> Value {
             let body = json!({ "topic": topic, "payload": {} }).to_string();
-            serde_json::from_str(&post(ep, "/handle", &body, &copy.secret).unwrap()).unwrap()
+            serde_json::from_str(&post(ep, "/handle", &body, &copy.secret()).unwrap()).unwrap()
         };
         let miss = ask("test.none");
         assert_eq!(miss[MISS_FIELD], json!("test.none"));
@@ -1709,5 +1807,52 @@ mod tests {
             existing
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dynamic_bus_tracks_susi_home_changes() {
+        let _lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = tempdir("dyn-home");
+        let (home_a, home_b) = (root.join("a"), root.join("b"));
+        std::fs::create_dir_all(&home_a).unwrap();
+        std::fs::create_dir_all(&home_b).unwrap();
+
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &home_a);
+        env.set("XDG_CACHE_HOME", home_a.join(".cache"));
+        env.set("SUSI_HOME", &home_a);
+        let bus_a_dir = susi_paths::SusiDirs::cache_dir().join("bus");
+
+        let bus = IpcPlaneBus::new();
+        bus.register("dyn.topic.a", Arc::new(Echo));
+        assert!(
+            bus_a_dir.exists(),
+            "expected bus under {}",
+            bus_a_dir.display()
+        );
+
+        env.set("HOME", &home_b);
+        env.set("XDG_CACHE_HOME", home_b.join(".cache"));
+        env.set("SUSI_HOME", &home_b);
+        let bus_b_dir = susi_paths::SusiDirs::cache_dir().join("bus");
+        assert_ne!(bus_a_dir, bus_b_dir);
+        assert!(!bus_b_dir.exists());
+
+        bus.register("dyn.topic.b", Arc::new(Echo));
+        assert!(
+            bus_b_dir.exists(),
+            "expected bus under {}",
+            bus_b_dir.display()
+        );
+
+        let client = IpcPlaneBus::new();
+        let reply = client
+            .request("dyn.topic.b", serde_json::json!({ "ok": true }))
+            .expect("second isolated home slot must accept requests over IPC");
+        assert_eq!(reply, serde_json::json!({ "echo": { "ok": true } }));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

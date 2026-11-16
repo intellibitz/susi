@@ -19,7 +19,7 @@ pub struct GenomeDistiller;
 /// The workspace experience buffer — the file interaction capture appends
 /// to and semantic search indexes (`<workspace>/.susi/reasoning_experience.jsonl`).
 pub fn experience_path(workspace: &Path) -> std::path::PathBuf {
-    workspace.join(".susi").join("reasoning_experience.jsonl")
+    susi_paths::workspace_state_dir(workspace).join("reasoning_experience.jsonl")
 }
 
 impl GenomeDistiller {

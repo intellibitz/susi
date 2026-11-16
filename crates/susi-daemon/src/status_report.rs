@@ -246,7 +246,7 @@ fn read_missions(substrate_home: &Path) -> Vec<MissionInFlight> {
 /// a mission left `running` was crash-interrupted and folds back on
 /// resume (T-DEEPSEEK-93).
 fn read_resumable_missions(workspace: &Path) -> Vec<ResumableMission> {
-    let dir = workspace.join(".susi").join("missions");
+    let dir = susi_paths::workspace_state_dir(workspace).join("missions");
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return out;
@@ -314,7 +314,8 @@ fn read_resumable_missions(workspace: &Path) -> Vec<ResumableMission> {
 /// `.susi/mission-snapshots/<id>/` dirs `PersistedMission::snapshot`
 /// writes.
 fn read_rollback_ready(workspace: &Path) -> Vec<RollbackReady> {
-    let dir = workspace.join(".susi").join("missions");
+    let state_dir = susi_paths::workspace_state_dir(workspace);
+    let dir = state_dir.join("missions");
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return out;
@@ -349,7 +350,7 @@ fn read_rollback_ready(workspace: &Path) -> Vec<RollbackReady> {
                     .unwrap_or("unknown")
                     .to_string()
             });
-        let snap_dir = workspace.join(".susi").join("mission-snapshots").join(&id);
+        let snap_dir = state_dir.join("mission-snapshots").join(&id);
         let snapshots = std::fs::read_dir(&snap_dir)
             .map(|rd| {
                 rd.flatten()

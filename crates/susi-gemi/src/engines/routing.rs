@@ -828,7 +828,8 @@ impl InferenceRouter {
     }
 
     pub fn is_interactive() -> bool {
-        io::stdin().is_terminal()
+        !cfg!(test)
+            && io::stdin().is_terminal()
             && io::stdout().is_terminal()
             && !susi_paths::console::is_unattended_env()
     }

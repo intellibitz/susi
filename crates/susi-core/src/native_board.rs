@@ -338,7 +338,7 @@ pub fn post_blackboard_local(
             "entries": redacted_entries,
             "agent_count": redacted_entries.len(),
         });
-        let dir = ws.join(".susi");
+        let dir = susi_paths::workspace_state_dir(ws);
         let _ = fs::create_dir_all(&dir);
         let _ = crate::susi_config::atomic_write_bytes(
             &dir.join("last_blackboard.json"),

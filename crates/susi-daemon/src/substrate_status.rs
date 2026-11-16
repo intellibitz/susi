@@ -67,7 +67,7 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
         "governance_first": {
             "mandate": 37,
             "sequencing": "SafetyAgent and SecurityAgent awaited before parallel fleet",
-            "last": load_json(&workspace.join(".susi").join("last_governance.json")),
+            "last": load_json(&susi_paths::workspace_state_dir(workspace).join("last_governance.json")),
         },
         "host_contract": {
             "ports": {

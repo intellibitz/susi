@@ -14,7 +14,7 @@ impl ProtocolKnowledgeBase {
         workspace: &Path,
         metadata: Option<serde_json::Value>,
     ) -> EaiResult<()> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         std::fs::create_dir_all(&susi_dir)?;
         let distillation_file = susi_dir.join("distillation_staged.jsonl");
         let entry = serde_json::json!({
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn staging_waits_for_the_trainer_lock() {
         let workspace = std::env::temp_dir().join(format!("susi-pkb-lock-{}", std::process::id()));
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(&workspace);
         std::fs::create_dir_all(&susi_dir).unwrap();
         // Hold the trainer's lock: a claim is mid-rewrite of the buffer.
         let held =

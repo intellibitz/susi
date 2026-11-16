@@ -146,6 +146,74 @@ impl SusiDirs {
     pub fn substrate_home() -> PathBuf {
         Self::get("substrate_home")
     }
+
+    /// `true` when running as the primary user host instance (`SUSI_HOME` unset,
+    /// ignored by the hermetic test guard, or equal to `<home>/.susi`).
+    #[must_use]
+    pub fn is_primary_instance() -> bool {
+        LocalDirs::instance_root()
+            .is_none_or(|root| same_path(&root, &LocalDirs::home_dir().join(".susi")))
+    }
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push(comp);
+                }
+            }
+            std::path::Component::Prefix(_)
+            | std::path::Component::RootDir
+            | std::path::Component::Normal(_) => out.push(comp),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        out
+    }
+}
+
+fn same_resolved_dir(a: &Path, b: &Path) -> bool {
+    same_path(&normalize_lexical(a), &normalize_lexical(b))
+}
+
+/// Resolve the `.susi` state directory for `workspace` without ever nesting
+/// `.susi` inside a path that is already a Susi state root (`substrate_home`,
+/// `config_dir`, `data_dir`, or any path whose normalized final component is
+/// `.susi`, including `.` resolved from one of those directories).
+#[must_use]
+pub fn workspace_state_dir(workspace: &Path) -> PathBuf {
+    let resolved = if workspace.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| normalize_lexical(&cwd.join(workspace)))
+            .unwrap_or_else(|_| normalize_lexical(workspace))
+    } else {
+        normalize_lexical(workspace)
+    };
+    let already_susi_root = resolved
+        .file_name()
+        .is_some_and(|name| name == std::ffi::OsStr::new(".susi"))
+        || same_resolved_dir(&resolved, &SusiDirs::substrate_home())
+        || same_resolved_dir(&resolved, &SusiDirs::config_dir())
+        || same_resolved_dir(&resolved, &SusiDirs::data_dir());
+    if already_susi_root {
+        let is_cur_dir_only = workspace.as_os_str().is_empty()
+            || workspace
+                .components()
+                .all(|c| matches!(c, std::path::Component::CurDir));
+        if is_cur_dir_only {
+            resolved
+        } else {
+            workspace.to_path_buf()
+        }
+    } else {
+        workspace.join(".susi")
+    }
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -184,27 +252,51 @@ fn same_instance_path(a: &Path, b: &Path) -> bool {
     a == b || same_path(&a, &b)
 }
 
+/// Resolve the host API bearer token file path from `config_dir` (`B8`).
+///
+/// Honors `ports.json` `api_token_path` when present and non-empty (falling back
+/// to `<config_dir>/api_token` if absent or if the fallback token already exists
+/// while the advertised path does not).
+#[must_use]
+pub fn host_token_path_in(config_dir: &Path) -> PathBuf {
+    let fallback = config_dir.join("api_token");
+    if let Some(pf) = zc_ports_file::PortsFile::read_from_home(config_dir) {
+        if !pf.api_token_path.as_os_str().is_empty()
+            && (pf.api_token_path.is_file() || !fallback.is_file())
+        {
+            return pf.api_token_path;
+        }
+    }
+    fallback
+}
+
+/// Resolve the active host API bearer token file path from
+/// [`SusiDirs::config_dir`].
+#[must_use]
+pub fn host_token_path() -> PathBuf {
+    host_token_path_in(&SusiDirs::config_dir())
+}
+
 /// Read the host API bearer token from `config_dir` (`B8`).
 ///
 /// Honors `ports.json` `api_token_path` when present and non-empty, falling
 /// back to `<config_dir>/api_token`.
 #[must_use]
 pub fn host_token_in(config_dir: &Path) -> Option<String> {
+    let read_nonempty = |p: &Path| {
+        std::fs::read_to_string(p)
+            .ok()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+    };
     if let Some(pf) = zc_ports_file::PortsFile::read_from_home(config_dir) {
         if !pf.api_token_path.as_os_str().is_empty() {
-            if let Some(tok) = std::fs::read_to_string(&pf.api_token_path)
-                .ok()
-                .map(|t| t.trim().to_string())
-                .filter(|t| !t.is_empty())
-            {
+            if let Some(tok) = read_nonempty(&pf.api_token_path) {
                 return Some(tok);
             }
         }
     }
-    std::fs::read_to_string(config_dir.join("api_token"))
-        .ok()
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
+    read_nonempty(&config_dir.join("api_token"))
 }
 
 /// Host API bearer token (`<config_dir>/api_token`), when seeded. The
@@ -710,5 +802,92 @@ mod hermetic_forbidden_tests {
         drop(env);
         let _ = std::fs::remove_dir_all(&forbidden);
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn host_token_path_in_honors_ports_json_and_falls_back_to_api_token() {
+        let dir = std::env::temp_dir().join(format!("susi_token_path_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        assert_eq!(host_token_path_in(&dir), dir.join("api_token"));
+
+        let custom = dir.join("custom.token");
+        std::fs::write(&custom, "tok-custom\n").expect("write custom token");
+        let ports_json = serde_json::json!({
+            "ports": { "gmcp": 9090 },
+            "api_token_path": custom.display().to_string(),
+        });
+        std::fs::write(dir.join("ports.json"), ports_json.to_string()).expect("write ports.json");
+        assert_eq!(host_token_path_in(&dir), custom);
+
+        // If ports.json points to a missing path while <dir>/api_token exists,
+        // fall back to the existing <dir>/api_token file.
+        let _ = std::fs::remove_file(&custom);
+        let fallback = dir.join("api_token");
+        std::fs::write(&fallback, "tok-fallback\n").expect("write fallback token");
+        assert_eq!(host_token_path_in(&dir), fallback);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_primary_instance_distinguishes_primary_from_isolated_susi_home() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("susi_primary_check_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let fake_home = base.join("home");
+        let isolated = base.join("isolated");
+        std::fs::create_dir_all(&fake_home).expect("create fake home");
+        std::fs::create_dir_all(&isolated).expect("create isolated home");
+
+        let mut env = test_env::EnvGuard::isolated();
+        env.set("HOME", &fake_home);
+        env.remove("SUSI_HOME");
+        assert!(SusiDirs::is_primary_instance());
+
+        env.set("SUSI_HOME", fake_home.join(".susi"));
+        assert!(SusiDirs::is_primary_instance());
+
+        env.set("SUSI_HOME", &isolated);
+        assert!(!SusiDirs::is_primary_instance());
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn workspace_state_dir_prevents_nested_dot_susi_dirs() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("susi_ws_state_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let fake_home = base.join("home");
+        let isolated = base.join("isolated-home");
+        let normal_ws = base.join("workspace");
+        let already_dot_susi = base.join("explicit/.susi");
+        std::fs::create_dir_all(&fake_home).expect("fake home");
+        std::fs::create_dir_all(&isolated).expect("isolated home");
+        std::fs::create_dir_all(&normal_ws).expect("normal workspace");
+        std::fs::create_dir_all(&already_dot_susi).expect("dot susi dir");
+
+        let mut env = test_env::EnvGuard::isolated();
+        env.set("HOME", &fake_home);
+        env.set("SUSI_HOME", &isolated);
+        env.remove("XDG_CONFIG_HOME");
+        env.remove("XDG_DATA_HOME");
+
+        assert_eq!(workspace_state_dir(&normal_ws), normal_ws.join(".susi"));
+        assert_eq!(workspace_state_dir(&already_dot_susi), already_dot_susi);
+        assert_eq!(workspace_state_dir(&isolated), isolated);
+        assert_eq!(workspace_state_dir(&fake_home), fake_home.join(".susi"));
+
+        let prev_cwd = std::env::current_dir().expect("capture cwd");
+        std::env::set_current_dir(&isolated).expect("chdir to isolated SUSI_HOME");
+        let dot_resolved = workspace_state_dir(Path::new("."));
+        std::env::set_current_dir(&prev_cwd).expect("restore cwd");
+        assert!(same_path(&dot_resolved, &isolated));
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

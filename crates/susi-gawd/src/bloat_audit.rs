@@ -211,28 +211,9 @@ impl BloatAuditor {
         // asserting that a fake API-key-shaped string gets rejected/redacted)
         // are the detector working as intended, not a real leak or pending
         // work item — skip both checks for the span of any such test module.
-        let mut in_test_module = false;
-        let mut saw_cfg_test = false;
-        let mut test_module_brace_depth: i32 = 0;
+        let mut skipper = crate::compliance::CfgTestSkipper::new();
         for line in content.lines() {
-            let trimmed = line.trim();
-
-            if in_test_module {
-                test_module_brace_depth += trimmed.matches('{').count() as i32;
-                test_module_brace_depth -= trimmed.matches('}').count() as i32;
-                if test_module_brace_depth <= 0 {
-                    in_test_module = false;
-                }
-            } else if saw_cfg_test && trimmed.starts_with("mod ") {
-                in_test_module = true;
-                test_module_brace_depth =
-                    trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
-                saw_cfg_test = false;
-            } else if !trimmed.is_empty() {
-                saw_cfg_test = trimmed.starts_with("#[cfg(test)]");
-            }
-
-            if !in_test_module {
+            if !skipper.is_test_line(line) {
                 // A real pending-work marker is a `//` comment where one of
                 // the two annotation keywords is immediately followed by a
                 // colon or an opening paren (the conventional

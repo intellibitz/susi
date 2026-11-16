@@ -203,7 +203,8 @@ pub fn auto_status(workspace: &Path) -> R<AutoStatus> {
     };
 
     let last_auto_prime = load_json_file(&config.join("last_auto_prime.json"));
-    let last_blackboard = load_json_file(&workspace.join(".susi").join("last_blackboard.json"));
+    let last_blackboard =
+        load_json_file(&susi_paths::workspace_state_dir(workspace).join("last_blackboard.json"));
 
     Ok(AutoStatus {
         packs,

@@ -407,7 +407,7 @@ impl ToolRegistry {
     /// `{workspace}/.susi/mission-egress.json`. Absent → permissive (the
     /// documented default); present but malformed → deny-all (fail closed).
     fn mission_egress_policy(workspace: &Path) -> EgressPolicy {
-        let path = workspace.join(".susi").join("mission-egress.json");
+        let path = susi_paths::workspace_state_dir(workspace).join("mission-egress.json");
         let Ok(text) = std::fs::read_to_string(&path) else {
             return EgressPolicy::permissive();
         };
@@ -608,6 +608,7 @@ mod tests {
 
     #[test]
     fn execute_tool_routes_discovered_mcp_via_capability_registry() {
+        let _iso = crate::isolate_test_bus_home();
         crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockCapabilityTool);
         assert!(ToolRegistry::exists("mock_mcp:echo"));
         let out =
@@ -682,6 +683,7 @@ mod tests {
         /// mission's egress record.
         #[test]
         fn vc_202_014_mastery_gate_consulted_per_mission_refusals_recorded() {
+            let _iso = crate::isolate_test_bus_home();
             let dir = susi_paths::tempfile::tempdir().unwrap();
             declare(dir.path(), r#"{"allow_hosts": ["api.openai.com"]}"#);
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockEgressTool);
@@ -726,6 +728,7 @@ mod tests {
         /// refuses nothing.
         #[test]
         fn vc_202_014_mastery_permissive_mission_refuses_nothing() {
+            let _iso = crate::isolate_test_bus_home();
             let dir = susi_paths::tempfile::tempdir().unwrap();
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockEgressTool);
             let (session, _scope) = test_session(dir.path());
@@ -748,6 +751,7 @@ mod tests {
         /// against the mission.
         #[test]
         fn vc_202_014_mastery_agent_tokens_checked_at_dispatch() {
+            let _iso = crate::isolate_test_bus_home();
             let dir = susi_paths::tempfile::tempdir().unwrap();
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockLocalTool);
             let (session, _scope) = test_session(dir.path());

@@ -79,6 +79,45 @@ mod resource_surface_tests;
 mod vc_201_086_mastery_tests;
 
 #[cfg(test)]
+pub(crate) mod test_isolation {
+    /// RAII guard holding `ENV_LOCK` while process-wide `HOME`, XDG, and
+    /// `SUSI_HOME` point to a private temp directory. Field drop order ensures
+    /// env vars restore first, the tempdir deletes second, and `ENV_LOCK`
+    /// unlocks last.
+    pub(crate) struct IsolatedHomeGuard {
+        _env: susi_paths::test_env::EnvGuard,
+        _tmp: susi_paths::tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    pub(crate) fn enter_isolated_home() -> IsolatedHomeGuard {
+        let lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = susi_paths::tempfile::tempdir().expect("create isolated test home");
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", tmp.path());
+        env.set("XDG_CONFIG_HOME", tmp.path().join(".config"));
+        env.set("XDG_DATA_HOME", tmp.path().join(".local").join("share"));
+        env.set("XDG_CACHE_HOME", tmp.path().join(".cache"));
+        env.set("SUSI_HOME", tmp.path().join(".susi"));
+        IsolatedHomeGuard {
+            _env: env,
+            _tmp: tmp,
+            _lock: lock,
+        }
+    }
+
+    /// Run a synchronous test inside a fresh, process-env-isolated `SUSI_HOME`/`HOME`
+    /// directory so `PlaneBus::global()`, `SusiDirs`, and tool/bus discovery never
+    /// touch the user's real `~/.susi` or route requests to a host daemon.
+    pub(crate) fn with_isolated_home<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
+        let guard = enter_isolated_home();
+        f(guard._tmp.path())
+    }
+}
+
+#[cfg(test)]
 // Test-only assertions in extracted core tools unit suite.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[path = "tests/core_tools.rs"]

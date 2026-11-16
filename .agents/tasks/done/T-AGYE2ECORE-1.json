@@ -1,0 +1,58 @@
+{
+  "id": "T-AGYE2ECORE-1",
+  "title": "Fix Core path isolation, token/stop/audit/uninstall bugs, and IPC bus dynamic rendezvous",
+  "goal": "Prevent nested .susi dirs via workspace_state_dir, unify host_token_path resolution, accurately report systemd unit stops in susi stop/restart, filter #[cfg(test)]/substring false positives in susi audit, guard susi uninstall to primary instance, clean failed reflex synthesis sources, make IpcPlaneBus track dynamic SUSI_HOME changes, and isolate susi-gmcp unit tests from live host ~/.susi.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gawd",
+      "-p",
+      "susi-gmcp"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794769200,
+  "closed": {
+    "at_unix": 1794787617,
+    "commit": "f2d9d813154914b4067b6e545553f6ec9c8b6eae",
+    "by": "ANTIGRAVITY"
+  },
+  "native_worker": "antigravity",
+  "owner": "antigravity",
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses susi_paths::{workspace_state_dir,host_token_path,is_primary_instance}, susi_error::redact::secret_match_starts, compliance::CfgTestSkipper, and IpcPlaneBus dynamic slot tracking across all affected crates.",
+    "searched": "Checked susi-paths, susi-config, susi-core, susi-daemon, susi-sandbox-client, susi-tools, susi-gawd, susi-gawd-agents, susi-gawd-swarm, susi-gemi, susi-gmcp, and src/cli."
+  },
+  "schema": "susi.task_record/v1",
+  "scopes": [
+    ".agents/tasks/T-AGYE2ECORE-1.json",
+    "crates/susi-config",
+    "crates/susi-core",
+    "crates/susi-daemon",
+    "crates/susi-gawd",
+    "crates/susi-gawd-agents",
+    "crates/susi-gawd-swarm",
+    "crates/susi-gemi",
+    "crates/susi-gmcp",
+    "crates/susi-paths",
+    "crates/susi-sandbox-client",
+    "crates/susi-tools",
+    "src"
+  ],
+  "status": "in_progress"
+}

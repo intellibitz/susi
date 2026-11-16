@@ -381,6 +381,8 @@ impl IpcCapabilityRegistry {
             let _ = std::fs::remove_file(&path);
             return;
         }
+        self.bus.prepare_rendezvous();
+        let path = self.bus.caps_file();
         let ep = if !tools.is_empty() || !providers.is_empty() {
             self.endpoint_tag()
         } else {

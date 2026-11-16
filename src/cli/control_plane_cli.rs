@@ -350,7 +350,7 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
 }
 
 fn report_auth_token() {
-    let path = susi_paths::SusiDirs::config_dir().join("api_token");
+    let path = susi_paths::host_token_path();
     if susi_paths::host_token().is_some() {
         println!(
             "Auth: Bearer token in {} (required for HTTP clients)",
