@@ -409,7 +409,7 @@ examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
 ## Operations and non-claims
 
 - **Rollout & rollback boundary**: `ServerBuilder` and `GmcpService` isolate catalogs, middleware stacks, durable task directories, and attached `PluginBundle` sets per server instance, while host extension packs under `~/.susi/extensions/<id>/` fall back deterministically to compiled defaults (`DEFAULT_PACK_ID = "default"`) whenever unloaded or absent. Reverting a catalog snapshot (`reload_catalog`), unloading a plugin (`unload_plugin` / `susi extensions unload`), or reverting an upstream spec re-pin restores prior operational behavior without mutating caller transcripts or requiring database migrations.
-- **Core zero-pack posture**: Core ships the authoring SDK, `TestHarness`, and fail-closed plugin lifecycle substrate with zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`). Runnable examples (`01_minimal_tool`..`06_production_plugin_server`) execute strictly inside isolated scratch roots and never auto-seed `~/.susi/extensions/`.
+- **Core zero-pack posture**: Core ships the authoring SDK, `TestHarness`, and fail-closed plugin/extension-pack lifecycle substrate with zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`). Runnable examples (`01_minimal_tool`..`06_production_plugin_server`) execute strictly inside isolated scratch roots and never auto-seed `~/.susi/extensions/`.
 
 ## Operations and incident runbook
 
