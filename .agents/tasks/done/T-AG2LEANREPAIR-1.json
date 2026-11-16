@@ -4,8 +4,8 @@
   "title": "Restore lean_core_ceilings pillar and runtime budgets and guard Linux-only systemd stop helper",
   "goal": "Extract inline #[cfg(test)] modules out of crates/susi-gawd/src/{compliance,reflex_synth}.rs and crates/susi-gmcp/src/tools/helpers.rs into src/tests/, compact multi-line test formatting so test_rust <= 128,550, and guard stop_systemd_units_with on Windows without modifying tests/lean_core_ceilings.rs.",
   "size": "s",
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "deps": [],
   "accept": {
     "cmd": [
@@ -40,6 +40,7 @@
   },
   "scopes": [
     ".agents/tasks/T-AG2LEANREPAIR-1.json",
+    ".agents/tasks/done/T-AG2LEANREPAIR-1.json",
     "crates/susi-daemon/src/server.rs",
     "crates/susi-gawd/src/compliance.rs",
     "crates/susi-gawd/src/reflex_synth.rs",
@@ -53,5 +54,11 @@
     "tests/gmcp_requirements/vc_203_016_part1.rs",
     "tests/gmcp_requirements/vc_203_020_part2.rs"
   ],
-  "implementation_commit": "9e934c74d731904ac629e7645652e2788954ff5e"
+  "implementation_commit": "9e934c74d731904ac629e7645652e2788954ff5e",
+  "verified_commit": "71925350e96629f86668764b395f4775dba1bde0",
+  "closed": {
+    "at_unix": 1794791237,
+    "commit": "71925350e96629f86668764b395f4775dba1bde0",
+    "by": "AG2FEATURES"
+  }
 }
