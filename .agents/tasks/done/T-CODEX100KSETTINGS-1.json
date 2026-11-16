@@ -2,7 +2,7 @@
   "id": "T-CODEX100KSETTINGS-1",
   "title": "Consolidate the exact settings registry declarations",
   "goal": "Vision: V-6. Reduce repeated SettingEntry construction while preserving the exported constant type, every ordered key and derivation, documentation and all existing tests and assertions.",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "size": "s",
   "created_by": "CODEX100KSETTINGS",
   "created_unix": 1794825704,
@@ -83,5 +83,16 @@
     "Scoped Linux development checks, not release qualification.",
     "The complete socket under-100k goal remains open. No test or runtime code was moved or excluded."
   ],
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-settings.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-settings.json",
+  "closed": {
+    "at_unix": 1794826249,
+    "commit": "9498695674cc31bb83e9d3f7ea4fc59156dab375",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "2aa1bfaaf9f54e408b6d051a6b52006e0a8dfdae",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-settings.json"
+  }
 }
