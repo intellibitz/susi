@@ -13,11 +13,7 @@ pub struct GmcpClient;
 
 impl GmcpClient {
     pub fn get_config_path() -> PathBuf {
-        let susi_dir = susi_paths::SusiDirs::config_dir();
-        if !susi_dir.exists() {
-            let _ = fs::create_dir_all(&susi_dir);
-        }
-        susi_dir.join("mcp_config.json")
+        susi_config::mcp::mcp_config_path()
     }
 
     /// List all externally configured tools via dynamic mcp_config.json.
@@ -176,14 +172,7 @@ impl GmcpClient {
     /// servers yet. A torn or unreadable file is an error: callers must not
     /// rewrite it as an empty config, which would drop every other server.
     pub(crate) fn read_mcp_config(path: &std::path::Path) -> Result<McpConfig, &'static str> {
-        match fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).map_err(|_| "ERROR_CONFIG_DAMAGED"),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(McpConfig {
-                mcp_servers: HashMap::new(),
-                extra: HashMap::new(),
-            }),
-            Err(_) => Err("ERROR_CONFIG_UNREADABLE"),
-        }
+        susi_config::mcp::read_mcp_config(path)
     }
 
     /// Open MCP admission: mount any stdio command or HTTP MCP URL into

@@ -45,6 +45,7 @@ pub mod keepass_bridge;
 pub mod key_rotation;
 pub mod key_scope;
 pub mod mac_policy;
+pub mod mcp;
 pub mod peer_channel;
 pub mod peer_channel_link;
 pub mod plain_http;

@@ -11,175 +11,23 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
     net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs},
-    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
-use susi_core::{
-    mac_policy::{actions, MacPolicy},
-    plane_bus::PlaneBus,
+pub use susi_config::mcp::{
+    authorize_mcp_transport, authorized_stdio_command_literal, spawn_authorized_stdio_peer,
 };
+use susi_config::{
+    mac_policy::MacPolicy,
+    mcp::{authorize_mcp_transport as authorize_transport, validate_http_headers, ParsedHttpUrl},
+};
+use susi_core::plane_bus::PlaneBus;
 
 pub const TOPIC_MCP_CALL: &str = "ecosystem_hub.mcp.call";
 pub const TOPIC_MCP_LIST_TOOLS: &str = "ecosystem_hub.mcp.list_tools";
 
-#[derive(Debug, Clone)]
-struct ParsedHttpUrl {
-    scheme: String,
-    host: String,
-    port: u16,
-    default_port: bool,
-    path: String,
-    is_loopback: bool,
-}
-
-impl McpServerConfig {
-    fn parse_http_url(&self) -> Result<Option<ParsedHttpUrl>, String> {
-        let Some((scheme_raw, rest)) = self.command.split_once("://") else {
-            return Ok(None);
-        };
-        if !scheme_raw.eq_ignore_ascii_case("http") && !scheme_raw.eq_ignore_ascii_case("https") {
-            return Ok(None);
-        }
-        let scheme = scheme_raw.to_ascii_lowercase();
-        let default_port_num: u16 = if scheme == "https" { 443 } else { 80 };
-        let without_frag = rest.split_once('#').map_or(rest, |(before, _)| before);
-        let without_query = without_frag
-            .split_once('?')
-            .map_or(without_frag, |(before, _)| before);
-        let (authority, raw_path) = match without_query.split_once('/') {
-            Some((auth, path_rest)) => (auth, format!("/{path_rest}")),
-            None => (without_query, "/".to_string()),
-        };
-        let path = if raw_path == "/" {
-            "/mcp".to_string()
-        } else {
-            raw_path
-        };
-        let hostport = authority
-            .rsplit_once('@')
-            .map_or(authority, |(_, hp)| hp)
-            .trim();
-        if hostport.is_empty() {
-            return Err("invalid registered MCP URL".to_string());
-        }
-        let (host, port) = if hostport.starts_with('[') {
-            let Some(end_bracket) = hostport.find(']') else {
-                return Err("invalid registered MCP URL".to_string());
-            };
-            let host_str = hostport[..=end_bracket].to_ascii_lowercase();
-            let inner = &host_str[1..host_str.len() - 1];
-            if inner.parse::<std::net::Ipv6Addr>().is_err() {
-                return Err("invalid registered MCP URL".to_string());
-            }
-            let after = &hostport[end_bracket + 1..];
-            let port_num = if after.is_empty() {
-                default_port_num
-            } else if let Some(p_str) = after.strip_prefix(':') {
-                p_str
-                    .parse::<u16>()
-                    .map_err(|_| "invalid registered MCP URL".to_string())?
-            } else {
-                return Err("invalid registered MCP URL".to_string());
-            };
-            (host_str, port_num)
-        } else {
-            let (host_part, port_num) = if let Some((h, p_str)) = hostport.rsplit_once(':') {
-                (
-                    h,
-                    p_str
-                        .parse::<u16>()
-                        .map_err(|_| "invalid registered MCP URL".to_string())?,
-                )
-            } else {
-                (hostport, default_port_num)
-            };
-            if host_part.is_empty()
-                || host_part
-                    .bytes()
-                    .any(|b| b.is_ascii_whitespace() || b == b'/' || b == b'@')
-            {
-                return Err("invalid registered MCP URL".to_string());
-            }
-            (host_part.to_ascii_lowercase(), port_num)
-        };
-        let is_loopback = host.trim_end_matches('.').eq_ignore_ascii_case("localhost")
-            || host
-                .trim_matches(['[', ']'])
-                .parse::<IpAddr>()
-                .is_ok_and(|ip| ip.to_canonical().is_loopback());
-        Ok(Some(ParsedHttpUrl {
-            scheme,
-            host,
-            port,
-            default_port: port == default_port_num,
-            path,
-            is_loopback,
-        }))
-    }
-
-    /// Canonical capability resource and whether requests stay on loopback.
-    /// Never expose URL credentials or query values in denial messages.
-    pub fn http_scope(&self) -> Result<Option<(String, bool)>, String> {
-        let Some(parsed) = self.parse_http_url()? else {
-            return Ok(None);
-        };
-        let port_suffix = if parsed.default_port {
-            String::new()
-        } else {
-            format!(":{}", parsed.port)
-        };
-        Ok(Some((
-            format!(
-                "{}://{}{}{}",
-                parsed.scheme, parsed.host, port_suffix, parsed.path
-            ),
-            parsed.is_loopback,
-        )))
-    }
-}
-
 fn config() -> crate::susi_sandbox::manager::SusiConfig {
     crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default()
-}
-
-fn authorize_transport(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
-    let endpoint = server.http_scope()?;
-    let resource = endpoint
-        .as_ref()
-        .map_or(server.command.as_str(), |(url, _)| url.as_str());
-    let require = |action: &str| {
-        if policy.is_permitted("susi", action, resource) {
-            Ok(())
-        } else {
-            Err(format!(
-                "MCP access denied: `{resource}` requires `{action}`"
-            ))
-        }
-    };
-    match endpoint.as_ref() {
-        None => require(actions::PROCESS_EXEC)?,
-        Some((_, false)) => require(actions::NETWORK_EGRESS)?,
-        Some((_, true)) => {}
-    }
-    if let Some(declared) = server.extra.get("capabilities") {
-        for capability in declared
-            .as_array()
-            .ok_or("MCP capabilities must be a list")?
-        {
-            match capability.as_str() {
-                Some("tools") => {}
-                Some("filesystem") => {
-                    require(actions::FILESYSTEM_READ)?;
-                    require(actions::FILESYSTEM_WRITE)?;
-                }
-                Some("network") => require(actions::NETWORK_EGRESS)?,
-                Some(name) => return Err(format!("MCP capability `{name}` is not supported")),
-                None => return Err("MCP capability must be a string".into()),
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Per-server connect-failure memory. A spawn/handshake failure is cooled
@@ -220,52 +68,23 @@ fn clear_connect_failure(key: &str) {
     guard.remove(key);
 }
 
-fn is_valid_header_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
-}
-
-fn validate_http_headers(config: &McpServerConfig) -> Result<Vec<(String, String)>, String> {
-    let mut out = Vec::new();
-    if let Some(token) = config.extra.get("auth_token").and_then(Value::as_str) {
-        out.push(("Authorization".to_string(), format!("Bearer {token}")));
-    }
-    if let Some(headers) = config.extra.get("headers").and_then(Value::as_object) {
-        for (name, value) in headers {
-            if !is_valid_header_name(name) {
-                return Err(format!("invalid HTTP header name `{name}`"));
-            }
-            let val_str = value
-                .as_str()
-                .ok_or_else(|| "MCP header values must be strings".to_string())?;
-            if val_str.bytes().any(|b| b == b'\r' || b == b'\n') {
-                return Err("MCP header values must not contain CR/LF".to_string());
-            }
-            out.push((name.clone(), val_str.to_string()));
-        }
-    }
-    Ok(out)
-}
-
 fn http_jsonrpc_exchange(
     parsed: &ParsedHttpUrl,
     headers: &[(String, String)],
     request_body: &Value,
     timeout: Duration,
 ) -> Result<(Option<String>, Option<Value>), String> {
-    let host_lookup = parsed.host.trim_matches(['[', ']']);
+    let host_lookup = parsed.host().trim_matches(['[', ']']);
     let sock_addr: SocketAddr = if parsed
-        .host
+        .host()
         .trim_end_matches('.')
         .eq_ignore_ascii_case("localhost")
     {
-        SocketAddr::from(([127, 0, 0, 1], parsed.port))
+        SocketAddr::from(([127, 0, 0, 1], parsed.port()))
     } else if let Ok(ip) = host_lookup.parse::<IpAddr>() {
-        SocketAddr::new(ip, parsed.port)
+        SocketAddr::new(ip, parsed.port())
     } else {
-        (host_lookup, parsed.port)
+        (host_lookup, parsed.port())
             .to_socket_addrs()
             .map_err(|e| e.to_string())?
             .next()
@@ -278,7 +97,7 @@ fn http_jsonrpc_exchange(
     let payload = serde_json::to_vec(request_body).map_err(|e| e.to_string())?;
     let mut req = format!(
         "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n",
-        parsed.path, parsed.host, parsed.port, payload.len()
+        parsed.path(), parsed.host(), parsed.port(), payload.len()
     );
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
@@ -362,75 +181,9 @@ fn decode_chunked_text(mut input: &str) -> String {
 }
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
-    stdio_command(config, false)
+    susi_config::mcp::prepare_stdio_command(config)
         .spawn()
-        .map_err(|e| e.to_string())
-}
-
-fn stdio_command(config: &McpServerConfig, literal_environment: bool) -> Command {
-    let mut command = Command::new(&config.command);
-    susi_paths::console::without_window(&mut command)
-        .args(&config.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    command.env_clear();
-    susi_paths::test_env::inherit_registry_isolation(&mut command);
-    for key in [
-        "PATH",
-        "SystemRoot",
-        "WINDIR",
-        "ComSpec",
-        "PATHEXT",
-        "HOME",
-        "USERPROFILE",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "TEMP",
-        "TMP",
-        "TMPDIR",
-    ] {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
-        }
-    }
-    susi_paths::console::apply_non_interactive_env(&mut command);
-    if let Some(env_keys) = config
-        .extra
-        .get("env_keys")
-        .filter(|_| !literal_environment)
-        .and_then(Value::as_array)
-    {
-        for key in env_keys.iter().filter_map(Value::as_str) {
-            if let Ok(value) = crate::susi_config::env_or_cloud_env(key) {
-                if !value.is_empty() {
-                    command.env(key, value);
-                }
-            }
-        }
-    }
-    if let Some(env) = &config.env {
-        for (k, v) in env {
-            if !literal_environment && v.trim().is_empty() {
-                if let Ok(resolved) = crate::susi_config::env_or_cloud_env(k) {
-                    if !resolved.is_empty() {
-                        command.env(k, resolved);
-                        continue;
-                    }
-                }
-            }
-            command.env(k, v);
-        }
-    }
-    if let Some(cwd) = config.extra.get("cwd").and_then(Value::as_str) {
-        if !literal_environment && cwd.contains("{workspace}") {
-            let ws = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            command.current_dir(cwd.replace("{workspace}", &ws.to_string_lossy()));
-        } else {
-            command.current_dir(cwd);
-        }
-    }
-    command
+        .map_err(|error| error.to_string())
 }
 
 fn read_jsonrpc_response(
@@ -746,39 +499,6 @@ pub(crate) fn list_tools(config_: McpServerConfig) -> Result<Vec<(String, String
         Duration::from_secs(cfg.execution_lease_secs().min(30)),
         Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10)),
     )
-}
-
-/// Enforce `MacPolicy` transport and capability authorization for `server` (`CLAIM-04` / `HOST-002`).
-pub fn authorize_mcp_transport(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
-    authorize_transport(server, policy)
-}
-
-/// Authorize `config` against `policy` (`CLAIM-04` / `HOST-002`) and spawn an
-/// environment-isolated, windowless stdio MCP child process ready for [`McpHost`]
-/// duplex attachment.
-pub fn spawn_authorized_stdio_peer(
-    config: &McpServerConfig,
-    policy: &MacPolicy,
-) -> Result<std::process::Child, String> {
-    if config.parse_http_url()?.is_some() {
-        return Err("spawn_authorized_stdio_peer requires a stdio command, not an HTTP URL".into());
-    }
-    authorize_transport(config, policy)?;
-    spawn_stdio_command(config)
-}
-
-/// Prepare a client-supplied MCP peer for the caller's process containment.
-/// Unlike stored host configurations, empty values never resolve credentials
-/// from the host environment and cwd never expands a workspace template.
-pub fn authorized_stdio_command_literal(
-    config: &McpServerConfig,
-    policy: &MacPolicy,
-) -> Result<Command, String> {
-    if config.parse_http_url()?.is_some() {
-        return Err("stdio MCP requires an executable, not an HTTP URL".into());
-    }
-    authorize_transport(config, policy)?;
-    Ok(stdio_command(config, true))
 }
 
 #[cfg(test)]
