@@ -453,6 +453,27 @@ async fn dispatch_gemi_route(
     dispatch_gemi_route_with_query(method, (path, None), body_bytes, workspace, admission).await
 }
 
+async fn blocking_response(
+    label: &'static str,
+    operation: impl FnOnce() -> serde_json::Value + Send + 'static,
+) -> Result<Response<BoxBody>, Infallible> {
+    let payload = tokio::task::spawn_blocking(operation)
+        .await
+        .unwrap_or_else(|_| json!({"error": format!("{label} failed")}));
+    Ok(json_response(StatusCode::OK, &payload))
+}
+
+async fn blocking_json_request(
+    body_bytes: &Bytes,
+    label: &'static str,
+    operation: impl FnOnce(serde_json::Value) -> serde_json::Value + Send + 'static,
+) -> Result<Response<BoxBody>, Infallible> {
+    match read_json_body(body_bytes) {
+        Ok(body) => blocking_response(label, move || operation(body)).await,
+        Err(response) => Ok(response),
+    }
+}
+
 async fn dispatch_gemi_route_with_query(
     method: Method,
     path_and_query: (String, Option<String>),
@@ -1022,112 +1043,69 @@ async fn dispatch_gemi_route_with_query(
                 }))
         }
         (&Method::GET, "/context-graph/stats") => {
-            let payload = tokio::task::spawn_blocking(move || {
-                let graph = ContextGraph::global();
-                let _ = graph.replay();
+            blocking_response("stats", || {
+                let graph = ContextGraph::replayed_global();
                 serde_json::to_value(graph.stats())
-                    .unwrap_or_else(|_| serde_json::json!({"error": "serialization failed"}))
+                    .unwrap_or_else(|_| json!({"error":"serialization failed"}))
             })
             .await
-            .unwrap_or_else(|_| serde_json::json!({"error": "stats failed"}));
-            Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/context-graph/show") => {
-            let ws = (*workspace).clone();
-            let payload = tokio::task::spawn_blocking(move || {
-                let graph = ContextGraph::global();
-                let _ = graph.replay();
-                let events = graph.workspace_events(&ws);
-                serde_json::json!({
-                    "workspace": ws.display().to_string(),
-                    "event_count": events.len(),
-                    "events": events,
-                })
+            blocking_response("show", move || {
+                let graph = ContextGraph::replayed_global();
+                graph.workspace_event_report(&workspace)
             })
             .await
-            .unwrap_or_else(|_| serde_json::json!({"error": "show failed"}));
-            Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, "/context-graph/query") => {
-            let ws = (*workspace).clone();
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    let graph = ContextGraph::global();
-                    let _ = graph.replay();
-                    // An unbounded workspace subgraph can run to megabytes of
-                    // ambient file-change noise — callers that need the full
-                    // graph raise `limit` explicitly (0 = no cap).
-                    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(500) as usize;
-                    let mut subgraph =
-                        if let Some(node_id) = body.get("node_id").and_then(|v| v.as_str()) {
-                            let depth =
-                                body.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-                            let node = susi_core::context_graph::NodeId(node_id.to_string());
-                            graph.related(&node, depth)
-                        } else {
-                            graph.workspace_subgraph(&ws)
-                        };
-                    let truncated = limit > 0 && subgraph.nodes.len() > limit;
-                    if truncated {
-                        subgraph.nodes.truncate(limit);
-                        let keep: std::collections::HashSet<_> =
-                            subgraph.nodes.iter().map(|n| n.id.clone()).collect();
-                        subgraph
-                            .edges
-                            .retain(|e| keep.contains(&e.source) && keep.contains(&e.target));
-                    }
-                    let mut value = serde_json::to_value(&subgraph)
-                        .unwrap_or_else(|_| serde_json::json!({"error": "serialization failed"}));
-                    if truncated && let Some(obj) = value.as_object_mut() {
-                        obj.insert(String::from("truncated"), serde_json::Value::Bool(true));
-                    }
-                    value
-                })
-                .await
-                .unwrap_or_else(|_| serde_json::json!({"error": "query failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
-        }
-        (&Method::POST, "/context-graph/ingest") => {
-            let ws = (*workspace).clone();
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    let graph = ContextGraph::global();
-                    let _ = graph.replay();
-                    let source = body["source"].as_str().unwrap_or("unknown");
-                    let label = body["label"].as_str().unwrap_or("external context");
-                    let payload = body.get("payload").unwrap_or(&serde_json::Value::Null);
-                    let ws_path = body
-                        .get("workspace")
-                        .and_then(|v| v.as_str())
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or(ws);
-                    let user = body.get("user").and_then(|v| v.as_str());
-                    let id =
-                        graph.record_external_context(source, label, payload, Some(&ws_path), user);
-                    serde_json::json!({"ingested": true, "node_id": id.0})
-                })
-                .await
-                .unwrap_or_else(|_| serde_json::json!({"error": "ingest failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
-        }
-        (&Method::POST, "/context-graph/compact") => {
-            let payload = tokio::task::spawn_blocking(move || {
-                let graph = ContextGraph::global();
-                let _ = graph.replay();
-                match graph.compact() {
-                    Ok((old_lines, new_lines)) => {
-                        serde_json::json!({"compacted": true, "old_lines": old_lines, "new_lines": new_lines})
-                    }
-                    Err(e) => serde_json::json!({"error": e.to_string()}),
+            blocking_json_request(&body_bytes, "query", move |body| {
+                let graph = ContextGraph::replayed_global();
+                // An unbounded workspace subgraph can run to megabytes of
+                // ambient file-change noise — callers that need the full
+                // graph raise `limit` explicitly (0 = no cap).
+                let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(500) as usize;
+                let mut subgraph = if let Some(node_id) =
+                    body.get("node_id").and_then(|v| v.as_str())
+                {
+                    let depth = body.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+                    let node = susi_core::context_graph::NodeId(node_id.to_string());
+                    graph.related(&node, depth)
+                } else {
+                    graph.workspace_subgraph(&workspace)
+                };
+                let truncated = limit > 0 && subgraph.nodes.len() > limit;
+                if truncated {
+                    subgraph.nodes.truncate(limit);
+                    let keep: std::collections::HashSet<_> =
+                        subgraph.nodes.iter().map(|n| n.id.clone()).collect();
+                    subgraph
+                        .edges
+                        .retain(|e| keep.contains(&e.source) && keep.contains(&e.target));
                 }
+                let mut value = serde_json::to_value(&subgraph)
+                    .unwrap_or_else(|_| serde_json::json!({"error": "serialization failed"}));
+                if truncated && let Some(obj) = value.as_object_mut() {
+                    obj.insert(String::from("truncated"), serde_json::Value::Bool(true));
+                }
+                value
             })
             .await
-            .unwrap_or_else(|_| serde_json::json!({"error": "compact failed"}));
-            Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::POST, "/context-graph/ingest") => {
+            blocking_json_request(&body_bytes, "ingest", move |body| {
+                let graph = ContextGraph::replayed_global();
+                graph.ingest_report(&body, &workspace)
+            })
+            .await
+        }
+        (&Method::POST, "/context-graph/compact") => {
+            blocking_response("compact", || {
+                let graph = ContextGraph::replayed_global();
+                graph
+                    .compact_report()
+                    .unwrap_or_else(|error| json!({"error":error.to_string()}))
+            })
+            .await
         }
         (&Method::GET, "/telemetry") => {
             let ws = (*workspace).clone();
@@ -1163,129 +1141,105 @@ async fn dispatch_gemi_route_with_query(
         }
         (&Method::POST, "/broker/grant") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    use susi_core::broker::{IpcBroker, PermissionScope};
-                    let grantor = body["grantor"].as_str().unwrap_or("susi");
-                    let Some(grantee) = body["grantee"].as_str() else {
-                        return json!({"error": "grantee required"});
-                    };
-                    let Some(resource) = body["resource"].as_str() else {
-                        return json!({"error": "resource required"});
-                    };
-                    let Some(action) = body["action"].as_str() else {
-                        return json!({"error": "action required"});
-                    };
-                    let ttl_secs = body.get("ttl_secs").and_then(|v| v.as_u64());
-                    let grant = IpcBroker::global().grant_and_record(
-                        grantor,
-                        grantee,
-                        PermissionScope::new(resource, action),
-                        ttl_secs,
-                        Some(&ws),
-                    );
-                    serde_json::to_value(grant).unwrap_or_else(|_| json!({"error": "serialize"}))
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "grant failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+            blocking_json_request(&body_bytes, "grant", move |body| {
+                use susi_core::broker::{IpcBroker, PermissionScope};
+                let grantor = body["grantor"].as_str().unwrap_or("susi");
+                let Some(grantee) = body["grantee"].as_str() else {
+                    return json!({"error": "grantee required"});
+                };
+                let Some(resource) = body["resource"].as_str() else {
+                    return json!({"error": "resource required"});
+                };
+                let Some(action) = body["action"].as_str() else {
+                    return json!({"error": "action required"});
+                };
+                let ttl_secs = body.get("ttl_secs").and_then(|v| v.as_u64());
+                let grant = IpcBroker::global().grant_and_record(
+                    grantor,
+                    grantee,
+                    PermissionScope::new(resource, action),
+                    ttl_secs,
+                    Some(&ws),
+                );
+                serde_json::to_value(grant).unwrap_or_else(|_| json!({"error": "serialize"}))
+            })
+            .await
         }
         (&Method::POST, "/broker/request") => {
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    use susi_core::broker::{IpcBroker, PermissionScope};
-                    let Some(requester) = body["requester"].as_str() else {
-                        return json!({"error": "requester required"});
-                    };
-                    let grantor = body["grantor"].as_str().unwrap_or("susi");
-                    let Some(resource) = body["resource"].as_str() else {
-                        return json!({"error": "resource required"});
-                    };
-                    let Some(action) = body["action"].as_str() else {
-                        return json!({"error": "action required"});
-                    };
-                    let ttl_secs = body.get("ttl_secs").and_then(|v| v.as_u64());
-                    let req = IpcBroker::global().request(
-                        requester,
-                        grantor,
-                        PermissionScope::new(resource, action),
-                        ttl_secs,
-                    );
-                    serde_json::to_value(req).unwrap_or_else(|_| json!({"error": "serialize"}))
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "request failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+            blocking_json_request(&body_bytes, "request", move |body| {
+                use susi_core::broker::{IpcBroker, PermissionScope};
+                let Some(requester) = body["requester"].as_str() else {
+                    return json!({"error": "requester required"});
+                };
+                let grantor = body["grantor"].as_str().unwrap_or("susi");
+                let Some(resource) = body["resource"].as_str() else {
+                    return json!({"error": "resource required"});
+                };
+                let Some(action) = body["action"].as_str() else {
+                    return json!({"error": "action required"});
+                };
+                let ttl_secs = body.get("ttl_secs").and_then(|v| v.as_u64());
+                let req = IpcBroker::global().request(
+                    requester,
+                    grantor,
+                    PermissionScope::new(resource, action),
+                    ttl_secs,
+                );
+                serde_json::to_value(req).unwrap_or_else(|_| json!({"error": "serialize"}))
+            })
+            .await
         }
         (&Method::POST, "/broker/negotiate") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    use susi_core::broker::IpcBroker;
-                    let Some(request_id) = body["request_id"].as_str() else {
-                        return json!({"error": "request_id required"});
-                    };
-                    let actor = body["actor"].as_str().unwrap_or("susi");
-                    let approve = body["approve"].as_bool().unwrap_or(false);
-                    match IpcBroker::global().negotiate(request_id, actor, approve, Some(&ws)) {
-                        Ok(resolved) => serde_json::to_value(resolved)
-                            .unwrap_or_else(|_| json!({"error": "serialize"})),
-                        Err(e) => json!({"error": e}),
-                    }
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "negotiate failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+            blocking_json_request(&body_bytes, "negotiate", move |body| {
+                use susi_core::broker::IpcBroker;
+                let Some(request_id) = body["request_id"].as_str() else {
+                    return json!({"error": "request_id required"});
+                };
+                let actor = body["actor"].as_str().unwrap_or("susi");
+                let approve = body["approve"].as_bool().unwrap_or(false);
+                match IpcBroker::global().negotiate(request_id, actor, approve, Some(&ws)) {
+                    Ok(resolved) => serde_json::to_value(resolved)
+                        .unwrap_or_else(|_| json!({"error": "serialize"})),
+                    Err(e) => json!({"error": e}),
+                }
+            })
+            .await
         }
         (&Method::POST, "/broker/send") => {
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    use susi_core::broker::IpcBroker;
-                    let Some(from) = body["from"].as_str() else {
-                        return json!({"error": "from required"});
-                    };
-                    let Some(to) = body["to"].as_str() else {
-                        return json!({"error": "to required"});
-                    };
-                    let topic = body["topic"].as_str().unwrap_or("message");
-                    let msg_payload = body
-                        .get("payload")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
-                    match IpcBroker::global().send(from, to, topic, msg_payload) {
-                        Ok(msg) => serde_json::to_value(msg)
-                            .unwrap_or_else(|_| json!({"error": "serialize"})),
-                        Err(e) => json!({"error": e}),
+            blocking_json_request(&body_bytes, "send", move |body| {
+                use susi_core::broker::IpcBroker;
+                let Some(from) = body["from"].as_str() else {
+                    return json!({"error": "from required"});
+                };
+                let Some(to) = body["to"].as_str() else {
+                    return json!({"error": "to required"});
+                };
+                let topic = body["topic"].as_str().unwrap_or("message");
+                let msg_payload = body
+                    .get("payload")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                match IpcBroker::global().send(from, to, topic, msg_payload) {
+                    Ok(msg) => {
+                        serde_json::to_value(msg).unwrap_or_else(|_| json!({"error": "serialize"}))
                     }
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "send failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+                    Err(e) => json!({"error": e}),
+                }
+            })
+            .await
         }
         (&Method::POST, "/broker/receive") => {
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    use susi_core::broker::IpcBroker;
-                    let Some(recipient) = body["recipient"].as_str() else {
-                        return json!({"error": "recipient required"});
-                    };
-                    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-                    let msgs = IpcBroker::global().receive(recipient, limit);
-                    json!({"recipient": recipient, "messages": msgs})
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "receive failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+            blocking_json_request(&body_bytes, "receive", move |body| {
+                use susi_core::broker::IpcBroker;
+                let Some(recipient) = body["recipient"].as_str() else {
+                    return json!({"error": "recipient required"});
+                };
+                let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let msgs = IpcBroker::global().receive(recipient, limit);
+                json!({"recipient": recipient, "messages": msgs})
+            })
+            .await
         }
         (&Method::GET, "/v1/board/items") => {
             let ws = (*workspace).clone();
@@ -1410,25 +1364,20 @@ async fn dispatch_gemi_route_with_query(
         }
         (&Method::POST, "/patch/apply") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(&body_bytes) {
-                Ok(body) => tokio::task::spawn_blocking(move || {
-                    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
-                        .unwrap_or_default();
-                    let mut payload = body;
-                    if let Some(obj) = payload.as_object_mut() {
-                        obj.insert("workspace".into(), json!(ws.display().to_string()));
-                        obj.insert("trust_level".into(), json!(cfg.trust_level()));
-                    }
-                    match gawd::apply_patch(payload) {
-                        Ok(outcome) => outcome,
-                        Err(e) => json!({"error": e}),
-                    }
-                })
-                .await
-                .unwrap_or_else(|_| json!({"error": "patch failed"})),
-                Err(resp) => return Ok(resp),
-            };
-            Ok(json_response(StatusCode::OK, &payload))
+            blocking_json_request(&body_bytes, "patch", move |body| {
+                let cfg =
+                    crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+                let mut payload = body;
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("workspace".into(), json!(ws.display().to_string()));
+                    obj.insert("trust_level".into(), json!(cfg.trust_level()));
+                }
+                match gawd::apply_patch(payload) {
+                    Ok(outcome) => outcome,
+                    Err(e) => json!({"error": e}),
+                }
+            })
+            .await
         }
         _ => Ok(api_error(StatusCode::NOT_FOUND, "Endpoint not found")),
     }
