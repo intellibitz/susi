@@ -2068,8 +2068,7 @@ fn ship_after_displacing_an_unrelated_ref_keeps_later_ships_working() {
         Ok(local_gate_evidence())
     })
     .unwrap();
-    // The receipts describe the verified merge; origin/main holds its
-    // receipt commit.
+    // The receipts describe the verified merge, which origin/main holds.
     let first_head = first.merge.clone();
     let first_published = first.head.clone();
     let receipt_ref = git(
@@ -2352,7 +2351,7 @@ fn ship_pushes_only_main_fast_forward() {
 }
 
 #[test]
-fn ship_publishes_the_receipt_commit_and_nothing_else() {
+fn ship_publishes_the_verified_head_and_nothing_else() {
     let (_scratch, repo, base) = ship_fixture("one");
     let mut remote = FakeRemote::single(base);
     let mut verified = String::new();
@@ -2361,24 +2360,22 @@ fn ship_publishes_the_receipt_commit_and_nothing_else() {
         Ok(local_gate_evidence())
     })
     .unwrap();
-    // The verified merge is published under its receipt commit, and the
-    // push of that commit is the only thing the remote receives.
+    // Only the verified source tree reaches the remote; the proof stays local.
     assert_eq!(report.merge, verified);
-    assert_ne!(report.head, verified);
-    assert_eq!(
-        git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
-        verified
-    );
+    assert_eq!(report.head, verified);
+    let retained = gate_receipt::receipt_commit(&repo, &verified)
+        .unwrap()
+        .unwrap();
+    assert_ne!(retained, report.head);
+    gate_receipt::check_receipt_only(&repo, &verified, &retained).unwrap();
     assert_eq!(
         remote.pushes,
         vec![(report.head.clone(), "refs/heads/main".to_owned())]
     );
 }
 
-/// Every landing publishes a receipt-only commit carrying
-/// `.agents/receipts/<verified head>.json`, recorded at
-/// `refs/susi/receipts/<verified head>`; without that record nothing is
-/// published (`ship --retry` included).
+/// Every gated landing retains an exact-head receipt locally before
+/// publishing the source tree; without it nothing is published, including retries.
 /// The gate verifies the bytes its receipt names: a host whose Git
 /// converts line endings on checkout (`core.autocrlf=true`, the Git for
 /// Windows default) still gets the committed LF in its candidate.
@@ -2436,7 +2433,11 @@ fn ship_batch_receipt_records_the_final_fetched_remote_not_an_intermediate_merge
                 &repo,
                 &[
                     "show",
-                    &format!("{}:{}", report.head, gate_receipt::path_for(&report.merge)),
+                    &format!(
+                        "{}:{}",
+                        gate_receipt::ref_for(&report.merge),
+                        gate_receipt::path_for(&report.merge)
+                    ),
                 ],
             )
             .unwrap(),
@@ -2450,7 +2451,7 @@ fn ship_batch_receipt_records_the_final_fetched_remote_not_an_intermediate_merge
 }
 
 #[test]
-fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
+fn ship_retains_the_gate_receipt_locally_and_refuses_without_one() {
     let (_scratch, repo, base) = ship_fixture("one");
     let mut remote = FakeRemote::single(base.clone());
     let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
@@ -2459,15 +2460,14 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
     .unwrap();
     let verified = report.merge.clone();
     let published = report.head.clone();
-    assert_eq!(
-        git(&repo, &["rev-parse", &gate_receipt::ref_for(&verified)]).unwrap(),
-        published
-    );
+    assert_eq!(published, verified);
+    let retained = git(&repo, &["rev-parse", &gate_receipt::ref_for(&verified)]).unwrap();
+    assert_ne!(retained, published);
     assert_eq!(
         git(&repo, &["rev-parse", INTEGRATION_REF]).unwrap(),
         verified
     );
-    gate_receipt::check_receipt_only(&repo, &verified, &published).unwrap();
+    gate_receipt::check_receipt_only(&repo, &verified, &retained).unwrap();
     let path = gate_receipt::path_for(&verified);
     let changed = git(
         &repo,
@@ -2477,13 +2477,13 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
             "--name-only",
             "-r",
             &verified,
-            &published,
+            &retained,
         ],
     )
     .unwrap();
     assert_eq!(changed, path);
     let receipt: serde_json::Value =
-        serde_json::from_str(&git(&repo, &["show", &format!("{published}:{path}")]).unwrap())
+        serde_json::from_str(&git(&repo, &["show", &format!("{retained}:{path}")]).unwrap())
             .unwrap();
     gate_receipt::check_digest(&receipt).unwrap();
     assert_eq!(receipt["integration"]["commit"], verified);
@@ -2495,10 +2495,10 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
         .unwrap()
         .iter()
         .all(|gate| gate["exit_code"] == 0));
-    let message = git(&repo, &["log", "-1", "--format=%B", &published]).unwrap();
+    let message = git(&repo, &["log", "-1", "--format=%B", &retained]).unwrap();
     assert!(message.contains("Task: LOCAL-one"), "{message}");
     // No operator path leaks: the slot, the scratch repository, the home.
-    let text = git(&repo, &["show", &format!("{published}:{path}")]).unwrap();
+    let text = git(&repo, &["show", &format!("{retained}:{path}")]).unwrap();
     assert!(
         !text.contains(&repo.display().to_string().replace('\\', "/")),
         "{text}"
@@ -2506,6 +2506,15 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
     assert!(!text.contains("verify-candidate"), "{text}");
     // A verifier on this clone agrees with the receipt (static checks).
     git(&repo, &["reset", "-q", "--hard", &published]).unwrap();
+    assert!(
+        !repo.join(&path).exists(),
+        "history must stay outside the checkout"
+    );
+    assert!(
+        git(&repo, &["ls-tree", "--name-only", &published, "--", &path])
+            .unwrap()
+            .is_empty()
+    );
     let verification = gate_receipt::verify(
         &repo,
         &verified,
@@ -2522,6 +2531,7 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
         &["update-ref", "-d", &gate_receipt::ref_for(&verified)],
     )
     .unwrap();
+    assert!(gate_receipt::locate(&repo, &verified, &gate_receipt::Options::default()).is_err());
     remote.pushes.clear();
     let refused = ship_retry(&repo, &mut remote).unwrap_err();
     assert!(
@@ -2529,6 +2539,112 @@ fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
         "{refused}"
     );
     assert!(remote.pushes.is_empty());
+}
+
+#[test]
+fn actual_ship_keeps_history_local_and_an_explicit_receipt_remains_portable() {
+    let (scratch, repo, base) = ship_fixture("one");
+    let remote = scratch.0.join("origin.git");
+    git(
+        &repo,
+        &["init", "--bare", "--quiet", text(&remote).unwrap()],
+    )
+    .unwrap();
+    git(&repo, &["remote", "add", "origin", text(&remote).unwrap()]).unwrap();
+    git(
+        &repo,
+        &[
+            "push",
+            "--quiet",
+            "origin",
+            &format!("{base}:refs/heads/main"),
+        ],
+    )
+    .unwrap();
+    let report = ship(&repo, &["one"], &mut GitRemote, |_candidate, _attempt| {
+        Ok(local_gate_evidence())
+    })
+    .unwrap();
+    assert_eq!(report.head, report.merge);
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/main"]).unwrap(),
+        report.head
+    );
+    assert!(git(&remote, &["for-each-ref", gate_receipt::REF_PREFIX])
+        .unwrap()
+        .is_empty());
+    let clone = scratch.0.join("fresh-clone");
+    git(
+        &repo,
+        &[
+            "clone",
+            "--quiet",
+            "--branch",
+            "main",
+            text(&remote).unwrap(),
+            text(&clone).unwrap(),
+        ],
+    )
+    .unwrap();
+    assert!(!clone.join(gate_receipt::DIR).exists());
+    let options = gate_receipt::Options {
+        static_only: true,
+        ..gate_receipt::Options::default()
+    };
+    assert!(gate_receipt::verify(&clone, &report.head, &options).is_err());
+    let (_, receipt, _) = gate_receipt::locate(&repo, &report.head, &options).unwrap();
+    let supplied = scratch.0.join("receipt.json");
+    fs::write(&supplied, gate_receipt::render(&receipt).unwrap()).unwrap();
+    let verification = gate_receipt::verify(
+        &clone,
+        &report.head,
+        &gate_receipt::Options {
+            receipt_path: Some(supplied),
+            ..options
+        },
+    )
+    .unwrap();
+    assert_eq!(verification.mismatches(), 0, "{}", verification.render());
+    assert!(
+        !verification.all_match(),
+        "missing structure proof is not a pass"
+    );
+    assert!(verification
+        .checks
+        .iter()
+        .any(|check| check.name == "receipt commit"
+            && matches!(check.outcome, gate_receipt::Outcome::Skipped(_))));
+    // Explicitly transferring the private proof restores structural verification
+    // without adding history to either source tree or the ordinary remote.
+    let reference = gate_receipt::ref_for(&report.head);
+    git(
+        &clone,
+        &[
+            "fetch",
+            "--quiet",
+            text(&repo).unwrap(),
+            &format!("{reference}:{reference}"),
+        ],
+    )
+    .unwrap();
+    let verified = gate_receipt::verify(
+        &clone,
+        &report.head,
+        &gate_receipt::Options {
+            static_only: true,
+            ..gate_receipt::Options::default()
+        },
+    )
+    .unwrap();
+    assert!(verified.all_match(), "{}", verified.render());
+    assert!(!clone.join(gate_receipt::DIR).exists());
+    // A corrupt local binding must not silently fall back to another record.
+    git(
+        &repo,
+        &["update-ref", &gate_receipt::ref_for(&report.head), &base],
+    )
+    .unwrap();
+    assert!(gate_receipt::locate(&repo, &report.head, &gate_receipt::Options::default()).is_err());
 }
 
 fn commit_on(repo: &Path, file: &str, content: &str) -> String {
@@ -2741,10 +2857,7 @@ fn ship_regates_each_time_main_moves_and_publishes_on_the_latest() {
         git(&repo, &["rev-parse", &format!("{}^1", report.merge)]).unwrap(),
         third
     );
-    assert_eq!(
-        git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
-        report.merge
-    );
+    assert_eq!(report.head, report.merge);
     let tree = git(&repo, &["ls-tree", "--name-only", &report.head]).unwrap();
     for file in ["owned.rs", "later.rs", "third.rs"] {
         assert!(tree.lines().any(|line| line == file), "{file}: {tree}");
@@ -2899,9 +3012,8 @@ fn concurrent_ships_gate_at_the_same_time_and_both_land() {
         2,
         "both gates used one candidate: {candidates:?}"
     );
-    // origin/main holds the last receipt commit; the integration ref and
-    // the receipts name the verified merge under it.
-    let verified_last = git(&repo, &["rev-parse", &format!("{last}^1")]).unwrap();
+    // The published head is the verified merge; receipts remain local.
+    let verified_last = last;
     assert_eq!(
         integration_head(&repo).unwrap(),
         Some(verified_last.clone())
