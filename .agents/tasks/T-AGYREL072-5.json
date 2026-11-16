@@ -1,0 +1,30 @@
+{
+    "id": "T-AGYREL072-5",
+    "title": "Fix taskkill background_command in acp_mcp_bridge and Windows timeout in installer_contract",
+    "goal": "acp_mcp_bridge.rs launched taskkill via Command::new violating tests/no_console_window.rs (unattended console launches must use background_command). installer_contract.rs hardcoded a 20s timeout in run_bash causing release_sync_check_uname_fallback_isolated_systemd_guard_and_qualified_sync to fail on Windows where multi-process MSYS2 runs take ~38s. Fix both to unblock Windows release qualification.",
+    "size": "xs",
+    "deps": [],
+    "accept": {
+        "cmd": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "susi",
+            "--test",
+            "no_console_window",
+            "--test",
+            "installer_contract"
+        ]
+    },
+    "created_by": "AGYREL071",
+    "created_unix": 1794842446,
+    "scopes": [
+        "tests/acp_mcp_bridge.rs",
+        "tests/installer_contract.rs"
+    ],
+    "limitations": [
+        "Test-only fixes for Windows console launch policy and bash execution timeout on development main."
+    ]
+}
