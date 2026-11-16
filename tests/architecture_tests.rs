@@ -3318,3 +3318,22 @@ fn core_is_published_one_way_and_free_to_fork() {
         }
     }
 }
+
+/// Susi Commercial Apps links no core crate: it wraps a delegated prompt with the contract
+/// it reads from the checkout's own `self_build.rs`. Keep `BRIEF` a plain literal there,
+/// `\`-newline continuations and no other escape, so reading it gives the compiled text.
+#[test]
+fn self_build_brief_literal_stays_readable_from_source() {
+    let path = workspace_root().join("crates/susi-core/src/self_build.rs");
+    let source = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+    let (_, rest) = source.split_once("pub const BRIEF: &str = \"").unwrap();
+    let (literal, _) = rest.split_once("\";\n").unwrap();
+    let mut text = String::new();
+    for (index, part) in literal.split("\\\n").enumerate() {
+        assert!(!part.contains(['\\', '"']), "escape in: {part}");
+        text.push_str(if index == 0 { part } else { part.trim_start() });
+    }
+    assert_eq!(text, susi_core::self_build::BRIEF);
+    assert!(text.starts_with("[SUSI SELF-BUILD CONTRACT") && text.contains("[END CONTRACT]"));
+    assert!(text.len() <= 64 * 1024 && !text.chars().any(|c| c.is_control() && c != '\n'));
+}
