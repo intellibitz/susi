@@ -39,6 +39,33 @@ pub use leading_mcp::{LeadingMcpDefinition, LeadingMcpManager, LeadingMcpOverrid
 pub use registry::ToolRegistry;
 pub use types::{McpTool, MetaCategory, MetaTool, MetaToolHandler, SusiTool};
 
+#[cfg(test)]
+pub(crate) struct TestBusHomeGuard {
+    _env: susi_paths::test_env::EnvGuard,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+pub(crate) fn isolate_test_bus_home() -> TestBusHomeGuard {
+    static TEST_HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    let lock = crate::susi_core::commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let root = TEST_HOME.get_or_init(|| {
+        let p = std::env::temp_dir().join(format!("susi-tools-bus-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&p);
+        p
+    });
+    let mut env = susi_paths::test_env::EnvGuard::isolated();
+    env.set("HOME", root);
+    env.set("XDG_CACHE_HOME", root.join(".cache"));
+    env.set("SUSI_HOME", root);
+    TestBusHomeGuard {
+        _env: env,
+        _lock: lock,
+    }
+}
+
 /// Run the calling test with a private configuration root from process birth.
 /// Only the child executes the test body. Its home outlives its MAC singleton.
 #[cfg(test)]
@@ -130,6 +157,7 @@ mod surface_tests {
 
     #[test]
     fn tool_registry_global_is_a_singleton_wired_through_hooks() {
+        let _iso = crate::isolate_test_bus_home();
         // `global()` bootstraps through `hooks()`; in the unit-test binary
         // that is the inert fallback, so this never touches gawd/gmcp.
         assert_eq!(hooks::hooks().engine_version(), "unknown");

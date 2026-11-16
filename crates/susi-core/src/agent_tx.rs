@@ -48,7 +48,7 @@ fn now() -> u64 {
 }
 
 fn tx_dir(workspace: &Path) -> PathBuf {
-    workspace.join(".susi").join("tx")
+    susi_paths::workspace_state_dir(workspace).join("tx")
 }
 
 /// A transaction closes only against the workspace it snapshotted. Ids are
@@ -231,7 +231,7 @@ impl TxManager {
     /// issued by an earlier call. Closed rows on disk also shadow stale
     /// in-memory open rows for the same id.
     pub fn hydrate(&self, workspace: &Path) {
-        let dir = workspace.join(".susi").join("tx");
+        let dir = tx_dir(workspace);
         let Ok(entries) = std::fs::read_dir(&dir) else {
             return;
         };

@@ -174,7 +174,7 @@ pub struct WriterIsolation {
 impl WriterIsolation {
     /// Open the isolation boundary for `base` (the mission workspace).
     pub fn new(base: &Path) -> EaiResult<Self> {
-        let scopes_root = base.join(".susi").join("dag-scopes");
+        let scopes_root = susi_paths::workspace_state_dir(base).join("dag-scopes");
         std::fs::create_dir_all(&scopes_root).map_err(|e| {
             EaiError::io(format!(
                 "writer isolation: create {}: {e}",

@@ -37,7 +37,7 @@ pub(crate) fn audit_query(
     query: &susi_sandbox_client::audit_chain::AuditQuery,
     json: bool,
 ) -> std::process::ExitCode {
-    let audit_file = cwd.join(".susi").join("audit.log");
+    let audit_file = susi_paths::workspace_state_dir(cwd).join("audit.log");
     match susi_sandbox_client::audit_chain::query_chain(&audit_file, query) {
         Ok(records) if json => match serde_json::to_string_pretty(&records) {
             Ok(output) => println!("{output}"),
@@ -296,7 +296,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 }
             },
             Some(AuditCommands::Verify { since }) => {
-                let audit_file = cwd.join(".susi").join("audit.log");
+                let audit_file = susi_paths::workspace_state_dir(cwd).join("audit.log");
                 match susi_sandbox_client::audit_chain::verify_chain_since(&audit_file, since) {
                     Ok(count) => {
                         if let Some(since) = since {
@@ -474,17 +474,24 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
 /// binary/service/state are actually gone, and reinstall must work after
 /// every uninstall.
 fn uninstall(global_dir: &Path) {
+    let primary_instance = susi_paths::SusiDirs::is_primary_instance();
     let bin_dir = global_dir.join("bin");
     let mut steps: Vec<String> = Vec::new();
 
-    let daemons_stopped = SusiDaemon::stop_all_daemons(global_dir);
+    let daemons_stopped = if primary_instance {
+        SusiDaemon::stop_all_daemons(global_dir)
+    } else {
+        SusiDaemon::stop_instance_daemons(global_dir).signalled
+    };
     if daemons_stopped > 0 {
         steps.push(format!("stopped {} daemon process(es)", daemons_stopped));
     }
 
-    // Boot-persistent service registrations (SUSI_ALWAYS_ON path).
+    // Boot-persistent service registrations (SUSI_ALWAYS_ON path) belong to the
+    // primary user host instance only; never remove host services when
+    // uninstalling an isolated SUSI_HOME instance.
     #[cfg(target_os = "linux")]
-    {
+    if primary_instance {
         let unit = env::var("HOME")
             .map(PathBuf::from)
             .unwrap_or_default()
@@ -501,7 +508,7 @@ fn uninstall(global_dir: &Path) {
         }
     }
     #[cfg(target_os = "macos")]
-    {
+    if primary_instance {
         let plist = env::var("HOME")
             .map(PathBuf::from)
             .unwrap_or_default()
@@ -513,7 +520,7 @@ fn uninstall(global_dir: &Path) {
         }
     }
     #[cfg(target_os = "windows")]
-    {
+    if primary_instance {
         let has_task = susi_paths::console::background_command("schtasks")
             .args(["/Query", "/TN", "susi-daemon"])
             .output()

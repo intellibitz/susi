@@ -19,7 +19,7 @@ pub struct ExperimentMemory {
 const MEMORY_LOCK: &str = "experiment_memory";
 
 fn memory_path(workspace: &std::path::Path) -> std::path::PathBuf {
-    workspace.join(".susi").join("experiment_memory.json")
+    susi_paths::workspace_state_dir(workspace).join("experiment_memory.json")
 }
 
 impl ExperimentMemory {
@@ -46,7 +46,7 @@ impl ExperimentMemory {
     fn lock(
         workspace: &std::path::Path,
     ) -> crate::susi_error::EaiResult<crate::susi_config::file_lock::FileLock> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         crate::susi_config::file_lock::FileLock::acquire(&susi_dir, MEMORY_LOCK).ok_or_else(|| {
             crate::susi_error::EaiError::filesystem(
                 "experiment memory lock acquisition failed".to_string(),

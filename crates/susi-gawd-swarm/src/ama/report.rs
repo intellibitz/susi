@@ -125,7 +125,7 @@ impl SusiMissionReport {
     /// Design principle Traceable reasoning: persist inspectable thought + tool
     /// provenance under the workspace `.susi/` tree (no secret bodies).
     pub fn persist_inspectable_trace(&self, workspace: &Path) {
-        let dir = workspace.join(".susi");
+        let dir = susi_paths::workspace_state_dir(workspace);
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("last_mission_trace.json");
         let protocol_raw = self.to_protocol_format(false);
@@ -314,7 +314,7 @@ fn sink_json_value(source: &str, value: serde_json::Value) -> serde_json::Value 
 }
 
 fn load_persisted_blackboard(workspace: &Path) -> serde_json::Value {
-    let path = workspace.join(".susi").join("last_blackboard.json");
+    let path = susi_paths::workspace_state_dir(workspace).join("last_blackboard.json");
     match std::fs::read_to_string(path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or(serde_json::json!({})),
         Err(_) => serde_json::json!({ "entries": [], "agent_count": 0 }),

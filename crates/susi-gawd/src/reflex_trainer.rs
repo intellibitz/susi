@@ -10,7 +10,7 @@ pub struct ReflexTrainer;
 impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(workspace: &Path) -> EaiResult<String> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         let cycle_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
@@ -31,7 +31,7 @@ impl ReflexTrainer {
     }
 
     pub fn force_train(workspace: &Path) -> EaiResult<String> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         let cycle_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
@@ -53,7 +53,7 @@ fn due_claim(workspace: &Path, threshold: usize) -> EaiResult<Option<TrainingCla
     // One stat decides the common case: fewer bytes than `threshold` minimal
     // records cannot hold `threshold` samples, so skip reading the buffer
     // (twice — back-off check and claim) after every mission.
-    let staged = workspace.join(".susi").join("distillation_staged.jsonl");
+    let staged = susi_paths::workspace_state_dir(workspace).join("distillation_staged.jsonl");
     let size = std::fs::metadata(&staged).map(|m| m.len()).unwrap_or(0);
     if size < (threshold as u64).saturating_mul(MIN_STAGED_RECORD_BYTES) {
         return Ok(None);
@@ -194,7 +194,7 @@ struct CycleRecord {
 /// operator visibility and back-off state; a write failure never fails the
 /// cycle it describes.
 fn log_cycle(workspace: &Path, outcome: &str, claimed: usize, report: &str) {
-    let path = workspace.join(".susi").join(DISTILLATION_LOG);
+    let path = susi_paths::workspace_state_dir(workspace).join(DISTILLATION_LOG);
     let record = CycleRecord {
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -222,7 +222,8 @@ fn log_cycle(workspace: &Path, outcome: &str, claimed: usize, report: &str) {
 /// outcome and the most recent cycle (surfaced by `susi substrate status`).
 pub fn distillation_summary(workspace: &Path) -> serde_json::Value {
     let text =
-        std::fs::read_to_string(workspace.join(".susi").join(DISTILLATION_LOG)).unwrap_or_default();
+        std::fs::read_to_string(susi_paths::workspace_state_dir(workspace).join(DISTILLATION_LOG))
+            .unwrap_or_default();
     let records: Vec<CycleRecord> = text
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
@@ -239,7 +240,9 @@ pub fn distillation_summary(workspace: &Path) -> serde_json::Value {
 }
 
 fn last_cycle(workspace: &Path) -> Option<CycleRecord> {
-    let text = std::fs::read_to_string(workspace.join(".susi").join(DISTILLATION_LOG)).ok()?;
+    let text =
+        std::fs::read_to_string(susi_paths::workspace_state_dir(workspace).join(DISTILLATION_LOG))
+            .ok()?;
     text.lines()
         .rev()
         .find_map(|line| serde_json::from_str(line).ok())
@@ -257,8 +260,10 @@ fn held_back_wait(workspace: &Path, threshold: usize) -> EaiResult<Option<String
         "error" => "failed",
         _ => return Ok(None),
     };
-    let staged =
-        staged_sample_count(&workspace.join(".susi/distillation_staged.jsonl"))?.unwrap_or(0);
+    let staged = staged_sample_count(
+        &susi_paths::workspace_state_dir(workspace).join("distillation_staged.jsonl"),
+    )?
+    .unwrap_or(0);
     let needed = last.claimed.saturating_add(threshold);
     Ok((staged < needed).then(|| {
         format!(
@@ -280,7 +285,7 @@ struct TrainingClaim {
 }
 
 fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<TrainingClaim>> {
-    let susi_dir = workspace.join(".susi");
+    let susi_dir = susi_paths::workspace_state_dir(workspace);
     let _lock = crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "distillation_staged")
         .ok_or_else(|| EaiError::io("acquire distillation staging lock"))?;
     let staged_path = susi_dir.join("distillation_staged.jsonl");
@@ -405,7 +410,7 @@ fn claim_generation(name: &str) -> Option<u128> {
 }
 
 fn recover_orphaned_claims(workspace: &Path) -> EaiResult<usize> {
-    let susi_dir = workspace.join(".susi");
+    let susi_dir = susi_paths::workspace_state_dir(workspace);
     let _staging_lock =
         crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "distillation_staged")
             .ok_or_else(|| EaiError::io("acquire orphan-claim recovery lock"))?;

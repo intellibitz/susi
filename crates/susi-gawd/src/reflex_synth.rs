@@ -288,15 +288,22 @@ impl ReflexSynthesizer {
                 wasm_src.display()
             ))
         })?;
+        let cleanup_unsynthesized_src = || {
+            if !wasm_out.exists() {
+                let _ = fs::remove_file(&wasm_src);
+            }
+        };
         let output = Command::new("rustc")
             .args(["--target", "wasm32-wasip1", "-O", "-o", staged_str, src_str])
             .output()
             .map_err(|e| {
                 let _ = fs::remove_file(&staged);
+                cleanup_unsynthesized_src();
                 EaiError::process(format!("rustc invocation failed: {e}"))
             })?;
         if !output.status.success() {
             let _ = fs::remove_file(&staged);
+            cleanup_unsynthesized_src();
             return Err(EaiError::process(format!(
                 "WASM compilation failed (is the wasm32-wasip1 rustup target installed? \
                  `rustup target add wasm32-wasip1`): {}",
@@ -306,11 +313,13 @@ impl ReflexSynthesizer {
         if let Some(verify) = verify {
             if let Err(why) = verify(&staged) {
                 let _ = fs::remove_file(&staged);
+                cleanup_unsynthesized_src();
                 return Err(EaiError::process(why));
             }
         }
         if let Err(e) = fs::rename(&staged, &wasm_out) {
             let _ = fs::remove_file(&staged);
+            cleanup_unsynthesized_src();
             return Err(EaiError::filesystem(format!(
                 "publish reflex {}: {e}",
                 wasm_out.display()
@@ -498,5 +507,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn compile_and_publish_failure_removes_orphaned_source_when_no_wasm_exists() {
+        let _lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = susi_paths::tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", tmp.path());
+        env.set("XDG_DATA_HOME", tmp.path().join("xdg-data"));
+        env.set("SUSI_HOME", tmp.path().join(".susi"));
+
+        let slug = "uncompiled_orphan_probe";
+        let err =
+            ReflexSynthesizer::compile_and_publish(slug, "not valid rust {{{", None).unwrap_err();
+        assert!(!err.to_string().is_empty());
+
+        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
+        assert!(
+            !reflex_dir.join(format!("{slug}.rs")).exists(),
+            "failed reflex synthesis must not leave orphaned {}.rs",
+            slug
+        );
+        assert!(!reflex_dir.join(format!("{slug}.wasm")).exists());
     }
 }

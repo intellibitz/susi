@@ -172,11 +172,11 @@ struct Watermark {
 
 impl SemanticIndex {
     fn index_dir(workspace: &Path) -> PathBuf {
-        workspace.join(".susi/index")
+        susi_paths::workspace_state_dir(workspace).join("index")
     }
 
     fn watermark_path(workspace: &Path) -> PathBuf {
-        workspace.join(".susi/index/watermark.json")
+        susi_paths::workspace_state_dir(workspace).join("index/watermark.json")
     }
 
     fn load_watermark(workspace: &Path) -> Watermark {
@@ -200,7 +200,7 @@ impl SemanticIndex {
     /// Index new content from all known `.susi/` stores and workspace files.
     /// Returns the number of documents added or refreshed.
     pub fn refresh(workspace: &Path) -> EaiResult<usize> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         fs::create_dir_all(&susi_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
         let _refresh_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "semantic_index")
@@ -369,7 +369,7 @@ impl SemanticIndex {
     /// Ensure every indexed doc has a stored embedding; embeds only docs not
     /// yet in `vectors.jsonl`. No-op-safe when the embedder can't load.
     fn ensure_embeddings(workspace: &Path) -> EaiResult<()> {
-        let susi_dir = workspace.join(".susi");
+        let susi_dir = susi_paths::workspace_state_dir(workspace);
         fs::create_dir_all(&susi_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
         let _embedding_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "semantic_embeddings")
@@ -395,7 +395,7 @@ impl SemanticIndex {
         let texts: Vec<String> = pending.iter().map(|(_, t)| t.clone()).collect();
         let vectors = crate::embed_provider::embed(texts)?;
 
-        let vec_path = workspace.join(".susi/vectors.jsonl");
+        let vec_path = susi_dir.join("vectors.jsonl");
         let mut f = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -422,7 +422,7 @@ impl SemanticIndex {
 
         let qv = crate::embed_provider::embed_one(query)?;
 
-        let vec_path = workspace.join(".susi/vectors.jsonl");
+        let vec_path = susi_paths::workspace_state_dir(workspace).join("vectors.jsonl");
         let mut scored: Vec<(String, f32)> = Vec::new();
         if let Ok(f) = fs::File::open(&vec_path) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {

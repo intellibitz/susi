@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 #[test]
 fn tool_registry_facade_queries_plane_bus_without_panicking() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let _ = ToolRegistry::list_tools().len();
     let _ = ToolRegistry::exists("nonexistent_tool_xyz");
     assert!(

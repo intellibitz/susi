@@ -24,6 +24,7 @@ fn local_embed_provider_generate_rejects_chat_prompts_as_embedding_only() {
 
 #[test]
 fn local_embed_provider_health_check_returns_boolean_status() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -48,6 +49,7 @@ impl crate::susi_core::plane_bus::PlaneHandler for FakeEmbedPlug {
 
 #[test]
 fn a_wired_plug_answers_embed_and_install_through_the_bus() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     PlaneBus::global().register(TOPIC_EMBED_TEXTS, std::sync::Arc::new(FakeEmbedPlug));
     PlaneBus::global().register(TOPIC_EMBED_INSTALL, std::sync::Arc::new(FakeEmbedPlug));
     assert!(plug_wired());
@@ -60,6 +62,7 @@ fn a_wired_plug_answers_embed_and_install_through_the_bus() {
 
 #[test]
 fn register_local_embed_provider_is_idempotent_and_exposes_install_source() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let registry = crate::susi_core::registry::CapabilityRegistry::new();
     register_into(&registry);
     register_into(&registry);
@@ -69,6 +72,7 @@ fn register_local_embed_provider_is_idempotent_and_exposes_install_source() {
 
 #[test]
 fn registered_local_embed_provider_rejects_generate_through_capability_registry() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let registry = crate::susi_core::registry::CapabilityRegistry::new();
     register_into(&registry);
     let provider = registry

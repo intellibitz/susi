@@ -123,6 +123,7 @@ fn extensions_validate_checks_absolute_and_workspace_relative_pack_dirs() {
 
 #[test]
 fn plane_backed_tools_forward_the_server_workspace() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     let bus = PlaneBus::global();
     for topic in [
         topics::GEMI_OPERATOR_SNAPSHOT,
@@ -293,6 +294,7 @@ fn runtime_model_tools_require_a_model() {
 
 #[test]
 fn runtime_model_tools_return_the_gemi_plane_documents() {
+    let _isolated = crate::test_isolation::enter_isolated_home();
     struct Models;
     impl PlaneHandler for Models {
         fn handle(

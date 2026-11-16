@@ -2156,6 +2156,13 @@ mod facade_marshal_tests {
 
     static LOCK: Mutex<()> = Mutex::new(());
     static ONCE: Once = Once::new();
+    static ISOLATED_HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+    struct WireGuard {
+        _env: susi_paths::test_env::EnvGuard,
+        _env_lock: std::sync::MutexGuard<'static, ()>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
 
     struct Echo;
     impl PlaneHandler for Echo {
@@ -2253,8 +2260,20 @@ mod facade_marshal_tests {
         assert_eq!(outcome["status"], "CANCELLED");
     }
 
-    fn wire() -> std::sync::MutexGuard<'static, ()> {
-        let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    fn wire() -> WireGuard {
+        let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let env_lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = ISOLATED_HOME.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("susi-facade-bus-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            dir
+        });
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", root);
+        env.set("XDG_CACHE_HOME", root.join(".cache"));
+        env.set("SUSI_HOME", root);
         ONCE.call_once(|| {
             let bus = PlaneBus::global();
             bus.register_prefix("gemi.", Arc::new(Echo));
@@ -2263,7 +2282,11 @@ mod facade_marshal_tests {
             bus.register_prefix("tools.", Arc::new(Echo));
             bus.register(topics::GEMI_INFER_EMBED, Arc::new(Embed));
         });
-        g
+        WireGuard {
+            _env: env,
+            _env_lock: env_lock,
+            _lock: lock,
+        }
     }
 
     #[test]

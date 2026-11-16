@@ -232,8 +232,8 @@ fn probe_evidence(scratch: &Path) -> (UspCheck, UspCheck) {
 fn audit_chain_check(workspace: &Path) -> UspCheck {
     let home = susi_paths::SusiDirs::substrate_home();
     let mut chains = vec![
-        workspace.join(".susi").join("audit.log"),
-        home.join(".susi").join("audit.log"),
+        susi_paths::workspace_state_dir(workspace).join("audit.log"),
+        susi_paths::workspace_state_dir(&home).join("audit.log"),
         home.join("swarm_events.audit.log"),
     ];
     chains.dedup_by(|a, b| {
@@ -431,15 +431,16 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         "last_mission_trace.json",
         "last_governance.json",
     ];
+    let state_dir = susi_paths::workspace_state_dir(workspace);
     let present: Vec<&str> = surfaces
         .iter()
         .copied()
-        .filter(|f| workspace.join(".susi").join(f).is_file())
+        .filter(|f| state_dir.join(f).is_file())
         .collect();
     let unreadable: Vec<&str> = present
         .iter()
         .copied()
-        .filter(|f| !parses_as_json(&workspace.join(".susi").join(f)))
+        .filter(|f| !parses_as_json(&state_dir.join(f)))
         .collect();
     out.push(check(
         "glass_box",
@@ -706,8 +707,9 @@ pub fn report(workspace: &Path) -> serde_json::Value {
         &path,
         serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
     );
-    let ws_path = workspace.join(".susi").join("last_crown.json");
-    let _ = std::fs::create_dir_all(workspace.join(".susi"));
+    let ws_susi_dir = susi_paths::workspace_state_dir(workspace);
+    let ws_path = ws_susi_dir.join("last_crown.json");
+    let _ = std::fs::create_dir_all(&ws_susi_dir);
     let _ = std::fs::write(
         ws_path,
         serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),

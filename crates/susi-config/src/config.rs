@@ -264,7 +264,7 @@ impl SusiConfig {
     /// REST). Prefer the dedicated `~/.susi/api_token` file (0600); fall back to
     /// a legacy `settings.api_auth_token` value only for migration.
     pub fn api_auth_token(&self) -> String {
-        let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
+        let token_path = susi_paths::host_token_path();
         // Mtime-cached read — NetGuard calls this on every request.
         if let Some(raw) = super::cluster_key::cached_file_bytes(&token_path) {
             if let Ok(from_file) = String::from_utf8(raw) {

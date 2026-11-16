@@ -23,7 +23,7 @@ fn default_bearer(addr: &str) -> Option<String> {
             return Some(pb);
         }
     }
-    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
+    std::fs::read_to_string(susi_paths::host_token_path())
         .ok()
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())

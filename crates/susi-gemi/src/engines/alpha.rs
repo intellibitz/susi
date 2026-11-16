@@ -56,7 +56,7 @@ impl SusiAlphaModel {
     pub fn train_on_staged_data(global_dir: &Path) -> Result<String> {
         Self::train_on_staged_file(
             global_dir,
-            &global_dir.join(".susi/distillation_staged.jsonl"),
+            &susi_paths::workspace_state_dir(global_dir).join("distillation_staged.jsonl"),
         )
     }
 
