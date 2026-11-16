@@ -2,7 +2,7 @@
   "id": "T-CODEX100KBOOTSTRAP-1",
   "title": "Share GMCP bootstrap registration without losing tool behavior",
   "goal": "Vision: V-6. susi core must be less than 100k lines. no functionalities must be dropped. susi core is a pure standards protocol compliant ai os socket. Consolidate repetitive registration code while preserving all 204 tools, exact metadata, categories, handlers, ordering and feature gates.",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "size": "m",
   "deps": [
     "T-CODEX100KRICH-1"
@@ -101,5 +101,16 @@
     "Focused validation is not full release qualification and does not establish the whole-core 100k goal."
   ],
   "peer_review": "Independent read-only review confirmed pristine 204 descriptor parity, unchanged 5 existing tests, narrow rich reference fixes and physical LOC counts.",
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json",
+  "closed": {
+    "at_unix": 1794821407,
+    "commit": "7a00adb5cb09334bb901864000f85ac2103595c7",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "6a262d34679ba88706b0ccef131ed103e3a378ae",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json"
+  }
 }
