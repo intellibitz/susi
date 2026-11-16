@@ -1,0 +1,44 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-6",
+  "title": "Share workspace and field dispatch for host operator tools",
+  "goal": "Vision: V-6. Consolidate duplicate GMCP forwarding and daemon payload reads while retaining approved transport, argument error order and both wire catalogs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--test",
+      "args_schema_parity"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794862140,
+  "scopes": [
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-6.json",
+    "crates/susi-gmcp/src/tools/forward.rs",
+    "crates/susi-gmcp/src/tools/catalog_groups.rs",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/provider_tools.rs",
+    "crates/susi-gmcp/src/tools/harness_tools.rs",
+    "crates/susi-gmcp/src/tools/host_view_tools.rs",
+    "crates/susi-gmcp/src/tools/adapter_tools.rs",
+    "crates/susi-gmcp/src/tools/host_ops.rs",
+    "crates/susi-gmcp/src/tools/core/agents.rs",
+    "crates/susi-gmcp/src/tests/forward.rs",
+    "crates/susi-daemon/src/provider_ops.rs",
+    "crates/susi-daemon/src/harness_ops.rs",
+    "crates/susi-daemon/src/host_views.rs",
+    "crates/susi-daemon/src/adapter_ops.rs",
+    "crates/susi-daemon/src/operator_args.rs",
+    "crates/susi-daemon/src/lib.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reused the compiled wire catalog, registered daemon plane handlers, existing MAC path and workspace admission, typed payload filtering and pretty JSON renderer. Daemon commands now share the equal field, timestamp/number and absolute-path readers."
+  }
+}
