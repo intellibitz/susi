@@ -69,7 +69,16 @@ fn redact_one(text: &str, pattern: &str) -> String {
 /// actually holds, which is what an error message most often echoes back.
 #[must_use]
 pub fn mask_env_credentials(text: &str) -> String {
-    mask_credentials_from(text, std::env::vars())
+    // Native credentials must also mask the display forms used by diagnostics.
+    mask_credentials_from(
+        text,
+        std::env::vars_os().map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        }),
+    )
 }
 
 /// `mask_env_credentials` over an explicit variable list (testable without
