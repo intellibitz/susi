@@ -25,8 +25,8 @@
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "base_commit": "668c224542d0c3ceb24cf03d211a25e2e6c72c8f",
   "limitations": [
     "Contract stage (`GMCP-203-017-01`) pins `docs/gmcp/contract-203-017.md` (`HOST-001..HOST-018`), `CLAIM-04` ledger binding, 22 upstream spec digests, and positive/negative concurrent multi-server host fixtures (`gmcp_req_203_017_01_contract`); unified production multi-server host, MRTR callback brokerage, Apps/Auth surfaces, adversarial/interop/ops suites, and `.M` mastery ship across `T-CODEXGMCPROADMAP-115..120`.",
@@ -54,5 +54,11 @@
     "tests/gmcp_requirements/vc_203_012_part4.rs",
     "tests/gmcp_requirements/vc_203_017.rs"
   ],
-  "implementation_commit": "a3719d635543f6a226957d9aaeef4b098d087e01"
+  "implementation_commit": "a3719d635543f6a226957d9aaeef4b098d087e01",
+  "verified_commit": "a189f1d91eae6f8daf3322ba164f2ceca2f2155c",
+  "closed": {
+    "at_unix": 1794797582,
+    "commit": "a189f1d91eae6f8daf3322ba164f2ceca2f2155c",
+    "by": "AG2FEATURES"
+  }
 }
