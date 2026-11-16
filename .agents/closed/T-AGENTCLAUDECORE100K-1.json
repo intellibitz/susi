@@ -1,0 +1,21 @@
+{
+  "branch": "claude-core-100k",
+  "task": "T-AGENTCLAUDECORE100K-1",
+  "agent": "AGENTCLAUDECORE100K",
+  "head": "50462cabd1c642a5d1b2bbfe06b4aa14b1d43e48",
+  "closed_unix": 1794837108,
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/visions/V-9.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "crates/susi-core/src/self_build.rs",
+    "docs/ceo-mandate-84.md",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs",
+    "tests/architecture_tests.rs",
+    "tests/agent_bootstrap.rs"
+  ]
+}
