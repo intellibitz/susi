@@ -2243,7 +2243,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Keep goals tidy",
         "record each one once, in the words it was given, and never edit it",
         "never strip the link when rewriting the task",
-        "create-only carried note, which never claims the goal met",
+        "create-only carried note in local storage, which never claims the goal met",
         "Missing history never proves acceptance",
         "artifact provenance with the artifact",
         "current contract in place",
