@@ -372,9 +372,12 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 9. **Pluggable** — admission protocols: `CapabilityRegistry` + installed extension packs (core ships and seeds none); managed catalog commands (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`) read compiled model catalogs and whatever installed packs provide.
    Core never enables, configures or launches a third-party MCP server on its
    own: a server runs only after an explicit `susi mcp-add` / `susi mcp enable`
+   or a client-supplied ACP v1 session descriptor. ACP descriptors are ephemeral
+   and session-owned, use literal cwd/argv/environment values, and remain subject
+   to process and mission permissions; they do not change `mcp_config.json`
    (servers an earlier core enabled on its own stay in `mcp_config.json` until
    removed; `susi mcp list` shows them and `susi mcp disable <id>` removes them).
-   Admitting an MCP server refuses a damaged or unreadable `mcp_config.json`
+   Persistent MCP registration refuses a damaged or unreadable `mcp_config.json`
    instead of rewriting it as only the server being added.
    A damaged extension-pack `state.json` is never rewritten: startup runs on
    compiled defaults and load/unload refuse until the operator repairs it.

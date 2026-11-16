@@ -26,7 +26,13 @@
     "T-CODEX100KSETTINGS-1",
     "T-CODEX100KMCPIO-1",
     "T-CODEX100KBOARDTEST-1",
-    "T-CODEX100KHTTPHEAD-1"
+    "T-CODEX100KHTTPHEAD-1",
+    "T-CODEX100KACPBRIDGE-1",
+    "T-CODEX100KACPSESSION-1",
+    "T-CODEX100KSCOPEDTOOLS-1",
+    "T-CODEX100KACPINFERENCE-1",
+    "T-CODEX100KMCPCATALOG-1",
+    "T-CODEX100KGMCPTEST-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -73,18 +79,20 @@
     ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json",
     ".agents/evidence/core-under-100k/2026-11-16-settings.json",
     ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json",
-    ".agents/evidence/core-under-100k/2026-11-16-http-head.json"
+    ".agents/evidence/core-under-100k/2026-11-16-http-head.json",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json"
   ],
   "progress": {
-    "runtime_rust": 299063,
+    "runtime_rust": 301075,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 305517,
+    "complete_socket_rust": 307529,
     "genuine_runtime_lines_removed": 2294,
-    "remaining_to_remove": 205518,
+    "remaining_to_remove": 207530,
     "upstream_runtime_lines_added": 84,
     "correctness_lines_added": 104,
-    "net_runtime_lines_removed": 1698,
-    "standards_compatibility_lines_added": 492
+    "net_runtime_lines_removed": -314,
+    "standards_compatibility_lines_added": 2504
   },
   "publication_cadence": {
     "during_active_work": true,
@@ -95,7 +103,7 @@
     "protocol": "Agent Client Protocol",
     "official_revision": 1,
     "reference_commit": "13b765828f961812f0c78ae577220e994209fa2f",
-    "status": "staged numeric-v1 stdio and MCP ownership repairs verified; actual session-isolated client-supplied MCP bridge implementation in progress, full ACP compliance not established",
-    "implementation_task": "T-CODEX100KACP-1"
+    "status": "Actual session-owned client-supplied stdio MCP bridge integrated and verified with nine real CLI tests. Typed tool lifecycle notifications and provider result continuation remain open; full ACP compliance not established.",
+    "implementation_task": "T-CODEX100KACPBRIDGE-1"
   }
 }

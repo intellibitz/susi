@@ -73,5 +73,7 @@
       "actual empty-MCP and legacy ACP prompts preserve NDJSON stdout with progress sink propagated across workers"
     ],
     "owner": "parent /root/acp_mcp_design; no source publication by this agent"
-  }
+  },
+  "created_unix": 1794828739,
+  "creation_provenance": "Missing creation field reconstructed from first recorded task commit c487aa1f82d9306742bbed1a880ed3d84c13c53a author timestamp; exact pre-commit creation time was not recorded."
 }
