@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDECLOUDCLOSE-1",
+  "title": "Mandate 83 records that cloud agents close tasks through main",
+  "goal": "Vision: V-8. The workflow tool now lets a host that may not write the queue's refs close a task: the close receipt is kept on main, and publishing a finished task releases its claim (commercial T-CLAUDECLOUDCLOSE-1). Make docs/ceo-mandate-83.md say so and take the gap out of its not-enforced list.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_mandate_83"
+    ]
+  },
+  "created_by": "CLAUDECLOUDCLOSE",
+  "created_unix": 1794830243,
+  "scopes": [
+    "docs/ceo-mandate-83.md"
+  ],
+  "limitations": [
+    "Wording only in this repository; the tool change is in intellibitz/susi-commercial-apps. This task was claimed, renewed by publishing, closed and released through main from a cloud session, by the tool.",
+    "Main is unqualified development, not a release."
+  ]
+}
