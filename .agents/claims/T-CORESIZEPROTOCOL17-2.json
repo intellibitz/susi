@@ -1,0 +1,15 @@
+{
+  "branch": "coresize-protocol-17",
+  "scopes": [
+    "crates/susi-gmcp/src/tools/host_ops.rs",
+    "crates/susi-gmcp/src/tools/control_plane.rs",
+    "crates/susi-gmcp/src/tools/host_view_tools.rs",
+    "crates/susi-gmcp/src/tools/forward.rs",
+    "tests/lean_core_ceilings.rs",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-2.json"
+  ],
+  "task": "T-CORESIZEPROTOCOL17-2",
+  "agent": "CORESIZEPROTOCOL17",
+  "claimed_unix": 1794856596,
+  "lease_until_unix": 1794860196
+}
