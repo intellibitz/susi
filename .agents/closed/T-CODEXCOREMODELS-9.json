@@ -1,0 +1,17 @@
+{
+  "branch": "codexcoremodels/reuse",
+  "task": "T-CODEXCOREMODELS-9",
+  "agent": "CODEXCOREMODELS",
+  "head": "53a30491f0ce0f7d142e425bb0c4086a7fe1e760",
+  "closed_unix": 1794867972,
+  "scopes": [
+    ".agents/tasks/T-CODEXCOREMODELS-9.json",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/context_graph_views.rs",
+    "src/cli/context_graph_cli.rs",
+    "crates/susi-gmcp/src/tools/core/knowledge.rs",
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-core/tests/context_graph_views.rs",
+    "tests/lean_core_ceilings.rs"
+  ]
+}
