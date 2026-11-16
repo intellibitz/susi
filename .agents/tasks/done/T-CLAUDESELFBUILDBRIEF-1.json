@@ -16,6 +16,11 @@
   },
   "created_by": "CLAUDESELFBUILDBRIEF",
   "created_unix": 1794815171,
+  "closed": {
+    "at_unix": 1794815368,
+    "commit": "bf010a5e4bb567dd79c2746e2da04cf4bd92cff7",
+    "by": "CLAUDESELFBUILDBRIEF"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "crates/susi-core/src/self_build.rs (BRIEF and its unit tests), every reader of the brief (susi-gawd-swarm dag, susi-gawd-agents external peers, crates/susi-gawd/src/tests/vc_201_018.rs, tests/architecture_tests.rs), AGENTS.md, .agents/identity.json Mandates 72 and 75-81 and docs/ceo-mandate-75..81.md. The brief is extended in place and points at the existing mandate documents; no new module, dependency or harvest."
