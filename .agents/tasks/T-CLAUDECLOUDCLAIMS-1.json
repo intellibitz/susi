@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDECLOUDCLAIMS-1",
+  "title": "Mandate 83 records that cloud agents claim, renew and release through main",
+  "goal": "Vision: V-8. The workflow tool now lets a host that may not write claim refs keep its claim on main (commercial T-CLAUDECLOUDCLAIMS-1). Make docs/ceo-mandate-83.md and AGENTS.md say so, and take the gap out of the mandate's not-enforced list.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDECLOUDCLAIMS",
+  "created_unix": 1794827739
+}

@@ -20,7 +20,10 @@ agent works, and wins where older text differs.
 3. **Keep a claim's progress up to date, or lose it.** A claim lives one hour at
    a time; publishing work on the task or `susi-commercial tasks renew <id>`
    renews it. A claim nobody keeps alive lapses, and any agent may take the
-   task (`susi-commercial tasks claim <id>`) without asking.
+   task (`susi-commercial tasks claim <id>`) without asking. A host that may
+   not write claim refs (a cloud session) keeps its claim on `main`
+   (`.agents/claims/<id>.json`) under the same rules; every agent's tool reads
+   both.
 4. **Always collaborate** through the Susi Board (Mandate 76).
 5. **Always isolated; your own worktrees are yours to reuse** (Mandates 49, 65,
    74 and 77).

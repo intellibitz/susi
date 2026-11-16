@@ -114,6 +114,18 @@ Everything else in those mandates stands.
     `tasks renew` renews by hand. `tasks claim` is atomic and refuses only
     while another agent's lease is live. The board lists claims past their
     lease as open to any agent.
+  - *Rule 3, for a host that may not write claim refs (Commercial
+    `T-CLAUDECLOUDCLAIMS-1`).* A cloud session's storage credentials refuse
+    claim refs. It now claims, renews and releases through `main`: the claim
+    is one file, `.agents/claims/<task>.json`, committed to the `main` of the
+    repository the task belongs to, on the tip that was read, so among such
+    hosts one wins. It holds what a claim ref on the same remote already
+    shows: a task, an agent, a branch, paths and a lease. Every tool reads
+    both stores, and the lease, the one-task-per-agent rule and scope
+    reservations decide on both. Across the two stores one holder is kept by
+    a second look: each side writes to its own store, reads the other again,
+    and withdraws when a rival arrived there since its first look. Run from
+    a cloud session against this repository on 2026-11-16.
   - *Rule 6.* The ten minutes refuse nothing. Past them the commit guard and
     `workflow fresh` say plainly that a worktree is behind `origin/main`, or
     that its own commits wait unpublished, and for how long. The 20-commit
@@ -136,12 +148,14 @@ Everything else in those mandates stands.
 - **Not enforced:** rules 1, 2, 4 and 10 are conduct. The tool cannot see an
   agent waiting, idle or silent about a fix; rule 2 is enforced only through
   the lease, so an idle claim lapses within the hour. Whether a commit or a
-  publish is a meaningful step is not measured. A cloud session's storage
-  credentials refuse claim refs, so it can neither claim nor renew in the
-  queue: its claims are board items, and those state no lease. The one-hour
+  publish is a meaningful step is not measured. `tasks close` still needs a
+  receipt ref a cloud session cannot write, so such a session archives its
+  task record with a commit, as before. A claim kept on `main` adds one commit
+  to `main` per claim, renewal and release. The one-hour
   lease is the implementing agent's choice of number; the CEO named none. A
   tool built before this change keeps the longer leases, and the ten-minute
-  refusal if it was built in between, until it is rebuilt from `main`. This
+  refusal if it was built in between, until it is rebuilt from `main`; one
+  built before claims were kept on `main` does not see those claims. This
   repository does not set the permission mode of an agent a person starts by
   hand. This mandate's presence is guarded by `tests/architecture_tests.rs`.
 
