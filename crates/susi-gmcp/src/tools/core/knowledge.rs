@@ -11,16 +11,10 @@ use crate::susi_core::context_graph::ContextGraph;
 use crate::susi_core::plane_bus::gawd_hooks;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
-use crate::tools::args;
 #[cfg(feature = "tools-rich")]
 use crate::tools::helpers::{read_file_nofollow, secure_external_url, secure_path};
 
 impl CoreTools {
-    crate::tool_def!(meta_scout_agents_tool_attr {
-        name: "meta_scout_agents",
-        description: "Discover agent capabilities from connected remotes",
-        input_schema: args::no_args(),
-    });
     pub fn meta_scout_agents(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let remotes = GmcpClient::list_external_tools();
         let mut report = "Discovered Meta-Agent Capabilities:\n\n".to_string();
@@ -32,11 +26,6 @@ impl CoreTools {
         Ok(report)
     }
 
-    crate::tool_def!(meta_rank_agents_tool_attr {
-        name: "meta_rank_agents",
-        description: "Report current agent expertise hierarchy",
-        input_schema: args::no_args(),
-    });
     pub fn meta_rank_agents(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let registry = crate::susi_core::AgentMetaRegistry::global();
         let agents = registry.list_agents();
@@ -50,13 +39,6 @@ impl CoreTools {
         Ok(report)
     }
 
-    #[cfg(feature = "tools-rich")]
-    crate::tool_def!(ast_analyze_tool_attr {
-        name: "ast_analyze",
-        description:
-            "Structural AST analysis of Rust source (syn); other languages report size only",
-        input_schema: args::typed::<args::AstAnalyze>(),
-    });
     #[cfg(feature = "tools-rich")]
     pub fn ast_analyze(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let path_s = arg.field_str("path");
@@ -111,13 +93,6 @@ impl CoreTools {
     }
 
     #[cfg(feature = "tools-rich")]
-    crate::tool_def!(semantic_search_tool_attr {
-        name: "semantic_search",
-        description:
-            "Unified BM25 recall over .susi memory, experience, audit log, and workspace files",
-        input_schema: args::typed::<args::Query>(),
-    });
-    #[cfg(feature = "tools-rich")]
     pub fn semantic_search(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query_str = arg
             .field_str("query")
@@ -138,11 +113,6 @@ impl CoreTools {
         Ok(out)
     }
 
-    crate::tool_def!(sandbox_exec_tool_attr {
-        name: "sandbox_exec",
-        description: "Isolated Docker execution via bollard",
-        input_schema: args::typed::<args::SandboxExec>(),
-    });
     pub fn sandbox_exec(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let cmd = arg
             .field_str("cmd")
@@ -162,12 +132,6 @@ impl CoreTools {
             })
     }
 
-    #[cfg(feature = "tools-rich")]
-    crate::tool_def!(browser_automate_tool_attr {
-        name: "browser_automate",
-        description: "DOM access and web automation via headless Chrome",
-        input_schema: args::typed::<args::BrowserAutomate>(),
-    });
     #[cfg(feature = "tools-rich")]
     pub fn browser_automate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let url = arg
@@ -191,13 +155,6 @@ impl CoreTools {
     }
 
     #[cfg(feature = "tools-rich")]
-    crate::tool_def!(rag_query_tool_attr {
-        name: "rag_query",
-        description:
-            "Vector recall over the unified .susi index via local fastembed cosine similarity",
-        input_schema: args::typed::<args::Query>(),
-    });
-    #[cfg(feature = "tools-rich")]
     pub fn rag_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query = arg
             .field_str("query")
@@ -218,12 +175,6 @@ impl CoreTools {
         Ok(out)
     }
 
-    crate::tool_def!(context_graph_query_tool_attr {
-        name: "context_graph_query",
-        description:
-            "Query the Universal Context Graph for the current workspace or a specific node id",
-        input_schema: args::typed::<args::ContextGraphQuery>(),
-    });
     pub fn context_graph_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let graph = crate::susi_core::context_graph::ContextGraph::global();
         let _ = graph.replay();
@@ -243,11 +194,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(context_graph_ingest_tool_attr {
-        name: "context_graph_ingest",
-        description: "Ingest an external context event into the Universal Context Graph. Args: source (string), label (string), payload (object), optional workspace, optional user.",
-        input_schema: args::typed::<args::ContextGraphIngest>(),
-    });
     pub fn context_graph_ingest(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let source = arg.field_str("source").unwrap_or("unknown");
         let label = arg.field_str("label").unwrap_or("external context");
@@ -266,11 +212,6 @@ impl CoreTools {
         .unwrap_or_else(|_| "{}".to_string()))
     }
 
-    crate::tool_def!(context_graph_compact_tool_attr {
-        name: "context_graph_compact",
-        description: "Compact the append-only Universal Context Graph log",
-        input_schema: args::no_args(),
-    });
     pub fn context_graph_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let graph = ContextGraph::global();
         let _ = graph.replay();
@@ -283,11 +224,6 @@ impl CoreTools {
         .unwrap_or_else(|_| "{}".to_string()))
     }
 
-    crate::tool_def!(ipc_grant_tool_attr {
-        name: "ipc_grant",
-        description: "Grant an inter-app permission scope. Args: grantor, grantee, resource, action, optional ttl_secs.",
-        input_schema: args::typed::<args::IpcGrant>(),
-    });
     pub fn ipc_grant(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let grantor = arg.field_str("grantor").unwrap_or("susi");
         let grantee = arg
@@ -311,11 +247,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&grant).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(ipc_request_tool_attr {
-        name: "ipc_request",
-        description: "Request an inter-app permission (opens negotiation). Args: requester, resource, action, optional grantor, optional ttl_secs.",
-        input_schema: args::typed::<args::IpcRequest>(),
-    });
     pub fn ipc_request(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let requester = arg
             .field_str("requester")
@@ -333,12 +264,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&req).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(ipc_negotiate_tool_attr {
-        name: "ipc_negotiate",
-        description:
-            "Approve or deny a pending permission request. Args: request_id, actor, approve (bool).",
-        input_schema: args::typed::<args::IpcNegotiate>(),
-    });
     pub fn ipc_negotiate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let request_id = arg
             .field_str("request_id")
@@ -351,11 +276,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&resolved).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(ipc_send_tool_attr {
-        name: "ipc_send",
-        description: "Send a broker message (requires dispatch grant unless from=susi). Args: from, to, topic, payload.",
-        input_schema: args::typed::<args::IpcSend>(),
-    });
     pub fn ipc_send(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let from = arg
             .field_str("from")
@@ -374,11 +294,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&msg).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(ipc_receive_tool_attr {
-        name: "ipc_receive",
-        description: "Receive broker messages for an identity. Args: recipient, optional limit.",
-        input_schema: args::typed::<args::IpcReceive>(),
-    });
     pub fn ipc_receive(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let recipient = arg
             .field_str("recipient")

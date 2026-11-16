@@ -22,7 +22,6 @@ use crate::susi_core::plane_bus::{gawd, gemi};
 use crate::susi_error::{EaiError, EaiResult};
 use crate::susi_sandbox::placement_audit::lookup_placement_decision;
 
-use super::args;
 use super::forward::{pretty, required_str};
 use super::CoreTools;
 
@@ -64,11 +63,6 @@ fn absolute_path_arg(arg: &serde_json::Value, key: &str) -> EaiResult<Option<Pat
 impl CoreTools {
     // ── 2. Operator view ───────────────────────────────────────────────
 
-    crate::tool_def!(operator_snapshot_tool_attr {
-        name: "operator_snapshot",
-        description: "Unified operator state (workload, resources, providers, config, federation, evidence) for the server workspace: the same document as `susi top --json`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
     pub fn operator_snapshot(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -80,31 +74,16 @@ impl CoreTools {
 
     // ── 11. Extension packs ────────────────────────────────────────────
 
-    crate::tool_def!(extensions_list_tool_attr {
-        name: "extensions_list",
-        description: "List installed extension packs: the same document as `susi extensions list`",
-        input_schema: args::no_args(),
-    });
     pub fn extensions_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let packs = serde_json::to_value(extensions::list_packs())
             .map_err(|e| EaiError::internal(format!("encode packs: {e}")))?;
         pretty(&packs)
     }
 
-    crate::tool_def!(extensions_status_tool_attr {
-        name: "extensions_status",
-        description: "Active extension pack, its root, and every installed pack: the same document as `susi extensions status`",
-        input_schema: args::no_args(),
-    });
     pub fn extensions_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         pretty(&extensions::status_report())
     }
 
-    crate::tool_def!(extensions_validate_tool_attr {
-        name: "extensions_validate",
-        description: "Check a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state, as `susi extensions validate`. Args: {path: pack directory, absolute or relative to the server workspace}",
-        input_schema: args::typed::<args::ExtensionsValidate>(),
-    });
     pub fn extensions_validate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The socket has no caller working directory: a relative path
         // resolves against the server workspace.
@@ -120,12 +99,6 @@ impl CoreTools {
         pretty(&report)
     }
 
-    crate::tool_def!(extensions_load_tool_attr {
-        name: "extensions_load",
-        description:
-            "Verify and activate an installed extension pack, as `susi extensions load`. Args: {id}",
-        input_schema: args::typed::<args::ExtensionPackId>(),
-    });
     pub fn extensions_load(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let id = first_str(arg, &["id", "pack", "name"])
             .ok_or_else(|| EaiError::config("id is required"))?;
@@ -133,11 +106,6 @@ impl CoreTools {
         pretty(&report)
     }
 
-    crate::tool_def!(extensions_unload_tool_attr {
-        name: "extensions_unload",
-        description: "Deactivate an extension pack (files kept; compiled defaults serve), as `susi extensions unload`. Args: {id}",
-        input_schema: args::typed::<args::ExtensionPackId>(),
-    });
     pub fn extensions_unload(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let id = first_str(arg, &["id", "pack", "name"])
             .ok_or_else(|| EaiError::config("id is required"))?;
@@ -147,11 +115,6 @@ impl CoreTools {
 
     // ── 6. Missions ────────────────────────────────────────────────────
 
-    crate::tool_def!(plan_run_tool_attr {
-        name: "plan_run",
-        description: "Solve a goal with the autonomous planning loop in the server workspace, as `susi plan`; returns status, final_answer and agents. Args: {goal, optional max_steps (default 3)}. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::PlanRun>(),
-    });
     pub fn plan_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -169,11 +132,6 @@ impl CoreTools {
         pretty(&summary)
     }
 
-    crate::tool_def!(intent_ingest_tool_attr {
-        name: "intent_ingest",
-        description: "Ingest a natural-language intent into the server workspace's evidence ledger, as `susi pulse`. Args: {intent}. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::IntentIngest>(),
-    });
     pub fn intent_ingest(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -183,11 +141,6 @@ impl CoreTools {
             .map_err(|e| EaiError::internal(format!("pulse ingestion: {e}")))
     }
 
-    crate::tool_def!(blackboard_show_tool_attr {
-        name: "blackboard_show",
-        description: "The last mission blackboard (swarm shared state, credential-redacted) in the server workspace, as `susi blackboard show`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
     pub fn blackboard_show(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -198,43 +151,22 @@ impl CoreTools {
 
     // ── 12. Runtime model cache and placement (replaced 9091 routes) ────
 
-    crate::tool_def!(runtime_models_list_tool_attr {
-        name: "runtime_models_list",
-        description: "Models loaded in the inference cache: the daemon-loaded document `susi os runtime` reports",
-        input_schema: args::no_args(),
-    });
     pub fn runtime_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         pretty(&gemi::loaded_models())
     }
 
-    crate::tool_def!(runtime_models_load_tool_attr {
-        name: "runtime_models_load",
-        description:
-            "Load a model into the inference cache, as `susi os manage model load`. Args: {model}",
-        input_schema: args::typed::<args::RuntimeModel>(),
-    });
     pub fn runtime_models_load(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let model = required_str(arg, "model")?;
         let payload = gemi::preload_model(model).map_err(EaiError::inference)?;
         pretty(&payload)
     }
 
-    crate::tool_def!(runtime_models_unload_tool_attr {
-        name: "runtime_models_unload",
-        description: "Evict a model from the inference cache, as `susi os manage model unload`. Args: {model}",
-        input_schema: args::typed::<args::RuntimeModel>(),
-    });
     pub fn runtime_models_unload(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let model = required_str(arg, "model")?;
         let payload = gemi::unload_model(model).map_err(EaiError::inference)?;
         pretty(&payload)
     }
 
-    crate::tool_def!(placement_decision_tool_attr {
-        name: "placement_decision",
-        description: "The audited inference-placement decision with this id, plus its audit entry hash (the id a completion returns in X-Susi-Placement-Id). Args: {decision_id}",
-        input_schema: args::typed::<args::PlacementDecision>(),
-    });
     pub fn placement_decision(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = required_str(arg, "decision_id")?;
         let record =
@@ -242,11 +174,6 @@ impl CoreTools {
         pretty(&record)
     }
 
-    crate::tool_def!(context_graph_stats_tool_attr {
-        name: "context_graph_stats",
-        description: "Universal Context Graph node and edge counts by kind: the same document as `susi context-graph stats` and 9091 GET /context-graph/stats",
-        input_schema: args::no_args(),
-    });
     pub fn context_graph_stats(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let graph = ContextGraph::global();
         let _ = graph.replay();
@@ -255,11 +182,6 @@ impl CoreTools {
         pretty(&stats)
     }
 
-    crate::tool_def!(context_graph_show_tool_attr {
-        name: "context_graph_show",
-        description: "The most recent Universal Context Graph events for a workspace: the same document as `susi context-graph show`. Args: optional limit (default 20), optional absolute workspace (default: the server workspace)",
-        input_schema: args::typed::<args::ContextGraphShow>(),
-    });
     pub fn context_graph_show(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let limit = match arg.get("limit") {
             None => CONTEXT_GRAPH_SHOW_LIMIT,
@@ -275,11 +197,6 @@ impl CoreTools {
         pretty(&graph.workspace_show(&target, limit))
     }
 
-    crate::tool_def!(blackboard_post_tool_attr {
-        name: "blackboard_post",
-        description: "Post a key-value update to the shared blackboard and mirror it onto the Susi Native Board by default",
-        input_schema: args::typed::<args::BlackboardPost>(),
-    });
     pub fn blackboard_post(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let key = required_str(arg, "key")?.to_owned();
         let value = arg
@@ -301,11 +218,6 @@ impl CoreTools {
         pretty(&serde_json::to_value(&entry).map_err(|e| EaiError::internal(e.to_string()))?)
     }
 
-    crate::tool_def!(board_list_tool_attr {
-        name: "board_list",
-        description: "List collaborative items on the Susi Native Board",
-        input_schema: args::typed::<args::BoardList>(),
-    });
     pub fn board_list(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let target_ws =
             absolute_path_arg(arg, "workspace")?.unwrap_or_else(|| workspace.to_path_buf());
@@ -323,11 +235,6 @@ impl CoreTools {
         pretty(&serde_json::json!({ "items": items, "findings": findings }))
     }
 
-    crate::tool_def!(board_check_tool_attr {
-        name: "board_check",
-        description: "Check the Susi Native Board for integrity, open stops, and unanswered requests (fail-closed)",
-        input_schema: args::typed::<args::BoardCheck>(),
-    });
     pub fn board_check(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let target_ws =
             absolute_path_arg(arg, "workspace")?.unwrap_or_else(|| workspace.to_path_buf());
@@ -342,11 +249,6 @@ impl CoreTools {
         pretty(&serde_json::to_value(&status).map_err(|e| EaiError::internal(e.to_string()))?)
     }
 
-    crate::tool_def!(board_post_tool_attr {
-        name: "board_post",
-        description: "Post a collaborative coordination item to the Susi Native Board",
-        input_schema: args::typed::<args::BoardPost>(),
-    });
     pub fn board_post(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let target_ws =
             absolute_path_arg(arg, "workspace")?.unwrap_or_else(|| workspace.to_path_buf());

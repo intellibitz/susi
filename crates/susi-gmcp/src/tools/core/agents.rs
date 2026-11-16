@@ -149,11 +149,6 @@ impl CoreTools {
         Ok(format!("http://{resolved_ip}:{port}"))
     }
 
-    crate::tool_def!(a2a_delegate_tool_attr {
-        name: "a2a_delegate",
-        description: "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. Every request carries this node's Ed25519 request signature, which is how bound members authorize us; the host Bearer token is sent only to this node's own A2A port. Returns the completed task's agent reply text.",
-        input_schema: args::typed::<args::A2aDelegate>(),
-    });
     pub fn a2a_delegate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)?;
         let peer = arg
@@ -251,21 +246,11 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(agents_list_tool_attr {
-        name: "agents_list",
-        description: "List managed external executors and local setup readiness",
-        input_schema: args::no_args(),
-    });
     pub fn agents_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let agents = agents::external_list(workspace, "execution");
         serde_json::to_string(&agents).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(agents_run_tool_attr {
-        name: "agents_run",
-        description: "Launch an external agent task; returns a durable task ID for status, logs and cancellation. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::AgentsRun>(),
-    });
     pub fn agents_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -284,11 +269,6 @@ impl CoreTools {
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(agents_tasks_tool_attr {
-        name: "agents_tasks",
-        description: "List persisted external agent tasks for this workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
     pub fn agents_tasks(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -316,21 +296,11 @@ impl CoreTools {
         |arg, workspace| external_agent_control(arg, workspace, "send");
     }
 
-    crate::tool_def!(frameworks_list_tool_attr {
-        name: "frameworks_list",
-        description: "List managed agent frameworks/engines and local setup readiness",
-        input_schema: args::no_args(),
-    });
     pub fn frameworks_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let engines = agents::external_list(workspace, "framework");
         serde_json::to_string(&engines).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(frameworks_run_tool_attr {
-        name: "frameworks_run",
-        description: "Launch an agent-framework task; returns a durable task ID. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::FrameworksRun>(),
-    });
     pub fn frameworks_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -347,11 +317,6 @@ impl CoreTools {
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(frameworks_tasks_tool_attr {
-        name: "frameworks_tasks",
-        description: "List persisted agent-framework tasks for this workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
     pub fn frameworks_tasks(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -375,11 +340,6 @@ impl CoreTools {
         |arg, workspace| external_agent_control(arg, workspace, "logs");
     }
 
-    crate::tool_def!(tasks_list_tool_attr {
-        name: "tasks_list",
-        description: "List active and historical swarm tasks with liveness telemetry",
-        input_schema: args::no_args(),
-    });
     pub fn tasks_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let tasks = crate::susi_core::task_manager::SwarmTaskManager::global().list_tasks();
         serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
@@ -399,11 +359,6 @@ impl CoreTools {
         |arg, _workspace| task_control(arg, SwarmTaskManager::kill_task, "killed");
     }
 
-    crate::tool_def!(mcp_registry_tool_attr {
-        name: "mcp_registry",
-        description: "Interrogate global MCP registry and benchmark servers",
-        input_schema: args::no_args(),
-    });
     pub fn mcp_registry(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let entries = GmcpClient::autonomous_web_scout();
         Ok(format!(
@@ -413,11 +368,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(mcp_configure_tool_attr {
-        name: "mcp_configure",
-        description: "Configure external MCP server",
-        input_schema: args::typed::<args::McpConfigure>(),
-    });
     pub fn mcp_configure(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let name = arg
             .field_str("name")
@@ -437,21 +387,11 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(leading_mcp_list_tool_attr {
-        name: "leading_mcp_list",
-        description: "List top MCP tool servers and enablement/readiness",
-        input_schema: args::no_args(),
-    });
     pub fn leading_mcp_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let rows = plane_tools::leading_mcp_list(workspace);
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(leading_mcp_enable_tool_attr {
-        name: "leading_mcp_enable",
-        description: "Enable a leading MCP server into ~/.susi/mcp_config.json",
-        input_schema: args::typed::<args::LeadingMcpServer>(),
-    });
     pub fn leading_mcp_enable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let server = arg
             .field_str("server")
@@ -460,11 +400,6 @@ impl CoreTools {
         serde_json::to_string(&cfg).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(leading_mcp_disable_tool_attr {
-        name: "leading_mcp_disable",
-        description: "Disable a leading MCP server from ~/.susi/mcp_config.json",
-        input_schema: args::typed::<args::LeadingMcpServer>(),
-    });
     pub fn leading_mcp_disable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let server = arg
             .field_str("server")
@@ -477,11 +412,6 @@ impl CoreTools {
         Ok(serde_json::json!({ "server": server, "removed": removed }).to_string())
     }
 
-    crate::tool_def!(agent_register_tool_attr {
-        name: "agent_register",
-        description: "Dynamically register a new agent profile",
-        input_schema: args::typed::<args::AgentRegister>(),
-    });
     pub fn agent_register(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let name = arg.field_str("name");
         let desc = arg.field_str("description");

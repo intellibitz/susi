@@ -10,14 +10,8 @@ use crate::susi_core::plane_bus::gemi::{sample_telemetry, HardwareProfiler};
 use crate::susi_core::plane_bus::{gawd, gawd_hooks};
 use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
-use crate::tools::args;
 
 impl CoreTools {
-    crate::tool_def!(status_tool_attr {
-        name: "status",
-        description: "SUSI Substrate status report",
-        input_schema: args::no_args(),
-    });
     pub fn status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let hardware = HardwareProfiler::get_profile();
         let mut out = format!("SUSI Engine Version: {}\n", env!("CARGO_PKG_VERSION"));
@@ -56,11 +50,6 @@ impl CoreTools {
         Ok(out)
     }
 
-    crate::tool_def!(ledger_verify_tool_attr {
-        name: "ledger_verify",
-        description: "Verify the pinned GMCP normative requirements ledger (VC-203-001): vendored corpus hashes, verbatim clauses, complete row classification; drift=true checks the pinned upstreams instead, as `susi mcp ledger [--drift]`. Args: optional drift, refetched, workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::LedgerVerify>(),
-    });
     pub fn ledger_verify(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -84,11 +73,6 @@ impl CoreTools {
             .map_err(|e| EaiError::process(format!("ledger report encode: {e}")))
     }
 
-    crate::tool_def!(sovereign_dashboard_tool_attr {
-        name: "sovereign_dashboard",
-        description: "Report on autonomous invisible work performed by the substrate",
-        input_schema: args::no_args(),
-    });
     pub fn sovereign_dashboard(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let log_content =
             crate::susi_sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 100);
@@ -133,11 +117,6 @@ impl CoreTools {
         Ok(report)
     }
 
-    crate::tool_def!(bloat_audit_tool_attr {
-        name: "bloat_audit",
-        description: "Recursively audit every Rust source under the workspace (AST-based; target/, dot directories and test-only trees skipped) and target/ (build artifact size) for bloat and hardcoded secrets, on std worker threads across all cores. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
     pub fn bloat_audit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -146,31 +125,16 @@ impl CoreTools {
         gawd::bloat_audit(workspace).map_err(EaiError::governance)
     }
 
-    crate::tool_def!(identity_tool_attr {
-        name: "identity",
-        description: "SUSI substrate identity report",
-        input_schema: args::no_args(),
-    });
     pub fn identity(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd::identity_report(workspace).map_err(EaiError::governance)
     }
 
-    crate::tool_def!(distill_genome_tool_attr {
-        name: "distill_genome",
-        description: "Distill the compiled genome into the workspace experience buffer (indexed by semantic search)",
-        input_schema: args::no_args(),
-    });
     pub fn distill_genome(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd::audit_reasoning_substrate(workspace)
             .map(|report| format!("# Genome Distillation\n\n{report}"))
             .map_err(EaiError::governance)
     }
 
-    crate::tool_def!(self_validate_tool_attr {
-        name: "self_validate",
-        description: "Report the hardware profile and tensor device, and check the compiled genome",
-        input_schema: args::no_args(),
-    });
     pub fn self_validate(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // A failure is an error, not an Ok string: tool receipts treat Ok
         // output as a successful, citable result.
@@ -186,11 +150,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(reason_tool_attr {
-        name: "reason",
-        description: "Execute swarm reasoning substrate",
-        input_schema: args::typed::<args::ReasonPrompt>(),
-    });
     pub fn reason(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let arg_s = if let Some(s) = arg.as_str() {
             s.to_string()
@@ -221,11 +180,6 @@ impl CoreTools {
         )
     }
 
-    crate::tool_def!(susi_solve_tool_attr {
-        name: "susi_solve",
-        description: "Solve a natural-language intent via the SUSI swarm substrate. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::SusiSolve>(),
-    });
     /// Full swarm solve via SusiMasterAgent. Accepts a plain string, or an
     /// object with `intent` / `input` / `prompt` — never the raw JSON Display
     /// of the whole arguments blob prefixed with the tool name.
@@ -258,11 +212,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(mission_run_tool_attr {
-        name: "mission_run",
-        description: "Run a goal as `susi <goal>` does: a stopped local engine may be started on demand, and the result is one JSON document {text, status, exit_code} (exit_code 0 only for SUCCESS or COMPLETE). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace). Optional model: an advisory model hint.",
-        input_schema: args::typed::<args::MissionRun>(),
-    });
     /// The CLI's own mission (`susi <goal>`) run in the daemon. Unlike
     /// `susi_solve`, it may start a stopped local engine on demand (as the
     /// in-process goal does) and answers with one JSON document
@@ -285,11 +234,6 @@ impl CoreTools {
         serde_json::to_string(&outcome).map_err(|e| EaiError::protocol(format!("mission_run: {e}")))
     }
 
-    crate::tool_def!(power_reason_tool_attr {
-        name: "power_reason",
-        description: "Delegate complex reasoning to Power-Tier MCP remotes",
-        input_schema: args::typed::<args::ReasonPrompt>(),
-    });
     pub fn power_reason(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let arg_s = if let Some(s) = arg.as_str() {
             s.to_string()
@@ -313,11 +257,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(host_telemetry_tool_attr {
-        name: "host_telemetry",
-        description: "Sample host thermal, battery, and load telemetry",
-        input_schema: args::no_args(),
-    });
     pub fn host_telemetry(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let snapshot = sample_telemetry();
         if let Ok(snap) =
@@ -328,11 +267,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(apply_patch_cycle_tool_attr {
-        name: "apply_patch_cycle",
-        description: "Apply a workspace-confined patch then run tests; revert on failure. Args: files[{path,old,new}], optional test_command, auto_apply, description. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::ApplyPatchCycle>(),
-    });
     pub fn apply_patch_cycle(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -356,11 +290,6 @@ impl CoreTools {
         gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())
     }
 
-    crate::tool_def!(privacy_status_tool_attr {
-        name: "privacy_status",
-        description: "Report privacy mode, its network scope (local_only = this machine and its local network; host_only = this machine alone, loopback), mandatory sandbox, and cryptographic capability grants",
-        input_schema: args::no_args(),
-    });
     pub fn privacy_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         Ok(serde_json::to_string_pretty(
             &crate::susi_core::mac_policy::MacPolicy::global().status_json(),
@@ -368,11 +297,6 @@ impl CoreTools {
         .unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(privacy_consent_egress_tool_attr {
-        name: "privacy_consent_egress",
-        description: "Grant time-limited network.egress (+ cloud.inference under local_only; refused under host_only). Args: optional subject, optional ttl_secs.",
-        input_schema: args::typed::<args::PrivacyConsentEgress>(),
-    });
     pub fn privacy_consent_egress(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let subject = arg.field_str("subject").unwrap_or("susi");
         let ttl = arg.field_u64("ttl_secs").unwrap_or(3600);
@@ -385,11 +309,6 @@ impl CoreTools {
         .unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(intent_advertise_tool_attr {
-        name: "intent_advertise",
-        description: "Advertise a provider capability. Args: from, intent, optional payload.",
-        input_schema: args::typed::<args::IntentAdvertise>(),
-    });
     pub fn intent_advertise(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let from = arg.field_str("from").unwrap_or("agent");
         let intent = arg
@@ -404,12 +323,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&msg).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(intent_need_tool_attr {
-        name: "intent_need",
-        description:
-            "Publish a need and match providers. Args: from, intent, optional min_score, limit.",
-        input_schema: args::typed::<args::IntentNeed>(),
-    });
     pub fn intent_need(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let from = arg.field_str("from").unwrap_or("planner");
         let intent = arg
@@ -435,12 +348,6 @@ impl CoreTools {
     }
 
     #[cfg(feature = "tools-rich")]
-    crate::tool_def!(ambient_pulse_tool_attr {
-        name: "ambient_pulse",
-        description: "Scan workspace FS changes into context graph and refresh semantic index. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::WorkspaceView>(),
-    });
-    #[cfg(feature = "tools-rich")]
     pub fn ambient_pulse(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -460,11 +367,6 @@ impl CoreTools {
         .unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(tx_begin_tool_attr {
-        name: "tx_begin",
-        description: "Begin multi-agent transaction. Args: description, files (array of relative paths). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema: args::typed::<args::TxBegin>(),
-    });
     pub fn tx_begin(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -489,11 +391,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(tx_commit_tool_attr {
-        name: "tx_commit",
-        description: "Commit open transaction. Args: id.",
-        input_schema: args::typed::<args::TxId>(),
-    });
     pub fn tx_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = arg
             .field_str("id")
@@ -506,11 +403,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(tx_abort_tool_attr {
-        name: "tx_abort",
-        description: "Abort transaction and restore files. Args: id.",
-        input_schema: args::typed::<args::TxId>(),
-    });
     pub fn tx_abort(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = arg
             .field_str("id")
@@ -521,11 +413,6 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
-    crate::tool_def!(delegate_to_ide_tool_attr {
-        name: "delegate_to_ide",
-        description: "Delegate a complex, ambiguous, or IDE-level task to an overarching IDE Agent like Antigravity. Use this when the swarm encounters a problem requiring a full IDE environment or human interaction.",
-        input_schema: args::typed::<args::DelegateToIde>(),
-    });
     pub fn delegate_to_ide(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let goal = arg
             .field_str("goal")
@@ -549,11 +436,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(brain_pareto_tool_attr {
-        name: "brain_pareto",
-        description: "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
-        input_schema: args::typed::<args::BrainPareto>(),
-    });
     pub fn brain_pareto(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let class = arg
             .field_str("class")

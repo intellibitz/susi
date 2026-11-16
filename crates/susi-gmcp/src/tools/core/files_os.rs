@@ -8,29 +8,18 @@ use susi_config::JsonFields as _;
 use super::CoreTools;
 use crate::susi_core::plane_bus::gawd_hooks;
 use crate::susi_error::{EaiError, EaiResult};
-use crate::tools::args;
 use crate::tools::helpers::{
     confine_exec_argv, os_ps_proc, os_sysinfo_proc, read_file_nofollow, secure_path,
     tool_string_arg,
 };
 
 impl CoreTools {
-    crate::tool_def!(read_file_tool_attr {
-        name: "read_file",
-        description: "Read file content in workspace",
-        input_schema: args::typed::<args::ReadFile>(),
-    });
     pub fn read_file(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let arg_s = tool_string_arg(arg, &["path", "file", "filename"])?;
         let path = secure_path(workspace, &arg_s)?;
         read_file_nofollow(&path)
     }
 
-    crate::tool_def!(write_file_tool_attr {
-        name: "write_file",
-        description: "Write content to workspace file",
-        input_schema: args::typed::<args::WriteFile>(),
-    });
     pub fn write_file(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let path_s = arg.field_str("path");
         let content_s = arg.field_str("content");
@@ -56,11 +45,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(exec_command_tool_attr {
-        name: "exec_command",
-        description: "Execute command in workspace",
-        input_schema: args::typed::<args::ExecCommand>(),
-    });
     pub fn exec_command(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let arg_s = tool_string_arg(arg, &["command", "cmd", "input"])?;
         let clean = arg_s.trim();
@@ -202,11 +186,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(os_services_tool_attr {
-        name: "os_services",
-        description: "List the substrate's leaf services (susi-paths/error/config/sandbox/native) with supervised pids and live health; action=restart <name> SIGTERMs a supervised service for the daemon to respawn",
-        input_schema: args::typed::<args::OsServices>(),
-    });
     pub fn os_services(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let action = arg.field_str("action").unwrap_or("status");
         let name = arg.field_str("name").unwrap_or("");
@@ -266,11 +245,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(os_ps_tool_attr {
-        name: "os_ps",
-        description: "List host processes (pid, name, RSS; threads excluded) on Linux, Windows and macOS, sorted by memory; args: {limit?: N, filter?: substring}",
-        input_schema: args::typed::<args::OsPs>(),
-    });
     pub fn os_ps(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let limit = arg.field_u64("limit").unwrap_or(50).min(500) as usize;
         let filter = arg.field_str("filter").unwrap_or("");
@@ -278,21 +252,11 @@ impl CoreTools {
         os_ps_proc(limit, filter)
     }
 
-    crate::tool_def!(os_sysinfo_tool_attr {
-        name: "os_sysinfo",
-        description: "Host summary on Linux, Windows and macOS: kernel, uptime, load average, memory totals, cpu count, OS version, cpu utilization; a metric the OS does not keep reads unavailable",
-        input_schema: args::no_args(),
-    });
     pub fn os_sysinfo(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("os_sysinfo", "", workspace)?;
         os_sysinfo_proc()
     }
 
-    crate::tool_def!(os_kill_tool_attr {
-        name: "os_kill",
-        description: "Send TERM or KILL to a pid the substrate supervises (daemon-spawned service pids only — fails closed on any other pid, including external table rows); args: {pid: N, signal?: \"term\"|\"kill\"}",
-        input_schema: args::typed::<args::OsKill>(),
-    });
     pub fn os_kill(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let pid =
             arg.field_u64("pid")
@@ -334,11 +298,6 @@ impl CoreTools {
         }
     }
 
-    crate::tool_def!(os_logs_tool_attr {
-        name: "os_logs",
-        description: "Tail a supervised leaf service's log (substrate_home/logs/<name>.log); args: {name: string, lines?: N (default 50, max 500)}",
-        input_schema: args::typed::<args::OsLogs>(),
-    });
     pub fn os_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let name = arg
             .field_str("name")
