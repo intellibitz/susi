@@ -44,12 +44,11 @@ fn invalid_reply() -> EaiError {
 }
 
 fn call<T: DeserializeOwned>(operation: &str, config: Value) -> EaiResult<T> {
-    let cwd = std::env::current_dir()
-        .map_err(|error| EaiError::io(format!("writer isolation: working directory: {error}")))?;
+    // A deleted caller cwd still works; do not resolve it to an absolute name.
     let reply = susi_config::mcp_session::call_result(
         "swarm_storage_v1",
         &json!({"operation": operation, "config": config}),
-        Some(&cwd),
+        Some(Path::new(".")),
     )?;
     decode_result(reply)
 }
