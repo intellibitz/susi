@@ -1,0 +1,32 @@
+{
+  "id": "T-CLAUDETESTBUDGET-1",
+  "title": "Lift the core test-line budget by CEO decision",
+  "goal": "CEO decision 2026-11-16, on the report that core's test budget stood at 128,995 of 129,000 lines: \"lift the core test budget\". Raise TEST_RUST_CEILING so tests and guards can be added again, record the decision in docs/lean-core.md and beside the constant, and move no other ceiling.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CLAUDETESTBUDGET",
+  "created_unix": 1794816592,
+  "reuse": {
+    "decision": "existing",
+    "searched": "tests/lean_core_ceilings.rs (the category budgets and how they are measured) and the ceiling history in docs/lean-core.md, including the earlier CEO-decided raise of this budget (T-CLAUDE-411, 127,000 -> 129,000). The existing constant and decision log are changed in place; nothing new is built."
+  },
+  "scopes": [
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md"
+  ],
+  "limitations": [
+    "One ceiling constant and its record; no test or runtime behaviour changes. Main is unqualified development, not a release.",
+    "TEST_RUST_CEILING rises 129,000 -> 139,000 (128,999 measured). The CEO gave no figure; 10,000 is about what tests grew since the budget was set on 2026-11-15 (118,857 measured). The last raise of this budget was 2,000 lines and was used up in a day.",
+    "No other ceiling moves: runtime, tooling, vendor, pillar src and per-file ceilings are unchanged (tests/architecture_tests.rs is at 3,339 of its 3,500 lines).",
+    "The Susi Board could be read but not written from this cloud session (HTTP 403 on refs/board/* and refs/claims/*); no Claim or Landed item was posted and the record is closed by hand (Mandate 76 section 7)."
+  ]
+}

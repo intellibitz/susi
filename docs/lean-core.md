@@ -306,8 +306,8 @@ distinct artifacts side by side:
    patched offline dependency sources (`vendor/README.md`). Kept intact for
    deterministic offline builds under a hard ceiling (`216,164`).
 3. **Tooling and tests (`72,094` tooling `.rs` lines in `xtask/**` +
-   `toolchain/**`, `121,961` test/bench/fuzz `.rs` lines)**: guarded by separate
-   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`129,000`), and
+   `toolchain/**`, `128,999` test/bench/fuzz `.rs` lines)**: guarded by separate
+   `TOOLING_RUST_CEILING` (`72,200`), `TEST_RUST_CEILING` (`139,000`), and
    per-file ceilings (`XTASK_MAX_FILE_LINES_CEILING = 4,000`,
    `INTEGRATION_TEST_MAX_FILE_LINES_CEILING = 3,500`,
    `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`) in
@@ -1336,3 +1336,14 @@ vendored crates or append-only audit logs.
   source lines: its new items were paid for by removing sentences it stated
   twice. No pillar `src` ceiling and no test, tooling, vendor or per-file ceiling
   changes.
+
+- 2026-11-16 T-CLAUDETESTBUDGET-1 (CEO decision 2026-11-16, "lift the core test
+  budget"): `TEST_RUST_CEILING` `129,000 -> 139,000` (`128,999` measured). After
+  the day's governance guards the test budget stood 5 lines under its ceiling,
+  so the next test of any size could not be added. The budget was set on
+  2026-11-15 at `118,857` measured lines and raised once that day; tests have
+  grown by about 10,000 lines since, and the budget gets that much room again.
+  Only the test-line budget moves, and nothing is taken out of the count: no
+  pillar `src` ceiling and no runtime, tooling, vendor or per-file ceiling
+  changes. The largest integration test file, `tests/architecture_tests.rs`,
+  stays under its own ceiling (`3,339` of `3,500` lines).

@@ -356,7 +356,11 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
 /// items. The ceiling rises by the 16 lines those pins take (docs/lean-core.md).
 const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 302_016;
 const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
-const TEST_RUST_CEILING: usize = 129_000;
+/// 2026-11-16: tests 129,000 -> 139,000 (T-CLAUDETESTBUDGET-1, 128,999 measured). CEO
+/// decision 2026-11-16, "lift the core test budget": it stood 5 lines under its ceiling.
+/// Tests grew about 10,000 lines since the budget was set on 2026-11-15, so it gets that
+/// much room again (docs/lean-core.md).
+const TEST_RUST_CEILING: usize = 139_000;
 const TOOLING_RUST_CEILING: usize = 72_200;
 const XTASK_MAX_FILE_LINES_CEILING: usize = 4_000;
 const GMCP_TOOLS_MAX_FILE_LINES_CEILING: usize = 1_800;
