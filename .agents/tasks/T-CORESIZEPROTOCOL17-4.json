@@ -1,0 +1,20 @@
+{
+  "id": "T-CORESIZEPROTOCOL17-4",
+  "title": "Restore four standalone Git governor commands with optional hosted execution",
+  "goal": "Vision: V-6. Reduce Susi core below 100k lines with zero functionality loss. Restore core-only integrate, submit-main, release-promote and retire-branches from the published Apache implementation, preserve paired MCP errors and write-once behavior, and fund the change within the measured size ceiling.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "git_governor::standalone"
+    ]
+  },
+  "created_by": "CORESIZEPROTOCOL17",
+  "created_unix": 1794860347
+}
