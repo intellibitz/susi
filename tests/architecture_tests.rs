@@ -105,11 +105,11 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-native-client", 2),
     // No SUSI dependencies: a leaf, reachable from every rank above it.
     ("susi-http-transport", 0),
-    // std + JSON only, no Susi crates; loopback client of the host contract.
-    ("susi-wire-client", 0),
+    // std + JSON only; body framing is shared through the paths leaf.
+    ("susi-wire-client", 1),
     // Black-box client of the host contract: std + JSON only; HTTP framing
     // from susi-wire-client.
-    ("susi-conformance", 1),
+    ("susi-conformance", 2),
     ("susi-adapters-llm", 2),
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),

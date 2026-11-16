@@ -1406,6 +1406,7 @@ version = "0.1.0"
 name = "susi-wire-client"
 version = "0.1.0"
 dependencies = [
+ "susi-paths",
  "susi-vendor-serde-json",
 ]
 

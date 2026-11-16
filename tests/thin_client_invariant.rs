@@ -17,9 +17,10 @@ use std::process::Command;
 /// Release targets core ships and tests.
 const TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"];
 
-/// The std-only wire client: itself plus the JSON facade's closure.
+/// The std-only wire client: shared paths/body primitives and the JSON closure.
 const ALLOWED_WIRE_CLIENT: &[&str] = &[
     "susi-wire-client",
+    "susi-paths",
     "susi-vendor-serde-json",
     "serde_json",
     "serde_core",

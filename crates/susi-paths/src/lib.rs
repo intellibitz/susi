@@ -457,6 +457,7 @@ impl LocalDirs {
 
 pub mod console;
 pub mod hex;
+pub mod http_body;
 pub mod loopback;
 pub mod ports;
 pub mod shlex;

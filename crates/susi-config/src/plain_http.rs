@@ -33,10 +33,9 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-/// Cap on a response head (status line plus headers) and on one chunk-size
-/// or trailer line, so a peer that never sends a newline cannot grow memory
-/// without limit.
-const MAX_HEAD_BYTES: u64 = 64 * 1024;
+use susi_paths::http_body::{read_line_capped, MAX_HEAD_BYTES};
+
+type Body<R = BufReader<Conn>> = susi_paths::http_body::Body<R, true>;
 
 /// Longest wait for one TCP connect, within the request budget.
 const MAX_CONNECT: Duration = Duration::from_secs(15);
@@ -408,16 +407,6 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_string())
 }
 
-/// Read one line ending in `\n` into `line`, refusing more than `limit`
-/// bytes without a newline.
-fn read_line_capped<R: BufRead>(reader: &mut R, line: &mut Vec<u8>, limit: u64) -> io::Result<()> {
-    reader.take(limit).read_until(b'\n', line)?;
-    if !line.ends_with(b"\n") && line.len() as u64 >= limit {
-        return Err(invalid("response line too long"));
-    }
-    Ok(())
-}
-
 /// One response head: status and lower-cased headers.
 type Head = (u16, Vec<(String, String)>);
 
@@ -500,129 +489,25 @@ fn read_response(mut reader: BufReader<Conn>, method: &str) -> io::Result<Respon
         || (100..200).contains(&status)
         || status == 204
         || status == 304;
-    let framing = if no_body {
-        Framing::Length(0)
+    let body = if no_body {
+        Body::with_length(reader, 0)
     } else if chunked {
-        Framing::Chunked {
-            remaining: 0,
-            done: false,
-        }
+        Body::chunked(reader)
     } else if let Some(length) = field("content-length") {
-        Framing::Length(
+        Body::with_length(
+            reader,
             length
                 .parse::<u64>()
                 .map_err(|_| invalid("invalid Content-Length"))?,
         )
     } else {
-        Framing::UntilClose
+        Body::until_close(reader)
     };
     Ok(Response {
         status,
         headers,
-        body: Body { reader, framing },
+        body,
     })
-}
-
-/// A response body as a byte stream: chunked transfer coding is removed, a
-/// `Content-Length` body ends after that many bytes, and any other body ends
-/// when the server closes the connection.
-struct Body<R = BufReader<Conn>> {
-    reader: R,
-    framing: Framing,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Framing {
-    Length(u64),
-    Chunked { remaining: u64, done: bool },
-    UntilClose,
-}
-
-impl<R: BufRead> Body<R> {
-    /// The size line of the next chunk; `0` marks the last chunk.
-    fn chunk_size(&mut self) -> io::Result<u64> {
-        let mut line = Vec::new();
-        read_line_capped(&mut self.reader, &mut line, MAX_HEAD_BYTES)?;
-        if !line.ends_with(b"\n") {
-            return Err(invalid("truncated chunk size"));
-        }
-        let text = String::from_utf8_lossy(&line);
-        let digits = text.split(';').next().unwrap_or_default().trim();
-        u64::from_str_radix(digits, 16).map_err(|_| invalid("invalid chunk size"))
-    }
-
-    /// Skip the trailer section after the last chunk. A server that closes
-    /// the connection right after the `0` line is tolerated.
-    fn skip_trailers(&mut self) -> io::Result<()> {
-        loop {
-            let mut line = Vec::new();
-            read_line_capped(&mut self.reader, &mut line, MAX_HEAD_BYTES)?;
-            if line.is_empty() || line == b"\r\n" || line == b"\n" {
-                return Ok(());
-            }
-        }
-    }
-}
-
-impl<R: BufRead> Read for Body<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        match self.framing {
-            Framing::UntilClose => self.reader.read(buf),
-            Framing::Length(0) | Framing::Chunked { done: true, .. } => Ok(0),
-            Framing::Length(remaining) => {
-                let want = usize::try_from(remaining).map_or(buf.len(), |r| r.min(buf.len()));
-                let n = self.reader.read(&mut buf[..want])?;
-                if n == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "body shorter than its Content-Length",
-                    ));
-                }
-                self.framing = Framing::Length(remaining - n as u64);
-                Ok(n)
-            }
-            Framing::Chunked { remaining, .. } => {
-                let remaining = if remaining == 0 {
-                    let size = self.chunk_size()?;
-                    if size == 0 {
-                        self.skip_trailers()?;
-                        self.framing = Framing::Chunked {
-                            remaining: 0,
-                            done: true,
-                        };
-                        return Ok(0);
-                    }
-                    size
-                } else {
-                    remaining
-                };
-                let want = usize::try_from(remaining).map_or(buf.len(), |r| r.min(buf.len()));
-                let n = self.reader.read(&mut buf[..want])?;
-                if n == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "truncated chunk",
-                    ));
-                }
-                let left = remaining - n as u64;
-                if left == 0 {
-                    let mut crlf = [0u8; 2];
-                    self.reader.read_exact(&mut crlf)?;
-                    if &crlf != b"\r\n" {
-                        return Err(invalid("missing chunk terminator"));
-                    }
-                }
-                self.framing = Framing::Chunked {
-                    remaining: left,
-                    done: false,
-                };
-                Ok(n)
-            }
-        }
-    }
 }
 
 #[cfg(test)]

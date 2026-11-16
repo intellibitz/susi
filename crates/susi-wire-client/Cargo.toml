@@ -7,6 +7,7 @@ publish = false
 description = "Std-only HTTP/1.1, SSE and MCP Streamable HTTP client for the local daemon's loopback socket."
 
 [dependencies]
+susi-paths = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
