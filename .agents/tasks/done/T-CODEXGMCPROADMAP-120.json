@@ -24,8 +24,8 @@
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "base_commit": "6028ce8f3e85798726f677ece348c5a95caeef6f",
   "limitations": [
     "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, Susi Core ships the complete headless MCP protocol host, session/transport engine, MRTR callback broker, Official Tasks handle store, headless `ui://` MCP Apps CSP/permissions/domain validator, and `susi mcp` CLI with zero vendor MCP SDK crates, while interactive WebView/graphical MCP Apps viewports live exclusively in `intellibitz/susi-commercial-apps`.",
@@ -52,5 +52,11 @@
     "tests/gmcp_requirements/vc_203_017.rs",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
   ],
-  "implementation_commit": "884c291ab2192d05262c43ed292d808302c3e1fc"
+  "implementation_commit": "884c291ab2192d05262c43ed292d808302c3e1fc",
+  "verified_commit": "d991fcd8eb322302888e0b48e39f97e96a15e3f0",
+  "closed": {
+    "at_unix": 1794821867,
+    "commit": "d991fcd8eb322302888e0b48e39f97e96a15e3f0",
+    "by": "AG2FEATURES"
+  }
 }
