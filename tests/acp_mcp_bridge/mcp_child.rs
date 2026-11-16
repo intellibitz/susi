@@ -133,10 +133,14 @@ fn main() {
                     std::thread::sleep(Duration::from_millis(25));
                 }
             }
-            format!(
-                "{{\"content\":[{{\"type\":\"text\",\"text\":{}}}],\"isError\":false}}",
-                quoted(&probe)
-            )
+            if mode == "tool-error" {
+                "{\"content\":[{\"type\":\"text\",\"text\":\"ACP fixture deliberate MCP tool error\"}],\"isError\":true}".to_owned()
+            } else {
+                format!(
+                    "{{\"content\":[{{\"type\":\"text\",\"text\":{}}}],\"isError\":false}}",
+                    quoted(&probe)
+                )
+            }
         } else if line.contains("\"ping\"") {
             "{}".to_owned()
         } else {

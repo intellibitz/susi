@@ -1,0 +1,277 @@
+{
+  "schema": "susi-acp-live-tool-events-evidence/v1",
+  "task": "T-CODEX100KACPEVENTBRIDGE-1",
+  "vision": "V-6",
+  "checked_unix": 1794833803,
+  "source_base": "fce42a084e7afdc9814fb56dd663f48a1cc915cc",
+  "result": "Actual session-owned MCP calls emit typed live ACP pending and completed/failed updates through the shipped stdio command.",
+  "goal_met": false,
+  "full_acp_compliance_claimed": false,
+  "release_qualification_claimed": false,
+  "implementation": {
+    "coverage": "Supplied session-owned MCP tools only; caller/builtin tools retain their previous behavior.",
+    "typed_outcomes": "Optional core observer surrounds existing guarded dispatch; terminal typed Result includes final authority/evidence and post-call cancellation outcome. MCP isError is Failed without changing caller String/error semantics.",
+    "ownership": "Per-turn bounded handoff; receiver callback remains borrowed/non-Send on its caller thread. Atomic counter is session-owned; accepted starts have one matching terminal and IDs are not reused across turns.",
+    "barrier": "Worker freezes producers, fails unfinished accepted calls, then publishes explicit completion. Caller drains queued events; late/detached observers cannot emit into another turn. Callback unwind revokes receipt and cancels before scoped joining.",
+    "bounds": {
+      "queued_events": 32,
+      "pending_observers": 64,
+      "message_chunk_bytes": 16384,
+      "terminal_preview_bytes": 16384,
+      "terminal_truncation_suffix": "\n[truncated]",
+      "redaction": "Existing wrap_tool_output(...).redacted_for_sink() runs on complete terminal success/error text before preview truncation.",
+      "admission_wait": "Full queue/pending retries observe original turn cancellation, narrower captured child token, lease expiry, active turn and owner closure; initial nonblocking admission may report a refusal."
+    },
+    "budgets": "Existing MAC, process permission, evidence, mission limits and financial controls retained; no fresh spend budget, paid call or global registry/config write."
+  },
+  "validation": {
+    "root_units": {
+      "passed": 12,
+      "retained_managed_io": 5,
+      "new_event_and_executor": 7,
+      "command": "cargo test --offline --locked -p susi --bin susi cli::acp_cli::session_mcp -- --nocapture"
+    },
+    "actual_cli": {
+      "passed": 10,
+      "retained": 9,
+      "new_mcp_is_error": 1,
+      "seconds": 23.81,
+      "command": "cargo test --offline --locked -p susi --test acp_mcp_bridge -- --ignored --nocapture",
+      "artifact_root": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events",
+      "provider": "Deterministic loopback provider and real Rust MCP child; cleared environment, isolated Git/Board fixtures, no external or paid calls."
+    },
+    "component_tests": {
+      "acp": 34,
+      "scoped_observer": 3,
+      "registry_including_observer": 17,
+      "plane_handlers": 7,
+      "core_scoped": 8,
+      "note": "Component worker results; overlapping selections are not a unique total."
+    },
+    "strict_clippy": "cargo clippy --offline --locked -p susi --tests -- -D warnings passed; earlier binary + ACP integration selection passed",
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "independent_review": "Parent and review_gemi cleared root queue/observer implementation after redaction and cancellation-aware capacity wait fixes.",
+    "official_schema": {
+      "schema_sha256": "e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21",
+      "counts": {
+        "InitializeResponse": 9,
+        "NewSessionResponse": 10,
+        "ToolCall": 27,
+        "SessionNotification": 61,
+        "ToolCallUpdate": 27,
+        "PromptResponse": 8,
+        "JSON-RPC_errors_envelope_only": 2,
+        "legacy_transcripts_skipped": 1
+      },
+      "transcripts": [
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/cancel-396073-1794833509416130508/acp.stdout.jsonl",
+          "sha256": "ffa1385d85287a5515da9ce641efbbb003e0a888f2ea09e0ab64e6a76020f8e9",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 1,
+            "ToolCall": 1,
+            "SessionNotification": 2,
+            "ToolCallUpdate": 1,
+            "PromptResponse": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/empty-mcp-396073-1794833509418633370/acp.stdout.jsonl",
+          "sha256": "9ad4117de9e5b41aef133ac2efeaee4192fc43e8324fa21015a0843eee97eb37",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 1,
+            "SessionNotification": 1,
+            "PromptResponse": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/env-order-396073-1794833512614912811/acp.stdout.jsonl",
+          "sha256": "21ae3a77ad0af35e83afd8e27c893807da17fe57daa5e163a4b1a208cd56cbc9",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 2
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/init-deadline-396073-1794833509866784963/acp.stdout.jsonl",
+          "sha256": "a1f432c56403b6f93d57d1ee97fc4a3d3a0e7d7dda38e1a4c6e1a90406b2c1c9",
+          "validated": {
+            "InitializeResponse": 1,
+            "JSON-RPC_errors_envelope_only": 1,
+            "NewSessionResponse": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/isolated-tools-396073-1794833512910669820/acp.stdout.jsonl",
+          "sha256": "6eaa5929993c3c00b746f2d63ab34c05145cc0f9bc53cd53fe379cf737981ae6",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 3,
+            "ToolCall": 15,
+            "SessionNotification": 34,
+            "ToolCallUpdate": 15,
+            "PromptResponse": 4
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/parent-exit-396073-1794833509416123658/acp.stdout.jsonl",
+          "sha256": "d3f58a7601fd08b02c821402a9fde17449cbf84d84ab64dfed27cac3972ee2f7",
+          "validated": {
+            "InitializeResponse": 1,
+            "JSON-RPC_errors_envelope_only": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/pending-init-396073-1794833509416044342/acp.stdout.jsonl",
+          "sha256": "576d71ca5759e8963194a36cb8a37c764e47561f3d163751677d859c7f1b7658",
+          "validated": {
+            "InitializeResponse": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/revoke-396073-1794833511304947450/acp.stdout.jsonl",
+          "sha256": "dc9748751b2cc5cc19df42f36c970679491ab949e85f73f02abe6739c03370c6",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 1,
+            "ToolCall": 6,
+            "SessionNotification": 13,
+            "ToolCallUpdate": 6,
+            "PromptResponse": 1
+          }
+        },
+        {
+          "path": "/workspace/codex/susi-core-100k-acpbridge-state/e2e/events/tool-error-396073-1794833510619940322/acp.stdout.jsonl",
+          "sha256": "a1459907e17e30cf61cf885b217c7f942b44efd5d2ef9a740f41b8c7697ce0f3",
+          "validated": {
+            "InitializeResponse": 1,
+            "NewSessionResponse": 1,
+            "ToolCall": 5,
+            "SessionNotification": 11,
+            "ToolCallUpdate": 5,
+            "PromptResponse": 1
+          }
+        }
+      ],
+      "limits": "Named-definition shape validation of actual wire values; JSON-RPC errors checked only for basic envelope; no full ACP certification."
+    },
+    "native_host": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false,
+    "task_record_tests_passed": 3
+  },
+  "source_delta": {
+    "runtime_physical_lines_net": 491,
+    "separate_test_physical_lines_net": 1173,
+    "files": [
+      {
+        "path": "crates/susi-core/src/scoped_tools.rs",
+        "net_physical_lines": 17
+      },
+      {
+        "path": "crates/susi-gawd-acp/src/lib.rs",
+        "net_physical_lines": 94
+      },
+      {
+        "path": "crates/susi-gawd-acp/src/stdio_v1.rs",
+        "net_physical_lines": 20
+      },
+      {
+        "path": "crates/susi-gawd-acp/src/tests/stdio_v1.rs",
+        "net_physical_lines": 1
+      },
+      {
+        "path": "crates/susi-gawd-acp/src/tests/tool_events.rs",
+        "net_physical_lines": 270
+      },
+      {
+        "path": "crates/susi-tools/src/registry.rs",
+        "net_physical_lines": 22
+      },
+      {
+        "path": "crates/susi-tools/src/tests/scoped_tool_observer.rs",
+        "net_physical_lines": 286
+      },
+      {
+        "path": "src/cli/acp_mcp.rs",
+        "net_physical_lines": 121
+      },
+      {
+        "path": "tests/acp_mcp_bridge.rs",
+        "net_physical_lines": 256
+      },
+      {
+        "path": "tests/acp_mcp_bridge/mcp_child.rs",
+        "net_physical_lines": 4
+      },
+      {
+        "path": "src/cli/acp_tool_events.rs",
+        "net_physical_lines": 217
+      },
+      {
+        "path": "src/cli/tests/acp_event_executor.rs",
+        "net_physical_lines": 123
+      },
+      {
+        "path": "src/cli/tests/acp_tool_events.rs",
+        "net_physical_lines": 233
+      }
+    ],
+    "interpretation": "Correctness addition, not a reduction. No exclusions, ceilings, tests or capabilities removed; no dependencies added."
+  },
+  "limitations": [
+    "Provider continuation using tool results remains separate work; existing GEMI fulfillment appends results.",
+    "Builtins and genuine caller-owned tools do not gain ACP lifecycle events in this slice.",
+    "No live intermediate MCP progress; pending and final completed/failed events are emitted.",
+    "Terminal event previews are redacted and bounded; existing result handling remains unchanged.",
+    "Blocked output callbacks or a noncooperative underlying runner can still delay completion; queue cancellation is not general thread preemption.",
+    "Complete socket remains above 100000 lines and full protocol compliance remains unproven."
+  ],
+  "logs": {
+    "events-unit-final.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-unit-final.log",
+      "sha256": "fedd90e95d8eafbce2efae8b91d767bd8fe8cf0f5e394c03355c71daf2ae4016"
+    },
+    "events-e2e.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-e2e.log",
+      "sha256": "d472d0003afbd3d7f18ea98e052c2311c3d19fe3a7ee8f520d4a2f154370f33e"
+    },
+    "events-clippy.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-clippy.log",
+      "sha256": "c2e24c640f6ddcd7b1bb5a49417226221d6ff1275d41f7446ea19b73e34e9af9"
+    },
+    "events-clippy-tests.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-clippy-tests.log",
+      "sha256": "b5370662048a8f258c25c862ab9770bd10a6d8127b55ea1e69eebf1cbcdb21f4"
+    },
+    "events-fmt.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "events-core-size-final.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-core-size-final.log",
+      "sha256": "40cdbafc0b04b28afceb34d9a3e7df3767869c375d656767982d3754dc10081f"
+    },
+    "events-task-records.log": {
+      "path": "/workspace/codex/susi-core-100k-acpbridge-state/logs/events-task-records.log",
+      "sha256": "7ceeaea34a4bd8867c4d26bff341e8d6df60ea81744dc969d904ab0e143902b5"
+    }
+  },
+  "size": {
+    "command": "cargo core-size",
+    "passed": 0,
+    "failed": 1,
+    "expected_unmet_goal": true,
+    "baseline": 307361,
+    "complete_socket_rust": 307852,
+    "strict_limit": 100000,
+    "remaining_to_remove": 207853,
+    "exclusions_or_ceilings_changed": false
+  },
+  "late_upstream_merge": {
+    "commit": "eeb1edca71ca86605588bb8f6f5d19386a4e2854",
+    "changes": "0.21.71 workspace package versions, release/audit metadata and two unrelated tests; no runtime Rust source change.",
+    "validation_boundary": "Worker runtime/unit/lint evidence above precedes this final normal merge. Parent exact-tree integration validation remains required; no 0.21.71 release qualification is claimed by this slice."
+  }
+}

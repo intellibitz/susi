@@ -3,17 +3,23 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use susi_core::scoped_tools::{self, ScopedTool, ScopedToolProvider, ToolScope};
+use susi_core::scoped_tools::{
+    self, ScopedTool, ScopedToolObserver, ScopedToolProvider, ToolScope,
+};
 use susi_gawd::acp::{
-    AcpAdmissionPolicy, AcpContentBlock, AcpSessionSpec, AcpTurnContext, AcpTurnExecutor,
+    AcpAdmissionPolicy, AcpContentBlock, AcpExecutorEvent, AcpExecutorOutput, AcpSessionSpec,
+    AcpTurnContext, AcpTurnExecutor,
 };
 use susi_gawd_a2a::executor::GawdAcpExecutor;
 use susi_wire_client::host::{DuplexStreams, HostPolicy, McpHost};
+
+#[path = "acp_tool_events.rs"]
+mod tool_events;
 
 const POLL: Duration = Duration::from_millis(10);
 const MAX_SERVERS: usize = 16;
@@ -96,6 +102,105 @@ impl AcpTurnExecutor for SessionExecutor {
         cancelled: &AtomicBool,
         emit: &mut dyn FnMut(&str),
     ) -> Result<Vec<AcpContentBlock>, String> {
+        self.execute_scoped(ctx, cancelled, emit, None)
+    }
+
+    fn execute_turn_with_events(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: Arc<AtomicBool>,
+        emit: &mut dyn FnMut(AcpExecutorEvent),
+    ) -> Result<AcpExecutorOutput, String> {
+        let (events, receiver) = tool_events::Events::new();
+        let (done, completed) = mpsc::sync_channel(1);
+        struct Drain {
+            events: Arc<tool_events::Events>,
+            cancel: Arc<AtomicBool>,
+            finished: bool,
+        }
+        impl Drop for Drain {
+            fn drop(&mut self) {
+                if !self.finished {
+                    self.cancel.store(true, Ordering::Release);
+                }
+                self.events.stop_receiving();
+            }
+        }
+        std::thread::scope(|scope| {
+            // This guard drops before scoped joining if the borrowed callback
+            // unwinds, releasing every producer waiting on the bounded queue.
+            let mut drain = Drain {
+                events: Arc::clone(&events),
+                cancel: Arc::clone(&cancelled),
+                finished: false,
+            };
+            let worker_events = Arc::clone(&events);
+            let cancel = Arc::clone(&cancelled);
+            let progress = susi_config::progress::current();
+            let worker = scope.spawn(move || {
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    susi_config::progress::with_sink(progress, || {
+                        susi_config::progress::with_cancel(Some(Arc::clone(&cancel)), || {
+                            self.execute_scoped(
+                                ctx,
+                                &cancel,
+                                &mut |text| worker_events.message(text),
+                                Some(Arc::clone(&worker_events)),
+                            )
+                        })
+                    })
+                }))
+                .unwrap_or_else(|_| Err("ACP mission worker panicked".into()));
+                worker_events.close(cancel.load(Ordering::Acquire));
+                let _ = done.send(outcome);
+            });
+            let result = loop {
+                match completed.try_recv() {
+                    Ok(result) => {
+                        // close() froze producers before publishing completion.
+                        // No dependence on detached sender clones being dropped.
+                        while let Ok(event) = receiver.try_recv() {
+                            emit(event);
+                        }
+                        break result;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        break Err("ACP mission worker exited without an outcome".into())
+                    }
+                }
+                match receiver.recv_timeout(POLL) {
+                    Ok(event) => emit(event),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        break Err("ACP event queue disconnected".into())
+                    }
+                }
+            };
+            drain.finished = true;
+            worker
+                .join()
+                .map_err(|_| "ACP mission worker panicked".to_string())?;
+            result.map(|blocks| AcpExecutorOutput {
+                blocks,
+                tool_calls: Vec::new(),
+            })
+        })
+    }
+
+    fn close_session(&self) {
+        self.tools.close();
+    }
+}
+
+impl SessionExecutor {
+    fn execute_scoped(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: &AtomicBool,
+        emit: &mut dyn FnMut(&str),
+        events: Option<Arc<tool_events::Events>>,
+    ) -> Result<Vec<AcpContentBlock>, String> {
         // AcpEngine's owned-token entrypoint installs the exact shared token.
         let cancel = susi_config::progress::current_cancel()
             .unwrap_or_else(|| Arc::new(AtomicBool::new(cancelled.load(Ordering::Acquire))));
@@ -104,6 +209,7 @@ impl AcpTurnExecutor for SessionExecutor {
             active: Arc::new(AtomicBool::new(true)),
             cancel: Arc::clone(&cancel),
             deadline: Instant::now() + self.lease,
+            events,
         });
         struct Finish(Arc<TurnTools>);
         impl Drop for Finish {
@@ -114,10 +220,6 @@ impl AcpTurnExecutor for SessionExecutor {
         let _finish = Finish(Arc::clone(&turn));
         let scope = ToolScope::new(turn, cancel);
         scoped_tools::with_scope(Some(scope), || self.base.execute_turn(ctx, cancelled, emit))
-    }
-
-    fn close_session(&self) {
-        self.tools.close();
     }
 }
 
@@ -132,6 +234,7 @@ struct SessionTools {
     tools: Vec<ScopedTool>,
     targets: BTreeMap<String, ToolTarget>,
     closed: AtomicBool,
+    next_call: AtomicU64,
 }
 
 impl SessionTools {
@@ -147,6 +250,7 @@ impl SessionTools {
             tools: Vec::new(),
             targets: BTreeMap::new(),
             closed: AtomicBool::new(false),
+            next_call: AtomicU64::new(1),
         };
         let deadline = Instant::now() + handshake;
         let mut remaining_bytes = MAX_CATALOG_BYTES;
@@ -249,9 +353,22 @@ struct TurnTools {
     active: Arc<AtomicBool>,
     cancel: Arc<AtomicBool>,
     deadline: Instant,
+    events: Option<Arc<tool_events::Events>>,
 }
 
 impl ScopedToolProvider for TurnTools {
+    fn observe_call(&self, name: &str) -> Option<Box<dyn ScopedToolObserver>> {
+        let events = self.events.as_ref()?;
+        let id = self.session.next_call.fetch_add(1, Ordering::Relaxed);
+        let child_cancel = susi_config::progress::current_cancel();
+        events.observe(format!("mcp-{id:016x}"), name, &self.active, || {
+            self.check().is_ok()
+                && !child_cancel
+                    .as_ref()
+                    .is_some_and(|token| token.load(Ordering::Acquire))
+        })
+    }
+
     fn tools(&self) -> &[ScopedTool] {
         &self.session.tools
     }
@@ -923,3 +1040,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/acp_event_executor.rs"]
+mod event_executor_tests;

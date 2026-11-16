@@ -574,6 +574,26 @@ fn run_prompt<W: Write>(
                     cancel_all(engine, active);
                 }
             }
+        } else if let Some(kind) = match event.kind.as_str() {
+            "tool_call_started" => Some("tool_call"),
+            "tool_call_updated" => Some("tool_call_update"),
+            _ => None,
+        } {
+            if let Some(payload) = event.delta {
+                let send = || -> io::Result<()> {
+                    let mut update: Value = serde_json::from_str(&payload)?;
+                    update["sessionUpdate"] = json!(kind);
+                    output.send(
+                        &json!({"jsonrpc":"2.0", "method":"session/update", "params": {
+                            "sessionId":session, "update":update
+                        }}),
+                    )
+                };
+                if let Err(error) = send() {
+                    write_error.get_or_insert(error);
+                    cancel_all(engine, active);
+                }
+            }
         }
     });
     let reply = match result {

@@ -1,0 +1,49 @@
+{
+  "schema": "susi-acp-typed-events-component-evidence/v1",
+  "task": "T-CODEX100KACPEVENTS-1",
+  "source_base": "49a4a8e2aae575c150bdf42dd5f54cbf75353cf4",
+  "scope": "ACP crate typed event seam and negotiated v1 translation only; integrate with root caller before publication.",
+  "validation": {
+    "tests": {
+      "command": "cargo test --offline --locked -j2 -p susi-gawd-acp --lib",
+      "passed": 34,
+      "retained": 29,
+      "new": 5
+    },
+    "clippy": "cargo clippy --offline --locked -j2 -p susi-gawd-acp --all-targets -- -D warnings passed",
+    "format": "cargo fmt -p susi-gawd-acp --check and git diff --check passed",
+    "schema_actual_wire": {
+      "official_commit": "13b765828f961812f0c78ae577220e994209fa2f",
+      "schema_sha256": "e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21",
+      "SessionNotification": 16,
+      "ToolCall": 4,
+      "ToolCallUpdate": 10,
+      "PromptResponse": 3,
+      "errors_envelope_only": 1,
+      "transcripts": "/workspace/codex/susi-core-100k-acpevents-state/wire",
+      "limitation": "Actual focused transport with fake executors; actual root CLI bridge validation remains separately owned. Not full ACP certification."
+    },
+    "independent_review": "review_gemi read-only source/test review found no blockers; root queue lifetime/bounds and terminal flush remain separately reviewed.",
+    "target": "/workspace/codex/susi-core-100k-acpevents-target",
+    "susi_home": "/workspace/codex/susi-core-100k-acpevents-state/home",
+    "jobs": 2
+  },
+  "source_delta": {
+    "runtime_physical_lines_net": 114,
+    "test_physical_lines_net": 271,
+    "all_rust_physical_lines_net": 385,
+    "note": "Correctness addition; no source reduction claim, test movement/deletion or dependency changes."
+  },
+  "acceptance": [
+    "Defaulted method retains existing execute_turn_with_cancel_token and execute_turn_with_tools override behavior.",
+    "Legacy public callback remains borrowed non-Send; legacy rich result/history metadata unchanged.",
+    "Actual socket frames carry matching start/update IDs in order and content collections replace prior content.",
+    "Cancellation produces failed tool update with Cancelled text before cancelled prompt response, or no further output after EOF.",
+    "Tool notification write failure triggers cancellation while stdin remains open; no later frames are written."
+  ],
+  "remaining": [
+    "Root bounded queue/observer/actual CLI tests are coordinated with acp_mcp_design.",
+    "Normal provider continuation and intermediate live MCP progress remain distinct follow-ups.",
+    "No full ACP compliance or certification claim."
+  ]
+}

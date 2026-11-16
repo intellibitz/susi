@@ -14,6 +14,10 @@ use crate::types::{McpTool, MetaCategory, MetaTool, SusiTool};
 #[path = "tests/scoped_tools.rs"]
 mod scoped_tools_tests;
 
+#[cfg(test)]
+#[path = "tests/scoped_tool_observer.rs"]
+mod scoped_tool_observer_tests;
+
 pub struct ToolRegistry {
     pub tools: ToolMap<HashMap<String, Arc<dyn SusiTool>>>,
 }
@@ -181,13 +185,27 @@ impl ToolRegistry {
     }
 
     pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
+        let scope = crate::susi_core::scoped_tools::current();
+        let mut observer = scope.as_ref().and_then(|scope| scope.observe_call(name));
+        let outcome = Self::execute_tool_outcome(name, arg, workspace, scope);
+        if let Some(observer) = observer.as_mut() {
+            observer.finished(&outcome);
+        }
+        outcome.unwrap_or_else(|error| error)
+    }
+
+    fn execute_tool_outcome(
+        name: &str,
+        arg: &serde_json::Value,
+        workspace: &Path,
+        scope: Option<Arc<crate::susi_core::scoped_tools::ToolScope>>,
+    ) -> Result<String, String> {
         // The acting mission's id is the dispatch subject. Session-owned
         // workers carry its ledger explicitly; legacy dispatch retains its
         // workspace fallback. Tokens and refusals belong to that mission.
-        let scope = crate::susi_core::scoped_tools::current();
         if let Some(scope) = &scope {
             if let Err(error) = scope.check() {
-                return crate::susi_error::EaiError::protocol(error).to_string();
+                return Err(crate::susi_error::EaiError::protocol(error).to_string());
             }
         }
         let bound_evidence = scope
@@ -201,10 +219,10 @@ impl ToolRegistry {
             // Owner-local calls must use an explicitly handed-off ledger.
             // Workspace lookup may otherwise select another concurrent
             // session's mission authority and receipts.
-            return crate::susi_error::EaiError::protocol(
+            return Err(crate::susi_error::EaiError::protocol(
                 "session tool dispatch requires its bound mission evidence",
             )
-            .to_string();
+            .to_string());
         }
         let mission = bound_evidence
             .as_ref()
@@ -220,7 +238,7 @@ impl ToolRegistry {
                 name,
                 &e.to_string(),
             );
-            return format!("{e}");
+            return Err(format!("{e}"));
         }
 
         if let Some(mission) = mission.as_deref() {
@@ -232,19 +250,19 @@ impl ToolRegistry {
                 .map_or(workspace, |session| session.workspace());
             if let Err(error) = Self::ensure_mission_authority(mission, mission_workspace) {
                 Self::record_authority_refusal(mission, name, &error.to_string());
-                return error.to_string();
+                return Err(error.to_string());
             }
             // The mission's own token set — minted at first dispatch as the
             // posture-bounded baseline for this subject.
             if let Err(e) = MacPolicy::global().authorize_tool(name, arg, workspace, Some(mission))
             {
                 Self::record_authority_refusal(mission, name, &e.to_string());
-                return format!("{e}");
+                return Err(format!("{e}"));
             }
             // Per-mission egress allow-list — consulted on every
             // egress-class dispatch; refusals are recorded by the gate.
             if let Some(denied) = Self::check_mission_egress(mission, name, arg) {
-                return denied;
+                return Err(denied);
             }
         }
 
@@ -256,7 +274,7 @@ impl ToolRegistry {
                         if !mac.is_permitted(subject, action, resource) {
                             let error = format!("MAC DENY: subject `{subject}` lacks {action} on {resource} for session tool `{name}`");
                             Self::record_authority_refusal(subject, name, &error);
-                            return crate::susi_error::EaiError::governance(error).to_string();
+                            return Err(crate::susi_error::EaiError::governance(error).to_string());
                         }
                     }
                 }
@@ -269,7 +287,7 @@ impl ToolRegistry {
                         if let Some(denied) =
                             Self::check_mission_egress_class(mission, name, arg, true)
                         {
-                            return denied;
+                            return Err(denied);
                         }
                     }
                 }
@@ -279,10 +297,14 @@ impl ToolRegistry {
                             .call(name, arg, workspace, mission.as_deref())
                             .map_err(crate::susi_error::EaiError::protocol)
                     })
-                    .unwrap_or_else(|error| error.to_string());
+                    .map_err(|error| error.to_string());
             }
         }
 
+        Ok(Self::execute_legacy_tool(name, arg, workspace))
+    }
+
+    fn execute_legacy_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
         // Prefer CapabilityRegistry for discovered MCP tools so swarm dispatch
         // uses the same hot-plugged catalog as zero-config bootstrap.
         if let Some(tool) = crate::susi_core::registry::CapabilityRegistry::global().get_tool(name)

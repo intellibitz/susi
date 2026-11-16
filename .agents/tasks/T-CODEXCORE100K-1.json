@@ -34,7 +34,12 @@
     "T-CODEX100KMCPCATALOG-1",
     "T-CODEX100KGMCPTEST-1",
     "T-CODEX100KCONFIGACCESSORS-1",
-    "T-CODEX100KLEDGER-1"
+    "T-CODEX100KLEDGER-1",
+    "T-CODEX100KACPEVENTS-1",
+    "T-CODEX100KACPEVENTSCOPE-1",
+    "T-CODEX100KACPEVENTE2E-1",
+    "T-CODEX100KACPEVENTBRIDGE-1",
+    "T-CODEX100KMODELSHA1-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -85,18 +90,22 @@
     ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
     ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
     ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
-    ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json"
+    ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-typed-events-component.json",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json",
+    ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
+    ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json"
   ],
   "progress": {
-    "runtime_rust": 300907,
+    "runtime_rust": 301355,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 307361,
-    "genuine_runtime_lines_removed": 2462,
-    "remaining_to_remove": 207362,
+    "complete_socket_rust": 307809,
+    "genuine_runtime_lines_removed": 2505,
+    "remaining_to_remove": 207810,
     "upstream_runtime_lines_added": 84,
     "correctness_lines_added": 104,
-    "net_runtime_lines_removed": -146,
-    "standards_compatibility_lines_added": 2504
+    "net_runtime_lines_removed": -594,
+    "standards_compatibility_lines_added": 2995
   },
   "publication_cadence": {
     "during_active_work": true,
@@ -107,7 +116,7 @@
     "protocol": "Agent Client Protocol",
     "official_revision": 1,
     "reference_commit": "13b765828f961812f0c78ae577220e994209fa2f",
-    "status": "Actual session-owned client-supplied stdio MCP bridge integrated and verified with nine real CLI tests. Typed tool lifecycle notifications and provider result continuation remain open; full ACP compliance not established.",
-    "implementation_task": "T-CODEX100KACPBRIDGE-1"
+    "status": "Actual session-owned stdio MCP execution and live typed lifecycle verified with ten real CLI cases and pinned named-schema checks. Builtin lifecycle, forwarding MCP progress, and provider result continuation remain follow-ups; full ACP compliance not established.",
+    "implementation_task": "T-CODEX100KACPEVENTBRIDGE-1"
   }
 }

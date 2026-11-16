@@ -12,7 +12,8 @@
 //! Agent Client Protocol interoperability and the legacy Susi ACP extension.
 //!
 //! The negotiated stdio transport adds staged official Agent Client Protocol v1
-//! interoperability; mandatory MCP server bridging remains outstanding. The
+//! interoperability with session-owned MCP support supplied by the embedding
+//! executor factory. This is not a claim of complete ACP conformance. The
 //! existing engine and transports preserve the legacy Susi ACP wire dialect over
 //! both HTTP/1.1 (`GET /.well-known/acp.json`, `POST /acp`, `POST /acp/stream`)
 //! and newline-delimited JSON-RPC 2.0 over stdio (`AcpStdioTransport`), with:
@@ -365,6 +366,76 @@ pub struct AcpExecutorOutput {
     pub blocks: Vec<AcpContentBlock>,
     pub tool_calls: Vec<AcpToolCallMeta>,
 }
+/// Typed live output; legacy result/history metadata remains independent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcpExecutorEvent {
+    MessageDelta(String),
+    ToolCall(AcpToolCall),
+    ToolCallUpdate(AcpToolCallUpdate),
+}
+/// Official ACP v1 statuses. Cancellation uses Failed with explanatory content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpToolCallStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+}
+/// One invocation, identified uniquely within its session by the executor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AcpToolCall {
+    pub tool_call_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub status: AcpToolCallStatus,
+}
+impl AcpToolCall {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            tool_call_id: id.into(),
+            title: title.into(),
+            name: None,
+            status: AcpToolCallStatus::Pending,
+        }
+    }
+}
+/// Partial update. An included content collection replaces previous content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AcpToolCallUpdate {
+    pub tool_call_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<AcpToolCallStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<AcpToolCallContent>>,
+}
+impl AcpToolCallUpdate {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            tool_call_id: id.into(),
+            status: None,
+            content: None,
+        }
+    }
+}
+/// Display content for a tool invocation; it does not create execution evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AcpToolCallContent {
+    Content { content: AcpContentBlock },
+}
+impl AcpToolCallContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Content {
+            content: AcpContentBlock::text(text),
+        }
+    }
+}
 /// Literal environment entry for an ACP-supplied stdio MCP server.
 #[derive(Clone, Deserialize)]
 pub struct AcpMcpEnvVar {
@@ -436,6 +507,20 @@ pub trait AcpTurnExecutor: Send + Sync {
     ) -> Result<AcpExecutorOutput, String> {
         susi_config::progress::with_cancel(Some(Arc::clone(&cancelled)), || {
             self.execute_turn_with_tools(ctx, &cancelled, emit_delta)
+        })
+    }
+    /// Ordered live events on the calling thread. Existing executors keep their
+    /// text, rich output and owned cancellation overrides through this default.
+    /// Concurrent producers must marshal events back before returning; neither
+    /// this borrowed callback nor legacy transport callbacks require Send.
+    fn execute_turn_with_events(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: Arc<AtomicBool>,
+        emit: &mut dyn FnMut(AcpExecutorEvent),
+    ) -> Result<AcpExecutorOutput, String> {
+        self.execute_turn_with_cancel_token(ctx, cancelled, &mut |text| {
+            emit(AcpExecutorEvent::MessageDelta(text.to_owned()));
         })
     }
 }
@@ -1255,12 +1340,21 @@ impl AcpEngine {
             record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
             (AcpStopReason::Cancelled, AcpExecutorOutput::default())
         } else {
-            let exec_res = prepared.executor.execute_turn_with_cancel_token(
+            let exec_res = prepared.executor.execute_turn_with_events(
                 &ctx,
                 Arc::clone(&cancel_flag),
-                &mut |chunk| {
-                    if !cancel_flag.load(Ordering::SeqCst) {
-                        record_event("message_delta", Some(chunk.to_owned()), None);
+                &mut |event| match event {
+                    AcpExecutorEvent::MessageDelta(chunk) => {
+                        if !cancel_flag.load(Ordering::SeqCst) {
+                            record_event("message_delta", Some(chunk), None);
+                        }
+                    }
+                    AcpExecutorEvent::ToolCall(call) => {
+                        record_event("tool_call_started", Some(json!(call).to_string()), None);
+                    }
+                    AcpExecutorEvent::ToolCallUpdate(update) => {
+                        // Cancellation may still have final tool updates to flush.
+                        record_event("tool_call_updated", Some(json!(update).to_string()), None);
                     }
                 },
             );

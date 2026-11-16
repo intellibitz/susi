@@ -1,0 +1,49 @@
+{
+  "id": "T-CODEX100KMODELSHA1-1",
+  "title": "Share existing Git-model and STUN SHA-1 compatibility implementation",
+  "goal": "Vision: V-6. Remove duplicate SHA-1 compression/padding source while preserving every existing input framing, allocation, wrapping, endian, output, HMAC and model-admission policy. No functionality, tests or dependency removed.",
+  "size": "s",
+  "status": "in_progress",
+  "created_by": "CODEX100KMODELS",
+  "created_unix": 1794833691,
+  "base_commit": "fce42a084e7afdc9814fb56dd663f48a1cc915cc",
+  "deps": [],
+  "scopes": [
+    "crates/susi-gemi-models/src/model_license.rs",
+    "crates/susi-daemon-runtime/src/nat.rs",
+    "crates/susi-paths/src/lib.rs",
+    "crates/susi-paths/src/sha1.rs",
+    "crates/susi-paths/tests/sha1_compatibility.rs",
+    ".agents/tasks/T-CODEX100KMODELSHA1-1.json",
+    ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "--test",
+      "sha1_compatibility"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Model-license git_blob_sha1_hex and daemon-runtime NAT sha1_digest use the same RFC3174 compression/padding; existing paths pure-std utilities, existing RFC3174/RFC2202 vectors, existing model-license tests, and Commercial Apps references checked. No suitable shared SHA-1 API exists; SHA-256 streams have different buffers/read policies.",
+    "reason": "Move the existing shared core into the already-linked paths crate. An owned Vec preserves each caller existing allocation and input framing without a second whole-message copy. No external source or new dependency."
+  },
+  "coordination": "Read-only Board1785 clear; parent approved expanded paths/nat/model-license scope as disjoint. Own worktree and target/home/tmp. Parent serializes publication; no external messages or push.",
+  "validation_plan": [
+    "Run existing NAT RFC/HMAC and model-license cases unchanged plus paths tests.",
+    "Compare actual old/new raw and Git-prefixed functions over boundary/random vectors and independent Python hashlib answers.",
+    "Verify body reuse, original Vec allocation/framing and byte-identical old test tails. Run affected strict Clippy and formatting."
+  ],
+  "progress": {
+    "phase": "verified_pending_parent_integration",
+    "runtime_lines_removed": 43,
+    "evidence": ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
+    "validation": "113 paths tests, 3 model-license tests (1 explicit ignore), 9 NAT tests, strict affected Clippy, formatting and diff checks passed. Differential: 6,043 cases; 18,129 old/new and 18,129 independent-reference digest comparisons. Independent source review found no issues. Parent owns publication and closure."
+  }
+}

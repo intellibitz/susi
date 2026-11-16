@@ -456,14 +456,40 @@ impl Acp {
     fn response_within(&mut self, id: u64, within: Duration) -> Value {
         let deadline = Instant::now() + within;
         loop {
-            let v = self
-                .output
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .expect("ACP response deadline / premature EOF")
-                .expect("stdout must be pure NDJSON");
-            self.seen.push(v.clone());
+            let v = self.receive_within(deadline.saturating_duration_since(Instant::now()));
             if v["id"] == id {
                 return v;
+            }
+        }
+    }
+    fn receive_within(&mut self, within: Duration) -> Value {
+        let value = self
+            .output
+            .recv_timeout(within)
+            .expect("ACP response deadline / premature EOF")
+            .expect("stdout must be pure NDJSON");
+        self.seen.push(value.clone());
+        value
+    }
+    fn pending_tool_before_response(&mut self, session: &str, response_id: u64) -> String {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let frame = self.receive_within(deadline.saturating_duration_since(Instant::now()));
+            assert_ne!(
+                frame["id"],
+                json!(response_id),
+                "prompt completed before a live tool start: {frame}"
+            );
+            if frame["method"] == "session/update"
+                && frame["params"]["update"]["sessionUpdate"] == "tool_call"
+            {
+                assert_eq!(frame["params"]["sessionId"], session);
+                let update = &frame["params"]["update"];
+                assert_eq!(update["status"], "pending");
+                return update["toolCallId"]
+                    .as_str()
+                    .expect("live tool ID")
+                    .to_owned();
             }
         }
     }
@@ -705,6 +731,7 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     assert_ne!(first, second);
     let mut receipt_owners = HashMap::<String, String>::new();
     let mut used_receipts = HashSet::new();
+    let mut tool_ids = HashMap::<String, HashSet<String>>::new();
     for (id, sid, tag, literal) in [
         (4, &first, "alpha", literals[0]),
         (5, &second, "beta", literals[1]),
@@ -735,6 +762,26 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
             && v["data"]["method"] == "tools/call"
             && v["data"]["params"]["arguments"]["marker"] == "actual-call"));
         let expected = &rows.iter().find(|row| row["event"] == "started").unwrap()["data"];
+        let events = assert_typed_tool_events(
+            &acp.seen[update_start..],
+            sid,
+            tool_ids.entry(sid.clone()).or_default(),
+        );
+        let completed: Vec<_> = events
+            .iter()
+            .filter(|event| event.status == "completed")
+            .collect();
+        assert!(
+            !completed.is_empty(),
+            "successful tool turn emitted no completed typed result"
+        );
+        for event in completed {
+            assert!(
+                contains_exact_json(&Value::String(event.text.clone()), expected),
+                "completed event changed or crossed the actual child result: {}",
+                event.id
+            );
+        }
         let graph: Vec<Value> = fs::read_to_string(fx.home.join(".susi/context_graph.jsonl"))
             .unwrap()
             .lines()
@@ -758,6 +805,7 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     }
     // A third session in the same process has no supplied tools. Its model
     // request must not inherit either live session's private catalog.
+    let empty_update_start = acp.seen.len();
     let empty = acp.session(&fx, 7, vec![]);
     let before = provider.requests.lock().unwrap().len();
     let reply = acp.prompt(8, &empty);
@@ -776,7 +824,10 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
             "session MCP catalog leaked to an empty session"
         );
     }
+    assert_no_tool_updates(&acp.seen[empty_update_start..]);
+    let stopped = acp.seen.len();
     acp.eof();
+    assert_no_tool_updates(&acp.seen[stopped..]);
     provider.finish();
     assert_child_gone(&fx, "alpha");
     assert_descendant_gone(&fx, "alpha");
@@ -798,8 +849,8 @@ fn assert_session_tool_evidence(
     graph: &[Value],
 ) -> Vec<String> {
     // This vertical slice uses GEMI's existing result/evidence rendering.
-    // Typed ACP tool updates and model continuation with role=tool messages
-    // remain separate work; this is not a full ACP conformance assertion.
+    // Model continuation with role=tool messages remains separate work;
+    // typed lifecycle checks below do not claim full ACP conformance.
     let mut text = String::new();
     for frame in frames
         .iter()
@@ -879,6 +930,126 @@ fn assert_session_tool_evidence(
     receipts
 }
 
+struct TypedToolOutcome {
+    id: String,
+    status: String,
+    text: String,
+}
+
+fn assert_typed_tool_events(
+    frames: &[Value],
+    session: &str,
+    used_ids: &mut HashSet<String>,
+) -> Vec<TypedToolOutcome> {
+    let mut active = HashMap::<String, bool>::new();
+    let mut outcomes = Vec::new();
+    for frame in frames.iter().filter(|frame| is_tool_update(frame)) {
+        assert_eq!(
+            frame["params"]["sessionId"], session,
+            "typed tool event crossed sessions"
+        );
+        let update = &frame["params"]["update"];
+        let id = update["toolCallId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .expect("nonempty typed tool ID");
+        if update["sessionUpdate"] == "tool_call" {
+            assert_eq!(
+                update["status"], "pending",
+                "a new tool call starts pending"
+            );
+            assert!(update["title"]
+                .as_str()
+                .is_some_and(|title| !title.trim().is_empty()));
+            assert!(
+                used_ids.insert(id.to_owned()),
+                "typed call ID reused within session {session}: {id}"
+            );
+            assert!(active.insert(id.to_owned(), false).is_none());
+            continue;
+        }
+        let terminal = active.get_mut(id).unwrap_or_else(|| {
+            panic!("tool update arrived before its start or from a prior turn: {id}")
+        });
+        assert!(!*terminal, "tool event arrived after terminal update: {id}");
+        match update["status"].as_str() {
+            None | Some("pending" | "in_progress") => continue,
+            Some("completed" | "failed") => {}
+            Some(other) => panic!("invalid typed tool terminal status {other:?}"),
+        }
+        let content = update["content"]
+            .as_array()
+            .expect("terminal event has content blocks");
+        assert!(
+            !content.is_empty(),
+            "terminal result/reason must be observable"
+        );
+        let text = content
+            .iter()
+            .map(|block| {
+                assert_eq!(block["type"], "content");
+                assert_eq!(block["content"]["type"], "text");
+                block["content"]["text"]
+                    .as_str()
+                    .expect("actual result/error text")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !text.trim().is_empty(),
+            "terminal result/reason cannot be empty"
+        );
+        *terminal = true;
+        outcomes.push(TypedToolOutcome {
+            id: id.into(),
+            status: update["status"].as_str().unwrap().into(),
+            text,
+        });
+    }
+    assert!(
+        !active.is_empty(),
+        "no supplied-MCP tool starts reached the ACP client"
+    );
+    assert!(
+        active.values().all(|terminal| *terminal),
+        "prompt stopped before every started tool had a terminal event"
+    );
+    outcomes
+}
+
+fn is_tool_update(frame: &Value) -> bool {
+    frame["method"] == "session/update"
+        && matches!(
+            frame["params"]["update"]["sessionUpdate"].as_str(),
+            Some("tool_call" | "tool_call_update")
+        )
+}
+
+fn assert_no_tool_updates(frames: &[Value]) {
+    assert!(
+        !frames.iter().any(is_tool_update),
+        "unexpected supplied-MCP event after turn completion or in an empty session"
+    );
+}
+
+fn contains_exact_json(value: &Value, expected: &Value) -> bool {
+    if value == expected {
+        return true;
+    }
+    match value {
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .is_some_and(|value| contains_exact_json(&value, expected)),
+        Value::Array(items) => items
+            .iter()
+            .any(|value| contains_exact_json(value, expected)),
+        Value::Object(fields) => fields
+            .values()
+            .any(|value| contains_exact_json(value, expected)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
 #[test]
 #[ignore = "real shipped-binary empty MCP session prompt and pure NDJSON stdout"]
 fn empty_mcp_session_prompt_uses_the_real_executor_with_pure_stdout() {
@@ -893,6 +1064,7 @@ fn empty_mcp_session_prompt_uses_the_real_executor_with_pure_stdout() {
         "empty session emitted no result update"
     );
     acp.eof();
+    assert_no_tool_updates(&acp.seen);
     provider.finish();
     let requests = provider.requests.lock().unwrap();
     assert!(
@@ -939,6 +1111,7 @@ fn legacy_empty_mcp_prompt_preserves_real_execution_and_pure_stdout() {
     let closed = acp.request(5, "session/close", json!({"session_id":sid}));
     assert_eq!(closed["result"]["closed"], true, "{closed}");
     acp.eof();
+    assert_no_tool_updates(&acp.seen);
     provider.finish();
     let requests = provider.requests.lock().unwrap();
     assert!(
@@ -1029,6 +1202,7 @@ fn permission_revocation_prevents_an_initialized_mcp_tool_call() {
     );
     fx.wait_trace("revoked", "started");
     provider.pause_tools.store(true, Ordering::SeqCst);
+    let update_start = acp.seen.len();
     acp.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":sid,"prompt":[{"type":"text","text":"Call the ACP bridge fixture session probe tool with marker actual-call."}]}}));
     let deadline = Instant::now() + WAIT;
     while !provider.requests.lock().unwrap().iter().any(has_probe) {
@@ -1055,7 +1229,14 @@ fn permission_revocation_prevents_an_initialized_mcp_tool_call() {
         provider.requests.lock().unwrap().iter().any(has_probe),
         "revocation test never reached a model with the session tool"
     );
+    let events = assert_typed_tool_events(&acp.seen[update_start..], &sid, &mut HashSet::new());
+    assert!(
+        events.iter().all(|event| event.status == "failed"),
+        "authority refusal appeared as a completed tool"
+    );
+    let stopped = acp.seen.len();
     acp.eof();
+    assert_no_tool_updates(&acp.seen[stopped..]);
     provider.finish();
     assert_child_gone(&fx, "revoked");
 }
@@ -1071,16 +1252,91 @@ fn cancellation_interrupts_a_pending_mcp_tool_call() {
         2,
         vec![fx.descriptor("cancel", "literal-cancel", "pending-call-descendant")],
     );
+    let update_start = acp.seen.len();
     acp.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":sid,"prompt":[{"type":"text","text":"Call the ACP bridge fixture session probe tool with marker actual-call."}]}}));
+    // Observe the pending event on the live wire before cancellation; a
+    // lifecycle reconstructed only after the turn ends cannot pass this.
+    let pending_id = acp.pending_tool_before_response(&sid, 3);
     fx.wait_trace("cancel", "blocked");
     fx.wait_trace("cancel.helper", "started");
+    for frame in acp.output.try_iter() {
+        acp.seen
+            .push(frame.expect("stdout must remain pure NDJSON"));
+    }
+    assert!(
+        !acp.seen[update_start..]
+            .iter()
+            .any(|frame| is_tool_update(frame)
+                && frame["params"]["update"]["toolCallId"] == pending_id
+                && matches!(
+                    frame["params"]["update"]["status"].as_str(),
+                    Some("completed" | "failed")
+                )),
+        "blocked MCP call terminated before cancellation"
+    );
     acp.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":sid}}));
     let reply = acp.response(3);
     assert_eq!(reply["result"]["stopReason"], "cancelled", "{reply}");
+    let events = assert_typed_tool_events(&acp.seen[update_start..], &sid, &mut HashSet::new());
+    assert!(
+        events.iter().all(|event| event.status == "failed"),
+        "cancelled tool appeared as completed"
+    );
+    let cancelled = events
+        .iter()
+        .find(|event| event.id == pending_id)
+        .expect("live pending tool received a terminal update");
+    assert!(
+        cancelled.text.to_ascii_lowercase().contains("cancel"),
+        "cancelled tool did not expose the cancellation reason: {}",
+        cancelled.text
+    );
     assert_child_gone(&fx, "cancel");
     assert_descendant_gone(&fx, "cancel");
+    let stopped = acp.seen.len();
     acp.eof();
+    assert_no_tool_updates(&acp.seen[stopped..]);
     provider.finish();
+}
+
+#[test]
+#[ignore = "real shipped-binary MCP isError produces failed typed lifecycle events"]
+fn mcp_is_error_is_failed_on_the_live_acp_tool_lifecycle() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("tool-error", &provider.url);
+    let mut acp = Acp::start(&fx, "acp");
+    let sid = acp.session(
+        &fx,
+        2,
+        vec![fx.descriptor("error", "literal-error", "tool-error")],
+    );
+    let update_start = acp.seen.len();
+    let _reply = acp.prompt(3, &sid);
+    assert!(
+        fx.trace("error").iter().any(|row| row["event"] == "called"),
+        "isError fixture never received an actual tool call"
+    );
+    assert!(
+        provider.requests.lock().unwrap().iter().any(has_probe),
+        "model never received the real MCP schema"
+    );
+    let events = assert_typed_tool_events(&acp.seen[update_start..], &sid, &mut HashSet::new());
+    assert!(
+        events.iter().all(|event| event.status == "failed"),
+        "MCP isError result was falsely completed"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.text.contains("ACP fixture deliberate MCP tool error")),
+        "failed event lost the actual MCP error"
+    );
+    let stopped = acp.seen.len();
+    acp.eof();
+    assert_no_tool_updates(&acp.seen[stopped..]);
+    provider.finish();
+    assert_child_gone(&fx, "error");
+    fx.assert_no_persisted_mcp(&["literal-error"]);
 }
 
 fn has_probe(request: &Value) -> bool {
