@@ -8,24 +8,25 @@ and gives AI workloads the contracts an operating layer should provide:
 discovery, admission, placement, identity, capability control, lifecycle,
 coordination, evidence, audit, observability, and recovery.
 
-The free Apache-2.0 core (`intellibitz/susi`) is a pure CLI plus standards socket
+The free Apache-2.0 core is a pure CLI plus standards socket
 engineered for a `<10s` warm build+test+release loop and organized around **three
 primary core pillars** on `susi-core`: GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow), GEMI (model inference routing), GMCP (MCP and governed tools): it has no UI, bundles
 no plugin content, starts no third-party software on its own, and is released
-only for x86_64 Windows and Linux (the source stays portable). Every add-on
-feature, enterprise pack, SSO/RBAC gateway, FinOps plane, corporate fleet
-controller, desktop, and visual view lives in Susi Commercial Apps
-(`intellibitz/susi-commercial-apps` — closed-source, licensed, and paid corporate
-software), which reaches core through the same public protocols.
+only for x86_64 Windows and Linux (the source stays portable). Core's target is
+a generic protocol socket. Product implementations, integrations, governance
+workflows, and visual interfaces belong in Susi Commercial Apps and reach core
+through public protocols. Existing implementations leave core only after a
+working destination preserves their behavior over the socket.
 
-The core is published one way: IntelliBitz's CEO alone holds push authority and
-nothing is accepted from outside, and everyone is free to fork it and work in
-their own fork under Apache-2.0 ([CONTRIBUTING.md](CONTRIBUTING.md)).
+The core is published one way through its designated publisher and authorized
+agents. Nothing is accepted from outside. Anyone may fork it and work in their
+own fork under Apache-2.0 ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
-This document states direction. Current product truth is defined by
-`.agents/identity.json`, verified claims by `.agents/evidence.json`, and
-enforceable crate/runtime boundaries by `ARCHITECTURE.md`. A vision item is
-not evidence that a feature exists.
+This document states direction. Executable source and reproducible checks
+establish current behavior; `ARCHITECTURE.md` describes the crate/runtime
+boundaries. Run records belong in a local store outside the checkout, as
+described in [Evidence](docs/evidence.md). A vision item is not evidence that
+a feature exists.
 
 ## North star
 
@@ -195,11 +196,10 @@ grow disconnected catalogs.
 - Define versioned conformance contracts for providers, MCP servers, agents,
   and extension packs.
 - Prefer protocol admission and **Pure `Apache-2.0` ONLY** cloud raw-source
-  feature pickup ([CEO Mandate 75](docs/ceo-mandate-75.md),
+  feature pickup ([Mandate 75](docs/ceo-mandate-75.md),
   [`docs/harvest.md`](docs/harvest.md)) over new vendor-specific core branches
-  or external crate bloat: both `intellibitz/susi` and
-  `intellibitz/susi-commercial-apps` operate on **Raw Source (`main`) ->
-  Distill (`release`)**, routing lean 3-pillar socket primitives to Core and
+  or external crate bloat: core and Susi Commercial Apps operate on
+  **Raw Source (`main`) -> Distill (`release`)**, routing lean 3-pillar socket primitives to Core and
   routing innovative product features, enterprise packs, and visual interfaces
   (all UIs and visual views live in Susi Commercial Apps) to the commercial
   suite.

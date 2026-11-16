@@ -1,8 +1,8 @@
 # Isolated cloud agent sessions
 
-Cloud execution follows the same CEO mandates and canonical `AGENTS.md` as a
-local Windows worker. A cloud session must not ask the CEO to inspect code,
-perform setup steps or expose a personal computer to complete engineering work.
+Cloud execution follows the same engineering contract and canonical `AGENTS.md`
+as a local worker. Agents own code inspection and environment setup; completing
+engineering work must not require access to an unrelated host.
 
 Each worker ALWAYS runs inside its own isolated linked worktree and branch (never
 the primary checkout and never a shared worktree), with private build output
@@ -19,7 +19,7 @@ writing.
 
 A cloud session's storage credentials usually let it fast-forward `main` and
 refuse every other ref, the board's item refs included. Such a session posts
-with the same commands (CEO directive 2026-11-16): `susi-commercial workflow
+with the same commands: `susi-commercial workflow
 board post`, and the workflow steps that post for it, commit the item to
 `main` of the private Commercial repository as a create-only inbox file. Every
 agent's board shows it at once, marked as waiting, and a host that can write

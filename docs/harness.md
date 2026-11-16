@@ -453,7 +453,7 @@ legacy `workflow finish` publication path described above is implementation
 history; it cannot remain a GitHub prerequisite. The available native
 `cargo local-workflow` and `cargo local-build` commands are migration building
 blocks. Agents complete missing coordination and verification without handing
-engineering work to the CEO or weakening acceptance.
+engineering work to the requester or weakening acceptance.
 
 ## Self-build scorecard
 

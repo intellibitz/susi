@@ -11,9 +11,8 @@ handshake and transport ciphers), `crates/susi-config/src/peer_channel_link.rs`
 `crates/susi-core/src/mcp_client.rs` (every peer call). The end-to-end test is
 `tests/peer_channel_hub.rs`.
 
-Introduced by task `T-PEERCHAN-1`, after the CEO asked to "connect all 3
-laptops using public internet in a safe and secure way" and decided (21:47 IST,
-2026-11-08) that reachability is one forwarded router port on one hub laptop.
+Reachability uses one forwarded router port on a hub host; members connect
+outbound without exposing their own listener.
 
 ## Topology: one hub, members behind NAT
 
@@ -21,10 +20,10 @@ laptops using public internet in a safe and secure way" and decided (21:47 IST,
    member A (no inbound port)                       member B (no inbound port)
         |  dials out, keeps the link open                |  dials out, keeps the link open
         v                                                v
-  [ home router of the hub: public-ip:29090  --port forward-->  192.168.0.140:29090 ]
+  [ hub router: public-ip:29090  --port forward-->  <hub-private-ip>:29090 ]
                                      |
                                      v
-                     hub (the CEO laptop): susid with peer_channel_listen
+                     hub host: susid with peer_channel_listen
 ```
 
 - **One port reaches the hub from outside**: the channel port, TCP, default
@@ -50,10 +49,10 @@ laptops using public internet in a safe and secure way" and decided (21:47 IST,
   sends its members a signed list of its current addresses, which they store
   as extra dial hints.
 
-### What the CEO applies on the hub
+### Hub configuration
 
-1. Router: forward **TCP 29090** on the public side to **192.168.0.140:29090**
-   (the hub laptop's LAN address; reserve it in the router's DHCP table so it
+1. Router: forward **TCP 29090** on the public side to **`<hub-private-ip>:29090`**
+   (the hub host's LAN address; reserve it in the router's DHCP table so it
    does not change). Nothing else is forwarded; no UDP.
 2. Windows Defender Firewall on the hub, one inbound rule (an elevated
    PowerShell):

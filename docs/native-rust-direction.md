@@ -19,7 +19,7 @@ below remain historical evidence, not the current dependency verdict.
 The genuinely uncached Windows installation also passed: native placement,
 private startup, authenticated public model/tokenizer download, two actual
 Candle answers and scoped shutdown. Production qualification and combined-tree
-acceptance remain pending until their final gates run. The CEO's Step 1 of 100
+acceptance remain pending until their final gates run. The Step 1
 acceptance contract is `step1-acceptance.md`; agents and Susi own its execution.
 
 Windows runtime inspection also found that eliminating redistributable DLL
@@ -34,13 +34,14 @@ and artifact-bound link-map evidence; an allowed DLL list alone is insufficient.
 Lifecycle fixtures and full Susi inference have passed diagnostic builds;
 combined-source release qualification remains a separate gate.
 
-The CEO authorized Hyper-V administration through `gsudo`. Agents have created
+Explicit authorization covered Hyper-V administration through `gsudo` for that
+isolated Windows qualification. Agents created
 an isolated clean Windows 11 VM and verified the OS runtime boundary there.
 Its baseline lacks Rust, Git, Python, Node, the C++ compiler and the separate
 Visual C++ runtime DLL. The final packaged executable still needs its own
 uncached installation and first-goal evidence in that VM before Step 1 closes.
 
-The CEO does not inspect code. Susi is built and delivered by agents. Agents have
+Susi is built and delivered by agents. Agents have
 standing authority to commit, push, resolve conflicts and merge verified work;
 paid services, destructive actions and unrelated publication still require their
 own authorization. The governing requirements live in `.agents/identity.json`
@@ -97,7 +98,8 @@ marketed as durable memory.
   preserved. Unverified managed Ollama pulls are refused. See the model vendor's
   MODEL-LICENSE.md for exact scope and remaining limitations.
 - `.claude`, `.codex`, CLAUDE/GEMINI/Copilot and runtime delegation directives
-  follow the CEO contract. Obsolete automatic shell startup hooks were removed.
+  follow the canonical engineering contract. Obsolete automatic shell startup
+  hooks were removed.
 
 ## Verified evidence and open gates
 

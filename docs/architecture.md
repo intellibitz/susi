@@ -3,13 +3,10 @@
 This is the narrative architecture of the open Susi core: what the five-port
 socket is, which pillars serve it, how the planes talk to each other inside
 one host, how the commercial suite reaches core without linking it, and where
-the lean-core program is taking the codebase. It was moved here from
-`README.md` on 2026-11-08 (T-README-1) with its content preserved; the one
-correction is the Wasm runtime statement, which now matches the code (see
-"Sandbox" under the Tier S pillars). The enforceable crate-boundary contract,
-checked by `tests/architecture_tests.rs`, stays in
-[`ARCHITECTURE.md`](../ARCHITECTURE.md); the record of verified claims and
-admitted gaps is [`docs/evidence.md`](evidence.md).
+the lean-core program is taking the codebase. The enforceable crate-boundary
+contract, checked by `tests/architecture_tests.rs`, stays in
+[`ARCHITECTURE.md`](../ARCHITECTURE.md); verification and qualification
+guidance is [`docs/evidence.md`](evidence.md).
 
 Scoped claim (Mandate 45): Susi is an evidence-gated agent-of-agents substrate
 on your machine, not a replacement host OS and not a chatbot wrapper. "RSI"
@@ -127,7 +124,7 @@ already schedules unattended source rewrites.
   on failure (`crates/susi-gawd/src/patch_cycle.rs`). It refuses to apply
   unless the request sets `auto_apply` or `trust_level` is `autonomous`.
   Nothing schedules it on SUSI's own source by itself (the former
-  `susi-builder.yml` workflow was removed, CEO decision 2026-11-06).
+  `susi-builder.yml` workflow was removed).
   Mandate 48 keeps the installed `~/.susi/bin/susi` as the release toolchain
   that builds the next susi.
 
@@ -266,10 +263,10 @@ or `~/.cache/susi`).
 
 ## The plug bridge to the commercial suite
 
-CEO decision 2026-11-08 ("Socket bridge"): commercial capabilities reach the
-running open core over the bus rendezvous above, not by linking core's crates
+Implementation capabilities reach the running open core over the bus rendezvous
+above, not by linking core's crates
 into a commercial binary. Core publishes the ports; the commercial repository
-(`intellibitz/susi-commercial-apps`, its `docs/plug-bridge.md`) ships
+(`susi-commercial-apps`, its `docs/plug-bridge.md`) ships
 `susi-plug-host`, a std-only process that joins the rendezvous as its own pid
 directory with the secret core minted, answers core's wire format exactly, and
 serves the capabilities core gave up in the lean-core program:
@@ -446,7 +443,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     Note (2026-11-08): the in-process GGUF engine named here left core in the
     lean-core program (ungated iterations 341-347, no destination on the
     commercial origin); `tests/zc_matrix.rs` keeps its two runtime tests
-    ignored by CEO decision until a plug or the restored engine is in. The
+    ignored until a plug or the restored engine is in. The
     default build routes local inference as described under the pillar table.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
     Note (2026-11-08): the pillar crates now use std sync primitives and
@@ -460,11 +457,12 @@ Verify: `susi crown` (exit non-zero if any critical USP fails).
 
 ## Lean-core direction
 
-CEO directive 2026-11-07: Susi core is minimal. GAWD, GEMI, GMCP and the
-harness (with its parallel multi-agent workflow) are the only components; it
-compiles, builds, tests, runs and debugs anywhere with nothing but Rust, and
-everything that is not one of those four is a plug that lives in
-`susi-commercial-apps` and is admitted over the socket. The plan, the measured
+Susi core targets a minimal, generic standards socket with three protocol
+pillars: GAWD (including A2A, ACP and harness admission), GEMI and GMCP.
+Product implementations belong in `susi-commercial-apps` and are admitted over
+the socket. Moving a capability requires a working destination and demonstrated
+behavioral parity; the existing implementation inventory is migration work,
+not proof that this boundary is already complete. The plan, the measured
 ladder and the crate classification are in [`docs/lean-core.md`](lean-core.md);
 its dependency-reach ceilings are pinned by `tests/lean_core_ceilings.rs` and
 may only go down. The earlier per-pillar and per-file size ceilings remain
@@ -487,8 +485,8 @@ Where it stands on 2026-11-08:
 The rungs, in order: product debt out of the pillar closure (crate-level
 migration to commercial plugs); framework facades replaced by a std-only
 loopback HTTP/1.1 and JSON-RPC socket; the last dependencies (serde kept or
-vendored, a CEO decision at that rung); a clean offline clone. The compile
-budget's current critical path is windows-sys, tokio, hyper, then the serial
+vendored, requiring an explicit architecture decision); a clean offline clone.
+The compile budget's current critical path is windows-sys, tokio, hyper, then the serial
 pillar chain (core, gawd-agents, gawd-swarm, gawd, daemon, bin); the next
 levers are the MCP server facade, the tokio/hyper stack, the Win32 surface and
 derive-free serde. Wall is the noisiest number: quote it only with the run it

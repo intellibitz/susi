@@ -3552,7 +3552,7 @@ fn core_is_published_one_way_and_free_to_fork() {
             "{path}: must say the world may fork core"
         );
     }
-    for path in ["AGENTS.md", ".agents/identity.json", "CONTRIBUTING.md"] {
+    for path in ["AGENTS.md", ".agents/identity.json"] {
         let text = flat(path);
         assert!(
             text.contains("CEO alone holds push authority"),
@@ -3561,6 +3561,17 @@ fn core_is_published_one_way_and_free_to_fork() {
         assert!(
             text.contains("agents the CEO authorizes"),
             "{path}: the CEO's agents push on the CEO's authority"
+        );
+    }
+    let publication = flat("CONTRIBUTING.md");
+    for requirement in [
+        "designated publisher alone holds push authority",
+        "Authorized agents may exercise that authority within their scope",
+        "this policy grants no additional write access",
+    ] {
+        assert!(
+            publication.contains(requirement),
+            "CONTRIBUTING.md: preserve scoped publication authority: {requirement}"
         );
     }
     for path in [

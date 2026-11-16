@@ -1,13 +1,14 @@
-# Forking and contributing to Susi (`intellibitz/susi`)
+# Forking and contributing to Susi
 
 Susi core is open source under the [Apache License, Version 2.0](LICENSE). It is
-**published one way** (CEO directive 2026-11-16, Mandate 72 in
+**published one way** (publication policy, Mandate 72 in
 [`AGENTS.md`](AGENTS.md)).
 
 ## 1. How this repository is published
 
-- **One publisher.** IntelliBitz's CEO alone holds push authority over this
-  repository. It is exercised by the CEO or by the agents the CEO authorizes.
+- **One publisher.** The repository's designated publisher alone holds push
+  authority. Authorized agents may exercise that authority within their scope;
+  this policy grants no additional write access.
 - **Nothing is accepted from outside.** No pull request, patch or commit from
   an outside party is reviewed, accepted or merged, and no outside party is
   given write access. Please do not open one: it will not be merged.
@@ -125,11 +126,11 @@ and it is Susi's decision.
 ## 6. Reporting a security problem
 
 Follow [SECURITY.md](SECURITY.md). A report is information, not a contribution:
-the fix is written and published by the CEO's agents.
+the fix is written and published by authorized agents.
 
-## 7. The CEO's agents
+## 7. Authorized agents
 
-Agents the CEO has authorized follow [AGENTS.md](AGENTS.md): agent roots, the
+Authorized agents follow [AGENTS.md](AGENTS.md): agent roots, the
 Susi Board, task claims and the vision cycle. They use `susi-commercial
 workflow start`, `sync`, `commit` and `ship` from an isolated worktree, reconcile
 with `origin/main` at session start, on resume and before committing, and label
@@ -138,10 +139,10 @@ commits with `Task:` and `Feature:` trailers.
 `main` is an unqualified raw-source stream with no mandatory publication test
 gate. Susi distills selected work into release candidates and qualifies the
 exact combined tree before publishing immutable release snapshots. See the
-[CEO agent mandate](docs/ceo-agent-mandate.md) and
+[Agent engineering contract](docs/ceo-agent-mandate.md) and
 [Mandate 75](docs/ceo-mandate-75.md).
 
 ## 8. License
 
-Everything in `intellibitz/susi` is licensed under the
+This repository is licensed under the
 [Apache License, Version 2.0](LICENSE).

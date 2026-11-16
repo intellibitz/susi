@@ -1,10 +1,10 @@
 # Git storage publisher: first portable slice
 
-Main is unqualified development storage. The CEO's 2026-11-10 direction removes
-mandatory test gates from main admission and retains full release qualification.
+Main is unqualified development storage. Main admission has no mandatory test
+gate; production releases retain full qualification.
 This command does not run a test gate before a main submission.
 No GitHub API, Actions, server extension or new Rust dependency is introduced.
-The new implementation uses Rust's standard library and the installed Git tool.
+The publisher uses Rust's standard library and the installed Git tool.
 An ordinary configured Git remote is required, not GitHub: a local bare repository,
 self-hosted Git or any compatible hosted Git service works. No third-party cloud,
 GitHub account, API, Actions, webhook, status check or PR is a runtime prerequisite.
@@ -58,7 +58,7 @@ fetch missing objects for ancestry checks but never pushes or changes local refs
 ## Storage guard: nothing published is lost unnoticed
 
 The storage remote is a bucket. Susi does not depend on a hosting provider's
-branch or tag protection (CEO decision 2026-11-11), and `push-policy` is a
+branch or tag protection, and `push-policy` is a
 client hook: a push with `--no-verify`, or from a clone whose hooks are off, is
 not checked. The guard closes that gap with Git alone:
 
@@ -75,8 +75,8 @@ this clone. On each run:
   must descend from the recorded one, or the run reports `REWOUND` with the
   number of published commits that left the history;
 - `refs/tags/*` are immutable: a different value is `MOVED`;
-- a recorded ref that is gone is `DELETED`, unless the CEO directed its
-  deletion (below).
+- a recorded ref that is gone is `DELETED`, unless explicit project
+  authorization directed its deletion (below).
 
 A finding is a failed exit. It names the local ref that still holds the lost
 objects and a recovery that needs no force: push the retained ref back (a
@@ -86,10 +86,11 @@ stays reported until it is repaired. A ref seen for the first time is recorded;
 refs outside those namespaces (agent refs, claims) are not guarded, because
 they are deleted legitimately.
 
-### Deletions the CEO directed
+### Explicitly authorized deletions
 
-A deletion the CEO directed is not a loss, and nobody should be told to push it
-back. Such deletions are written down in a committed, reviewable record,
+An explicitly authorized deletion is not a loss, and the guard must not direct
+its restoration. The current implementation reads a committed authorization
+record,
 `.agents/storage/directed-deletions.txt`, one line per ref:
 
 ```text
@@ -117,21 +118,19 @@ repository; nothing about its refs is written in this one.
   namespace or not (a listed `wip/*` branch included). It is not recorded, and
   the finding carries no command: do not push it again and do not delete it;
   report it on the Susi Board. Deleting it again, or withdrawing the direction
-  by taking its line out of the record, is the CEO's decision.
+  by taking its line out of the record, requires fresh project authorization.
 - A line that cannot be read accepts nothing and is reported as `UNREADABLE`
   with its line number. A repository without the file has no accepted
   deletions.
 - The record counts only on a `main` that itself moved forward. If `main` is
   missing or `REWOUND` in a run, nothing is accepted in that run.
 
-Add a line only for a deletion the CEO directed and that has been carried out,
-in a commit whose `Task:` names the direction; never list a ref to silence a
-finding. The first record (2026-11-15, `T-CLAUDECLOUDREL-7`) lists the 9
-`wip/*` branches and 102 tags removed from this repository that day. The task
-record names the tags without their objects, so each object is the value the
-guard had retained in witnessing clones: 101 from one clone, all agreeing with
-three other clones on the same machine, and `susi-snapshot/v0-21-68-rc1` from
-the one clone that had seen it.
+Until a replacement exists, any update to this input must describe an explicitly
+authorized deletion that has been carried out, in a commit whose `Task:` names
+the authorization. Never list a ref to silence a finding. This file is a
+functional authorization input, not an activity log. Moving it to a local record store requires a
+replacement that preserves shared authorization and recovery semantics; the
+current guard does not read a local database.
 
 The guard that honours the record is the built `local-snapshot`. A clone keeps
 printing the old `DELETED` lines until the tool it runs (on `PATH`, or
@@ -147,8 +146,9 @@ example `susi-commercial-apps`) by starting the built binary there.
 Limits, stated plainly: the guard detects and recovers, it does not prevent. A
 clone only vouches for what it has seen, so a ref created and destroyed between
 two runs of every clone is not noticed. Prevention needs a
-remote the CEO controls, where Git's own `receive.denyNonFastForwards` and
-`receive.denyDeletes` settings refuse the push; those are Git, not a provider
+remote under the project's administration, where Git's own
+`receive.denyNonFastForwards` and `receive.denyDeletes` settings refuse the push;
+those are Git, not a provider
 feature, and move with a self-hosted remote.
 
 ### Every publish is a witness
@@ -298,16 +298,6 @@ A hook that declines locally leaves `git push --porcelain` with no ref status,
 which the publisher cannot tell from a connection lost mid-push; it therefore
 reports an unknown outcome and points to `status-main`, never a success.
 
-Measured on native Windows x86_64 with pinned Rust 1.99.0: all 24 tests passed
-(75.32 seconds), strict binary clippy passed (1.356 seconds), native binary build
-passed (1.888 seconds), workspace format check passed (22.356 seconds), and the
-actual executable's help entrypoint passed.
-
-Measured on native Linux x86_64 (CachyOS, Rust 1.99.0, Git 2.56.0) on the
-combined tree, the graft guard and push-policy discovery included
-(`T-LINUXPUB-1`): all 26 `local-snapshot` tests, the 4 hook tests and the 10
-`native_push_policy` tests passed; strict clippy of the publisher, helper and
-hook test passed; `cargo fmt --all --check` passed. The real executable then
-published `69e4e958e` to `origin/main` with `submit`. Full release qualification
-remains pending. The implementation adds no dependency; the existing xtask
-package still has its pre-existing dependency graph.
+Keep measured results with the tested source and host in a local record store
+outside the checkout. Re-run the checks for a new candidate; past runs do not
+qualify a different tree or host. Full release qualification is separate.
