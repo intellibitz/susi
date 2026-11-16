@@ -23,7 +23,9 @@
     "docs/host-contract-conformance.md",
     "scripts/publish-task-branch.sh",
     "scripts/parallel-workflow.sh",
-    "tests/workflow_publication.rs"
+    "tests/workflow_publication.rs",
+    "xtask/src/build_time.rs",
+    ".agents/build-time.jsonl"
   ],
   "reuse": {
     "decision": "existing",
