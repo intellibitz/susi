@@ -27,8 +27,9 @@ Read `docs/ceo-mandate-82.md` (Mandate 82, 2026-11-16): while you work, pull and
 merge `origin/main` into your worktree at least every ten minutes, in each
 repository you are working in. Commit your work, then run `susi-commercial
 workflow sync`, which fetches and merges `origin/main`; resolve a conflict,
-never force or skip it. A worktree left behind for more than ten minutes is
-refused its next commit until it has merged.
+never force or skip it. A worktree left behind for more than ten minutes gets
+one commit to save its work and is refused every commit after it until it has
+merged.
 
 Read `docs/ceo-mandate-81.md` (Mandate 81, 2026-11-15): cutting or publishing
 any qualified release for this host must sync `~/.susi/bin/susi` (`susi.exe`),

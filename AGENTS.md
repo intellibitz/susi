@@ -24,9 +24,10 @@ ten minutes): one clock, taking work in and handing work out.
 - **Never forced:** resolve a conflict; no rebase of shared history, no force,
   no empty merge to satisfy the clock. An unreachable remote is not a
   violation. A merge is never refused.
-- **Enforced:** the commit guard refuses a commit once a worktree has been
-  behind `origin/main` for more than ten minutes, counted from the tool's first
-  notice, with no override. It adds no gate to `main`.
+- **Enforced:** once a worktree has been behind `origin/main` for more than
+  ten minutes, counted from the tool's first notice, the commit guard lets one
+  commit through to save the work and refuses every commit after it until the
+  worktree has merged. No override. It adds no gate to `main`.
 
 ## CEO Mandate 81 (2026-11-15): Release Cuts Must Sync the Local Host Binary and Live Daemon
 
@@ -221,8 +222,9 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   `susi-commercial workflow fresh` reports the lag; the commit
   guard notes any lag and refuses a commit more than 20 commits behind
   (`git config susi.maxBehind <n>` changes the limit; an unreachable remote
-  never refuses; a merge is never refused). Under Mandate 82 it also refuses a
-  commit once the worktree has been behind for more than ten minutes.
+  never refuses; a merge is never refused). Under Mandate 82 a worktree behind
+  for more than ten minutes gets one commit to save its work and no more until
+  it has merged.
 - **GitHub is portable Git storage only:** Pure Git transport (`origin` for
   `susi` and `susi-commercial-apps`); zero GitHub Actions, zero hosted PR/status
   gates, zero `gh` CLI or GitHub API lock-in; moving clouds is a remote URL change.

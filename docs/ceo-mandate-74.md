@@ -64,7 +64,8 @@ storage bucket only.
    the commit beyond a limit (20 commits; an unreachable remote never
    refuses). Mandate 82 ([`docs/ceo-mandate-82.md`](ceo-mandate-82.md),
    2026-11-16) adds a clock: pull and merge at least every ten minutes while
-   working, and a commit is refused once a worktree has been behind for longer.
+   working; a worktree behind for longer gets one commit to save its work and
+   no more until it has merged.
    A merge is never refused: it is the remedy. At start and resume
    the tool pulls for you: `susi-commercial workflow check` and
    `workflow fresh --pull` merge `origin/main` into a worktree that has no

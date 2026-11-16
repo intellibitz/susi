@@ -19,7 +19,8 @@ while you work, pull and merge `origin/main` into your worktree at least every
 ten minutes, in each repository you are working in — commit your work, then
 `git fetch origin main && git merge origin/main` (or `susi-commercial workflow
 sync`); resolve a conflict, never force or skip it; a worktree left behind for
-more than ten minutes is refused its next commit until it has merged.
+more than ten minutes gets one commit to save its work and is refused every
+commit after it until it has merged.
 
 ## 0. The CEO's words
 
@@ -56,7 +57,9 @@ done.
   now and again every ten minutes until it is stopped. Run it in the background
   of a long session.
 - The tool never merges into a worktree that has uncommitted changes; it says
-  so and leaves the worktree exactly as it is. Commit first.
+  so and leaves the worktree exactly as it is. Commit first. That is why a
+  worktree that is already late is still allowed one commit: the commit saves
+  the work, and the merge follows it.
 
 ## 3. What the clock does not excuse
 
@@ -89,7 +92,8 @@ done.
 Start the session with `susi-commercial workflow check` (it pulls a clean
 worktree). While working, merge at least every ten minutes as in section 2.
 When the tool notes that the worktree is behind, merge then; do not wait for
-the refusal.
+the refusal. If the ten minutes have passed with work uncommitted, commit it
+(that one commit is let through), then merge.
 
 ## 6. Implementation truth (2026-11-16)
 
@@ -101,12 +105,15 @@ the refusal.
   merge was made with the tool or with plain Git.
 - **Enforced in code today:** the commit guard
   (`susi-commercial workflow guard commit`, which this repository's commit
-  hooks run when that tool is installed) refuses a commit when the remote
-  answers and the worktree has been behind for more than ten minutes, and says
-  how to merge. Every refusal follows a notice given at least ten minutes
-  earlier, because the clock starts at the first notice. There is no override
-  and no setting for the ten minutes. A merge, including a conflicted merge
-  concluded with a commit, is never refused.
+  hooks run when that tool is installed) acts when the remote answers and the
+  worktree has been behind for more than ten minutes. It lets one commit
+  through, so the work is saved and the worktree is clean for the merge, and
+  says so. Every commit after that one is refused until the worktree has
+  merged, and the refusal says how. A commit that was let through but failed
+  for another reason may be tried again. Every refusal follows a notice given
+  at least ten minutes earlier, because the clock starts at the first notice.
+  There is no override and no setting for the ten minutes. A merge, including
+  a conflicted merge concluded with a commit, is never refused.
 - **Measured:** `susi-commercial workflow fresh` and `workflow check` report how
   many commits a worktree is behind and for how many minutes.
 - **Automatic:** `susi-commercial workflow fresh --pull --watch` (section 2).
