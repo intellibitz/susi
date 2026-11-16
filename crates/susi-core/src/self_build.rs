@@ -197,11 +197,23 @@ mod tests {
             "no gates, no workflows and no PRs",
             "GitHub is a storage bucket only",
             "Harvest Apache-2.0",
-            "docs/ceo-mandate-81.md",
+            "exactly three core pillars",
+            // Items 12 and 13: every clause, so none can be trimmed unseen.
+            "docs/ceo-mandate-75.md to docs/ceo-mandate-81.md",
             "pure Apache-2.0 only",
             "Susi Board",
+            "post Claim and Landed, append only",
+            "under your own agent root",
             "reuse decision",
+            "run the vision cycle",
+            "integration every ten minutes",
+            "susi.build.json and the live daemon",
             "published one way",
+            "CEO alone holds push authority",
+            "agents the CEO authorizes",
+            "Accept nothing from outside: no pull request, patch or commit",
+            "free to fork",
+            "private, closed source and licensed",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }

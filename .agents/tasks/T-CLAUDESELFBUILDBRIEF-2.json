@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDESELFBUILDBRIEF-2",
+  "title": "Self-build brief: pin every new clause; lift the runtime Rust ceiling by CEO decision",
+  "goal": "Vision: V-4. CEO decision 2026-11-16, on the report that the brief's test pinned only some of the new clauses to stay under the lean ceiling: \"this cannot happen, lift the ceiling\". Pin every clause of the Mandates 75-81 and one-way publication items of susi_core::self_build::BRIEF in its unit test, raise FIRST_PARTY_RUNTIME_RUST_CEILING by exactly the lines those pins take, and record the decision in docs/lean-core.md.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-core",
+      "self_build"
+    ]
+  },
+  "created_by": "CLAUDESELFBUILDBRIEF",
+  "created_unix": 1794815617,
+  "reuse": {
+    "decision": "existing",
+    "searched": "crates/susi-core/src/self_build.rs (BRIEF and its unit test), tests/lean_core_ceilings.rs and the ceiling history in docs/lean-core.md, including how the earlier CEO-decided raises were recorded. The existing needle list, ceiling constant and decision log are extended in place; no new test file, module or dependency."
+  },
+  "scopes": [
+    "crates/susi-core/src/self_build.rs",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md"
+  ],
+  "limitations": [
+    "Test pins, one ceiling constant and its record only; the contract text is unchanged from T-CLAUDESELFBUILDBRIEF-1. Main is unqualified development, not a release.",
+    "FIRST_PARTY_RUNTIME_RUST_CEILING rises 302,000 -> 302,016 (302,009 measured): exactly the 16 lines the brief's unit test grew by across both tasks, keeping the 7 lines it had to spare. No other ceiling moves.",
+    "Each pin occurs exactly once in the brief and every sentence of items 12 and 13 holds at least one pin, checked by script before the commit; the unit test itself only asserts presence.",
+    "The Susi Board could be read but not written from this cloud session (HTTP 403 on refs/board/* and refs/claims/*); no Claim or Landed item was posted and the record is closed by hand (Mandate 76 section 7)."
+  ]
+}
