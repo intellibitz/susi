@@ -78,11 +78,9 @@ exercise fresh same-cwd A/B/A calls, exact results and owning mission receipts,
 revocation, cancellation during a tool call, startup/EOF/deadline cleanup,
 ordinary descendants, ordered environment aliases, and both legacy and v1
 stdout purity. They also check live pending/completed/failed tool updates, MCP
-`isError`, cancellation, and IDs across multiple turns. Evidence is in
-`.agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json` and
-`.agents/evidence/core-under-100k/2026-11-16-acp-integrated.json`; live tool-event
-evidence is in `.agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json`
-and `.agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json`.
+`isError`, cancellation, and IDs across multiple turns. Run them with
+`cargo test --offline --locked -p susi --test acp_mcp_bridge -- --ignored`.
+Keep execution reports in local record storage outside the source checkout.
 Native Windows execution is not established by those tests.
 
 Resource links are passed to the text executor as references,
@@ -114,8 +112,8 @@ Omitted MCP arguments are checked as an empty object; explicit nonobjects are
 rejected before handler dispatch. Native malformed/nonobject input semantics,
 typed MCP `isError` mapping, reversed file ranges, and a production worker
 backend remain unqualified. This is preservation evidence, not full MCP
-conformance or a runtime reduction. The integrated receipt is
-`.agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json`.
+conformance or a runtime reduction. Execution reports belong in local record
+storage outside the source checkout.
 
 ## Checks
 

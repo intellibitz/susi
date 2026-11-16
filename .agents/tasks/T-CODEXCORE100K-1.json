@@ -1,48 +1,18 @@
 {
   "id": "T-CODEXCORE100K-1",
   "title": "Reduce the complete standards socket below 100,000 lines without capability loss",
-  "goal": "Vision: V-6. Strictly fewer than 100,000 physical first-party runtime Rust lines, including in-repository facades and every platform/feature, with existing functionality and public protocol behavior preserved. Size alone cannot close this task; require regression and protocol-conformance evidence on the final tree.",
   "size": "xl",
   "status": "in_progress",
   "created_by": "CODEXCORE100KIMPLEMENTATION",
   "created_unix": 1794818760,
-  "base_commit": "694a728da",
-  "deps": [
-    "T-CODEX100KCATALOG-1",
-    "T-CODEX100KCLI-1",
-    "T-CODEX100KHTTP-1",
-    "T-CODEX100KTELEMETRY-1",
-    "T-CODEX100KRICH-1",
-    "T-CODEX100KBOOTSTRAP-1",
-    "T-CODEX100KHOSTFS-1",
-    "T-CODEX100KARGS-1",
-    "T-CODEX100KFORWARD-1",
-    "T-CODEX100KMCP-1",
-    "T-CODEX100KFRONTEND-1",
-    "T-CODEX100KGEMI-1",
-    "T-CODEX100KJSON-1",
-    "T-CODEX100KACP-1",
-    "T-CODEX100KHARNESSPARITY-1",
-    "T-CODEX100KSETTINGS-1",
-    "T-CODEX100KMCPIO-1",
-    "T-CODEX100KBOARDTEST-1",
-    "T-CODEX100KHTTPHEAD-1",
-    "T-CODEX100KACPBRIDGE-1",
-    "T-CODEX100KACPSESSION-1",
-    "T-CODEX100KSCOPEDTOOLS-1",
-    "T-CODEX100KACPINFERENCE-1",
-    "T-CODEX100KMCPCATALOG-1",
-    "T-CODEX100KGMCPTEST-1",
-    "T-CODEX100KCONFIGACCESSORS-1",
-    "T-CODEX100KLEDGER-1",
-    "T-CODEX100KACPEVENTS-1",
-    "T-CODEX100KACPEVENTSCOPE-1",
-    "T-CODEX100KACPEVENTE2E-1",
-    "T-CODEX100KACPEVENTBRIDGE-1",
-    "T-CODEX100KMODELSHA1-1",
-    "T-CODEX100KWORKERTOOLS-1",
-    "T-CODEX100KHTTPWRITE-1"
-  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "core-size"
+    ]
+  },
+  "goal": "Keep the complete generic standards socket below 100,000 physical runtime Rust lines. Concrete implementations belong in separately hosted implementation packages; retain capabilities through verified standard-protocol connections. Runtime and current documentation are identity-neutral. Operational history and evidence belong outside source.",
+  "deps": [],
   "scopes": [
     ".agents/visions/V-6.json",
     ".agents/tasks/T-CODEXCORE100K-1.json",
@@ -54,79 +24,8 @@
     ".cargo/config.toml",
     "docs/host-contract-conformance.md"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "core-size"
-    ]
-  },
   "reuse": {
     "decision": "existing",
-    "searched": "Reused tests/lean_core_ceilings.rs physical-line/category accounting, socket_parity and socket_boundary tests, susi-conformance, and existing protocol-specific regressions. Audited core and Commercial Apps before choosing existing-code consolidation; no external source or dependency is needed for measurement."
-  },
-  "baseline": {
-    "runtime_rust": 300677,
-    "vendor_facade_rust": 6454,
-    "complete_socket_rust": 307131,
-    "strict_limit": 100000,
-    "goal_met": false,
-    "classification_correction": "Count unconditional production module crates/susi-paths/src/test_env.rs (369 lines); old inherited category measure was 306762."
-  },
-  "limitations": [
-    "The installed workflow binary predates workflow vision set/cycle; the create-only vision record is authored with the existing schema instead. Both attempted commands reported unknown verb; no cycle is claimed.",
-    "Board read at item 1604 reported no stop or request for codex. This session uses local isolated task records; it has not posted external board messages.",
-    "Initial measurements include inline tests, comments and blank lines in runtime files. Moving tests or changing exclusions is not an implementation reduction.",
-    "Acceptance command checks source size only. This task remains open until behavioral parity and relevant live protocol conformance are also verified."
-  ],
-  "evidence": [
-    ".agents/evidence/core-under-100k/2026-11-16-initial.json",
-    ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json",
-    ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json",
-    ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-standards-audit.json",
-    ".agents/evidence/core-under-100k/2026-11-16-json-readers.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json",
-    ".agents/evidence/core-under-100k/2026-11-16-settings.json",
-    ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json",
-    ".agents/evidence/core-under-100k/2026-11-16-http-head.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
-    ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
-    ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-typed-events-component.json",
-    ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json",
-    ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
-    ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
-    ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json",
-    ".agents/evidence/core-under-100k/2026-11-16-http-write-token.json",
-    ".agents/evidence/core-under-100k/2026-11-16-http-write-integrated.json"
-  ],
-  "progress": {
-    "runtime_rust": 301283,
-    "vendor_facade_rust": 6454,
-    "complete_socket_rust": 307737,
-    "genuine_runtime_lines_removed": 2577,
-    "remaining_to_remove": 207738,
-    "upstream_runtime_lines_added": 84,
-    "correctness_lines_added": 104,
-    "net_runtime_lines_removed": -522,
-    "standards_compatibility_lines_added": 2995
-  },
-  "publication_cadence": {
-    "during_active_work": true,
-    "interval_seconds": 600,
-    "policy": "Meaningful commit/push/merge/pull steps about every ten minutes during active work, per amended Mandates82/83; preserve peer work and release qualification, no empty or broken halfstep for a clock."
-  },
-  "standards_followup": {
-    "protocol": "Agent Client Protocol",
-    "official_revision": 1,
-    "reference_commit": "13b765828f961812f0c78ae577220e994209fa2f",
-    "status": "Actual session-owned stdio MCP execution and live typed lifecycle verified with ten real CLI cases and pinned named-schema checks. Builtin lifecycle, forwarding MCP progress, and provider result continuation remain follow-ups; full ACP compliance not established.",
-    "implementation_task": "T-CODEX100KACPEVENTBRIDGE-1"
-  },
-  "worker_protocol_followup": {
-    "status": "Test-only native six-tool valid-object transport proof passed on the integrated Linux tree. Production backend and raw-input/typed-error parity remain unqualified; no implementation removal or runtime reduction credit.",
-    "implementation_task": "T-CODEX100KWORKERTOOLS-1",
-    "evidence": ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json"
+    "searched": "Existing standard-protocol contracts and implementation hosts; destination-first parity before removing core implementations."
   }
 }

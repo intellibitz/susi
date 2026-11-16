@@ -36,7 +36,7 @@ The CEO's current goal, verbatim:
 ([`docs/ceo-mandate-84.md`](ceo-mandate-84.md)): "susi core should always be
 under 100k lines." Until the complete socket is below 100,000 it never grows:
 `COMPLETE_SOCKET_CEILING` in `tests/lean_core_ceilings.rs` pins the measured
-size (307,737 on 2026-11-16) and the ordinary suite fails above it. A change
+size and the ordinary suite fails above it. A change
 that adds runtime lines to core removes as many in the same change; a change
 that shrinks core lowers the ceiling to the new measure. Below the limit the
 ceiling stays at 99,999. Only a CEO decision recorded in the mandate raises it.
