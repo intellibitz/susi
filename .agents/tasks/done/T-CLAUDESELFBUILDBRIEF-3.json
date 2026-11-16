@@ -16,6 +16,11 @@
   },
   "created_by": "CLAUDESELFBUILDBRIEF",
   "created_unix": 1794816223,
+  "closed": {
+    "at_unix": 1794816292,
+    "commit": "87afe142644d95e57e5275581c936a44b4a9007c",
+    "by": "CLAUDESELFBUILDBRIEF"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "crates/susi-core/src/self_build.rs and its unit tests, the mandate guards in tests/architecture_tests.rs, and the reader added to susi-commercial-apps (crates/susi-commercial-license/src/substrate_compat.rs, susi_core::self_build::checkout_contract). The guard is one more test beside the existing self-build and mandate guards and reads the literal the same way the commercial reader does; no new file, module or dependency."
