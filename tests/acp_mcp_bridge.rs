@@ -6,6 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -641,15 +643,27 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     );
     let second = acp.session(&fx, 3, vec![fx.descriptor("beta", literals[1], "normal")]);
     assert_ne!(first, second);
+    let mut receipt_owners = HashMap::<String, String>::new();
+    let mut used_receipts = HashSet::new();
     for (id, sid, tag, literal) in [
         (4, &first, "alpha", literals[0]),
         (5, &second, "beta", literals[1]),
         (6, &first, "alpha", literals[0]),
     ] {
+        let called_before = fx
+            .trace(tag)
+            .iter()
+            .filter(|row| row["event"] == "called")
+            .count();
+        let update_start = acp.seen.len();
         let reply = acp.prompt(id, sid);
         assert!(reply.get("error").is_none(), "prompt failed: {reply}");
         assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
-        let rows = fx.wait_trace(tag, "called");
+        let rows = fx.trace(tag);
+        assert!(
+            rows.iter().filter(|row| row["event"] == "called").count() > called_before,
+            "turn {id} reused an old tool result without a fresh MCP call"
+        );
         for row in rows
             .iter()
             .filter(|v| v["event"] == "started" || v["event"] == "called")
@@ -660,6 +674,27 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
         assert!(rows.iter().any(|v| v["event"] == "request"
             && v["data"]["method"] == "tools/call"
             && v["data"]["params"]["arguments"]["marker"] == "actual-call"));
+        let expected = &rows.iter().find(|row| row["event"] == "started").unwrap()["data"];
+        let graph: Vec<Value> = fs::read_to_string(fx.home.join(".susi/context_graph.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        for receipt in
+            assert_session_tool_evidence(&acp.seen[update_start..], sid, expected, &graph)
+        {
+            assert!(
+                used_receipts.insert(receipt.clone()),
+                "turn {id} cited an earlier turn's receipt"
+            );
+            let mission = receipt.rsplit_once(':').unwrap().0.to_owned();
+            if let Some(owner) = receipt_owners.insert(mission, sid.clone()) {
+                assert_eq!(
+                    owner, *sid,
+                    "same-cwd sessions shared a mission evidence owner"
+                );
+            }
+        }
     }
     // A third session in the same process has no supplied tools. Its model
     // request must not inherit either live session's private catalog.
@@ -693,17 +728,95 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
             .is_some_and(|ts| ts.iter().any(is_probe))),
         "real model never received session schema"
     );
-    for literal in literals {
-        assert!(
-            requests
-                .iter()
-                .any(|r| r["messages"].as_array().is_some_and(|ms| ms
-                    .iter()
-                    .any(|m| m["role"] == "tool" && contains_literal(&m["content"], literal)))),
-            "real model never received the actual child result for {literal}"
-        );
-    }
     fx.assert_no_persisted_mcp(&literals);
+}
+
+fn assert_session_tool_evidence(
+    frames: &[Value],
+    session: &str,
+    expected: &Value,
+    graph: &[Value],
+) -> Vec<String> {
+    // This vertical slice uses GEMI's existing result/evidence rendering.
+    // Typed ACP tool updates and model continuation with role=tool messages
+    // remain separate work; this is not a full ACP conformance assertion.
+    let mut text = String::new();
+    for frame in frames
+        .iter()
+        .filter(|frame| frame["method"] == "session/update")
+    {
+        assert_eq!(
+            frame["params"]["sessionId"], session,
+            "tool result reached another ACP session"
+        );
+        let update = &frame["params"]["update"];
+        if update["sessionUpdate"] == "agent_message_chunk" {
+            text.push_str(update["content"]["text"].as_str().unwrap());
+        }
+    }
+    let mut receipts = Vec::new();
+    for block in text.split("\n\n") {
+        let Some((header, body)) = block.split_once("\nTool reported:\n") else {
+            continue;
+        };
+        let fields: Vec<_> = header.split(" | ").collect();
+        assert_eq!(fields.len(), 6, "malformed host evidence header: {header}");
+        let tool = fields[0].strip_prefix("Source: ").unwrap();
+        let receipt = fields[1].strip_prefix("receipt ").unwrap();
+        let mission = receipt.rsplit_once(':').unwrap().0;
+        let arguments: Value =
+            serde_json::from_str(fields[3].strip_prefix("arguments ").unwrap()).unwrap();
+        assert_eq!(arguments, json!({"marker":"actual-call"}));
+        assert_eq!(fields[4], "selector entire response");
+        let raw = body
+            .lines()
+            .map(|line| {
+                line.strip_prefix("> ")
+                    .expect("quoted host-captured output")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(result["isError"], false, "MCP returned an error");
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
+        // Parse both JSON layers; substring matching would miss changed
+        // backslashes/newlines or allow another session's literal to pass.
+        let actual: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            &actual, expected,
+            "ACP session received another child's cwd/env/PID or changed its exact result"
+        );
+        assert_eq!(
+            fields[5].strip_prefix("output_hash ").unwrap(),
+            format!("{:x}", Sha256::digest(raw.as_bytes())),
+            "evidence hash does not bind the displayed tool result"
+        );
+        let call = graph
+            .iter()
+            .map(|row| &row["node_added"])
+            .find(|node| node["kind"] == "tool_call" && node["properties"]["receipt_id"] == receipt)
+            .expect("receipt has a persisted tool-call node");
+        assert_eq!(call["properties"]["tool"], tool);
+        let owner = graph
+            .iter()
+            .map(|row| &row["node_added"])
+            .find(|node| node["kind"] == "mission" && node["properties"]["mission_id"] == mission)
+            .expect("receipt belongs to a recorded mission");
+        assert!(
+            graph.iter().any(|row| row["edge_added"]["kind"] == "called"
+                && row["edge_added"]["source"] == owner["id"]
+                && row["edge_added"]["target"] == call["id"]),
+            "tool receipt is not linked to its owning mission evidence"
+        );
+        receipts.push(receipt.to_owned());
+    }
+    assert!(
+        !receipts.is_empty(),
+        "ACP session update contained no exact MCP result with owning evidence"
+    );
+    receipts
 }
 
 #[test]
