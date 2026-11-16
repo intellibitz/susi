@@ -3,7 +3,7 @@
   "title": "Observe typed outcomes at the owned session-tool authority boundary",
   "goal": "Vision: V-6. Add a default-off core observer seam and finalize owned tool outcomes after authority and cancellation checks for live typed ACP events; parent owns actual root event wiring and publication.",
   "size": "m",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KSCOPEDTOOLS",
   "created_unix": 1794832515,
   "base_commit": "cf3a787bffde7db55743ffc1d26b3b088d2690cc",
@@ -47,5 +47,18 @@
     "runtime_file_physical_delta": 39,
     "separate_test_file_lines": 286,
     "interpretation": "Mandatory protocol-event gap work, not a size reduction."
-  }
+  },
+  "phase": "integrated_verified_published",
+  "closed": {
+    "at_unix": 1794835050,
+    "commit": "b7c8aac9860596db797ed8e546cd52d69f1ab084",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "b7c8aac9860596db797ed8e546cd52d69f1ab084"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+  "integration_result": "Scoped implementation accepted on integrated0.21.71 development tree and remote-verified on main. Parent actual CLI10, affected units, SHA1 parity, workspace/lint/boundaries and live27pass2skip recorded. Complete307809-line and full-standards goal remain open."
 }

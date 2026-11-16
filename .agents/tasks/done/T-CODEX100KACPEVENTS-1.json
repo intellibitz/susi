@@ -2,7 +2,7 @@
   "id": "T-CODEX100KACPEVENTS-1",
   "title": "Carry typed ACP tool lifecycle events through existing turn recording and v1 output",
   "goal": "Vision: V-6. Preserve legacy ACP executor and wire APIs while exposing typed official v1 tool call lifecycle for the coordinated session MCP bridge; provider continuation and full ACP compliance remain separate.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "m",
   "created_by": "CODEX100KACPEVENTS",
   "created_unix": 1794832380,
@@ -46,7 +46,7 @@
     "stops": [],
     "requests": []
   },
-  "phase": "verified_pending_coordinated_root_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "tests": {
       "command": "cargo test --offline --locked -j2 -p susi-gawd-acp --lib",
@@ -78,5 +78,17 @@
     "all_rust_physical_lines_net": 385,
     "note": "Correctness addition; no source reduction claim, test movement/deletion or dependency changes."
   },
-  "evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-typed-events-component.json"
+  "evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-typed-events-component.json",
+  "closed": {
+    "at_unix": 1794835050,
+    "commit": "b7c8aac9860596db797ed8e546cd52d69f1ab084",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "b7c8aac9860596db797ed8e546cd52d69f1ab084"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+  "integration_result": "Scoped implementation accepted on integrated0.21.71 development tree and remote-verified on main. Parent actual CLI10, affected units, SHA1 parity, workspace/lint/boundaries and live27pass2skip recorded. Complete307809-line and full-standards goal remain open."
 }

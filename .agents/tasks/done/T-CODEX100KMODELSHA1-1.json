@@ -3,7 +3,7 @@
   "title": "Share existing Git-model and STUN SHA-1 compatibility implementation",
   "goal": "Vision: V-6. Remove duplicate SHA-1 compression/padding source while preserving every existing input framing, allocation, wrapping, endian, output, HMAC and model-admission policy. No functionality, tests or dependency removed.",
   "size": "s",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KMODELS",
   "created_unix": 1794833691,
   "base_commit": "fce42a084e7afdc9814fb56dd663f48a1cc915cc",
@@ -45,5 +45,18 @@
     "runtime_lines_removed": 43,
     "evidence": ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
     "validation": "113 paths tests, 3 model-license tests (1 explicit ignore), 9 NAT tests, strict affected Clippy, formatting and diff checks passed. Differential: 6,043 cases; 18,129 old/new and 18,129 independent-reference digest comparisons. Independent source review found no issues. Parent owns publication and closure."
-  }
+  },
+  "phase": "integrated_verified_published",
+  "closed": {
+    "at_unix": 1794835050,
+    "commit": "b7c8aac9860596db797ed8e546cd52d69f1ab084",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "b7c8aac9860596db797ed8e546cd52d69f1ab084"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+  "integration_result": "Scoped implementation accepted on integrated0.21.71 development tree and remote-verified on main. Parent actual CLI10, affected units, SHA1 parity, workspace/lint/boundaries and live27pass2skip recorded. Complete307809-line and full-standards goal remain open."
 }

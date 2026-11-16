@@ -2,7 +2,7 @@
   "id": "T-CODEX100KACPEVENTE2E-1",
   "title": "Verify live ACP supplied-MCP tool lifecycle through the shipped command",
   "goal": "Vision: V-6. Preserve the nine real ACP/MCP bridge regressions and verify session-scoped typed tool start/completion/failure updates, live cancellation ordering, actual MCP isError handling, and fresh call IDs. No full ACP or model-continuation claim.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "m",
   "created_by": "CODEX100KACPEVENTE2E",
   "created_unix": 1794832753,
@@ -18,10 +18,22 @@
     "reason": "Extend the existing real execution fixture and evidence checks without mock executors, extra dependencies, external providers, or production changes."
   },
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "acp_mcp_bridge", "--", "--ignored", "--nocapture"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "acp_mcp_bridge",
+      "--",
+      "--ignored",
+      "--nocapture"
+    ]
   },
   "coordination": "Parent acp_mcp_design owns production composition/integration; protocol owner validates official wire schema; this worker owns tests only. No external Board posts, paid calls, pushes or production promotion.",
-  "phase": "tests_ready_for_production_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "isolated_harness_check": "Passed cargo check against existing path dependencies; this is a minimal checker manifest, not a root-package or shipped-path test result.",
     "isolated_harness_clippy": "Passed cargo clippy on the same checker manifest with -D warnings.",
@@ -34,5 +46,17 @@
     "Typed lifecycle checks cover supplied session MCP tools only, not every builtin tool.",
     "Model continuation with role=tool messages and full ACP conformance remain separate work.",
     "No runtime source additions, dependencies, paid provider calls or external posts in this test slice."
-  ]
+  ],
+  "closed": {
+    "at_unix": 1794835050,
+    "commit": "b7c8aac9860596db797ed8e546cd52d69f1ab084",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "b7c8aac9860596db797ed8e546cd52d69f1ab084"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+  "integration_result": "Scoped implementation accepted on integrated0.21.71 development tree and remote-verified on main. Parent actual CLI10, affected units, SHA1 parity, workspace/lint/boundaries and live27pass2skip recorded. Complete307809-line and full-standards goal remain open."
 }
