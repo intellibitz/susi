@@ -2,7 +2,7 @@
 use std::fs;
 use susi_harness::tools::{Policy, Registry};
 
-fn http_catalog(name: &'static str) -> (String, std::thread::JoinHandle<()>) {
+fn http_catalog(name: Option<&'static str>) -> (String, std::thread::JoinHandle<()>) {
     use std::io::{BufRead, BufReader, Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -127,8 +127,10 @@ fn standalone_directory_listing_preserves_native_results_and_policy() {
     fs::remove_dir(workspace.join("nested")).unwrap();
     let config = home.join("mcp_config.json");
     for (tool_name, expected) in [
-        ("unrelated_read", "café/\nz"),
-        ("worker_list_dir", "(1 unavailable)"),
+        (Some("unrelated_read"), "café/\nz"),
+        (Some("worker_list_dir"), "(1 unavailable)"),
+        (Some(""), "(1 unavailable)"),
+        (None, "(1 unavailable)"),
     ] {
         let (url, server) = http_catalog(tool_name);
         let fixture = serde_json::json!({"mcp_servers":{"catalog":{"command":url,"args":[]}}});

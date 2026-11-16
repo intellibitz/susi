@@ -221,7 +221,7 @@ fn find_tool(
     name: &str,
     cwd: Option<&Path>,
     client_info: ClientInfo,
-    inspect_remote: bool,
+    require_definitive_absence: bool,
 ) -> EaiResult<Option<Box<dyn ToolSession>>> {
     if name.is_empty() {
         return Err(EaiError::config("MCP tool name is required"));
@@ -233,11 +233,12 @@ fn find_tool(
     let mut selected = None;
     let mut unavailable = 0usize;
     for (server_name, server) in servers {
-        let remote_cwd =
-            inspect_remote && cwd.is_some() && matches!(server.http_scope(), Ok(Some(_)));
+        let remote_cwd = require_definitive_absence
+            && cwd.is_some()
+            && matches!(server.http_scope(), Ok(Some(_)));
         let transport_cwd = if remote_cwd { None } else { cwd };
         let discovery = connect(&server, transport_cwd, client_info).and_then(|mut client| {
-            let tools = client.list_tools()?;
+            let tools = client.read_tool_catalog(require_definitive_absence)?;
             Ok((client, tools))
         });
         let Ok((client, tools)) = discovery else {

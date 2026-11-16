@@ -228,15 +228,12 @@ impl Registry {
         args_json: &str,
         grants: &[String],
     ) -> String {
-        if let Err(refusal) = self.authorize(name, grants) {
-            return refusal;
-        }
-        match self.get(name).map(|spec| spec.handler) {
-            Some(Handler::Mcp) => {
+        match self.authorize(name, grants).map(|spec| spec.handler) {
+            Err(refusal) => return refusal,
+            Ok(Handler::Mcp) => {
                 return format!("tool '{name}' is served by MCP; call it through an McpClient")
             }
-            Some(Handler::Native) => {}
-            None => return format!("unknown tool '{name}'"),
+            Ok(Handler::Native) => {}
         }
         let args: Value = match serde_json::from_str(args_json) {
             Ok(value) => value,
@@ -259,7 +256,7 @@ impl Registry {
                     Path::new("."),
                 ) {
                     Ok(Some(text)) => text,
-                    Ok(None) if name == "list_dir" => return standalone_list_dir(workspace, &args),
+                    Ok(None) if name == "list_dir" => standalone_list_dir(workspace, &args),
                     Ok(None) => {
                         standalone_file(workspace, name, &args).unwrap_or_else(|message| message)
                     }

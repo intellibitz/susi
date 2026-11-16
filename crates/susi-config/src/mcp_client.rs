@@ -223,6 +223,10 @@ impl<T: Transport> McpClient<T> {
     /// when a page carries a non-string cursor, or when the server keeps
     /// paging past the bound.
     pub fn list_tools(&mut self) -> EaiResult<Vec<McpTool>> {
+        self.read_tool_catalog(false)
+    }
+
+    pub(crate) fn read_tool_catalog(&mut self, require_names: bool) -> EaiResult<Vec<McpTool>> {
         self.initialize()?;
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
@@ -235,9 +239,15 @@ impl<T: Transport> McpClient<T> {
                 .get("tools")
                 .and_then(Value::as_array)
                 .ok_or_else(|| EaiError::internal("mcp tools/list returned no tools array"))?;
-            tools.extend(page.iter().cloned());
+            let parsed = Self::parse_tools(page);
+            if require_names
+                && (parsed.len() != page.len() || parsed.iter().any(|tool| tool.name.is_empty()))
+            {
+                return Err(EaiError::protocol("MCP catalog has an unidentified tool"));
+            }
+            tools.extend(parsed);
             cursor = match result.get("nextCursor") {
-                None | Some(Value::Null) => return Ok(Self::parse_tools(&tools)),
+                None | Some(Value::Null) => return Ok(tools),
                 Some(Value::String(next)) => Some(next.clone()),
                 Some(_) => {
                     return Err(EaiError::internal(
