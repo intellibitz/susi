@@ -11,61 +11,43 @@ pub fn semantic_centroid_projection(
     prompt: &str,
     anchors: Option<&[crate::susi_core::AgentProfile]>,
 ) -> Result<Vec<f32>> {
-    let start = std::time::Instant::now();
-    let mut vec = vec![0.0f32; DIM];
-    let prompt_lower = prompt.to_lowercase();
-    let words: Vec<&str> = prompt_lower
+    let mut vector = vec![0.0f32; DIM];
+    let lower = prompt.to_lowercase();
+    for (i, word) in lower
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if words.is_empty() {
-        return Ok(vec);
-    }
-
-    for (i, word) in words.iter().enumerate() {
-        let word_vec = get_semantic_anchor(word, anchors);
-        for (j, &val) in word_vec.iter().enumerate() {
-            let weight = 1.0 / (i as f32 + 1.0);
-            vec[j] += val * weight;
+        .filter(|word| !word.is_empty())
+        .enumerate()
+    {
+        let weight = 1.0 / (i as f32 + 1.0);
+        if let Some(agent) = anchors
+            .into_iter()
+            .flatten()
+            .find(|agent| agent.semantic_anchors.iter().any(|anchor| anchor == word))
+        {
+            vector[80 + agent.name.len() % 40] += weight;
+        } else if let Some(category) = anchor_category(word) {
+            add_band(&mut vector, category, weight);
+        } else {
+            vector[(fnv1a(word, 0) as usize) % DIM] += 0.5 * weight;
         }
     }
-
-    let sum_sq = vec.iter().map(|x| x * x).sum::<f32>();
-    if sum_sq > 0.0 {
-        let norm = sum_sq.sqrt();
-        for x in vec.iter_mut() {
-            *x /= norm;
-        }
-    }
-
-    let _elapsed = start.elapsed();
-
-    Ok(vec)
+    Ok(normalized(vector))
 }
 
-fn get_semantic_anchor(word: &str, anchors: Option<&[crate::susi_core::AgentProfile]>) -> Vec<f32> {
-    let mut anchor = vec![0.0f32; DIM];
+fn add_band(vector: &mut [f32], category: usize, weight: f32) {
+    for value in &mut vector[category * 10..category * 10 + 10] {
+        *value += weight;
+    }
+}
 
-    // Zero-Lock Anchor Mapping
-    if let Some(agent_profiles) = anchors {
-        for agent in agent_profiles {
-            if agent.semantic_anchors.iter().any(|a| a == word) {
-                let offset = 80 + (agent.name.len() % 40);
-                anchor[offset] = 1.0;
-                return anchor;
-            }
+fn normalized(mut vector: Vec<f32>) -> Vec<f32> {
+    let norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for value in &mut vector {
+            *value /= norm;
         }
     }
-
-    if let Some(category) = anchor_category(word) {
-        for val in anchor.iter_mut().skip(category * 10).take(10) {
-            *val = 1.0;
-        }
-    } else {
-        anchor[(fnv1a(word, 0) as usize) % DIM] = 0.5;
-    }
-    anchor
+    vector
 }
 
 /// The reflex classifier's input features. `semantic_centroid_projection`
@@ -86,25 +68,16 @@ pub fn reflex_features(prompt: &str) -> Vec<f32> {
         .filter(|w| !w.is_empty() && !REFLEX_STOPWORDS.contains(w))
     {
         let stem = stem(word);
-        if let Some(category) = anchor_category(word)
-            .or_else(|| stem_category(&stem))
-            .or_else(|| synonym_category(&stem))
+        if let Some(category) = anchor_category(word).or_else(|| WORDS.stemmed.get(&stem).copied())
         {
-            let weight = 1.0 / (10f32).sqrt();
-            for val in vec.iter_mut().skip(category * 10).take(10) {
-                *val += weight;
-            }
+            add_band(&mut vec, category, 1.0 / (10f32).sqrt());
         } else {
             let weight = std::f32::consts::FRAC_1_SQRT_2;
             vec[(fnv1a(&stem, 0) as usize) % DIM] += weight;
             vec[(fnv1a(&stem, 1) as usize) % DIM] += weight;
         }
     }
-    let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        vec.iter_mut().for_each(|x| *x /= norm);
-    }
-    vec
+    normalized(vec)
 }
 
 /// A light suffix stemmer for reflex features (not linguistics: it only has
@@ -150,68 +123,6 @@ pub(crate) fn stem(word: &str) -> String {
     w
 }
 
-/// Category of a stemmed word, via the stems of the anchor words ("files" →
-/// "fil" ← "file"), so inflections reach their category band.
-pub(crate) const ANCHOR_WORDS: &[&str] = &[
-    "status",
-    "health",
-    "state",
-    "check",
-    "hardware",
-    "system",
-    "report",
-    "version",
-    "ver",
-    "build",
-    "engine",
-    "revision",
-    "write",
-    "save",
-    "create",
-    "file",
-    "update",
-    "put",
-    "read",
-    "get",
-    "fetch",
-    "cat",
-    "show",
-    "content",
-    "list",
-    "ls",
-    "dir",
-    "directory",
-    "folder",
-    "files",
-    "scout",
-    "search",
-    "find",
-    "look",
-    "discover",
-    "mcp",
-    "reason",
-    "think",
-    "solve",
-    "complex",
-    "calculate",
-    "fix",
-    "heal",
-    "repair",
-    "audit",
-    "compliance",
-];
-
-fn stem_category(stemmed: &str) -> Option<usize> {
-    static STEMS: std::sync::LazyLock<std::collections::HashMap<String, usize>> =
-        std::sync::LazyLock::new(|| {
-            ANCHOR_WORDS
-                .iter()
-                .filter_map(|w| anchor_category(w).map(|c| (stem(w), c)))
-                .collect()
-        });
-    STEMS.get(stemmed).copied()
-}
-
 /// Everyday verbs that mean an anchor category but are not in the anchor
 /// list, which fleet recruitment shares and is left unchanged. Reflex
 /// features only ("dump" was dropped after the tool-heavy benchmark: it
@@ -220,43 +131,68 @@ fn stem_category(stemmed: &str) -> Option<usize> {
 /// intents ("display the readme", "which release is this", "correct the
 /// build") were served. The support gate still guards out-of-distribution
 /// text: a shared verb alone is far below `SUPPORT_MIN`.
-pub(crate) const SYNONYMS: &[(&str, usize)] = &[
-    ("inspect", 0),
-    ("diagnose", 0),
-    ("uptime", 0),
-    ("release", 1),
-    ("store", 2),
-    ("record", 2),
-    ("persist", 2),
-    ("append", 2),
-    ("display", 3),
-    ("view", 3),
-    ("print", 3),
-    ("open", 3),
-    ("peek", 3),
-    ("enumerate", 4),
-    ("inside", 4),
-    ("explore", 5),
-    ("hunt", 5),
-    ("browse", 5),
-    ("locate", 5),
-    ("ponder", 6),
-    ("figure", 6),
-    ("analyze", 6),
-    ("deduce", 6),
-    ("compute", 6),
-    ("estimate", 6),
-    ("correct", 7),
-    ("patch", 7),
-    ("mend", 7),
-    ("debug", 7),
+const CATEGORIES: &[(&[&str], &[&str])] = &[
+    (
+        &[
+            "status", "health", "state", "check", "hardware", "system", "report",
+        ],
+        &["inspect", "diagnose", "uptime"],
+    ),
+    (
+        &["version", "ver", "build", "engine", "revision"],
+        &["release"],
+    ),
+    (
+        &["write", "save", "create", "file", "update", "put"],
+        &["store", "record", "persist", "append"],
+    ),
+    (
+        &["read", "get", "fetch", "cat", "show", "content"],
+        &["display", "view", "print", "open", "peek"],
+    ),
+    (
+        &["list", "ls", "dir", "directory", "folder", "files"],
+        &["enumerate", "inside"],
+    ),
+    (
+        &["scout", "search", "find", "look", "discover", "mcp"],
+        &["explore", "hunt", "browse", "locate"],
+    ),
+    (
+        &["reason", "think", "solve", "complex", "calculate"],
+        &[
+            "ponder", "figure", "analyze", "deduce", "compute", "estimate",
+        ],
+    ),
+    (
+        &["fix", "heal", "repair", "audit", "compliance"],
+        &["correct", "patch", "mend", "debug"],
+    ),
 ];
 
-fn synonym_category(stemmed: &str) -> Option<usize> {
-    static STEMS: std::sync::LazyLock<std::collections::HashMap<String, usize>> =
-        std::sync::LazyLock::new(|| SYNONYMS.iter().map(|(w, c)| (stem(w), *c)).collect());
-    STEMS.get(stemmed).copied()
+struct WordCategories {
+    exact: std::collections::HashMap<&'static str, usize>,
+    stemmed: std::collections::HashMap<String, usize>,
 }
+
+// Canonical anchors win over synonyms. When two anchors share a stem,
+// the last category wins, as in the original ordered vocabulary.
+static WORDS: std::sync::LazyLock<WordCategories> = std::sync::LazyLock::new(|| {
+    let mut exact = std::collections::HashMap::new();
+    let mut stemmed = std::collections::HashMap::new();
+    for (category, (_, synonyms)) in CATEGORIES.iter().enumerate() {
+        for word in *synonyms {
+            stemmed.insert(stem(word), category);
+        }
+    }
+    for (category, (anchors, _)) in CATEGORIES.iter().enumerate() {
+        for &word in *anchors {
+            exact.insert(word, category);
+            stemmed.insert(stem(word), category);
+        }
+    }
+    WordCategories { exact, stemmed }
+});
 
 /// Function words that carry no intent; dropped from reflex features so a
 /// shared "the"/"a" never makes two unrelated prompts look alike.
@@ -269,17 +205,7 @@ pub(crate) const REFLEX_STOPWORDS: &[&str] = &[
 
 /// The 10-dim band a known intent word lights, if any.
 pub(crate) fn anchor_category(word: &str) -> Option<usize> {
-    match word {
-        "status" | "health" | "state" | "check" | "hardware" | "system" | "report" => Some(0),
-        "version" | "ver" | "build" | "engine" | "revision" => Some(1),
-        "write" | "save" | "create" | "file" | "update" | "put" => Some(2),
-        "read" | "get" | "fetch" | "cat" | "show" | "content" => Some(3),
-        "list" | "ls" | "dir" | "directory" | "folder" | "files" => Some(4),
-        "scout" | "search" | "find" | "look" | "discover" | "mcp" => Some(5),
-        "reason" | "think" | "solve" | "complex" | "calculate" => Some(6),
-        "fix" | "heal" | "repair" | "audit" | "compliance" => Some(7),
-        _ => None,
-    }
+    WORDS.exact.get(word).copied()
 }
 
 /// FNV-1a with a seed byte folded in first, so seeds 0 and 1 give two
