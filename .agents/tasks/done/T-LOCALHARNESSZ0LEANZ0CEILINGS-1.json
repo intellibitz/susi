@@ -10,10 +10,17 @@
     ]
   },
   "base": "ae9901bbaa8f6ad809b8e0730fd3f5b032179e7d",
+  "closed": {
+    "at_unix": 1794789984,
+    "by": "harness-lean-ceilings",
+    "commit": "19915f0edf11a2e08c38c54958ad123d3cc9ce39"
+  },
   "created_by": "harness-lean-ceilings",
   "created_unix": 1794789172,
   "id": "T-LOCALHARNESSZ0LEANZ0CEILINGS-1",
-  "integration": "pending_native_receipt",
+  "integration": {
+    "main_commit": "19915f0edf11a2e08c38c54958ad123d3cc9ce39"
+  },
   "native_worker": "harness-lean-ceilings",
   "owner": "harness-lean-ceilings",
   "scopes": [
@@ -22,7 +29,8 @@
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
-  "status": "verified",
+  "state": "closed",
+  "status": "completed",
   "title": "Record the ceiling raise that lets gated landings pass again",
   "workflow": "susi-local-v2"
 }

@@ -13,10 +13,17 @@
     ]
   },
   "base": "2275ca62ffbc268d3e9c00c448400dc9bf4547c3",
+  "closed": {
+    "at_unix": 1794789984,
+    "by": "harness-docs-promise-2",
+    "commit": "19915f0edf11a2e08c38c54958ad123d3cc9ce39"
+  },
   "created_by": "harness-docs-promise-2",
   "created_unix": 1794787001,
   "id": "T-LOCALHARNESSZ0DOCSZ0PROMISEZ02-1",
-  "integration": "pending_native_receipt",
+  "integration": {
+    "main_commit": "19915f0edf11a2e08c38c54958ad123d3cc9ce39"
+  },
   "native_worker": "harness-docs-promise-2",
   "owner": "harness-docs-promise-2",
   "scopes": [
@@ -25,7 +32,8 @@
     ".agents/tasks/t-localharnessz0docsz0promisez02-1.json",
     "docs/gmcp/contract-203-020.md"
   ],
-  "status": "verified",
+  "state": "closed",
+  "status": "completed",
   "title": "Reword the GMCP contract sentence that breaks the core docs promise",
   "workflow": "susi-local-v2"
 }
