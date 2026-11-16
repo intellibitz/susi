@@ -1,0 +1,10 @@
+{
+  "branch": "claude-cloud-claims",
+  "scopes": [
+    "docs/ceo-mandate-83.md"
+  ],
+  "task": "T-CLAUDECLOUDCLAIMS-1",
+  "agent": "CLAUDECLOUDCLAIMS",
+  "claimed_unix": 1794827749,
+  "lease_until_unix": 1794831349
+}
