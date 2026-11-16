@@ -23,26 +23,13 @@ use crate::susi_error::{EaiError, EaiResult};
 use crate::susi_sandbox::placement_audit::lookup_placement_decision;
 
 use super::args;
+use super::forward::{pretty, required_str};
 use super::CoreTools;
 
 /// `susi context-graph show`'s default `--limit`.
 const CONTEXT_GRAPH_SHOW_LIMIT: usize = 20;
 /// `susi plan`'s default `--max-steps`.
 const PLAN_MAX_STEPS: u32 = 3;
-
-fn pretty(value: &serde_json::Value) -> EaiResult<String> {
-    serde_json::to_string_pretty(value)
-        .map_err(|error| EaiError::internal(format!("encode tool result: {error}")))
-}
-
-/// A required, non-empty string argument.
-fn required_str<'a>(arg: &'a serde_json::Value, key: &str) -> EaiResult<&'a str> {
-    arg.get(key)
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| EaiError::config(format!("{key} is required")))
-}
 
 /// The first non-empty string among `keys` (a canonical key, then aliases).
 fn first_str<'a>(arg: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
