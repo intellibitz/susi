@@ -311,7 +311,7 @@ distinct artifacts side by side:
    `tests/lean_core_ceilings.rs`.
 4. **First-party runtime & facade Rust**: `first_party_runtime_rust`
    (`300,332` lines under `crates/*` excluding `susi-vendor-*` and explicit
-   test/bench paths, plus root `src/**` and `build.rs`; ceiling `301,800`),
+   test/bench paths, plus root `src/**` and `build.rs`; ceiling `302,000`),
    `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`; ceiling
    `6,454`), and per-file tool ceilings (`GMCP_TOOLS_MAX_FILE_LINES_CEILING = 1,800`,
    `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING = 1,000`), alongside the stricter
@@ -1305,3 +1305,14 @@ vendored crates or append-only audit logs.
   harness rerun to land a retained candidate did not fit at all. Only the
   test-line budget moves, and nothing is taken out of the count: no pillar
   `src` ceiling and no runtime, tooling, vendor or per-file ceiling changes.
+
+- 2026-11-16 T-LOCALHARNESSZ0LEANZ0CEILINGS-1 (CEO decision 2026-11-15, "raise any test
+  run limit so harness continues to run"): `susi-gawd` shipped `src` ceiling
+  `12,525 -> 12,770` (`12,770` measured) and `FIRST_PARTY_RUNTIME_RUST_CEILING`
+  `301,800 -> 302,000` (`301,960` measured). Commit `f2d9d8131` (workspace state
+  isolation, token lookup, audit, stop, uninstall and IPC bus rendezvous) landed on
+  `main` without the gate, 245 lines over the pillar ceiling and 160 over the runtime
+  budget, so `lean_core_ceilings` was red on `main` and no gated landing could pass.
+  The ceilings are raised to what `main` measures (the pillar exactly, the runtime
+  budget with 40 lines to spare). Nothing is taken out of the count, no other ceiling
+  moves, and the lines are owed back by a lean-core cut in `susi-gawd`.

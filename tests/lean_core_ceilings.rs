@@ -329,8 +329,13 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// by responsibility into `src/tools/core.rs` and `src/tools/core/{agents,cluster,files_os,knowledge,models,substrate}.rs`,
 /// moving its unchanged inline unit suite into `src/tests/core_tools.rs`.
 /// Test organization, not removed runtime capability.
+/// 2026-11-16: susi-gawd 12,525 -> 12,770 (T-LOCALHARNESSZ0LEANZ0CEILINGS-1, measured):
+/// commit f2d9d8131 (workspace state isolation, token lookup, audit, stop, uninstall and
+/// IPC bus rendezvous) landed on main 245 lines over this ceiling and 160 over the runtime
+/// budget below. CEO decision 2026-11-15, "raise any test run limit so harness continues
+/// to run": raised to what main measures, not cut (docs/lean-core.md).
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 12_525),
+    ("susi-gawd", 12_770),
     ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_413),
     ("susi-gawd-a2a", 3_251),
@@ -344,7 +349,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
 /// Separating runtime Rust, vendor facades, tests, tooling, vendored sources,
 /// and generated audit baselines keeps audit trails and offline vendor trees
 /// intact without inflating first-party runtime size.
-const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 301_800;
+const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 302_000;
 const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
 const TEST_RUST_CEILING: usize = 129_000;
 const TOOLING_RUST_CEILING: usize = 72_200;
