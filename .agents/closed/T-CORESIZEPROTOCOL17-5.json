@@ -1,0 +1,13 @@
+{
+  "branch": "coresize-protocol-17",
+  "task": "T-CORESIZEPROTOCOL17-5",
+  "agent": "CORESIZEPROTOCOL17",
+  "head": "59e7e90bcdcf8d87698b087d4354ed0b8ed4011f",
+  "closed_unix": 1794867328,
+  "scopes": [
+    "crates/susi-paths/src/xdg.rs",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-5.json",
+    "crates/susi-paths/src/bin/paths_probe.rs",
+    "tests/lean_core_ceilings.rs"
+  ]
+}
