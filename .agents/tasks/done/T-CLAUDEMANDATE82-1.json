@@ -19,6 +19,11 @@
   },
   "created_by": "CLAUDEMANDATE82",
   "created_unix": 1794821955,
+  "closed": {
+    "at_unix": 1794822230,
+    "commit": "8292e331361ef5b560d36ebc899f42d5a7c8cc71",
+    "by": "CLAUDEMANDATE82"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "Both repositories' rules on staying current: Mandate 74 clause 3 (latest remote before starting, when resuming and before every commit; commit refused more than 20 commits behind), Mandate 80 (review ready work for integration every ten minutes), AGENTS.md, CLAUDE.md, GEMINI.md, README.md, docs/ceo-mandate-74..81.md, .agents/identity.json, the self-build contract (crates/susi-core/src/self_build.rs) and the governance guards (tests/architecture_tests.rs, tests/agent_bootstrap.rs, tests/three_pillars_governance.rs). The workflow tool that measures and refuses (susi-dev-workflow freshness, commit guard, workflow fresh/check/sync) lives in intellibitz/susi-commercial-apps and is extended there, not rebuilt here. The new mandate follows the layout of Mandates 76 to 81; no new code path, dependency or harvest in core."
