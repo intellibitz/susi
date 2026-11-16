@@ -1073,6 +1073,8 @@ fn main() {
             let r3 = lines.next().unwrap().unwrap();
             let ok = r1.contains("file:///workspace/m-gamma") && r2.contains("gamma-sampled") && r3.contains("gamma-elicited");
             println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":\"ok={ok};rc={rc}\"}}],\"isError\":false}}}}");
+        } else if line.contains("\"completion/complete\"") && line.contains("\"ref/resource\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"completion\":{{\"values\":[\"10\",\"11\"],\"hasMore\":false}}}}}}");
         } else {
             println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{}}}}");
         }
@@ -1139,7 +1141,8 @@ fn main() {
     assert!(host.list_prompts("alpha").expect("prompts").iter().any(|p| p["name"] == "draft_brief"));
     assert!(host.get_prompt("alpha", "draft_brief", Some(&json!({"topic":"mastery"}))).expect("prompt")["messages"][0]["content"]["text"].as_str().expect("pt").contains("mastery"));
     assert!(host.complete("alpha", CompletionQuery { is_resource: false, target: "draft_brief", arg_name: "topic", arg_value: "se", context_args: None }).expect("cp")["completion"]["values"].as_array().expect("v").contains(&json!("security")));
-    assert!(!host.complete("alpha", CompletionQuery { is_resource: true, target: "memo://items/{id}", arg_name: "id", arg_value: "1", context_args: None }).expect("cr")["completion"]["values"].as_array().expect("v").is_empty());
+    assert!(host.complete("alpha", CompletionQuery { is_resource: true, target: "memo://items/{id}", arg_name: "id", arg_value: "1", context_args: None }).is_err());
+    assert!(host.complete("gamma", CompletionQuery { is_resource: true, target: "memo://items/{id}", arg_name: "id", arg_value: "1", context_args: None }).expect("cr")["completion"]["values"].as_array().expect("v").contains(&json!("10")));
     assert_eq!(host.call_tool_mrtr("alpha", "confirm_action", &json!({"operation":"seal-017"})).expect("mrtr")["structuredContent"]["status"], json!("confirmed"));
     let triad = host.call_tool_resolving_tasks("alpha", "mrtr_triad", &json!({}), Some(Duration::from_secs(10))).expect("triad");
     assert_eq!(triad["structuredContent"], json!({"sampled":"sampled-m","go":true,"firstRoot":"file:///workspace/m-alpha"}));
