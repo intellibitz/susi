@@ -1,0 +1,33 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-4",
+  "title": "Unify shared MCP catalog registrations and pre-boot command dispatch",
+  "goal": "Vision: V-6. Preserve each indexed tool and CLI contract while consolidating duplicate registration and dispatch tables.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--test",
+      "args_schema_parity"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794858110,
+  "scopes": [
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/catalog_groups.rs",
+    "crates/susi-gmcp/src/tools/mod.rs",
+    "crates/susi-daemon/src/gmcp_bootstrap.rs",
+    "src/cli/control_plane_cli.rs",
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-4.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reuse the ordered GMCP tool definitions and daemon handler registration, the existing plane-preparation and command execution functions, and both independent catalog fixtures."
+  }
+}

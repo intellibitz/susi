@@ -3,6 +3,7 @@
 
 mod adapter_tools;
 pub mod args;
+mod catalog_groups;
 mod control_plane;
 pub(crate) mod core;
 mod forward;
