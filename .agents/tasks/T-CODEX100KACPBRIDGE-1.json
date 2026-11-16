@@ -8,7 +8,10 @@
   "created_unix": 1794827341,
   "base": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
   "deps": [
-    "T-CODEX100KACPSESSION-1"
+    "T-CODEX100KACPSESSION-1",
+    "T-CODEX100KSCOPEDTOOLS-1",
+    "T-CODEX100KACPINFERENCE-1",
+    "T-CODEX100KMCPCATALOG-1"
   ],
   "scopes": [
     "src/cli/acp_cli.rs",
@@ -33,6 +36,7 @@
     "crates/susi-gawd-swarm/src/ama/master.rs",
     "tests/acp_mcp_bridge.rs",
     "tests/acp_mcp_bridge/",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
     ".agents/tasks/T-CODEX100KACPBRIDGE-1.json"
   ],
   "accept": {
@@ -53,5 +57,7 @@
     "searched": "Audited wire-client McpHost/DuplexStreams, CLI with_cli_host, tools authorized spawn/MAC/registry, core watched bus and parallel context, ACP executor/GAWD local runner, GEMI tool normalization and provider routes. Design receipts are private acp-mcp-design.json and acp-mcp-scope-plan.json. Reuse existing host and guarded mission paths; no external source or dependency."
   },
   "coordination": "protocol_audit owns ACP crate factory/lifecycle; scoped_tools owns core/tool overlay and worker carry; scoped_inference owns GEMI tool ownership and diagnostic routing. Parent integrator owns publication. No external Board posts or paid provider calls.",
-  "progress": "ACP factory and explicit core/tool worker scope commits integrated privately; first actual root compile passed (cold52.79s, no qualification claim). Root owns process-contained MCP sessions with literal env/cwd and bounded I/O. Reuses harness process-group/Windows Job primitives. Managed I/O and real shipped-command E2E qualification in progress; inference companion completing all-session-schema availability and watched diagnostic routing."
+  "progress": "Implementation ready for parent integration: all8 actual shipped-command ACP/MCP cases and5 managed-I/O tests pass, strict root+E2E Clippy/fmt pass. Exact fresh A/B/A results, schema/call, environment/cwd, bound mission evidence, revocation, cancellation, process-tree teardown and legacy/v1 stdout proven. Runtime count307527 is +2010 correctness lines versus main305517; goal remains open. Parent owns final integrated validation/publication and task closure.",
+  "evidence": ".agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json",
+  "follow_up": "Full ACP compliance remains unclaimed: implement typed tool_call/tool_call_update lifecycle and provider result continuation under existing budgets in a separate coherent change. Existing fulfillment returns actual results through ACP/evidence; no new inference retry loop in this slice."
 }

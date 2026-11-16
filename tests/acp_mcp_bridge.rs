@@ -1046,7 +1046,7 @@ fn contains_literal(value: &Value, literal: &str) -> bool {
         }
         Value::Array(items) => items.iter().any(|v| contains_literal(v, literal)),
         Value::Object(fields) => fields.values().any(|v| contains_literal(v, literal)),
-        _ => false,
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
     }
 }
 
