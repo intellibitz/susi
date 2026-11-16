@@ -29,11 +29,11 @@
 //!   responses are skipped. Content codings are not requested, so the body
 //!   arrives as sent.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use susi_paths::http_body::{read_line_capped, MAX_HEAD_BYTES};
+use susi_paths::http_body::read_response_head;
 
 type Body<R = BufReader<Conn>> = susi_paths::http_body::Body<R, true>;
 
@@ -407,63 +407,12 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_string())
 }
 
-/// One response head: status and lower-cased headers.
-type Head = (u16, Vec<(String, String)>);
-
-/// Read one response head.
-fn read_head<R: BufRead>(reader: &mut R) -> io::Result<Head> {
-    let mut lines = Vec::new();
-    let mut used = 0;
-    loop {
-        let mut line = Vec::new();
-        read_line_capped(reader, &mut line, MAX_HEAD_BYTES - used)?;
-        used += line.len() as u64;
-        if line.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "connection closed before a complete response head",
-            ));
-        }
-        if !line.ends_with(b"\n") {
-            return Err(invalid("response has no header terminator"));
-        }
-        let line = String::from_utf8_lossy(&line)
-            .trim_end_matches(['\r', '\n'])
-            .to_string();
-        if line.is_empty() {
-            break;
-        }
-        lines.push(line);
-    }
-    let mut lines = lines.into_iter();
-    let status_line = lines
-        .next()
-        .ok_or_else(|| invalid("response has no status line"))?;
-    let mut parts = status_line.split_whitespace();
-    if !parts.next().is_some_and(|v| v.starts_with("HTTP/1.")) {
-        return Err(invalid("response is not HTTP/1.x"));
-    }
-    let status = parts
-        .next()
-        .filter(|code| code.len() == 3)
-        .and_then(|code| code.parse::<u16>().ok())
-        .filter(|code| (100..600).contains(code))
-        .ok_or_else(|| invalid("response has no valid status code"))?;
-    let headers = lines
-        .filter_map(|line| {
-            line.split_once(':')
-                .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
-        })
-        .collect();
-    Ok((status, headers))
-}
-
 /// Read the final response head (skipping interim `1xx` heads) and frame
 /// the body that follows. `method` matters only for `HEAD`.
 fn read_response(mut reader: BufReader<Conn>, method: &str) -> io::Result<Response> {
     let mut interim = 0;
     let (status, headers) = loop {
-        let (status, headers) = read_head(&mut reader)?;
+        let (status, headers) = read_response_head::<_, true>(&mut reader)?;
         // 101 switches protocols: there is no further HTTP/1.1 head to read.
         if (100..200).contains(&status) && status != 101 {
             interim += 1;
@@ -513,6 +462,7 @@ fn read_response(mut reader: BufReader<Conn>, method: &str) -> io::Result<Respon
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::thread::JoinHandle;

@@ -1,4 +1,4 @@
-//! Blocking HTTP/1.1 body framing shared by the loopback and peer clients.
+//! Blocking HTTP/1.1 response parsing shared by the loopback and peer clients.
 
 use std::io::{self, BufRead, Read};
 
@@ -16,6 +16,70 @@ pub fn read_line_capped<R: BufRead>(
         return Err(invalid("response line too long"));
     }
     Ok(())
+}
+
+/// One response head: status and lower-cased headers in arrival order.
+pub type ResponseHead = (u16, Vec<(String, String)>);
+
+/// Read one head with the existing clients' acceptance rules. `PEER` validates
+/// HTTP/1.x and three-digit 100–599 statuses, and distinguishes early EOF.
+/// The loopback client accepts any u16 status after the first whitespace token.
+/// Interim-response handling and body framing remain the caller's policy.
+pub fn read_response_head<R: BufRead, const PEER: bool>(
+    reader: &mut R,
+) -> io::Result<ResponseHead> {
+    let mut lines = Vec::new();
+    let mut used = 0;
+    loop {
+        let mut line = Vec::new();
+        read_line_capped(reader, &mut line, MAX_HEAD_BYTES - used)?;
+        used += line.len() as u64;
+        if PEER && line.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed before a complete response head",
+            ));
+        }
+        if !line.ends_with(b"\n") {
+            return Err(invalid("response has no header terminator"));
+        }
+        let line = String::from_utf8_lossy(&line)
+            .trim_end_matches(['\r', '\n'])
+            .to_string();
+        if line.is_empty() {
+            break;
+        }
+        lines.push(line);
+    }
+    let mut lines = lines.into_iter();
+    let status_line = lines
+        .next()
+        .ok_or_else(|| invalid("response has no status line"))?;
+    let mut parts = status_line.split_whitespace();
+    let version = parts.next();
+    let status = if PEER {
+        if !version.is_some_and(|v| v.starts_with("HTTP/1.")) {
+            return Err(invalid("response is not HTTP/1.x"));
+        }
+        parts
+            .next()
+            .filter(|code| code.len() == 3)
+            .and_then(|code| code.parse::<u16>().ok())
+            .filter(|code| (100..600).contains(code))
+            .ok_or_else(|| invalid("response has no valid status code"))?
+    } else {
+        parts
+            .next()
+            .and_then(|code| code.parse().ok())
+            .ok_or_else(|| invalid("response has no status line"))?
+    };
+    let headers = lines
+        .filter_map(|line| {
+            line.split_once(':')
+                .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        })
+        .collect();
+    Ok((status, headers))
 }
 
 /// Streaming body decoder. `PEER_ERRORS` retains the peer channel's historical

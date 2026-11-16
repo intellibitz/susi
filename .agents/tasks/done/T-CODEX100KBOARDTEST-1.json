@@ -1,0 +1,67 @@
+{
+  "id": "T-CODEX100KBOARDTEST-1",
+  "title": "Keep Board discovery regression fixture inside its own agent root",
+  "goal": "Vision: V-6. Preserve upstream Board discovery coverage while making its temporary fixture independent of the real enclosing agent root. No production behavior changes.",
+  "status": "completed",
+  "size": "s",
+  "created_by": "CODEXCORE100KIMPLEMENTATION",
+  "created_unix": 1794827051,
+  "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+  "scopes": [
+    "crates/susi-core/src/native_board.rs",
+    ".agents/tasks/T-CODEX100KBOARDTEST-1.json"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "native_board::tests"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing GitBoardFixture, nearest-root marker semantics, and upstream agent_root_board_clone regression.",
+    "reason": "Place a boundary marker in the existing private fixture root so an absent inner marker cannot resolve a real enclosing agent clone. Retain all positive/negative assertions."
+  },
+  "reproduced_failure": {
+    "upstream": "48fa3b7af",
+    "command": "cargo test --offline --locked -p susi-core --lib native_board::tests",
+    "passed": 7,
+    "failed": 1,
+    "cause": "TMPDIR under registered /workspace/codex means a fixture without its own boundary sees the real parent Board clone instead of None.",
+    "log": "/workspace/codex/core-100k-state/logs/mandate83-board-tests.log"
+  },
+  "limitations": [
+    "Test-only change inside a runtime file; new inline lines count toward complete socket size.",
+    "No external Board messages; tests use existing private local bare remotes."
+  ],
+  "results": {
+    "native_board_tests_passed": 8,
+    "self_build_tests_passed": 5,
+    "agent_bootstrap_tests_passed": 3,
+    "architecture_tests_passed": 55,
+    "strict_core_all_targets_clippy": "pass",
+    "format": "pass",
+    "runtime_physical_lines_added": 2,
+    "production_behavior_changes": 0,
+    "existing_assertions_removed_or_weakened": 0
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json",
+  "closed": {
+    "at_unix": 1794827652,
+    "commit": "fb0a47b79fd1d06f00f660d1a1aab573409e7f78",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "865c978c6758b36e20e713f6326e82f284e475b0",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json"
+  }
+}

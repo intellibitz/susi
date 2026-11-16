@@ -1,0 +1,135 @@
+{
+  "id": "T-CODEX100KHTTPHEAD-1",
+  "title": "Share equivalent HTTP response-head parsing without changing client policy",
+  "goal": "Vision: V-6. Reduce duplicated physical runtime Rust while preserving every existing HTTP client capability, status policy, error kind/message, byte consumption and body/interim behavior.",
+  "status": "completed",
+  "size": "s",
+  "created_by": "CODEXCORE100KHTTPHEAD",
+  "created_unix": 1794828356,
+  "base_commit": "f4484b599f2b981d95f620c3f272d2196a3502ad",
+  "scopes": [
+    "crates/susi-paths/src/http_body.rs",
+    "crates/susi-paths/src/tests/http_body.rs",
+    "crates/susi-config/src/plain_http.rs",
+    "crates/susi-wire-client/src/http.rs",
+    ".agents/tasks/T-CODEX100KHTTPHEAD-1.json"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-wire-client"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing susi-paths http_body bounded reader; susi-config plain_http and susi-wire-client http head parsing; strict susi-http-transport wire parser; Commercial Apps response-head symbols.",
+    "reason": "Reuse shared std-only module already linked by both clients. Preserve differing peer EOF/status validation behind a documented const policy. Strict third parser has materially different acceptance, so remains unchanged. No dependency, external source, test relocation or protocol contract change."
+  },
+  "coordination": "Own isolated worktree and build/runtime state. Parent serializes integration and publication. No external Board messages.",
+  "validation": [
+    {
+      "command": "cargo test --offline --locked -p susi-paths -p susi-wire-client",
+      "paths_tests_passed": 110,
+      "wire_tests_passed": 50,
+      "log": "/workspace/codex/susi-core-100k-http-head-state/logs/paths-wire.log"
+    },
+    {
+      "command": "cargo test --offline --locked -p susi-config --lib plain_http::tests",
+      "passed": 13,
+      "log": "/workspace/codex/susi-core-100k-http-head-state/logs/config-http.log"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p susi-paths -p susi-wire-client -p susi-config --all-targets -- -D warnings",
+      "result": "pass",
+      "log": "/workspace/codex/susi-core-100k-http-head-state/logs/clippy.log"
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "result": "pass",
+      "log": "/workspace/codex/susi-core-100k-http-head-state/logs/fmt.log"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "results": {
+    "runtime_files": [
+      {
+        "path": "crates/susi-paths/src/http_body.rs",
+        "before": 170,
+        "after": 234,
+        "removed": -64,
+        "before_sha256": "b993e2c0c7be2fcc45e28c5df7b03056f5975b3c8da0277c0e6abd4243ac8105",
+        "after_sha256": "691d7e37f10785a2b3b82616828609108bce11ceb4dc3f8be15115412e345e3b"
+      },
+      {
+        "path": "crates/susi-config/src/plain_http.rs",
+        "before": 875,
+        "after": 825,
+        "removed": 50,
+        "before_sha256": "90d38a00dae297caef8edc374e29d0182265d9c1f51ed0bda3c75727543b109a",
+        "after_sha256": "2682db9066f4b663969f2d3d21a89618373490644cfc6b3b17cb3acb5f5d7c43"
+      },
+      {
+        "path": "crates/susi-wire-client/src/http.rs",
+        "before": 303,
+        "after": 271,
+        "removed": 32,
+        "before_sha256": "9a957d82b15fbb7913f29627b5f1b8ef332df336bddfeb158805b13634696661",
+        "after_sha256": "3f6398d6564c6976bbec0c4e231dec70ea06ca442bcccefddad6b9b71ed63635"
+      }
+    ],
+    "net_runtime_physical_lines_removed": 18,
+    "new_external_test_lines": 132,
+    "new_tests": 4,
+    "existing_tests_removed_or_weakened": 0,
+    "existing_test_bodies_byte_identical": true,
+    "dependency_changes": 0,
+    "body_framing_and_interim_response_policy_unchanged": true
+  },
+  "differential": {
+    "baseline": "f4484b599f2b981d95f620c3f272d2196a3502ad",
+    "generated_harness": "/workspace/codex/susi-core-100k-http-head-state/differential.rs",
+    "harness_sha256": "6cb010a64be580505b823cb6156e982891f46988258c9b794116bbda009a72e1",
+    "baseline_reader_sha256": "6f126511162e9fd45897ce38d8a2bd836e63d9e793d8b6fd2f89f7cab5b2cad3",
+    "comparisons_passed": 117756,
+    "ordinary_input_count": 2451,
+    "size_boundary_input_count": 18,
+    "compared": [
+      "returned status and ordered headers",
+      "error kind and message",
+      "consumed bytes",
+      "fill_buf call counts"
+    ],
+    "corpus": [
+      "HTTP versions/status boundaries, Unicode whitespace, invalid UTF8, duplicate/malformed headers",
+      "every prefix and targeted byte mutations of a valid response plus1000 deterministic8-byte mutations",
+      "buffer fragments of1/2/7/4096bytes",
+      "Injected Interrupted (retried), TimedOut and Other errors at initial/partial/EOF positions",
+      "response lengths65534\u201365538 and131072 with CRLF/LF/absent terminator"
+    ],
+    "result": "pass",
+    "log": "/workspace/codex/susi-core-100k-http-head-state/logs/differential.log",
+    "limits": "Finite differential corpus, not exhaustive proof; baseline reader functions extracted from recorded source commit and adapted only to return the parsed head."
+  },
+  "progress_unix": 1794828639,
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-http-head.json",
+  "closed": {
+    "at_unix": 1794828896,
+    "commit": "66e71dfa3917ce6d44e06f565e02ceb11c61f85d",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "66e71dfa3917ce6d44e06f565e02ceb11c61f85d"
+  }
+}

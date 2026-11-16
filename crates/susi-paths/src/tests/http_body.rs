@@ -81,3 +81,135 @@ fn timeout_at_chunk_terminator_is_never_reclassified() {
     check::<false>();
     check::<true>();
 }
+
+#[test]
+fn response_heads_retain_client_status_policies() {
+    for (line, wire, peer) in [
+        ("HTTP/1.1 200 OK", Some(200), Some(200)),
+        ("HTTP/1.extra 599 End", Some(599), Some(599)),
+        ("HTTP/2 200 OK", Some(200), None),
+        ("other 0", Some(0), None),
+        ("HTTP/1.1 600", Some(600), None),
+        ("HTTP/1.1 +200", Some(200), None),
+        ("HTTP/1.1 65535", Some(65535), None),
+        ("HTTP/1.1 65536", None, None),
+        ("HTTP/1.1\t201", Some(201), Some(201)),
+        ("\u{2003}HTTP/1.0\u{2003}202", Some(202), Some(202)),
+        ("HTTP/1.1", None, None),
+    ] {
+        let raw = format!("{line}\r\n\r\nbody");
+        let mut input = raw.as_bytes();
+        assert_eq!(
+            read_response_head::<_, false>(&mut input).ok().map(|v| v.0),
+            wire
+        );
+        assert_eq!(input, b"body");
+        let mut input = raw.as_bytes();
+        assert_eq!(
+            read_response_head::<_, true>(&mut input).ok().map(|v| v.0),
+            peer
+        );
+        assert_eq!(input, b"body");
+    }
+}
+
+#[test]
+fn response_heads_retain_lossy_headers_order_and_first_head_only() {
+    let raw = b"HTTP/1.1 100 Continue\r\n X-A : one \r\nX-A: two:three\ninvalid\nX-B: \xff\r\r\n\r\nHTTP/1.1 200 OK\r\n\r\n";
+    fn check<const PEER: bool>(mut input: &[u8]) {
+        let head = read_response_head::<_, PEER>(&mut input).unwrap();
+        assert_eq!(head.0, 100);
+        assert_eq!(
+            head.1,
+            vec![
+                ("x-a".into(), "one".into()),
+                ("x-a".into(), "two:three".into()),
+                ("x-b".into(), "\u{fffd}".into())
+            ]
+        );
+        assert_eq!(input, b"HTTP/1.1 200 OK\r\n\r\n");
+    }
+    check::<false>(raw);
+    check::<true>(raw);
+}
+
+#[test]
+fn response_head_errors_keep_kinds_messages_and_consumption() {
+    use io::ErrorKind::{InvalidData, UnexpectedEof};
+    for (raw, wire, peer) in [
+        (
+            &b""[..],
+            (InvalidData, "response has no header terminator"),
+            (
+                UnexpectedEof,
+                "connection closed before a complete response head",
+            ),
+        ),
+        (
+            &b"HTTP/1.1 200 OK\r\n"[..],
+            (InvalidData, "response has no header terminator"),
+            (
+                UnexpectedEof,
+                "connection closed before a complete response head",
+            ),
+        ),
+        (
+            &b"HTTP/1.1 200"[..],
+            (InvalidData, "response has no header terminator"),
+            (InvalidData, "response has no header terminator"),
+        ),
+        (
+            &b"\r\nbody"[..],
+            (InvalidData, "response has no status line"),
+            (InvalidData, "response has no status line"),
+        ),
+        (
+            &b"HTTP/2 200\n\nbody"[..],
+            (InvalidData, "unused"),
+            (InvalidData, "response is not HTTP/1.x"),
+        ),
+        (
+            &b"HTTP/1.1 nope\n\nbody"[..],
+            (InvalidData, "response has no status line"),
+            (InvalidData, "response has no valid status code"),
+        ),
+    ] {
+        let mut input = raw;
+        let result = read_response_head::<_, false>(&mut input);
+        if wire.1 != "unused" {
+            let error = result.unwrap_err();
+            assert_eq!((error.kind(), error.to_string()), (wire.0, wire.1.into()));
+        } else {
+            assert_eq!(result.unwrap().0, 200);
+        }
+        let remainder = input;
+        let mut input = raw;
+        let error = read_response_head::<_, true>(&mut input).unwrap_err();
+        assert_eq!((error.kind(), error.to_string()), (peer.0, peer.1.into()));
+        assert_eq!(input, remainder);
+    }
+}
+
+#[test]
+fn response_head_limit_includes_the_terminator_and_leaves_the_body() {
+    fn check<const PEER: bool>() {
+        for extra in [0, 1] {
+            let mut raw = b"HTTP/1.1 200 OK\r\nX: ".to_vec();
+            raw.resize(MAX_HEAD_BYTES as usize - 4 + extra, b'a');
+            raw.extend_from_slice(b"\r\n\r\nbody");
+            let mut input = raw.as_slice();
+            let result = read_response_head::<_, PEER>(&mut input);
+            if extra == 0 {
+                assert_eq!(result.unwrap().0, 200);
+                assert_eq!(input, b"body");
+            } else {
+                let error = result.unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                assert_eq!(error.to_string(), "response line too long");
+                assert_eq!(input, b"\nbody");
+            }
+        }
+    }
+    check::<false>();
+    check::<true>();
+}

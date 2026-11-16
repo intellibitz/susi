@@ -1,0 +1,70 @@
+{
+  "task": "T-CODEXCORE100K-1",
+  "source_commit": "fb0a47b79fd1d06f00f660d1a1aab573409e7f78",
+  "created_unix": 1794827420,
+  "before_complete_socket_rust": 305414,
+  "after_complete_socket_rust": 305535,
+  "runtime_rust": 299081,
+  "vendor_facade_rust": 6454,
+  "goal_met": false,
+  "upstream": {
+    "commit": "48fa3b7af4d529203d0e52ca4e45b93f7df8f8b3",
+    "physical_runtime_lines_added": 77,
+    "native_board": 68,
+    "self_build": 9,
+    "mandate": "83: meaningful approximately10minute commit/push/merge/pull cadence; amended82 is not a hardtimegate"
+  },
+  "mcp_io": {
+    "task": "T-CODEX100KMCPIO-1",
+    "worker_commit": "1b15cfaaa805f61fb35b9406762abc138f408821",
+    "merge_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+    "runtime_lines_added": 42,
+    "separate_test_lines_added": 392,
+    "tests_passed": 50,
+    "existing_tests": 42,
+    "new_regressions": 7,
+    "new_subprocess_fixture_tests": 1,
+    "behavior": [
+      "Ownership guard invokes on_close exactly once for failed initialization, duplicate IDs and disconnect.",
+      "Frame acquisition capped at16MiB+1; oversize poisons connection so its tail cannot become another response/request.",
+      "Exact16MiB boundary, strictUTF8, underlying readerror diagnostics and ordinaryRPCerror recovery preserved.",
+      "Real spawned child is killed and waited after failed handshake."
+    ],
+    "independent_review": "No remaining findings; worker review and parent source review agree.",
+    "limits": [
+      "No deadline/cancel transport added; generic blocking I/O/cleanup may still delay return.",
+      "Required ACP supplied-MCP bridge remains incomplete."
+    ]
+  },
+  "board_fixture": {
+    "task": "T-CODEX100KBOARDTEST-1",
+    "source_commit": "fb0a47b79fd1d06f00f660d1a1aab573409e7f78",
+    "reproduced_upstream_failure": true,
+    "native_board_tests_after_fix": 8,
+    "runtime_inline_test_lines_added": 2,
+    "production_behavior_changes": 0,
+    "assertions_removed_or_weakened": 0,
+    "change": "Private fixture boundary marker prevents a no-inner-marker lookup from discovering the real enclosing agent root."
+  },
+  "integrated_validation": {
+    "self_build_tests_passed": 5,
+    "agent_bootstrap_tests_passed": 3,
+    "architecture_tests_passed": 55,
+    "actual_mcp_host_production_test_passed": 1,
+    "actual_mcp_host_adversarial_test_passed": 1,
+    "strict_wire_client_and_core_all_targets_clippy": "pass",
+    "format": "pass",
+    "core_size": {
+      "executed": 1,
+      "failed": 1,
+      "actual": 305535,
+      "strict_limit": 100000
+    }
+  },
+  "dependency_changes": 0,
+  "limits": [
+    "Focused Linux development evidence, not release qualification.",
+    "Complete socket is above100k; no exclusion, test moving, functionality or access change used.",
+    "No external Board messages; native Board tests use private local bare remotes."
+  ]
+}
