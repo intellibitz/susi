@@ -694,14 +694,14 @@ finish)
     timed_step initial-sync sync
     timed_step gate gate
     # Anything still uncommitted - the verdict, the mastery test - must land
-    # while the task is open: close moves the record to done/, and the commit hook
+    # while the task is open: close archives the record, and the commit hook
     # then refuses a commit citing a closed task. The scope check still refuses
     # anything outside the claim, so this cannot smuggle in unrelated work.
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
         git commit -m "Record $task evidence before closure" -m "Task: $task"
     fi
-    # Retain ownership through publication; close records acceptance in the tree.
+    # Retain ownership through publication; close records acceptance locally.
     # The gate just ran this task's tests — when it provably covered the
     # acceptance command (same package or the whole workspace), tell close the
     # run happened so it does not re-execute the same cargo test a second time.
@@ -713,10 +713,23 @@ finish)
         else
             timed_step close "$susi_bin" tasks close "$task"
         fi
-        git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
-        git commit -m "Close $task after acceptance" -m "Task: $task"
+        close_paths=()
+        if git ls-files --error-unmatch -- ".agents/tasks/$task.json" >/dev/null 2>&1; then
+            close_paths+=(".agents/tasks/$task.json")
+        fi
+        # Older workflow binaries still create a source completion record.
+        [ ! -f ".agents/tasks/done/$task.json" ] || close_paths+=(".agents/tasks/done/$task.json")
+        if [ "${#close_paths[@]}" -gt 0 ]; then
+            git add -A -- "${close_paths[@]}"
+            if ! git diff --cached --quiet -- "${close_paths[@]}"; then
+                git commit --only -m "Close $task after acceptance" -m "Task: $task" -- "${close_paths[@]}"
+            fi
+        fi
     fi
-    [ -f ".agents/tasks/done/$task.json" ] || { echo 'No completed task record.' >&2; exit 1; }
+    if ! git cat-file -e "HEAD:.agents/tasks/done/$task.json" 2>/dev/null; then
+        "$susi_bin" tasks completed "$task" --publishable >/dev/null ||
+            { echo 'No publishable completed task record.' >&2; exit 1; }
+    fi
     branch=$(git symbolic-ref --short HEAD)
     timed_step push push_closed_branch "$branch"
     sha=$(git rev-parse HEAD)

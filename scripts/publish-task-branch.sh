@@ -52,8 +52,15 @@ fi
 
 receipt_sha=$(git rev-parse --verify --quiet "$receipt_ref" 2>/dev/null || true)
 done_sha=$(git rev-parse --verify --quiet "$done_ref" 2>/dev/null || true)
-[ -n "$done_sha" ] || die "publication requires the committed completion"
-done_body=$(git cat-file -p "$done_sha" 2>/dev/null) || die "invalid workflow blob: $done_ref"
+if [ -n "$done_sha" ]; then
+    done_body=$(git cat-file -p "$done_sha" 2>/dev/null) || die "invalid workflow blob: $done_ref"
+else
+    # The native workflow owns local record storage and validates the original
+    # worktree, branch, agent and accepted head before returning this record.
+    susi_bin=${SUSI_WORKFLOW_BIN:-susi-commercial}
+    done_body=$("$susi_bin" tasks completed "$task" --publishable) ||
+        die "publication requires a verified completion; claim retained"
+fi
 receipt_body=null
 if [ -n "$receipt_sha" ]; then
     receipt_body=$(git cat-file -p "$receipt_sha" 2>/dev/null) || die "invalid workflow blob: $receipt_ref"
