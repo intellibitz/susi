@@ -1209,268 +1209,133 @@ impl InferenceRouter {
         let local_ready = Self::local_model_ready(local_model.as_deref(), &global_cfg);
         let stats = Self::load_stats_for(local_model.as_deref().unwrap_or(""));
 
-        if requires.is_some_and(|value| !Self::supports_requirement(value)) {
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: "unavailable".to_string(),
-                provider: None,
-                reason: "required capability is not supported by the current routing contract"
-                    .to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: Vec::new(),
-                cooled_candidates: Vec::new(),
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
+        let mut clouds = Vec::new();
+        let mut cooled_candidates = Vec::new();
+        // Choose only the route here. Every outcome carries the same input evidence.
+        let (target, provider, reason) = 'placement: {
+            if requires.is_some_and(|value| !Self::supports_requirement(value)) {
+                break 'placement (
+                    "unavailable",
+                    None,
+                    "required capability is not supported by the current routing contract"
+                        .to_owned(),
+                );
+            }
 
-        // Hard edge-privacy gate: local_only MAC mode never escalates unless
-        // an explicit cloud.inference capability token was granted.
-        if !allow_cloud
-            || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
-        {
-            let request_blocked = !allow_cloud;
-            let unsupported_local_capability = !local_capable(requires);
-            let local_eligible = local_ready && !unsupported_local_capability;
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: if local_eligible {
+            // Hard edge-privacy gate: never discover or select cloud providers before this check.
+            if !allow_cloud
+                || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
+            {
+                let capable = local_capable(requires);
+                let reason = match (allow_cloud, capable, local_ready) {
+                    (false, false, _) => "request prohibits cloud inference and local runtime does not support the required capability",
+                    (false, true, false) => "request prohibits cloud inference and no ready local model is available",
+                    (false, true, true) => "request prohibits cloud inference",
+                    (true, false, _) => "privacy policy blocks cloud inference and local runtime does not support the required capability",
+                    (true, true, true) => "privacy policy blocks cloud inference",
+                    (true, true, false) => "privacy policy blocks cloud inference and no ready local model is available",
+                };
+                let target = if local_ready && capable {
                     "local"
                 } else {
                     "unavailable"
-                }
-                .to_string(),
-                provider: None,
-                reason: if request_blocked && unsupported_local_capability {
-                    "request prohibits cloud inference and local runtime does not support the required capability"
-                } else if request_blocked && !local_ready {
-                    "request prohibits cloud inference and no ready local model is available"
-                } else if request_blocked {
-                    "request prohibits cloud inference"
-                } else if unsupported_local_capability {
-                    "privacy policy blocks cloud inference and local runtime does not support the required capability"
-                } else if local_ready {
-                    "privacy policy blocks cloud inference"
-                } else {
-                    "privacy policy blocks cloud inference and no ready local model is available"
-                }
-                .to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: Vec::new(),
-                cooled_candidates: Vec::new(),
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
+                };
+                break 'placement (target, None, reason.to_owned());
+            }
 
-        // A provider name is not evidence of a cloud connection. In particular,
-        // local embedding providers can have hyphenated names. Only actual
-        // registry transport metadata may supply runtime cloud candidates.
-        let mut clouds = Self::list_cloud_providers_from_registry(registry);
-        let cooled_candidates: Vec<ProviderCooldown> = clouds
-            .iter()
-            .filter_map(|name| {
-                Self::provider_cooldown_until(name).map(|until_unix| ProviderCooldown {
-                    provider: name.clone(),
-                    until_unix,
+            // A provider name is not evidence of a cloud connection. In particular,
+            // local embedding providers can have hyphenated names. Only actual
+            // registry transport metadata may supply runtime cloud candidates.
+            clouds = Self::list_cloud_providers_from_registry(registry);
+            cooled_candidates = clouds
+                .iter()
+                .filter_map(|name| {
+                    Self::provider_cooldown_until(name).map(|until_unix| ProviderCooldown {
+                        provider: name.clone(),
+                        until_unix,
+                    })
                 })
-            })
-            .collect();
-        Self::remove_cooled_providers(&mut clouds);
-        Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
+                .collect();
+            Self::remove_cooled_providers(&mut clouds);
+            Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
-        // Capability floor and provider health before static vendor order
-        // (VC-202-004): below-floor and unfit providers stay at the tail,
-        // with deterministic cloud_rank and name tie-breaking.
-        let class = crate::engines::brain::TaskClass::from_requires(requires);
-        clouds.sort_by_key(|name| {
+            // Capability floor and provider health before static vendor order
+            // (VC-202-004): below-floor and unfit providers stay at the tail,
+            // with deterministic cloud_rank and name tie-breaking.
+            let class = crate::engines::brain::TaskClass::from_requires(requires);
+            clouds.sort_by_key(|name| {
+                (
+                    !crate::engines::capability::meets_floor(name, class),
+                    crate::engines::brain::is_unfit(name, class),
+                    Self::cloud_rank(name),
+                    name.clone(),
+                )
+            });
+
+            if clouds.is_empty() {
+                let target = if local_ready { "local" } else { "unavailable" };
+                let reason = Self::no_cloud_reason(local_ready, !cooled_candidates.is_empty());
+                break 'placement (target, None, reason.to_owned());
+            }
+
+            let reason = match policy.as_str() {
+                "cloud_first" => "cloud_first policy".to_owned(),
+                "ask" => "ask policy — using cloud".to_owned(),
+                "local_only" => {
+                    let capable = local_capable(requires);
+                    let (target, reason) = match (capable, local_ready) {
+                        (false, _) => (
+                            "unavailable",
+                            "local_only policy cannot satisfy the required capability",
+                        ),
+                        (true, false) => {
+                            ("unavailable", "local_only policy has no ready local model")
+                        }
+                        (true, true) => ("local", "local_only policy"),
+                    };
+                    break 'placement (target, None, reason.to_owned());
+                }
+                _ if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) => {
+                    "vision capability requires a matching provider".to_owned()
+                }
+                _ if requires.is_some_and(|value| value.eq_ignore_ascii_case("tools"))
+                    && !local_capable(requires) =>
+                {
+                    "required tool capability is not available locally".to_owned()
+                }
+                _ if !local_ready => "no ready local model is available".to_owned(),
+                _ => {
+                    let slow = Self::local_is_slow(&cfg, &stats);
+                    let cpu_only = cfg.prefer_cloud_when_cpu_only && Self::cpu_only_host();
+                    if !slow && !cpu_only {
+                        break 'placement (
+                            "local",
+                            None,
+                            "local inference is within policy thresholds".to_owned(),
+                        );
+                    }
+                    if slow {
+                        format!(
+                            "local ~{:.1} tok/s (min {:.1}) / last {}ms",
+                            stats.ema_tokens_per_sec,
+                            cfg.local_min_tokens_per_sec,
+                            stats.last_latency_ms
+                        )
+                    } else {
+                        "CPU-only host — local GGUF typically too slow".to_owned()
+                    }
+                }
+            };
             (
-                !crate::engines::capability::meets_floor(name, class),
-                crate::engines::brain::is_unfit(name, class),
-                Self::cloud_rank(name),
-                name.clone(),
+                "cloud",
+                Some(Self::pick_cloud(&clouds, class, &pref, &cfg)),
+                reason,
             )
-        });
-
-        if clouds.is_empty() {
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: if local_ready { "local" } else { "unavailable" }.to_string(),
-                provider: None,
-                reason: Self::no_cloud_reason(local_ready, !cooled_candidates.is_empty())
-                    .to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        let forced_reason = match policy.as_str() {
-            "cloud_first" => Some(("cloud", "cloud_first policy")),
-            "ask" => Some(("cloud", "ask policy — using cloud")),
-            _ => None,
         };
-        if let Some((target, reason)) = forced_reason {
-            let provider =
-                (target == "cloud").then(|| Self::pick_cloud(&clouds, class, &pref, &cfg));
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: target.to_string(),
-                provider,
-                reason: reason.to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        if policy == "local_only" {
-            let capability_supported = local_capable(requires);
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: if local_ready && capability_supported {
-                    "local"
-                } else {
-                    "unavailable"
-                }
-                .to_string(),
-                provider: None,
-                reason: if !capability_supported {
-                    "local_only policy cannot satisfy the required capability"
-                } else if !local_ready {
-                    "local_only policy has no ready local model"
-                } else {
-                    "local_only policy"
-                }
-                .to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
-            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: "cloud".to_string(),
-                provider: Some(provider),
-                reason: "vision capability requires a matching provider".to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        // `requires: "tools"` — a healthy local rung is still wrong when no
-        // discovered GGUF can emit tool calls; escalate like vision does.
-        if requires.is_some_and(|value| value.eq_ignore_ascii_case("tools"))
-            && !local_capable(requires)
-        {
-            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: "cloud".to_string(),
-                provider: Some(provider),
-                reason: "required tool capability is not available locally".to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        if !local_ready {
-            let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: "cloud".to_string(),
-                provider: Some(provider),
-                reason: "no ready local model is available".to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        let slow = Self::local_is_slow(&cfg, &stats);
-        let cpu_only = cfg.prefer_cloud_when_cpu_only && Self::cpu_only_host();
-
-        if !slow && !cpu_only {
-            return PlacementDecision {
-                contract: PlacementContract::now(),
-                target: "local".to_string(),
-                provider: None,
-                reason: "local inference is within policy thresholds".to_string(),
-                policy,
-                local_model,
-                local_ready,
-                local_stats: stats,
-                cloud_candidates: clouds,
-                cooled_candidates,
-                requires: requires.map(str::to_string),
-                max_cost,
-                allow_cloud,
-            };
-        }
-
-        let reason = if slow {
-            format!(
-                "local ~{:.1} tok/s (min {:.1}) / last {}ms",
-                stats.ema_tokens_per_sec, cfg.local_min_tokens_per_sec, stats.last_latency_ms
-            )
-        } else {
-            "CPU-only host — local GGUF typically too slow".to_string()
-        };
-
-        let provider = Self::pick_cloud(&clouds, class, &pref, &cfg);
         PlacementDecision {
             contract: PlacementContract::now(),
-            target: "cloud".to_string(),
-            provider: Some(provider),
+            target: target.to_owned(),
+            provider,
             reason,
             policy,
             local_model,
@@ -1478,7 +1343,7 @@ impl InferenceRouter {
             local_stats: stats,
             cloud_candidates: clouds,
             cooled_candidates,
-            requires: requires.map(str::to_string),
+            requires: requires.map(str::to_owned),
             max_cost,
             allow_cloud,
         }

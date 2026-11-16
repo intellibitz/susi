@@ -256,3 +256,59 @@ fn sticky_preferred_cloud_never_overrides_capability_floor_or_unfitness() {
         assert_eq!(order.first().map(String::as_str), Some("groq-llama-70b"));
     }
 }
+
+#[test]
+fn routing_reports_share_evidence_and_preserve_gate_precedence() {
+    let _guard = crate::engines::env_test_lock();
+    let _sb = RoutingSandbox::new("report_evidence");
+    let registry = CapabilityRegistry::new();
+    registry.register_provider(cloud("openai-gpt-4o-mini"));
+    let mut ids = std::collections::HashSet::new();
+    let cases = [
+        ("auto", "unsupported", false, false, "unavailable", "required capability is not supported by the current routing contract", false),
+        ("cloud_first", "tools", false, false, "unavailable", "request prohibits cloud inference and local runtime does not support the required capability", false),
+        ("cloud_first", "text", false, true, "unavailable", "request prohibits cloud inference and no ready local model is available", false),
+        ("cloud_first", "VISION", true, false, "cloud", "cloud_first policy", true),
+        ("ask", "VISION", true, false, "cloud", "ask policy — using cloud", true),
+        ("local_only", "tools", true, false, "unavailable", "local_only policy cannot satisfy the required capability", true),
+        ("local_only", "text", true, true, "unavailable", "local_only policy has no ready local model", true),
+        ("auto", "VISION", true, false, "cloud", "vision capability requires a matching provider", true),
+        ("auto", "ToOlS", true, false, "cloud", "required tool capability is not available locally", true),
+        ("auto", "text", true, true, "cloud", "no ready local model is available", true),
+    ];
+    for (policy, requires, allow_cloud, capable, target, reason, discovered) in cases {
+        InferenceRouter::save_preference(&RoutingPreference {
+            policy_override: Some(policy.into()),
+            ..Default::default()
+        });
+        let decision = InferenceRouter::plan_placement_inner(
+            Some(requires),
+            Some(10.0),
+            allow_cloud,
+            |_| capable,
+            &registry,
+        );
+        assert_eq!(decision.contract.schema, "susi/placement/v1");
+        assert!(ids.insert(decision.contract.decision_id));
+        assert_eq!(decision.policy, policy);
+        assert_eq!(decision.requires.as_deref(), Some(requires));
+        assert_eq!(decision.max_cost, Some(10.0));
+        assert_eq!(decision.allow_cloud, allow_cloud);
+        assert!(!decision.local_ready);
+        assert!(decision.cooled_candidates.is_empty());
+        assert_eq!(decision.target, target);
+        assert_eq!(decision.reason, reason);
+        assert_eq!(
+            decision.provider.as_deref(),
+            (target == "cloud").then_some("openai-gpt-4o-mini")
+        );
+        assert_eq!(
+            decision.cloud_candidates,
+            if discovered {
+                vec!["openai-gpt-4o-mini"]
+            } else {
+                vec![]
+            }
+        );
+    }
+}

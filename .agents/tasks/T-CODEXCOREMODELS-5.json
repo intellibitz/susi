@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXCOREMODELS-5",
+  "title": "Share placement decision construction across GEMI routing paths",
+  "goal": "Vision: V-2. Remove duplicate provider placement records while keeping constraints, discovery order, cold and warm routing, and local-only privacy semantics.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "routing"
+    ]
+  },
+  "created_by": "CODEXCOREMODELS",
+  "created_unix": 1794858707,
+  "reuse": {
+    "decision": "existing",
+    "searched": "The ten PlacementDecision constructors in plan_placement_inner, provider filtering, existing placement fixtures, and runtime and operator consumers."
+  }
+}
