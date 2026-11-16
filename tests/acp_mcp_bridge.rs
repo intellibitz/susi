@@ -382,6 +382,9 @@ struct Acp {
 }
 impl Acp {
     fn start(fx: &Fixture, tag: &str) -> Self {
+        Self::start_with_version(fx, tag, json!(1))
+    }
+    fn start_with_version(fx: &Fixture, tag: &str, version: Value) -> Self {
         let stderr = fs::File::create(fx.root.join(format!("{tag}.stderr"))).unwrap();
         let mut child = fx
             .susi(&["acp", "serve"])
@@ -423,12 +426,22 @@ impl Acp {
             output,
             seen: vec![],
         };
-        let init = acp.request(
-            1,
-            "initialize",
-            json!({"protocolVersion":1,"clientCapabilities":{}}),
+        let official = version.is_number();
+        let params = if official {
+            json!({"protocolVersion":version,"clientCapabilities":{}})
+        } else {
+            json!({"protocol_version":version})
+        };
+        let init = acp.request(1, "initialize", params);
+        assert_eq!(
+            init["result"][if official {
+                "protocolVersion"
+            } else {
+                "protocol_version"
+            }],
+            version,
+            "{init}"
         );
-        assert_eq!(init["result"]["protocolVersion"], 1, "{init}");
         acp
     }
     fn send(&mut self, value: Value) {
@@ -718,6 +731,52 @@ fn empty_mcp_session_prompt_uses_the_real_executor_with_pure_stdout() {
     assert!(
         requests.iter().all(|request| !has_probe(request)),
         "empty session received a supplied MCP schema"
+    );
+}
+
+#[test]
+#[ignore = "real shipped-binary legacy ACP prompt preserves pure NDJSON and lifecycle"]
+fn legacy_empty_mcp_prompt_preserves_real_execution_and_pure_stdout() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("legacy-empty-mcp", &provider.url);
+    let mut acp = Acp::start_with_version(&fx, "acp", json!("2026-11-11"));
+    let created = acp.request(2, "session/new", json!({"workspace":fx.repo}));
+    let sid = created["result"]["session_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("legacy session/new failed: {created}"));
+    let reply=acp.request(3,"session/prompt",json!({"session_id":sid,"prompt":"Report that the offline fixture is ready. Do not edit files or invoke tools."}));
+    assert_eq!(reply["result"]["stop_reason"], "end_turn", "{reply}");
+    assert!(
+        reply["result"]["output"]
+            .as_array()
+            .is_some_and(|blocks| blocks.iter().any(|block| block["text"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty()))),
+        "legacy prompt returned no text: {reply}"
+    );
+    let listed = acp.request(4, "session/list", json!({}));
+    assert!(
+        listed["result"]["sessions"]
+            .as_array()
+            .is_some_and(|sessions| sessions
+                .iter()
+                .any(|session| session["session_id"] == sid && session["turns_completed"] == 1)),
+        "legacy completed turn missing from session/list: {listed}"
+    );
+    let closed = acp.request(5, "session/close", json!({"session_id":sid}));
+    assert_eq!(closed["result"]["closed"], true, "{closed}");
+    acp.eof();
+    provider.finish();
+    let requests = provider.requests.lock().unwrap();
+    assert!(
+        requests
+            .iter()
+            .any(|request| request["messages"].is_array()),
+        "legacy prompt never reached the real chat provider"
+    );
+    assert!(
+        requests.iter().all(|request| !has_probe(request)),
+        "legacy empty session received a private MCP tool"
     );
 }
 
