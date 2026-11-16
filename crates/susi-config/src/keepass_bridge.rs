@@ -323,6 +323,22 @@ fn parse_keepassxc_cli_spec(raw: &str) -> KeepassCliSpec {
     }
 }
 
+/// Search each PATH directory in order before inspecting installation-specific fallbacks.
+fn find_program(
+    path: Option<&std::ffi::OsStr>,
+    names: &[&str],
+    fallbacks: impl IntoIterator<Item = PathBuf>,
+    accepts: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let on_path = path
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)));
+    on_path
+        .chain(fallbacks)
+        .find(|candidate| accepts(candidate))
+}
+
 #[cfg(any(all(unix, not(target_os = "macos")), test))]
 fn detect_linux_keepassxc_spec_with<F, D, K>(
     path_var: Option<&std::ffi::OsStr>,
@@ -336,69 +352,34 @@ where
     D: Fn(&Path) -> bool,
     K: Fn(&str) -> bool,
 {
-    if let Some(raw) = path_var {
-        for dir in std::env::split_paths(raw) {
-            for bin_name in ["keepassxc-cli", "keepassxc.cli"] {
-                let candidate = dir.join(bin_name);
-                if is_file(&candidate) {
-                    let s = candidate.to_string_lossy().into_owned();
-                    return parse_keepassxc_cli_spec(&s);
-                }
-            }
-        }
+    if let Some(candidate) = find_program(
+        path_var,
+        &["keepassxc-cli", "keepassxc.cli"],
+        linux_keepassxc_candidates(home),
+        &is_file,
+    ) {
+        return parse_keepassxc_cli_spec(&candidate.to_string_lossy());
     }
-    for candidate in linux_keepassxc_candidates(home) {
-        if is_file(&candidate) {
-            let s = candidate.to_string_lossy().into_owned();
-            return parse_keepassxc_cli_spec(&s);
-        }
+    let mut flatpak_roots = vec![PathBuf::from("/var/lib/flatpak")];
+    if let Some(home) = home {
+        flatpak_roots.push(home.join(".local/share/flatpak"));
     }
-    let mut flatpak_dirs = vec![
-        PathBuf::from("/var/lib/flatpak/app").join(KEEPASSXC_FLATPAK_APP_ID),
-        PathBuf::from("/var/lib/flatpak/exports/bin").join(KEEPASSXC_FLATPAK_APP_ID),
-    ];
-    if let Some(h) = home {
-        flatpak_dirs.push(
-            h.join(".local")
-                .join("share")
-                .join("flatpak")
-                .join("app")
-                .join(KEEPASSXC_FLATPAK_APP_ID),
-        );
-        flatpak_dirs.push(
-            h.join(".local")
-                .join("share")
-                .join("flatpak")
-                .join("exports")
-                .join("bin")
-                .join(KEEPASSXC_FLATPAK_APP_ID),
-        );
-    }
-    let has_flatpak_export = flatpak_dirs.iter().any(|p| is_dir(p) || is_file(p))
+    let mut flatpak_dirs = flatpak_roots.iter().flat_map(|root| {
+        ["app", "exports/bin"].map(|dir| root.join(dir).join(KEEPASSXC_FLATPAK_APP_ID))
+    });
+    let has_flatpak_export = flatpak_dirs.any(|p| is_dir(&p) || is_file(&p))
         || flatpak_installed(KEEPASSXC_FLATPAK_APP_ID);
     if has_flatpak_export {
-        let flatpak_bin = path_var
-            .and_then(|v| {
-                std::env::split_paths(v)
-                    .map(|d| d.join("flatpak"))
-                    .find(|p| is_file(p))
-            })
-            .or_else(|| {
-                let usr = PathBuf::from("/usr/bin/flatpak");
-                is_file(&usr).then_some(usr)
-            })
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "flatpak".to_string());
-        return KeepassCliSpec {
-            program: flatpak_bin,
-            prefix_args: vec![
-                "run".to_string(),
-                "--command=keepassxc-cli".to_string(),
-                KEEPASSXC_FLATPAK_APP_ID.to_string(),
-            ],
-            is_flatpak: true,
-            display: format!("flatpak:{KEEPASSXC_FLATPAK_APP_ID}"),
-        };
+        let mut spec = parse_keepassxc_cli_spec(&format!("flatpak:{KEEPASSXC_FLATPAK_APP_ID}"));
+        if let Some(program) = find_program(
+            path_var,
+            &["flatpak"],
+            [PathBuf::from("/usr/bin/flatpak")],
+            &is_file,
+        ) {
+            spec.program = program.to_string_lossy().into_owned();
+        }
+        return spec;
     }
     parse_keepassxc_cli_spec("keepassxc-cli")
 }
@@ -2637,185 +2618,113 @@ fn resolve_non_wrapper_executable(
             return Some(raw.to_string());
         }
     }
-    if let Some(path_var) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path_var) {
-            for name in exe_names {
-                let candidate = dir.join(name);
-                if candidate.is_file() && (!skip_wrappers || !is_susi_wrapper_binary(&candidate)) {
-                    return Some(candidate.to_string_lossy().into_owned());
-                }
-            }
-        }
-    }
-    for cand in extra_candidates {
-        if cand.is_file() && (!skip_wrappers || !is_susi_wrapper_binary(cand)) {
-            return Some(cand.to_string_lossy().into_owned());
-        }
-    }
-    None
+    find_program(
+        std::env::var_os("PATH").as_deref(),
+        exe_names,
+        extra_candidates.iter().cloned(),
+        |candidate| candidate.is_file() && (!skip_wrappers || !is_susi_wrapper_binary(candidate)),
+    )
+    .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn resolve_real_gpg_binary() -> Option<String> {
-    let mut extras = Vec::new();
     #[cfg(windows)]
-    {
-        extras.push(PathBuf::from(r"C:\Program Files\GnuPG\bin\gpg.exe"));
-        extras.push(PathBuf::from(r"C:\Program Files (x86)\GnuPG\bin\gpg.exe"));
-        extras.push(PathBuf::from(r"C:\Program Files\Git\usr\bin\gpg.exe"));
-        if let Some(up) = home_dir() {
-            extras.push(
-                up.join("scoop")
-                    .join("apps")
-                    .join("gpg")
-                    .join("current")
-                    .join("bin")
-                    .join("gpg.exe"),
-            );
+    let extras = {
+        let mut paths = vec![
+            PathBuf::from(r"C:\Program Files\GnuPG\bin\gpg.exe"),
+            PathBuf::from(r"C:\Program Files (x86)\GnuPG\bin\gpg.exe"),
+            PathBuf::from(r"C:\Program Files\Git\usr\bin\gpg.exe"),
+        ];
+        if let Some(home) = home_dir() {
+            paths.push(home.join(r"scoop\apps\gpg\current\bin\gpg.exe"));
         }
-        resolve_non_wrapper_executable(
-            non_empty_env("SUSI_REAL_GPG").as_deref(),
-            &["gpg.exe", "gpg2.exe"],
-            &extras,
-            true,
-        )
-    }
+        paths
+    };
     #[cfg(target_os = "macos")]
-    {
-        extras.extend([
-            PathBuf::from("/opt/homebrew/bin/gpg"),
-            PathBuf::from("/usr/local/bin/gpg"),
-            PathBuf::from("/usr/local/MacGPG2/bin/gpg"),
-        ]);
-        resolve_non_wrapper_executable(
-            non_empty_env("SUSI_REAL_GPG").as_deref(),
-            &["gpg", "gpg2"],
-            &extras,
-            true,
-        )
-    }
+    let extras = [
+        "/opt/homebrew/bin/gpg",
+        "/usr/local/bin/gpg",
+        "/usr/local/MacGPG2/bin/gpg",
+    ]
+    .map(PathBuf::from);
     #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        extras.extend([
-            PathBuf::from("/usr/bin/gpg"),
-            PathBuf::from("/usr/bin/gpg2"),
-            PathBuf::from("/usr/local/bin/gpg"),
-        ]);
-        resolve_non_wrapper_executable(
-            non_empty_env("SUSI_REAL_GPG").as_deref(),
-            &["gpg", "gpg2"],
-            &extras,
-            true,
-        )
-    }
-}
-
-fn resolve_gpgconf_binary(real_gpg: Option<&str>) -> Option<String> {
-    let mut extras = Vec::new();
-    if let Some(gpg) = real_gpg {
-        if let Some(parent) = Path::new(gpg).parent() {
-            #[cfg(windows)]
-            extras.push(parent.join("gpgconf.exe"));
-            #[cfg(not(windows))]
-            extras.push(parent.join("gpgconf"));
-        }
-    }
+    let extras = ["/usr/bin/gpg", "/usr/bin/gpg2", "/usr/local/bin/gpg"].map(PathBuf::from);
     #[cfg(windows)]
-    {
-        extras.push(PathBuf::from(r"C:\Program Files\GnuPG\bin\gpgconf.exe"));
-        extras.push(PathBuf::from(
-            r"C:\Program Files (x86)\GnuPG\bin\gpgconf.exe",
-        ));
-        resolve_non_wrapper_executable(None, &["gpgconf.exe"], &extras, false)
-    }
+    let names = ["gpg.exe", "gpg2.exe"];
     #[cfg(not(windows))]
-    {
-        extras.extend([
-            PathBuf::from("/usr/bin/gpgconf"),
-            PathBuf::from("/opt/homebrew/bin/gpgconf"),
-            PathBuf::from("/usr/local/bin/gpgconf"),
-        ]);
-        resolve_non_wrapper_executable(None, &["gpgconf"], &extras, false)
-    }
+    let names = ["gpg", "gpg2"];
+    resolve_non_wrapper_executable(
+        non_empty_env("SUSI_REAL_GPG").as_deref(),
+        &names,
+        &extras,
+        true,
+    )
 }
 
-fn gpg_preset_passphrase_candidates_with(real_gpg: Option<&str>) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(gpg) = real_gpg {
-        if let Some(parent) = Path::new(gpg).parent() {
-            #[cfg(windows)]
-            out.push(parent.join("gpg-preset-passphrase.exe"));
-            #[cfg(not(windows))]
-            {
-                out.push(parent.join("gpg-preset-passphrase"));
-                if let Some(prefix) = parent.parent() {
-                    out.push(
-                        prefix
-                            .join("lib")
-                            .join("gnupg")
-                            .join("gpg-preset-passphrase"),
-                    );
-                    out.push(prefix.join("libexec").join("gpg-preset-passphrase"));
-                }
+#[derive(Clone, Copy)]
+enum GpgCompanion {
+    Config,
+    ConnectAgent,
+    PresetPassphrase,
+}
+
+impl GpgCompanion {
+    fn filename(self) -> String {
+        let stem = match self {
+            Self::Config => "gpgconf",
+            Self::ConnectAgent => "gpg-connect-agent",
+            Self::PresetPassphrase => "gpg-preset-passphrase",
+        };
+        format!("{stem}{}", std::env::consts::EXE_SUFFIX)
+    }
+
+    fn install_dirs(self) -> &'static [&'static str] {
+        #[cfg(windows)]
+        match self {
+            Self::ConnectAgent => &[r"C:\Program Files\GnuPG\bin"],
+            Self::Config | Self::PresetPassphrase => &[
+                r"C:\Program Files\GnuPG\bin",
+                r"C:\Program Files (x86)\GnuPG\bin",
+            ],
+        }
+        #[cfg(not(windows))]
+        match self {
+            Self::PresetPassphrase => &[
+                "/usr/lib/gnupg",
+                "/usr/libexec",
+                "/usr/lib/gnupg2",
+                "/opt/homebrew/opt/gnupg/libexec",
+                "/usr/local/opt/gnupg/libexec",
+                "/usr/local/MacGPG2/libexec",
+            ],
+            Self::Config | Self::ConnectAgent => {
+                &["/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"]
             }
         }
     }
-    #[cfg(windows)]
-    {
-        out.push(PathBuf::from(
-            r"C:\Program Files\GnuPG\bin\gpg-preset-passphrase.exe",
-        ));
-        out.push(PathBuf::from(
-            r"C:\Program Files (x86)\GnuPG\bin\gpg-preset-passphrase.exe",
-        ));
-    }
-    #[cfg(not(windows))]
-    {
-        out.extend([
-            PathBuf::from("/usr/lib/gnupg/gpg-preset-passphrase"),
-            PathBuf::from("/usr/libexec/gpg-preset-passphrase"),
-            PathBuf::from("/usr/lib/gnupg2/gpg-preset-passphrase"),
-            PathBuf::from("/opt/homebrew/opt/gnupg/libexec/gpg-preset-passphrase"),
-            PathBuf::from("/usr/local/opt/gnupg/libexec/gpg-preset-passphrase"),
-            PathBuf::from("/usr/local/MacGPG2/libexec/gpg-preset-passphrase"),
-        ]);
-    }
-    out
-}
 
-fn resolve_gpg_preset_passphrase_binary(real_gpg: Option<&str>) -> Option<String> {
-    let extras = gpg_preset_passphrase_candidates_with(real_gpg);
-    #[cfg(windows)]
-    let names = &["gpg-preset-passphrase.exe"][..];
-    #[cfg(not(windows))]
-    let names = &["gpg-preset-passphrase"][..];
-    resolve_non_wrapper_executable(None, names, &extras, false)
-}
-
-fn resolve_gpg_connect_agent_binary(real_gpg: Option<&str>) -> Option<String> {
-    let mut extras = Vec::new();
-    if let Some(gpg) = real_gpg {
-        if let Some(parent) = Path::new(gpg).parent() {
-            #[cfg(windows)]
-            extras.push(parent.join("gpg-connect-agent.exe"));
+    fn candidates(self, real_gpg: Option<&str>, filename: &str) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        if let Some(bin) = real_gpg.and_then(|p| Path::new(p).parent()) {
+            paths.push(bin.join(filename));
             #[cfg(not(windows))]
-            extras.push(parent.join("gpg-connect-agent"));
+            if let (Self::PresetPassphrase, Some(prefix)) = (self, bin.parent()) {
+                paths.push(prefix.join("lib/gnupg").join(filename));
+                paths.push(prefix.join("libexec").join(filename));
+            }
         }
+        paths.extend(
+            self.install_dirs()
+                .iter()
+                .map(|dir| Path::new(dir).join(filename)),
+        );
+        paths
     }
-    #[cfg(windows)]
-    {
-        extras.push(PathBuf::from(
-            r"C:\Program Files\GnuPG\bin\gpg-connect-agent.exe",
-        ));
-        resolve_non_wrapper_executable(None, &["gpg-connect-agent.exe"], &extras, false)
-    }
-    #[cfg(not(windows))]
-    {
-        extras.extend([
-            PathBuf::from("/usr/bin/gpg-connect-agent"),
-            PathBuf::from("/opt/homebrew/bin/gpg-connect-agent"),
-            PathBuf::from("/usr/local/bin/gpg-connect-agent"),
-        ]);
-        resolve_non_wrapper_executable(None, &["gpg-connect-agent"], &extras, false)
+
+    fn resolve(self, real_gpg: Option<&str>) -> Option<String> {
+        let filename = self.filename();
+        let extras = self.candidates(real_gpg, &filename);
+        resolve_non_wrapper_executable(None, &[&filename], &extras, false)
     }
 }
 
@@ -3109,8 +3018,8 @@ fn preset_gpg_passphrase(
         return Err("no GPG signing keygrips found in local keyring or vault".to_string());
     }
     ensure_gpg_agent_preset_allowed(gpgconf)?;
-    let preset_bin = resolve_gpg_preset_passphrase_binary(real_gpg);
-    let connect_bin = resolve_gpg_connect_agent_binary(real_gpg);
+    let preset_bin = GpgCompanion::PresetPassphrase.resolve(real_gpg);
+    let connect_bin = GpgCompanion::ConnectAgent.resolve(real_gpg);
     if preset_bin.is_none() && connect_bin.is_none() {
         return Err(
             "neither gpg-preset-passphrase nor gpg-connect-agent was found on this system"
@@ -3337,7 +3246,7 @@ pub fn prime_signing_agents(
 
     let mut notes = Vec::new();
     let real_gpg = resolve_real_gpg_binary();
-    let gpgconf = resolve_gpgconf_binary(real_gpg.as_deref());
+    let gpgconf = GpgCompanion::Config.resolve(real_gpg.as_deref());
     let mut gpg_primed_keygrips = Vec::new();
 
     if let Some(gpg_pass) = vault.get("signing", "GPG_SIGNING_PASSPHRASE") {
@@ -3610,8 +3519,9 @@ pub fn vault_doctor(config_dir: &Path) -> VaultDoctorReport {
 
     let headless_qt_needed = is_headless_qt_env();
     let real_gpg_path = resolve_real_gpg_binary();
-    let gpgconf = resolve_gpgconf_binary(real_gpg_path.as_deref());
-    let gpg_preset_passphrase_path = resolve_gpg_preset_passphrase_binary(real_gpg_path.as_deref());
+    let gpgconf = GpgCompanion::Config.resolve(real_gpg_path.as_deref());
+    let gpg_preset_passphrase_path =
+        GpgCompanion::PresetPassphrase.resolve(real_gpg_path.as_deref());
     let gpg_agent_allow_preset = resolve_gnupg_homedir(gpgconf.as_deref())
         .and_then(|d| std::fs::read_to_string(d.join("gpg-agent.conf")).ok())
         .is_some_and(|raw| {
@@ -4474,6 +4384,34 @@ mod tests {
             vault.get("signing", "SSH_SIGNING_PUBLIC_KEY"),
             Some("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest")
         );
+    }
+
+    #[test]
+    fn gpg_companions_prefer_the_selected_install_before_system_fallbacks() {
+        let selected = Path::new("synthetic-install").join("bin").join("gpg");
+        for helper in [
+            GpgCompanion::Config,
+            GpgCompanion::ConnectAgent,
+            GpgCompanion::PresetPassphrase,
+        ] {
+            let filename = helper.filename();
+            let candidates = helper.candidates(selected.to_str(), &filename);
+            assert_eq!(candidates[0], selected.with_file_name(&filename));
+            let standard = helper.candidates(None, &filename);
+            assert!(!standard.is_empty());
+            assert!(candidates.ends_with(&standard));
+            #[cfg(not(windows))]
+            if matches!(helper, GpgCompanion::PresetPassphrase) {
+                assert_eq!(
+                    candidates[1],
+                    Path::new("synthetic-install/lib/gnupg").join(&filename)
+                );
+                assert_eq!(
+                    candidates[2],
+                    Path::new("synthetic-install/libexec").join(&filename)
+                );
+            }
+        }
     }
 
     #[test]

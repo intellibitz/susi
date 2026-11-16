@@ -1,0 +1,30 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-2",
+  "title": "Share platform discovery of vault signing programs",
+  "goal": "Vision: V-6. Use one GnuPG companion lookup for the core-only and commercial-paired vault entry points served by core. Retain PATH and installation-directory search order on Windows, macOS and Linux.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "keepass_bridge",
+      "--",
+      "--test-threads=1"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794856302,
+  "scopes": [
+    "crates/susi-config/src/keepass_bridge.rs",
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-2.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "The vaulted GPG command resolver, existing platform-specific candidate lists, and commercial vault counterpart. The standalone core directly provides the wrapper and cannot depend on a commercial install."
+  }
+}
