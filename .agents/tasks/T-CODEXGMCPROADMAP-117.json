@@ -47,5 +47,6 @@
     "crates/susi-wire-client/src/mcp.rs",
     "tests/gmcp_requirements.rs",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
-  ]
+  ],
+  "implementation_commit": "8b02d401dddd33728fefb550484171c6b6d545ee"
 }
