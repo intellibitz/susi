@@ -135,6 +135,12 @@ Everything else in those mandates stands.
     landed on an open task renews the lease, and a task whose completed record
     the publish put on `main` has its claim released and its receipt settled.
     The task that wrote this paragraph was closed that way.
+  - *Rule 2, `workflow finish` from such a host (Commercial
+    `T-CLAUDEFINISHMAIN-1`).* `finish` closes with the receipt held back,
+    then releases the claim and publishes the receipt together, so the debt
+    is on the remote the moment ownership is gone. For a claim kept on `main`
+    that step is now one commit on `main` that removes the claim file and adds
+    the receipt file; before, the release refused there.
   - *Rule 6.* The ten minutes refuse nothing. Past them the commit guard and
     `workflow fresh` say plainly that a worktree is behind `origin/main`, or
     that its own commits wait unpublished, and for how long. The 20-commit
