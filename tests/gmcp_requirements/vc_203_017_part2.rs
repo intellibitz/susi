@@ -254,7 +254,6 @@ fn gmcp_req_203_017_05_interop() {
         mcp::{
             model::{CallToolResult, ClientCapabilities, ContentBlock, ReadResourceResult, Resource, Tool},
             task_manager::TaskExit,
-            ServiceExt,
         },
         protocol::{GmcpService, McpGatewayProxy},
         sdk::{
@@ -492,7 +491,7 @@ fn main() {
     for round in 0..3 {
         assert_eq!(host.read_resource("alpha", &format!("memo://items/{round}")).expect("ra")["contents"][0]["uri"], format!("memo://items/{round}"));
         assert_eq!(host.get_prompt("beta", "draft_brief", Some(&json!({"topic":format!("b{round}")}))).expect("pb")["messages"][0]["role"], "user");
-        assert_eq!(host.complete("alpha", CompletionQuery { is_resource: false, target: "draft_brief", arg_name: "topic", arg_value: "se", context_args: None }).expect("ca")["completion"]["values"].as_array().expect("v").contains(&json!("security")), true);
+        assert!(host.complete("alpha", CompletionQuery { is_resource: false, target: "draft_brief", arg_name: "topic", arg_value: "se", context_args: None }).expect("ca")["completion"]["values"].as_array().expect("v").contains(&json!("security")));
         assert_eq!(host.call_tool("gamma", "cb", &json!({"r":round}), Some(&json!("tok-g"))).expect("cg")["structuredContent"]["pass"], json!(true));
     }
     assert_eq!(host.inspect_app("alpha", "ui://app/alpha").expect("app_a").domain.as_deref(), Some("alpha.susi.local"));
