@@ -26,6 +26,64 @@ use crate::cell::SwarmCell;
 use crate::syscall::{token_matches, SyscallRequest, SyscallResponse, SyscallStatus};
 use crate::wire::{FrameStream, MessageType, WireFrame};
 
+/// Start a standard pillar cell. An explicit nonblank cell token takes precedence
+/// over the host's seeded token. The original token bytes remain significant.
+pub fn run_pillar<E: std::error::Error + 'static>(
+    service: &str,
+    port: u16,
+    cell_id: &str,
+    role: crate::swarm::SwarmRole,
+    capabilities: &[&str],
+    seed_token: fn() -> Result<String, E>,
+    handler: fn(SyscallRequest) -> SyscallResponse,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let bind_addr = crate::cell::cell_bind_addr(port);
+    println!("{service} micro-daemon starting on {bind_addr}");
+    let mut cell = SwarmCell::new(cell_id.to_owned(), role, format!("tcp://{bind_addr}"));
+    for capability in capabilities {
+        cell.register_capability(capability);
+    }
+    let token = match std::env::var(crate::syscall::CELL_TOKEN_ENV) {
+        Ok(token) if !token.trim().is_empty() => token,
+        _ => seed_token()?,
+    };
+    serve(
+        cell,
+        bind_addr,
+        token.into(),
+        &format!("{service} Swarm Cell"),
+        handler,
+    )?;
+    Ok(())
+}
+
+/// Convert local handler duration to the bounded microsecond counter on the wire.
+pub fn elapsed_micros(start: std::time::Instant) -> u64 {
+    u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Build the reply to a completed pillar handler, retaining any data supplied on failure.
+pub fn handler_reply(
+    id: String,
+    latency_us: u64,
+    data: serde_json::Value,
+    message: Option<String>,
+) -> SyscallResponse {
+    let status = if message.is_some() {
+        SyscallStatus::Error
+    } else {
+        SyscallStatus::Success
+    };
+    SyscallResponse {
+        id,
+        status,
+        data,
+        receipt: None,
+        latency_us,
+        message,
+    }
+}
+
 /// Serve `cell` on `bind_addr` until the listener fails, answering every
 /// authenticated syscall with `handler`. Every syscall must present
 /// `expected_token`; an empty token denies all of them. Heartbeats stay
@@ -186,14 +244,12 @@ where
             .map(|s| (*s).to_string())
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "non-text panic payload".to_string());
-        SyscallResponse {
+        handler_reply(
             id,
-            status: SyscallStatus::Error,
-            data: serde_json::Value::Null,
-            receipt: None,
-            latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
-            message: Some(format!("cell handler panicked: {detail}")),
-        }
+            elapsed_micros(started),
+            serde_json::Value::Null,
+            Some(format!("cell handler panicked: {detail}")),
+        )
     })
 }
 
