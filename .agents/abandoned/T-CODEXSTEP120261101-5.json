@@ -1,0 +1,7 @@
+{
+  "task": "T-CODEXSTEP120261101-5",
+  "agent": "CODEXSTEP120261101",
+  "reason": "Superseded: closed 2026-11-01 on a line of history with no common root with today's main (head cb8070e7dd89), so it can never be published; it reserved deny.toml, README.md, .agents/identity.json and crates/susi-gawd-agents/src/self_core.rs against every scoped claim. Given up by CEO direction 2026-11-16 (clear the orphaned reservation).",
+  "at_unix": 1794833891,
+  "head": "cb8070e7dd898b5e686b97b7768bd19005d6b655"
+}
