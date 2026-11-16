@@ -48,22 +48,19 @@ pub struct QualificationInput {
 /// Promote only through tagged release path; 2x claim only with evidence.
 #[must_use]
 pub fn qualify_release(d: &ReleaseDrill) -> QualificationReport {
-    let mut limitations = Vec::new();
-    if !d.configured {
-        limitations.push("ecosystem not configured".into());
-    }
-    if !d.mission_ok {
-        limitations.push("swarm mission failed".into());
-    }
-    if !d.recovered {
-        limitations.push("recovery incomplete".into());
-    }
-    if !d.self_patch_evaluated {
-        limitations.push("self-patch not evaluated".into());
-    }
-    if !d.promoted_via_tag {
-        limitations.push("promotion bypassed tagged release path".into());
-    }
+    let gates = [
+        (d.configured, "ecosystem not configured"),
+        (d.mission_ok, "swarm mission failed"),
+        (d.recovered, "recovery incomplete"),
+        (d.self_patch_evaluated, "self-patch not evaluated"),
+        (d.promoted_via_tag, "promotion bypassed tagged release path"),
+    ];
+    let mut limitations: Vec<String> = gates
+        .into_iter()
+        .filter(|(passed, _)| !passed)
+        .map(|(_, reason)| reason.to_owned())
+        .collect();
+    let qualified = limitations.is_empty();
     let claim_2x = match (d.baseline_2x_metric, d.predeclared_2x_metric) {
         (Some(base), Some(now)) if base > 0.0 && now >= base * 2.0 => true,
         (Some(_), Some(_)) => {
@@ -72,8 +69,6 @@ pub fn qualify_release(d: &ReleaseDrill) -> QualificationReport {
         }
         _ => false,
     };
-    let qualified =
-        d.configured && d.mission_ok && d.recovered && d.self_patch_evaluated && d.promoted_via_tag;
     QualificationReport {
         qualified,
         claim_2x,
@@ -114,22 +109,20 @@ pub fn qualify_multi_stage(inputs: &[QualificationInput]) -> QualificationReport
                 .into_iter()
                 .map(|limitation| format!("{environment}: {limitation}")),
         );
-        if !input.budget_preserved {
-            every_stage_passed = false;
-            limitations.push(format!("{environment}: budget preservation failed"));
+        for (passed, reason) in [
+            (input.budget_preserved, "budget preservation failed"),
+            (input.privacy_preserved, "privacy preservation failed"),
+            (
+                input.drill.scorecard_delta.is_finite(),
+                "scorecard delta is not finite",
+            ),
+        ] {
+            if !passed {
+                every_stage_passed = false;
+                limitations.push(format!("{environment}: {reason}"));
+            }
         }
-        if !input.privacy_preserved {
-            every_stage_passed = false;
-            limitations.push(format!("{environment}: privacy preservation failed"));
-        }
-        if !input.drill.scorecard_delta.is_finite() {
-            every_stage_passed = false;
-            limitations.push(format!("{environment}: scorecard delta is not finite"));
-        }
-        scorecard_deltas.push(ScorecardDelta {
-            environment: input.drill.env.clone(),
-            delta: input.drill.scorecard_delta,
-        });
+        scorecard_deltas.extend(report.scorecard_deltas);
     }
 
     if !has_local {
