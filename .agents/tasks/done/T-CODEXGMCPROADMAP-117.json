@@ -21,8 +21,8 @@
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "base_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
   "limitations": [
     "Adversarial stage (`GMCP-203-017-04`) hardens `McpHost`, `DuplexPeer`, `PersistedTaskHandleStore` (`0600` Unix mode + `open_or_quarantine` corrupt-store recovery), and `parse_app_resource_summary` (`ui://` CSP/permissions/hostname validation) against malformed frames, duplicate callback IDs, notification floods, oversized payloads, peer disconnects, cross-server task replay, and policy violations; interoperability, operations, and `.M` mastery ship across `T-CODEXGMCPROADMAP-118..120`.",
@@ -48,5 +48,11 @@
     "tests/gmcp_requirements.rs",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
   ],
-  "implementation_commit": "8b02d401dddd33728fefb550484171c6b6d545ee"
+  "implementation_commit": "8b02d401dddd33728fefb550484171c6b6d545ee",
+  "verified_commit": "8ce7495c98b9951edc54c879e0222a803646f501",
+  "closed": {
+    "at_unix": 1794817902,
+    "commit": "8ce7495c98b9951edc54c879e0222a803646f501",
+    "by": "AG2FEATURES"
+  }
 }
