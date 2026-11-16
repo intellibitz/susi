@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+#[cfg(test)]
 use std::fs;
 use std::path::PathBuf;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
@@ -24,6 +25,12 @@ pub struct OpenWeightVariant {
     pub hf_repo: String,
     #[serde(default)]
     pub openrouter_model: String,
+}
+
+impl OpenWeightVariant {
+    fn matches(&self, needle: &str) -> bool {
+        self.id.eq_ignore_ascii_case(needle) || self.ollama_tag.eq_ignore_ascii_case(needle)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,51 +66,27 @@ pub struct OpenWeightOverride {
     pub extra: HashMap<String, Value>,
 }
 
-#[derive(Clone)]
-pub struct OpenWeightManager {
-    root: PathBuf,
-}
+crate::catalog::local_catalog!(
+    OpenWeightManager,
+    with_root,
+    OpenWeightDefinition,
+    "open-weight",
+    "open-weight-models.json",
+    "unknown open-weight model {id}; use `susi openweight list`",
+    |model, id| {
+        let needle = id.trim();
+        model.id.eq_ignore_ascii_case(needle)
+            || model.name.eq_ignore_ascii_case(needle)
+            || model.ollama_tag.eq_ignore_ascii_case(needle)
+            || model.variants.iter().any(|variant| variant.matches(needle))
+    }
+);
 
 impl OpenWeightManager {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            root: susi_paths::SusiDirs::config_dir().join("open-weight"),
-        })
-    }
-
-    pub fn with_root(root: PathBuf) -> Self {
-        Self { root }
-    }
-
-    pub fn catalog() -> Result<Vec<OpenWeightDefinition>> {
-        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
-            "open-weight-models.json",
-            include_str!("../../../config/open-weight-models.json"),
-        ))
-    }
-
-    pub fn definition(id: &str) -> Result<OpenWeightDefinition> {
-        let needle = id.trim();
-        Self::catalog()?
-            .into_iter()
-            .find(|m| {
-                m.id.eq_ignore_ascii_case(needle)
-                    || m.name.eq_ignore_ascii_case(needle)
-                    || m.ollama_tag.eq_ignore_ascii_case(needle)
-                    || m.variants.iter().any(|v| {
-                        v.id.eq_ignore_ascii_case(needle)
-                            || v.ollama_tag.eq_ignore_ascii_case(needle)
-                    })
-            })
-            .with_context(|| format!("unknown open-weight model {id}; use `susi openweight list`"))
-    }
-
     pub fn effective(&self, id: &str) -> Result<OpenWeightDefinition> {
         let mut def = Self::definition(id)?;
         // If the lookup matched a variant id/tag, pin that variant as the effective tag.
-        if let Some(variant) = def.variants.iter().find(|v| {
-            v.id.eq_ignore_ascii_case(id.trim()) || v.ollama_tag.eq_ignore_ascii_case(id.trim())
-        }) {
+        if let Some(variant) = def.variants.iter().find(|v| v.matches(id.trim())) {
             def.ollama_tag = variant.ollama_tag.clone();
             if !variant.hf_repo.is_empty() {
                 def.hf_repo = variant.hf_repo.clone();
@@ -112,10 +95,11 @@ impl OpenWeightManager {
                 def.openrouter_model = variant.openrouter_model.clone();
             }
         }
-        let path = self.root.join(format!("{}.json", def.id));
-        if let Ok(bytes) = fs::read(&path) {
-            let over: OpenWeightOverride =
-                serde_json::from_slice(&bytes).context("invalid open-weight override")?;
+        if let Some(over) = crate::catalog::read_override::<OpenWeightOverride>(
+            &self.root,
+            &def.id,
+            "invalid open-weight override",
+        )? {
             crate::catalog::apply_override(&mut def.engine, over.engine, false);
             crate::catalog::apply_override(&mut def.ollama_tag, over.ollama_tag, false);
             crate::catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
@@ -136,20 +120,12 @@ impl OpenWeightManager {
 
     pub fn reset(&self, id: &str) -> Result<OpenWeightDefinition> {
         let def = Self::definition(id)?;
-        match fs::remove_file(self.root.join(format!("{}.json", def.id))) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
+        crate::susi_config::remove_file_if_present(&self.root.join(format!("{}.json", def.id)))?;
         self.effective(&def.id)
     }
 
-    fn preferred_path(&self) -> PathBuf {
-        self.root.join("preferred_model.txt")
-    }
-
     pub fn preferred(&self) -> Option<String> {
-        crate::catalog::preferred(&self.preferred_path())
+        crate::catalog::preferred(&crate::catalog::preferred_path(&self.root))
     }
 
     pub fn ollama_cli_present() -> bool {
@@ -247,7 +223,10 @@ impl OpenWeightManager {
             )
         })?;
         crate::susi_config::create_private_dir(&self.root)?;
-        crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
+        crate::susi_config::atomic_write_bytes(
+            &crate::catalog::preferred_path(&self.root),
+            def.id.as_bytes(),
+        )?;
         crate::set_selected_model_override(&def.ollama_tag)?;
         Ok(format!(
             "preferred open-weight model set to {} (ollama tag {})",
@@ -257,7 +236,7 @@ impl OpenWeightManager {
 
     pub fn clear_preferred(&self) -> Result<String> {
         crate::catalog::clear_preferred(
-            &self.preferred_path(),
+            &crate::catalog::preferred_path(&self.root),
             "cleared preferred open-weight model",
             "no preferred open-weight model was set",
         )

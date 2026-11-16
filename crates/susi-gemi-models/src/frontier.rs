@@ -4,11 +4,9 @@
 //! `susi_gemi::frontier_ext` so this crate never depends on engines HTTP.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
+#[cfg(test)]
 use std::fs;
-use std::path::PathBuf;
-use susi_error::{EaiResult as Result, ResultExt as Context};
+use susi_error::EaiResult as Result;
 
 use crate::catalog;
 
@@ -22,6 +20,12 @@ pub struct FrontierVariant {
     pub protocol_type: String,
     #[serde(default)]
     pub api_key_env: String,
+}
+
+impl FrontierVariant {
+    fn matches(&self, needle: &str) -> bool {
+        self.id.eq_ignore_ascii_case(needle) || self.model.eq_ignore_ascii_case(needle)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,69 +49,34 @@ pub struct FrontierDefinition {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FrontierOverride {
-    pub engine: Option<String>,
-    pub model: Option<String>,
-    pub protocol_type: Option<String>,
-    pub api_key_env: Option<String>,
-    /// Mandate 35: preserve unknown keys on configure read-modify-write.
-    #[serde(flatten, default)]
-    pub extra: HashMap<String, Value>,
-}
+crate::catalog::cloud_model_controls!(
+    FrontierManager,
+    FrontierDefinition,
+    FrontierOverride,
+    FrontierEndpoint,
+    "frontier"
+);
 
-#[derive(Debug, Clone)]
-pub struct FrontierEndpoint {
-    pub def: FrontierDefinition,
-    pub api_base: String,
-    pub protocol_type: String,
-    pub api_key_env: String,
-    pub api_key: String,
-}
-
-#[derive(Clone)]
-pub struct FrontierManager {
-    config: PathBuf,
-}
+crate::catalog::local_catalog!(
+    FrontierManager,
+    with_config,
+    FrontierDefinition,
+    "frontier-models",
+    "frontier-models.json",
+    "unknown frontier model {id}; use `susi frontier list`",
+    |model, id| {
+        let needle = id.trim();
+        model.id.eq_ignore_ascii_case(needle)
+            || model.name.eq_ignore_ascii_case(needle)
+            || model.model.eq_ignore_ascii_case(needle)
+            || model.variants.iter().any(|variant| variant.matches(needle))
+    }
+);
 
 impl FrontierManager {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            config: susi_paths::SusiDirs::config_dir().join("frontier-models"),
-        })
-    }
-
-    pub fn with_config(config: PathBuf) -> Self {
-        Self { config }
-    }
-
-    pub fn catalog() -> Result<Vec<FrontierDefinition>> {
-        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
-            "frontier-models.json",
-            include_str!("../../../config/frontier-models.json"),
-        ))
-    }
-
-    pub fn definition(id: &str) -> Result<FrontierDefinition> {
-        let needle = id.trim();
-        Self::catalog()?
-            .into_iter()
-            .find(|m| {
-                m.id.eq_ignore_ascii_case(needle)
-                    || m.name.eq_ignore_ascii_case(needle)
-                    || m.model.eq_ignore_ascii_case(needle)
-                    || m.variants.iter().any(|v| {
-                        v.id.eq_ignore_ascii_case(needle) || v.model.eq_ignore_ascii_case(needle)
-                    })
-            })
-            .with_context(|| format!("unknown frontier model {id}; use `susi frontier list`"))
-    }
-
     pub fn effective(&self, id: &str) -> Result<FrontierDefinition> {
         let mut def = Self::definition(id)?;
-        if let Some(variant) = def.variants.iter().find(|v| {
-            v.id.eq_ignore_ascii_case(id.trim()) || v.model.eq_ignore_ascii_case(id.trim())
-        }) {
+        if let Some(variant) = def.variants.iter().find(|v| v.matches(id.trim())) {
             def.model = variant.model.clone();
             if !variant.engine.is_empty() {
                 def.engine = variant.engine.clone();
@@ -118,37 +87,17 @@ impl FrontierManager {
             // Allow clearing api_key_env for local variants (explicit empty string).
             def.api_key_env = variant.api_key_env.clone();
         }
-        let path = self.config.join(format!("{}.json", def.id));
-        if let Ok(bytes) = fs::read(&path) {
-            let over: FrontierOverride =
-                serde_json::from_slice(&bytes).context("invalid frontier-model override")?;
-            catalog::apply_override(&mut def.engine, over.engine, false);
-            catalog::apply_override(&mut def.model, over.model, false);
-            catalog::apply_override(&mut def.protocol_type, over.protocol_type, true);
-            catalog::apply_override(&mut def.api_key_env, over.api_key_env, true);
-        }
-        def.validate()?;
-        Ok(def)
+        def.with_stored_override(&self.root)
     }
 
     pub fn configure(&self, id: &str, over: &FrontierOverride) -> Result<FrontierDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::write_json_override(&self.config, &def.id, over)?;
+        crate::susi_config::write_json_override(&self.root, &def.id, over)?;
         self.effective(&def.id)
-    }
-
-    pub fn reset(&self, id: &str) -> Result<FrontierDefinition> {
-        let def = Self::definition(id)?;
-        crate::susi_config::clear_json_override(&self.config, &def.id)?;
-        self.effective(&def.id)
-    }
-
-    fn preferred_path(&self) -> PathBuf {
-        self.config.join("preferred_model.txt")
     }
 
     pub fn preferred(&self) -> Option<String> {
-        crate::catalog::preferred(&self.preferred_path())
+        crate::catalog::preferred(&crate::catalog::preferred_path(&self.root))
     }
 
     /// Local readiness only — does not call a paid model.
@@ -161,24 +110,10 @@ impl FrontierManager {
         ))
     }
 
-    pub fn resolve_endpoint(&self, id: &str) -> Result<FrontierEndpoint> {
-        let def = self.effective(id)?;
-        self.preflight(&def.id)?;
-        let (endpoint, api_key) =
-            catalog::resolve_endpoint(&def.engine, &def.protocol_type, &def.api_key_env)?;
-        Ok(FrontierEndpoint {
-            def,
-            api_base: endpoint.api_base.trim().to_string(),
-            protocol_type: endpoint.protocol_type,
-            api_key_env: endpoint.api_key_env,
-            api_key,
-        })
-    }
-
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
         self.preflight(id)?;
-        crate::susi_config::create_private_dir(&self.config)?;
+        crate::susi_config::create_private_dir(&self.root)?;
         // Persist variant/engine pin when the lookup resolved a non-default model id.
         let base = Self::definition(&def.id)?;
         if base.model != def.model || base.engine != def.engine {
@@ -193,7 +128,10 @@ impl FrontierManager {
                 },
             )?;
         }
-        crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
+        crate::susi_config::atomic_write_bytes(
+            &crate::catalog::preferred_path(&self.root),
+            def.id.as_bytes(),
+        )?;
         crate::set_selected_model_override(&def.model)?;
         Ok(format!(
             "preferred frontier model set to {} (api id {})",
@@ -203,7 +141,7 @@ impl FrontierManager {
 
     pub fn clear_preferred(&self) -> Result<String> {
         crate::catalog::clear_preferred(
-            &self.preferred_path(),
+            &crate::catalog::preferred_path(&self.root),
             "cleared preferred frontier model",
             "no preferred frontier model was set",
         )
@@ -236,16 +174,6 @@ impl FrontierManager {
             "catalog_count": Self::catalog().map(|c| c.len()).unwrap_or(0),
             "documentation": "https://github.com/intellibitz/susi",
         })
-    }
-}
-
-impl FrontierDefinition {
-    fn validate(&self) -> Result<()> {
-        catalog::validate_model(
-            [&self.id, &self.engine, &self.model],
-            &self.api_key_env,
-            "frontier",
-        )
     }
 }
 
