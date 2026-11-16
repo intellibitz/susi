@@ -41,6 +41,6 @@
   ],
   "evidence": {
     "handoff": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-boundary-handoff.json",
-    "validation": "in progress; no preservation pass claimed"
+    "validation": "First explicit custom-harness proof passed: 40 transported comparisons, 17 local-refusal comparisons, 40 native raw-input characterizations, 10 invalid-wire rejections, one lost-response mutation without replay; final lint/invocation review pending."
   }
 }
