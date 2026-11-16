@@ -24,7 +24,6 @@
 //! `ttl u8 | dst_len u8 | dst | src_len u8 | src`), DATA (one end-to-end
 //! message), CLOSE (a reason), PING / PONG (keepalive), or HINT (the
 //! sender's signed public address list).
-
 use crate::peer_channel::{
     self as pc, ChannelError, CipherState, Expect, LocalIdentity, PeerIdentity,
 };
@@ -35,62 +34,46 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-
 /// First bytes a dialer writes: protocol and version.
 pub const MAGIC: &[u8; 8] = b"SUSIPC1\n";
-
 /// The channel port a hub listens on when `peer_channel_listen` names an
 /// address without a port. Outside the contract block (9090-9095 and its
 /// offsets up to +2000), the leaf services (18080-18084) and the common
 /// ephemeral ranges; never shifted by `port_offset`.
 pub const DEFAULT_PORT: u16 = 29_090;
-
 /// Link flag (encrypted in the first handshake payload): the dialer keeps
 /// this link open to receive calls on it.
 pub const FLAG_PERSISTENT: u8 = 0x01;
-
 /// Keepalive cadence: a PING after this much read silence.
 pub const KEEPALIVE: Duration = Duration::from_secs(15);
-
 /// A link with no frame received for this long is dead.
 pub const DEAD_AFTER: Duration = Duration::from_secs(45);
-
 /// A short-lived link with no open stream closes after this much idleness.
 const TRANSIENT_IDLE: Duration = Duration::from_secs(30);
-
 /// Bound on connect plus the three handshake messages.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// Bound on one blocked socket write.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
-
 /// Hops a stream may still take; each relay decrements it.
 const MAX_TTL: u8 = 4;
-
 /// Concurrent streams one link carries.
 const MAX_STREAMS: usize = 256;
-
 /// Concurrent inbound handshakes a listener runs.
 const MAX_HANDSHAKES: usize = 64;
-
 /// Application bytes per end-to-end message (below the Noise limit after
 /// the stream frame header and both AEAD tags).
 const APP_CHUNK: usize = 60_000;
-
 /// End-to-end messages a stream buffers before the reader drains them.
 const STREAM_QUEUE: usize = 512;
-
 const OPEN: u8 = 1;
 const DATA: u8 = 2;
 const CLOSE: u8 = 3;
 const PING: u8 = 4;
 const PONG: u8 = 5;
 const HINT: u8 = 6;
-
 /// The file in the config directory listing the hubs this node keeps an
 /// uplink to: rows of `{node_id, pubkey, address, hints?, hint_ts?}`.
 pub const HUBS_FILE: &str = "peer_channel_hubs.json";
-
 /// Standing of an identity in this node's roster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerClass {
@@ -103,7 +86,6 @@ pub enum PeerClass {
     /// hub never relays its streams to other members.
     Applicant,
 }
-
 /// The identity on the other end of a terminated end-to-end session, as the
 /// served application sees it.
 #[derive(Debug, Clone)]
@@ -114,7 +96,6 @@ pub struct ChannelPeer {
     /// caller's NAT router): routing information, never an identity.
     pub link_source: SocketAddr,
 }
-
 /// Classify a proven identity against `peers.json` / `peers_banned.json`.
 /// Banned identities and identities that claim a bound member's node id
 /// under another key (or a bound key under another node id) are refused.
@@ -158,9 +139,7 @@ pub fn classify(peer: &PeerIdentity) -> Result<PeerClass, String> {
     }
     Ok(class)
 }
-
 // ---- framing ----
-
 fn write_message(socket: &mut TcpStream, bytes: &[u8]) -> std::io::Result<()> {
     let len = u16::try_from(bytes.len()).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "channel message too long")
@@ -170,7 +149,6 @@ fn write_message(socket: &mut TcpStream, bytes: &[u8]) -> std::io::Result<()> {
     out.extend_from_slice(bytes);
     socket.write_all(&out)
 }
-
 fn read_message(socket: &mut TcpStream) -> std::io::Result<Vec<u8>> {
     let mut len = [0u8; 2];
     socket.read_exact(&mut len)?;
@@ -178,7 +156,6 @@ fn read_message(socket: &mut TcpStream) -> std::io::Result<Vec<u8>> {
     socket.read_exact(&mut buf)?;
     Ok(buf)
 }
-
 fn frame(kind: u8, sid: u32, body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(5 + body.len());
     out.push(kind);
@@ -186,7 +163,6 @@ fn frame(kind: u8, sid: u32, body: &[u8]) -> Vec<u8> {
     out.extend_from_slice(body);
     out
 }
-
 fn open_body(ttl: u8, dst: &str, src: &str) -> Vec<u8> {
     let mut body = vec![ttl];
     for id in [dst, src] {
@@ -195,7 +171,6 @@ fn open_body(ttl: u8, dst: &str, src: &str) -> Vec<u8> {
     }
     body
 }
-
 /// `(ttl, dst, src)` of an OPEN body.
 fn parse_open(body: &[u8]) -> Option<(u8, String, String)> {
     let (&ttl, rest) = body.split_first()?;
@@ -215,20 +190,16 @@ fn parse_open(body: &[u8]) -> Option<(u8, String, String)> {
         String::from_utf8(rest.to_vec()).ok()?,
     ))
 }
-
 // ---- links ----
-
 enum Event {
     Data(Vec<u8>),
     Closed(String),
 }
-
 #[derive(Clone)]
 enum Slot {
     Local(mpsc::SyncSender<Event>),
     Forward { link: Arc<Link>, sid: u32 },
 }
-
 /// One sealed TCP connection to another node.
 pub struct Link {
     id: u64,
@@ -248,32 +219,26 @@ pub struct Link {
     last_use: Mutex<Instant>,
     closed: AtomicBool,
 }
-
 impl Link {
     /// The identity this link's handshake proved.
     pub fn peer(&self) -> &PeerIdentity {
         &self.peer
     }
-
     /// The TCP address of the other end.
     pub fn remote(&self) -> SocketAddr {
         self.remote
     }
-
     /// Whether this side dialed the link and keeps it open to be called on.
     pub fn is_uplink(&self) -> bool {
         self.dialed && self.persistent
     }
-
     /// Whether the link is still usable.
     pub fn is_open(&self) -> bool {
         !self.closed.load(Ordering::SeqCst)
     }
-
     fn touch(&self) {
         *self.last_use.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
     }
-
     fn send(&self, kind: u8, sid: u32, body: &[u8]) -> Result<(), String> {
         if !self.is_open() {
             return Err(format!("link to {} is closed", self.peer.node_id));
@@ -289,19 +254,16 @@ impl Link {
         }
         Ok(())
     }
-
     /// Stream numbers: the dialer opens odd ones, the acceptor even ones.
     fn alloc_sid(&self) -> u32 {
         let n = self.next_sid.fetch_add(1, Ordering::SeqCst);
         let base = n.wrapping_mul(2);
         if self.dialed { base | 1 } else { base & !1 }.max(2)
     }
-
     fn sid_is_peers(&self, sid: u32) -> bool {
         // The peer opens odd streams when it dialed us, even when we dialed.
         (sid & 1 == 1) != self.dialed
     }
-
     fn slot(&self, sid: u32) -> Option<Slot> {
         self.streams
             .lock()
@@ -309,14 +271,12 @@ impl Link {
             .get(&sid)
             .cloned()
     }
-
     fn take_slot(&self, sid: u32) -> Option<Slot> {
         self.streams
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&sid)
     }
-
     fn insert_slot(&self, sid: u32, slot: Slot) -> bool {
         let mut streams = self.streams.lock().unwrap_or_else(|e| e.into_inner());
         if streams.len() >= MAX_STREAMS || streams.contains_key(&sid) {
@@ -325,7 +285,6 @@ impl Link {
         streams.insert(sid, slot);
         true
     }
-
     /// Close the link: every local stream sees end-of-stream, every
     /// forwarded stream is closed on its other link.
     pub fn close(&self, reason: &str) {
@@ -355,7 +314,6 @@ impl Link {
         }
         registry().remove(self.id);
     }
-
     /// Open a stream to `dst` on this link and return its endpoint.
     fn open_stream(self: &Arc<Self>, dst: &str) -> Result<StreamEnd, String> {
         let sid = self.alloc_sid();
@@ -371,7 +329,6 @@ impl Link {
         }
         Ok(StreamEnd::new(Arc::clone(self), sid, rx))
     }
-
     /// The reader loop: decrypts every frame, dispatches it, keeps the link
     /// alive and ends it on silence, tampering or idleness.
     fn run_reader(self: Arc<Self>, mut socket: TcpStream, mut cipher: CipherState) {
@@ -427,7 +384,6 @@ impl Link {
         };
         self.close(&reason);
     }
-
     fn dispatch(self: &Arc<Self>, plain: &[u8]) -> Result<(), String> {
         if plain.len() < 5 {
             return Err("short link frame".to_string());
@@ -480,7 +436,6 @@ impl Link {
             _ => Err(format!("unknown link frame kind {kind}")),
         }
     }
-
     fn on_open(self: &Arc<Self>, sid: u32, body: &[u8]) -> Result<(), String> {
         let Some((ttl, dst, src)) = parse_open(body) else {
             return Err("malformed OPEN".to_string());
@@ -559,7 +514,6 @@ impl Link {
         }
         Ok(())
     }
-
     /// A signed address list from a hub this node dialed: stored as the
     /// hub's dial hints when it verifies under the hub's key and is newer
     /// than the stored one. The link already authenticated the sender; the
@@ -596,7 +550,6 @@ impl Link {
         let _ = update_hub_hints(&self.peer, ts, &addrs, sig);
     }
 }
-
 /// Diagnostic: when `SUSI_CHANNEL_RELAY_TRACE` names a file at process
 /// start, every stream body this node forwards for others is appended to it
 /// (`u32 BE length | bytes`), exactly as the relay sees it after opening its
@@ -619,7 +572,6 @@ fn relay_trace(body: &[u8]) {
         let _ = file.write_all(&len).and_then(|()| file.write_all(body));
     }
 }
-
 /// Close every link this process holds (after this process's identity or
 /// posture changed, or before it exits).
 pub fn close_links() {
@@ -627,7 +579,6 @@ pub fn close_links() {
         link.close("closed by this process");
     }
 }
-
 /// The string a node signs to publish its own dial addresses.
 pub fn hint_payload(node_id: &str, ts: u64, addrs: &[String]) -> String {
     format!(
@@ -635,7 +586,6 @@ pub fn hint_payload(node_id: &str, ts: u64, addrs: &[String]) -> String {
         addrs.join(",")
     )
 }
-
 /// This node's signed hint frame body for `addrs`.
 fn signed_hint(addrs: &[String]) -> Option<Vec<u8>> {
     let node = crate::cluster_key::wire_node_id();
@@ -643,18 +593,14 @@ fn signed_hint(addrs: &[String]) -> Option<Vec<u8>> {
     let sig = crate::cluster_key::member_sign(&hint_payload(&node, ts, addrs))?;
     serde_json::to_vec(&serde_json::json!({"ts": ts, "addresses": addrs, "sig": sig})).ok()
 }
-
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
-
 // ---- registry ----
-
 type ServeHook = Box<dyn Fn(ChannelStream, ChannelPeer) + Send + Sync>;
-
 struct Registry {
     links: Mutex<Vec<Arc<Link>>>,
     serve: OnceLock<ServeHook>,
@@ -662,7 +608,6 @@ struct Registry {
     link_replay: Mutex<pc::ReplayCache>,
     e2e_replay: Mutex<pc::ReplayCache>,
 }
-
 fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();
     REGISTRY.get_or_init(|| Registry {
@@ -673,7 +618,6 @@ fn registry() -> &'static Registry {
         e2e_replay: Mutex::new(pc::new_replay_cache()),
     })
 }
-
 impl Registry {
     fn add(&self, link: Arc<Link>) {
         self.links
@@ -681,14 +625,12 @@ impl Registry {
             .unwrap_or_else(|e| e.into_inner())
             .push(link);
     }
-
     fn remove(&self, id: u64) {
         self.links
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|l| l.id != id);
     }
-
     fn snapshot(&self) -> Vec<Arc<Link>> {
         self.links
             .lock()
@@ -698,7 +640,6 @@ impl Registry {
             .cloned()
             .collect()
     }
-
     /// Where a relayed stream for `dst` goes: the persistent link of `dst`
     /// itself; failing that, for a stream that came up from a downstream
     /// link, one of this node's own uplinks.
@@ -728,7 +669,6 @@ impl Registry {
             .cloned()
     }
 }
-
 /// Install the handler for end-to-end sessions that terminate in this
 /// process (the daemon serves them to its GMCP surface). Returns false
 /// when one is already installed. A process without one refuses incoming
@@ -736,29 +676,23 @@ impl Registry {
 pub fn install_service(hook: impl Fn(ChannelStream, ChannelPeer) + Send + Sync + 'static) -> bool {
     registry().serve.set(Box::new(hook)).is_ok()
 }
-
 /// The open links of this process, for status reports.
 pub fn links() -> Vec<Arc<Link>> {
     registry().snapshot()
 }
-
 // ---- handshakes ----
-
 fn local_identity() -> Result<LocalIdentity, String> {
     LocalIdentity::load().ok_or_else(|| ChannelError::NoLocalIdentity.to_string())
 }
-
 fn first_psk() -> Result<[u8; 32], String> {
     pc::cluster_psks()
         .into_iter()
         .next()
         .ok_or_else(|| "no cluster key at cluster.key: the peer channel needs one".to_string())
 }
-
 /// Policy a dial consults for each address it would connect to; an `Err`
 /// skips that address with the reason.
 pub type DialPolicy<'a> = &'a (dyn Fn(&SocketAddr) -> Result<(), String> + Send + Sync);
-
 /// How a dialed link will be used.
 #[derive(Debug, Clone, Copy)]
 pub struct DialMode {
@@ -768,7 +702,6 @@ pub struct DialMode {
     /// as their source.
     pub hub: bool,
 }
-
 /// Dial `addr` (`host:port`; a name is resolved on every dial), run the link
 /// handshake, and register the link.
 pub fn dial(
@@ -797,7 +730,6 @@ pub fn dial(
     }
     Err(format!("peer channel to {addr}: {}", errors.join("; ")))
 }
-
 fn dial_one(target: SocketAddr, expect: Expect, mode: DialMode) -> Result<Arc<Link>, String> {
     let local = local_identity()?;
     let psk = first_psk()?;
@@ -831,7 +763,6 @@ fn dial_one(target: SocketAddr, expect: Expect, mode: DialMode) -> Result<Arc<Li
         },
     )
 }
-
 /// How a link came to be: who dialed, whether the far end relays, and
 /// whether the dialer keeps it open.
 #[derive(Clone, Copy)]
@@ -840,7 +771,6 @@ struct LinkRole {
     relay_trusted: bool,
     persistent: bool,
 }
-
 fn start_link(
     socket: TcpStream,
     remote: SocketAddr,
@@ -882,12 +812,10 @@ fn start_link(
         })?;
     Ok(link)
 }
-
 /// Whether `ip` is one of this machine's own addresses.
 fn is_own_address(ip: std::net::IpAddr) -> bool {
     ip.to_canonical().is_loopback() || TcpListener::bind((ip, 0)).is_ok()
 }
-
 /// Run the responder handshake on an accepted connection and register the
 /// link. `advertise` is this node's public address list, sent to the
 /// dialer as a signed hint.
@@ -955,13 +883,10 @@ pub fn accept(mut socket: TcpStream, advertise: &[String]) -> Result<Arc<Link>, 
     }
     Ok(link)
 }
-
 /// Decides, per source address, whether a listener reads a connection.
 pub type AcceptPolicy = Arc<dyn Fn(&SocketAddr) -> bool + Send + Sync>;
-
 /// A [`DialPolicy`] a long-lived thread owns.
 pub type SharedDialPolicy = Arc<dyn Fn(&SocketAddr) -> Result<(), String> + Send + Sync>;
-
 /// Accept channel connections on `listener` until `stop` is set. `allow`
 /// decides per source address before any byte is read (privacy posture);
 /// `advertise` is passed to [`accept`].
@@ -1011,9 +936,7 @@ pub fn serve_listener(
         }
     }
 }
-
 // ---- streams and end-to-end sessions ----
-
 /// One end of a stream on a link: end-to-end messages in and out.
 struct StreamEnd {
     link: Arc<Link>,
@@ -1021,7 +944,6 @@ struct StreamEnd {
     rx: mpsc::Receiver<Event>,
     closed: Arc<AtomicBool>,
 }
-
 impl StreamEnd {
     fn new(link: Arc<Link>, sid: u32, rx: mpsc::Receiver<Event>) -> Self {
         Self {
@@ -1031,12 +953,10 @@ impl StreamEnd {
             closed: Arc::new(AtomicBool::new(false)),
         }
     }
-
     fn send(&self, msg: &[u8]) -> Result<(), String> {
         self.link.touch();
         self.link.send(DATA, self.sid, msg)
     }
-
     fn recv(&self, timeout: Duration) -> Result<Vec<u8>, String> {
         match self.rx.recv_timeout(timeout) {
             Ok(Event::Data(d)) => Ok(d),
@@ -1048,7 +968,6 @@ impl StreamEnd {
         }
     }
 }
-
 /// Send CLOSE once and forget the stream.
 fn close_stream(link: &Link, sid: u32, closed: &AtomicBool) {
     if closed.swap(true, Ordering::SeqCst) {
@@ -1058,7 +977,6 @@ fn close_stream(link: &Link, sid: u32, closed: &AtomicBool) {
         let _ = link.send(CLOSE, sid, b"");
     }
 }
-
 /// Terminate an incoming end-to-end session and hand it to the service.
 fn serve_incoming(link: Arc<Link>, end: StreamEnd, src: String) {
     let sid = end.sid;
@@ -1106,14 +1024,12 @@ fn serve_incoming(link: Arc<Link>, end: StreamEnd, src: String) {
         }
     }
 }
-
 /// An established end-to-end session: a byte stream sealed between the two
 /// end nodes. Dropping it closes the stream.
 pub struct ChannelStream {
     reader: ChannelReader,
     writer: ChannelWriter,
 }
-
 /// The receiving half of a [`ChannelStream`].
 pub struct ChannelReader {
     rx: mpsc::Receiver<Event>,
@@ -1126,7 +1042,6 @@ pub struct ChannelReader {
     sid: u32,
     closed: Arc<AtomicBool>,
 }
-
 /// The sending half of a [`ChannelStream`].
 pub struct ChannelWriter {
     cipher: CipherState,
@@ -1134,7 +1049,6 @@ pub struct ChannelWriter {
     sid: u32,
     closed: Arc<AtomicBool>,
 }
-
 impl ChannelStream {
     fn new(end: StreamEnd, transport: pc::Transport, peer: PeerIdentity) -> Self {
         let _ = peer;
@@ -1165,25 +1079,21 @@ impl ChannelStream {
             },
         }
     }
-
     /// Bound on each blocking read; `None` waits as long as the link lives.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
         self.reader.timeout = timeout;
     }
-
     /// The two halves, for a reader thread and a writer thread.
     pub fn split(self) -> (ChannelReader, ChannelWriter) {
         (self.reader, self.writer)
     }
 }
-
 impl ChannelReader {
     /// Bound on each blocking read.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
         self.timeout = timeout;
     }
 }
-
 impl Read for ChannelReader {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         while self.pos >= self.buf.len() {
@@ -1225,7 +1135,6 @@ impl Read for ChannelReader {
         Ok(n)
     }
 }
-
 impl Write for ChannelWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         if data.is_empty() {
@@ -1245,40 +1154,33 @@ impl Write for ChannelWriter {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
         Ok(n)
     }
-
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
-
 impl Drop for ChannelWriter {
     fn drop(&mut self) {
         close_stream(&self.link, self.sid, &self.closed);
     }
 }
-
 impl Drop for ChannelReader {
     fn drop(&mut self) {
         close_stream(&self.link, self.sid, &self.closed);
     }
 }
-
 impl Read for ChannelStream {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         self.reader.read(out)
     }
 }
-
 impl Write for ChannelStream {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         self.writer.write(data)
     }
-
     fn flush(&mut self) -> std::io::Result<()> {
         self.writer.flush()
     }
 }
-
 /// Pump a terminated session and a local socket into each other until
 /// either side ends: the peer's bytes go to `socket` (whose write half is
 /// shut when the peer closes), the socket's bytes go back to the peer
@@ -1325,7 +1227,6 @@ pub fn bridge(stream: ChannelStream, socket: TcpStream, idle: Duration) {
     let _ = from_socket.shutdown(std::net::Shutdown::Both);
     drop(to_peer);
 }
-
 /// Run the end-to-end initiator handshake on a fresh stream.
 fn start_session(end: StreamEnd, want: &str, timeout: Duration) -> Result<ChannelStream, String> {
     let local = local_identity()?;
@@ -1345,9 +1246,7 @@ fn start_session(end: StreamEnd, want: &str, timeout: Duration) -> Result<Channe
     end.send(&m3).map_err(|e| fail(&end, e))?;
     Ok(ChannelStream::new(end, transport, peer))
 }
-
 // ---- client API ----
-
 /// Who a call is for: the node id and key it must prove, and addresses where
 /// that node itself may listen.
 #[derive(Debug, Clone)]
@@ -1358,7 +1257,6 @@ pub struct Target {
     /// `host:port` channel endpoints of the destination itself.
     pub direct: Vec<String>,
 }
-
 /// A hub row of [`HUBS_FILE`].
 #[derive(Debug, Clone)]
 pub struct Hub {
@@ -1368,7 +1266,6 @@ pub struct Hub {
     /// newest signed hints.
     pub addresses: Vec<String>,
 }
-
 /// The hubs this node keeps uplinks to.
 pub fn hubs() -> Vec<Hub> {
     crate::cluster_key::config_json_rows(HUBS_FILE)
@@ -1397,7 +1294,6 @@ pub fn hubs() -> Vec<Hub> {
         })
         .collect()
 }
-
 /// Record `hub` (identity first, address as a hint) in [`HUBS_FILE`],
 /// replacing a row with the same key or node id.
 pub fn remember_hub(node_id: &str, pubkey: &str, address: &str) -> Result<(), String> {
@@ -1416,7 +1312,6 @@ pub fn remember_hub(node_id: &str, pubkey: &str, address: &str) -> Result<(), St
     rows.push(serde_json::json!({"node_id": node_id, "pubkey": pubkey, "address": address}));
     write_rows(&dir.join(HUBS_FILE), &rows)
 }
-
 fn update_hub_hints(
     hub: &PeerIdentity,
     ts: u64,
@@ -1447,12 +1342,10 @@ fn update_hub_hints(
     }
     Ok(())
 }
-
 fn write_rows(path: &std::path::Path, rows: &[serde_json::Value]) -> Result<(), String> {
     let text = serde_json::to_string_pretty(rows).map_err(|e| e.to_string())?;
     crate::atomic_write_bytes(path, text.as_bytes()).map_err(|e| e.to_string())
 }
-
 /// The address this node's own daemon accepts channel connections on, for a
 /// local client to dial (an unspecified bind becomes loopback).
 pub fn local_listen_addr() -> Option<String> {
@@ -1470,7 +1363,6 @@ pub fn local_listen_addr() -> Option<String> {
     };
     Some(SocketAddr::new(ip, addr.port()).to_string())
 }
-
 /// Parse `peer_channel_listen`: `ip:port`, or a bare IP on [`DEFAULT_PORT`].
 /// Empty means no listener.
 pub fn parse_listen(raw: &str) -> Option<SocketAddr> {
@@ -1484,14 +1376,12 @@ pub fn parse_listen(raw: &str) -> Option<SocketAddr> {
             .map(|ip| SocketAddr::new(ip, DEFAULT_PORT))
     })
 }
-
 fn ephemeral(hub: bool) -> DialMode {
     DialMode {
         persistent: false,
         hub,
     }
 }
-
 /// Open an end-to-end session to `target`, by the first route that works:
 /// a link to it this process already holds, its own endpoints, this
 /// process's uplinks, the hubs in [`HUBS_FILE`], then this node's own
@@ -1594,7 +1484,6 @@ pub fn open(
         errors.join("; ")
     ))
 }
-
 /// Keep a persistent uplink to every hub in [`HUBS_FILE`] until `stop` is
 /// set: reconnect with exponential backoff (1 s up to 60 s), re-resolving
 /// names on every attempt.
@@ -1642,11 +1531,9 @@ pub fn keep_uplinks(stop: Arc<AtomicBool>, policy: SharedDialPolicy) {
         std::thread::sleep(Duration::from_millis(500));
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn open_bodies_roundtrip_and_reject_truncation() {
         let body = open_body(4, "susi-node-b", "susi-node-a");
@@ -1657,7 +1544,6 @@ mod tests {
         assert_eq!(parse_open(&body[..body.len() - 1]), None);
         assert_eq!(parse_open(&[]), None);
     }
-
     #[test]
     fn listen_addresses_default_the_channel_port() {
         assert_eq!(
@@ -1671,14 +1557,12 @@ mod tests {
         assert_eq!(parse_listen("  "), None);
         assert_eq!(parse_listen("not an address"), None);
     }
-
     #[test]
     fn the_default_channel_port_is_outside_every_contract_block() {
         // 9090-9095 shifted by any offset up to 2000, and the leaf ports.
         assert!(!(9_090..=11_095).contains(&DEFAULT_PORT));
         assert!(!(18_080..=18_084).contains(&DEFAULT_PORT));
     }
-
     #[test]
     fn framing_roundtrips_over_a_socket() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1692,7 +1576,6 @@ mod tests {
         assert_eq!(read_message(&mut server).unwrap(), b"sealed bytes");
         assert!(write_message(&mut client, &vec![0u8; 70_000]).is_err());
     }
-
     #[test]
     fn hint_payloads_bind_node_time_and_addresses() {
         let a = hint_payload("susi-node-h", 10, &["h.example:29090".to_string()]);

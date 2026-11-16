@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! End-to-end integration proof for Mandate 75 Cloud Raw-Source Pickup, Smart
 //! Core-vs-Commercial Routing, and Pure `Apache-2.0` License Compliance:
 //! 1. `local-harvest raw-features` discovers raw-branch `Task:` / `Feature:`
@@ -19,7 +18,6 @@
 //!    when targeting a `susi-commercial-apps` checkout.
 //! 5. A picked-up commit on Raw `main` passes both `local-harvest audit` and
 //!    `distill lint --strict` for Release distillation!
-
 mod common;
 use common::bins_are_fresh;
 use serde_json::{json, Value};
@@ -30,7 +28,6 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 const APACHE_LICENSE_TEXT: &str = "\
                                  Apache License
                            Version 2.0, January 2004
@@ -46,7 +43,6 @@ const APACHE_LICENSE_TEXT: &str = "\
       (c) You must retain all copyright, patent, trademark, and attribution notices;
       (d) If the Work includes a NOTICE text file, any Derivative Works must include it.
 ";
-
 const MIT_LICENSE_TEXT: &str = "\
 MIT License
 
@@ -56,28 +52,23 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the \"Software\"), to deal
 in the Software without restriction.
 ";
-
 const BSD3_LICENSE_TEXT: &str = "\
 Copyright (c) 2025 BSD Corp.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 Neither the name of the copyright holder nor the names of its contributors may be used.
 ";
-
 const ISC_LICENSE_TEXT: &str = "\
 Copyright (c) 2025 ISC Author
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted.
 ";
-
 const GPL3_LICENSE_TEXT: &str = "\
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 ";
-
 static SANDBOX_SEQ: AtomicUsize = AtomicUsize::new(0);
 static XTASK_BINS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
-
 fn xtask_bins() -> &'static (PathBuf, PathBuf) {
     XTASK_BINS.get_or_init(|| {
         let exe = std::env::current_exe().expect("current test executable path");
@@ -131,7 +122,6 @@ fn xtask_bins() -> &'static (PathBuf, PathBuf) {
         (harvest_bin, distill_bin)
     })
 }
-
 fn null_config() -> &'static str {
     if cfg!(windows) {
         "NUL"
@@ -139,11 +129,9 @@ fn null_config() -> &'static str {
         "/dev/null"
     }
 }
-
 struct CloudSandbox {
     dir: PathBuf,
 }
-
 impl CloudSandbox {
     fn new(label: &str) -> Self {
         let seq = SANDBOX_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -159,7 +147,6 @@ impl CloudSandbox {
         fs::create_dir_all(&dir).expect("create sandbox dir");
         Self { dir }
     }
-
     /// Creates a local bare Git "cloud" repository populated directly via
     /// `git fast-import`, returning `(bare_repo_path, head_sha)`.
     fn create_bare_cloud_repo(&self, name: &str, commits: &[CommitSpec<'_>]) -> (PathBuf, String) {
@@ -212,7 +199,6 @@ impl CloudSandbox {
             .unwrap_or_else(|| git(&bare, &["rev-parse", "refs/heads/main"]));
         (bare, head)
     }
-
     fn create_core_worktree(&self, name: &str) -> PathBuf {
         let repo = self.dir.join(name);
         fs::create_dir_all(&repo).unwrap();
@@ -235,7 +221,6 @@ impl CloudSandbox {
         );
         repo
     }
-
     fn create_commercial_worktree(&self, name: &str) -> PathBuf {
         let repo = self.dir.join(name);
         fs::create_dir_all(&repo).unwrap();
@@ -263,13 +248,11 @@ impl CloudSandbox {
         repo
     }
 }
-
 impl Drop for CloudSandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.dir);
     }
 }
-
 fn write_rel(root: &Path, rel: &str, content: &str) {
     let full = root.join(rel);
     if let Some(parent) = full.parent() {
@@ -277,7 +260,6 @@ fn write_rel(root: &Path, rel: &str, content: &str) {
     }
     fs::write(full, content).unwrap();
 }
-
 fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd)
@@ -296,7 +278,6 @@ fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
         .args(args);
     cmd
 }
-
 fn git(cwd: &Path, args: &[&str]) -> String {
     let out = git_cmd(cwd, args).output().expect("git must execute");
     assert!(
@@ -307,7 +288,6 @@ fn git(cwd: &Path, args: &[&str]) -> String {
     );
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
-
 fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
     let mut child = git_cmd(cwd, args)
         .stdin(Stdio::piped())
@@ -330,7 +310,6 @@ fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
     );
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
-
 fn run_harvest(cwd: &Path, args: &[&str]) -> (bool, String, String) {
     let (harvest_bin, _) = xtask_bins();
     let out = Command::new(harvest_bin)
@@ -355,7 +334,6 @@ fn run_harvest(cwd: &Path, args: &[&str]) -> (bool, String, String) {
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
 }
-
 fn run_distill(cwd: &Path, args: &[&str]) -> (bool, String, String) {
     let (_, distill_bin) = xtask_bins();
     let out = Command::new(distill_bin)
@@ -376,7 +354,6 @@ fn run_distill(cwd: &Path, args: &[&str]) -> (bool, String, String) {
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
 }
-
 #[test]
 fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud_repo() {
     let sb = CloudSandbox::new("raw-features");
@@ -410,7 +387,6 @@ fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud
             ),
         ],
     );
-
     let core = sb.create_core_worktree("core-work");
     let url = cloud_bare.to_string_lossy().into_owned();
     let (ok, stdout, stderr) = run_harvest(
@@ -418,7 +394,6 @@ fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud
         &["raw-features", "--url", &url, "--rev", "main", "--json"],
     );
     assert!(ok, "raw-features failed: {stderr}\n{stdout}");
-
     let report: Value = serde_json::from_str(&stdout).expect("valid JSON");
     assert_eq!(report["ok"], true);
     assert_eq!(report["source_commit"], head_sha);
@@ -426,7 +401,6 @@ fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud
         report["quarantine_ref"],
         format!("refs/susi/upstream/cloud-acp-substrate/{head_sha}")
     );
-
     let features = report["features"].as_array().unwrap();
     assert_eq!(
         features.len(),
@@ -456,7 +430,6 @@ fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud
             .contains(&json!("F-MIT-HELPER-1"))
             && f["pure_apache2_ready"] == false
     }));
-
     // Modules list ONLY Pure-Apache-2.0-accepted files (excluding MIT-only contrib/mit_helper.rs).
     let modules = report["modules"].as_array().unwrap();
     assert!(modules
@@ -470,7 +443,6 @@ fn raw_features_discovers_raw_branch_commits_and_pure_apache2_modules_from_cloud
         "MIT-only module must never appear as pure Apache-2.0 ready: {modules:?}"
     );
 }
-
 #[test]
 fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations() {
     let sb = CloudSandbox::new("pickup-apache2");
@@ -488,7 +460,6 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
             ],
         )],
     );
-
     let (dual_bare, dual_sha) = sb.create_bare_cloud_repo(
         "dual-apache-mit-acp",
         &[(
@@ -503,9 +474,7 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
             ],
         )],
     );
-
     let core = sb.create_core_worktree("core-pickup");
-
     // (a) Pure Apache-2.0 pickup into GMCP pillar.
     let pure_url = pure_bare.to_string_lossy().into_owned();
     let (ok, stdout, stderr) = run_harvest(
@@ -538,7 +507,6 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
     assert_eq!(p1["route"]["effective_target"], "core");
     assert!(core.join("LICENSES/Apache-2.0.txt").is_file());
     assert!(core.join("THIRD_PARTY_NOTICES").is_file());
-
     // (b) Dual `MIT OR Apache-2.0` (`LICENSE-APACHE` + `LICENSE-MIT`) elects `"Apache-2.0"` exclusively.
     let dual_url = dual_bare.to_string_lossy().into_owned();
     let (ok2, stdout2, stderr2) = run_harvest(
@@ -571,7 +539,6 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
     let p2: Value = serde_json::from_str(&stdout2).unwrap();
     assert_eq!(p2["license"], "Apache-2.0");
     assert_eq!(p2["source_commit"], dual_sha);
-
     let m2: Value = serde_json::from_str(
         &fs::read_to_string(core.join(".agents/harvest/H-CLOUD-2.json")).unwrap(),
     )
@@ -590,13 +557,11 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
             .all(|ev| ev["kind"] != "license" || ev["spdx"] == "Apache-2.0"),
         "evidence must bind elected Apache-2.0 only: {m2}"
     );
-
     let notices = fs::read_to_string(core.join("THIRD_PARTY_NOTICES")).unwrap();
     assert!(notices.contains("H-CLOUD-1") && notices.contains("H-CLOUD-2"));
     assert!(notices.contains("GMCP Cursor Codec"));
     assert!(notices.contains("Copyright (c) 2025 Dual Crate Contributors"));
     assert!(!notices.contains("Permission is hereby granted, free of charge"));
-
     // Verify Apache-2.0 §4(b) `Modified by` audit enforcement on modified destination file.
     let dest_dual = core.join("crates/susi-core/src/dual_acp.rs");
     let orig_dual = fs::read_to_string(&dest_dual).unwrap();
@@ -610,7 +575,6 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
         !audit_ok && (audit_out.contains("Modified by") || audit_err.contains("Modified by")),
         "modified file without notice must fail audit: {audit_out} {audit_err}"
     );
-
     fs::write(
         &dest_dual,
         format!(
@@ -624,16 +588,13 @@ fn pickup_imports_pure_and_dual_elected_apache2_with_full_section4_obligations()
         "audit must pass with Modified by notice: {audit_out2} {audit_err2}"
     );
 }
-
 type FileSpec<'a> = (&'a str, &'a str);
 type CommitSpec<'a> = (&'a str, &'a [FileSpec<'a>]);
 type RefusalCase<'a> = (&'a str, &'a [FileSpec<'a>], &'a str);
-
 #[test]
 fn non_apache2_cloud_repos_are_hard_refused_with_zero_files_written() {
     let sb = CloudSandbox::new("refuse-non-apache2");
     let core = sb.create_core_worktree("core-refuse");
-
     let cases: &[RefusalCase<'_>] = &[
         (
             "mit-only",
@@ -693,7 +654,6 @@ fn non_apache2_cloud_repos_are_hard_refused_with_zero_files_written() {
             "no SPDX header and no license file",
         ),
     ];
-
     for (idx, (slug, files, expected_msg)) in cases.iter().enumerate() {
         let (bare, _) = sb.create_bare_cloud_repo(slug, &[("initial", files)]);
         let url = bare.to_string_lossy().into_owned();
@@ -737,7 +697,6 @@ fn non_apache2_cloud_repos_are_hard_refused_with_zero_files_written() {
         );
     }
 }
-
 #[test]
 fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
     let sb = CloudSandbox::new("smart-routing");
@@ -758,10 +717,8 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
             ],
         )],
     );
-
     let core = sb.create_core_worktree("core-router-check");
     let comm = sb.create_commercial_worktree("comm-router-check");
-
     // Three pillars: ACP and harness capabilities both route to GAWD.
     for (pillar_path, expected_pillar) in [
         ("crates/susi-gawd/src/swarm_bus.rs", "gawd"),
@@ -787,7 +744,6 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
             .unwrap()
             .contains(&json!(expected_pillar)));
     }
-
     // Commercial / UI / SSO / FinOps / connectors route to `commercial` and fail `--target core`.
     for comm_path in [
         "ui/FinOpsPanel.tsx",
@@ -807,7 +763,6 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
         assert_eq!(v["target"], "commercial");
         assert_eq!(v["allowed_in_core"], false);
     }
-
     let url = cloud_bare.to_string_lossy().into_owned();
     // Attempt to pickup SSO/RBAC into Core -> REFUSED (both `--target auto` and `--target commercial`).
     for target_flag in ["auto", "commercial"] {
@@ -837,7 +792,6 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
         );
         assert!(!core.join("crates/susi-core/src/sso_rbac_guard.rs").exists());
     }
-
     // Same Pure Apache-2.0 enterprise capability picked up into `susi-commercial-apps` -> PASSES!
     let (ok_comm, out_comm, err_comm) = run_harvest(
         &comm,
@@ -872,7 +826,6 @@ fn ui_and_commercial_features_route_to_commercial_and_are_refused_in_core() {
     let (audit_ok, _, audit_err) = run_harvest(&comm, &["audit"]);
     assert!(audit_ok, "commercial harvest audit must pass: {audit_err}");
 }
-
 #[test]
 fn picked_up_commit_on_raw_main_passes_harvest_audit_and_distill_lint_strict() {
     let sb = CloudSandbox::new("distill-lint-strict");
@@ -890,11 +843,9 @@ fn picked_up_commit_on_raw_main_passes_harvest_audit_and_distill_lint_strict() {
             ],
         )],
     );
-
     let core = sb.create_core_worktree("core-raw-main");
     let base_sha = git(&core, &["rev-parse", "HEAD"]);
     let https_origin = "https://example.org/open-protocol/cloud-harness-lease.git";
-
     // Intake from local bare cloud repo, then record canonical HTTPS provenance URL via pickup/import
     // or pickup directly from the local bare URL (both `local-harvest audit` and `distill lint --strict`
     // validate exact task scopes, closed task record, and Harvest:/Origin:/Origin-License: trailers).
@@ -936,42 +887,19 @@ fn picked_up_commit_on_raw_main_passes_harvest_audit_and_distill_lint_strict() {
     assert!(trailers.contains(&"Task: T-RAWMAIN-1".to_owned()));
     assert!(trailers.contains(&"Feature: F-HARNESS-LEASE-1".to_owned()));
     let _ = https_origin;
-
     // Write closed task record covering the exact touched files for Release distillation.
-    let task_record = json!({
-        "id": "T-RAWMAIN-1",
-        "feature_id": "F-HARNESS-LEASE-1",
-        "title": "Pick up pure Apache-2.0 harness lease backoff calculator onto Raw main",
-        "status": "done",
-        "state": "done",
-        "owner": "core-harvest",
-        "created_by": "core-harvest",
-        "created_unix": 1794423000u64,
-        "deps": [],
-        "scopes": [
-            ".agents/harvest/H-RAWMAIN-1.json",
-            ".agents/tasks/T-RAWMAIN-1.json",
-            "LICENSES/Apache-2.0.txt",
-            "THIRD_PARTY_NOTICES",
-            "crates/susi-harness/src/lease_backoff.rs"
-        ],
-        "accept": {
-            "cmd": ["cargo", "test", "--offline", "--locked"]
-        }
-    });
+    let task_record = json!({"id":"T-RAWMAIN-1","feature_id":"F-HARNESS-LEASE-1","title":"Pick up pure Apache-2.0 harness lease backoff calculator onto Raw main","status":"done","state":"done","owner":"core-harvest","created_by":"core-harvest","created_unix":1794423000u64,"deps":[],"scopes":[".agents/harvest/H-RAWMAIN-1.json",".agents/tasks/T-RAWMAIN-1.json","LICENSES/Apache-2.0.txt","THIRD_PARTY_NOTICES","crates/susi-harness/src/lease_backoff.rs"],"accept":{"cmd":["cargo","test","--offline","--locked"]}});
     write_rel(
         &core,
         ".agents/tasks/T-RAWMAIN-1.json",
         &format!("{}\n", serde_json::to_string_pretty(&task_record).unwrap()),
     );
-
     git(&core, &["add", "-A"]);
     let commit_msg = format!(
         "feat(harness): pick up pure Apache-2.0 lease backoff onto raw main\n\n{}",
         trailers.join("\n")
     );
     git(&core, &["commit", "-q", "-m", &commit_msg]);
-
     let range = format!("{base_sha}..HEAD");
     let (audit_ok, audit_out, audit_err) =
         run_harvest(&core, &["audit", "--range", &range, "--json"]);
@@ -983,7 +911,6 @@ fn picked_up_commit_on_raw_main_passes_harvest_audit_and_distill_lint_strict() {
     assert_eq!(audit_val["ok"], true);
     assert_eq!(audit_val["manifests"], 1);
     assert_eq!(audit_val["harvest_trailer_commits"], 1);
-
     let (lint_ok, lint_out, lint_err) =
         run_distill(&core, &["lint", "--range", &range, "--strict", "--json"]);
     assert!(

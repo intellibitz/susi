@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! End-to-end integration proof for Wave 3 Functional-Only Release Distillation
 //! and Confined In-Tree Symlinked-License Harvest Resolution:
 //! 1. `distill plan --functional-only` and `local-distill plan|compose|orchestrate --functional-only`
@@ -18,7 +17,6 @@
 //!    regular blob target), while continuing to hard-reject escaping symlinks,
 //!    absolute symlinks, > 4-hop symlink chains, directory-target symlinks, and
 //!    symlinked `.rs` source files.
-
 mod common;
 use common::bins_are_fresh;
 use serde::Deserialize;
@@ -31,7 +29,6 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 const APACHE_LICENSE_TEXT: &str = "\
                                  Apache License
                            Version 2.0, January 2004
@@ -47,17 +44,14 @@ const APACHE_LICENSE_TEXT: &str = "\
       (c) You must retain all copyright, patent, trademark, and attribution notices;
       (d) If the Work includes a NOTICE text file, any Derivative Works must include it.
 ";
-
 static SANDBOX_SEQ: AtomicUsize = AtomicUsize::new(0);
 static XTASK_BINS: OnceLock<XtaskBins> = OnceLock::new();
-
 struct XtaskBins {
     distill: PathBuf,
     local_distill: PathBuf,
     local_harvest: PathBuf,
     release_qualify: PathBuf,
 }
-
 fn xtask_bins() -> &'static XtaskBins {
     XTASK_BINS.get_or_init(|| {
         let exe = std::env::current_exe().expect("current test executable path");
@@ -121,7 +115,6 @@ fn xtask_bins() -> &'static XtaskBins {
         bins
     })
 }
-
 fn null_config() -> &'static str {
     if cfg!(windows) {
         "NUL"
@@ -129,11 +122,9 @@ fn null_config() -> &'static str {
         "/dev/null"
     }
 }
-
 struct Sandbox {
     dir: PathBuf,
 }
-
 impl Sandbox {
     fn new(label: &str) -> Self {
         let seq = SANDBOX_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -150,13 +141,11 @@ impl Sandbox {
         Self { dir }
     }
 }
-
 impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.dir);
     }
 }
-
 fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd)
@@ -176,7 +165,6 @@ fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
         .env("GIT_NO_LAZY_FETCH", "1");
     cmd
 }
-
 fn git(cwd: &Path, args: &[&str]) -> String {
     let out = git_cmd(cwd, args).output().expect("spawn git");
     assert!(
@@ -187,7 +175,6 @@ fn git(cwd: &Path, args: &[&str]) -> String {
     );
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
-
 fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
     let mut child = git_cmd(cwd, args)
         .stdin(Stdio::piped())
@@ -210,7 +197,6 @@ fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
     );
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
-
 fn init_bare_tree_repo(
     parent: &Path,
     bare: &Path,
@@ -260,7 +246,6 @@ fn init_bare_tree_repo(
         .filter(|s| s.len() == 40)
         .unwrap_or_else(|| git(bare, &["rev-parse", "refs/heads/main"]))
 }
-
 fn run_bin(bin: &Path, cwd: &Path, target_dir: &Path, args: &[&str]) -> Output {
     Command::new(bin)
         .current_dir(cwd)
@@ -280,7 +265,6 @@ fn run_bin(bin: &Path, cwd: &Path, target_dir: &Path, args: &[&str]) -> Output {
         .output()
         .unwrap_or_else(|e| panic!("failed to run {}: {e}", bin.display()))
 }
-
 fn write_rel(root: &Path, rel: &str, content: &str) {
     let full = root.join(rel);
     if let Some(parent) = full.parent() {
@@ -288,7 +272,6 @@ fn write_rel(root: &Path, rel: &str, content: &str) {
     }
     fs::write(full, content).unwrap();
 }
-
 struct TaskRecordSpec<'a> {
     id: &'a str,
     feature_id: &'a str,
@@ -298,28 +281,12 @@ struct TaskRecordSpec<'a> {
     accept_cmd: &'a [&'a str],
     created_unix: u64,
 }
-
 fn write_task_record(root: &Path, spec: &TaskRecordSpec<'_>) {
-    let payload = json!({
-        "id": spec.id,
-        "feature_id": spec.feature_id,
-        "title": spec.title,
-        "goal": spec.title,
-        "status": "done",
-        "state": "done",
-        "created_by": "carbon",
-        "created_unix": spec.created_unix,
-        "deps": spec.deps,
-        "scopes": spec.scopes,
-        "accept": {
-            "cmd": spec.accept_cmd,
-        }
-    });
+    let payload = json!({"id":spec.id,"feature_id":spec.feature_id,"title":spec.title,"goal":spec.title,"status":"done","state":"done","created_by":"carbon","created_unix":spec.created_unix,"deps":spec.deps,"scopes":spec.scopes,"accept":{"cmd":spec.accept_cmd}});
     let mut text = serde_json::to_string_pretty(&payload).unwrap();
     text.push('\n');
     write_rel(root, &format!(".agents/tasks/{}.json", spec.id), &text);
 }
-
 /// Mirror the `tests/task_records.rs` runtime task-record contract on a Git tree.
 #[derive(Deserialize)]
 struct TaskRecordCheck {
@@ -329,12 +296,10 @@ struct TaskRecordCheck {
     created_by: String,
     created_unix: u64,
 }
-
 #[derive(Deserialize)]
 struct TaskAcceptCheck {
     cmd: Vec<String>,
 }
-
 fn assert_tree_task_records_valid(repo: &Path, rev: &str) -> Vec<String> {
     let listing = git(
         repo,
@@ -360,7 +325,6 @@ fn assert_tree_task_records_valid(repo: &Path, rev: &str) -> Vec<String> {
     ids.sort();
     ids
 }
-
 #[test]
 fn functional_only_distills_core_commits_and_passes_lint_task_records_and_release_qualify() {
     let bins = xtask_bins();
@@ -370,7 +334,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
     let cargo_target = sandbox.dir.join("cargo-target");
     fs::create_dir_all(&work).unwrap();
     fs::create_dir_all(&cargo_target).unwrap();
-
     git(
         &sandbox.dir,
         &["init", "--quiet", "--bare", origin.to_str().unwrap()],
@@ -380,7 +343,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         &work,
         &["remote", "add", "origin", origin.to_str().unwrap()],
     );
-
     let workspace_toolchain =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("rust-toolchain.toml"))
             .expect("read workspace rust-toolchain.toml");
@@ -396,7 +358,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         "crates/core/src/lib.rs",
         "pub fn boot_banner() -> &'static str {\n    \"demo-core\"\n}\n",
     );
-
     // Generate deterministic Cargo.lock via offline lockfile generation on the zero-dep crate.
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let check_out = Command::new(&cargo)
@@ -411,15 +372,12 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         String::from_utf8_lossy(&check_out.stderr)
     );
     assert!(work.join("Cargo.lock").is_file());
-
     git(&work, &["add", "."]);
     git(&work, &["commit", "-qm", "chore: initial release 0.1.0"]);
     git(&work, &["tag", "-a", "v0.1.0", "-m", "Release v0.1.0"]);
     git(&work, &["push", "--quiet", "origin", "main", "v0.1.0"]);
-
     let base_readme = fs::read_to_string(work.join("README.md")).unwrap();
     let base_cargo_toml = fs::read_to_string(work.join("Cargo.toml")).unwrap();
-
     // 1. Functional feature commit: T-FUNC-1
     write_rel(
         &work,
@@ -452,7 +410,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "feat(core): add deterministic router\n\nTask: T-FUNC-1\nFeature: F-FUNC-1",
         ],
     );
-
     // 2. Non-functional gate receipt commit carrying `Task: T-FUNC-1` (touches
     // `.agents/receipts/*` outside T-FUNC-1's declared scopes, mirroring local-gate).
     write_rel(
@@ -469,7 +426,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "receipt: gated landing 1111111\n\nTask: T-FUNC-1",
         ],
     );
-
     // 3. Non-functional docs-only task: T-DOC-1
     write_rel(
         &work,
@@ -502,7 +458,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "docs: document router architecture\n\nTask: T-DOC-1\nFeature: F-DOC-1",
         ],
     );
-
     // 4. Non-functional release-record housekeeping commit: T-RELREC-1
     write_rel(
         &work,
@@ -535,7 +490,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "chore(release): record v0.1.0\n\nTask: T-RELREC-1\nFeature: F-RELREC-1",
         ],
     );
-
     // 5. Non-functional task/evidence housekeeping commit: T-CHORE-1
     write_rel(
         &work,
@@ -563,7 +517,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "chore(tasks): refresh core health evidence\n\nTask: T-CHORE-1\nFeature: F-CHORE-1",
         ],
     );
-
     // 6. Second functional commit: T-FUNC-2, which depends on BOTH functional
     // T-FUNC-1 AND non-functional doc-only T-DOC-1!
     write_rel(
@@ -598,7 +551,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         ],
     );
     git(&work, &["push", "--quiet", "origin", "main"]);
-
     // (A) Baseline WITHOUT `--functional-only`: receipt commit triggers
     // `out_of_scope_diff` on T-FUNC-1 and sweeps in housekeeping tasks.
     let raw_plan_out = run_bin(
@@ -644,7 +596,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         raw_included.contains(&"T-DOC-1") && raw_included.contains(&"T-CHORE-1"),
         "expected raw plan to sweep in non-functional tasks: {raw_included:?}"
     );
-
     // (B) `distill plan --tasks-from-range v0.1.0..main --functional-only --json`
     let distill_plan_out = run_bin(
         &bins.distill,
@@ -678,7 +629,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
     assert_eq!(distill_included, vec!["T-FUNC-1", "T-FUNC-2"]);
     assert_eq!(distill_plan["deferred"], json!([]));
     assert_eq!(distill_plan["rejected"], json!([]));
-
     // (C) `local-distill compose --release-candidate --functional-only --verify-accept --strict`
     let compose_out = run_bin(
         &bins.local_distill,
@@ -726,13 +676,11 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         .filter_map(|t| t["task_id"].as_str())
         .collect();
     assert_eq!(composed_included, vec!["T-FUNC-1", "T-FUNC-2"]);
-
     let final_commit = receipt["final_commit"].as_str().unwrap();
     let tree_files: BTreeSet<String> = git(&work, &["ls-tree", "-r", "--name-only", final_commit])
         .lines()
         .map(str::to_owned)
         .collect();
-
     // Functional files and functional task records ARE in the composed candidate.
     for expected in [
         "crates/core/src/lib.rs",
@@ -746,7 +694,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             "missing functional file {expected} in composed tree: {tree_files:?}"
         );
     }
-
     // Non-functional docs, receipts, release ledgers, evidence, and skipped task
     // records are completely ABSENT from the composed candidate!
     for forbidden in [
@@ -777,11 +724,9 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         ) + "\n",
         base_cargo_toml
     );
-
     // (D) Task-record schema validation on composed tree (`task_records` invariant).
     let valid_task_ids = assert_tree_task_records_valid(&work, final_commit);
     assert_eq!(valid_task_ids, vec!["T-FUNC-1", "T-FUNC-2"]);
-
     // (E) `distill lint --strict` on the composed candidate commit range!
     let lint_out = run_bin(
         &bins.distill,
@@ -810,7 +755,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         lint_json["summary"]["commits_without_task_trailer"],
         json!(0)
     );
-
     // (F) `release-qualify v0.1.1 --from-distill v0-1-1-distilled-rc1 --verify-only`
     // on a clean checkout of the candidate's envelope branch + version bump!
     let release_wt = sandbox.dir.join("release-qualify-wt");
@@ -883,7 +827,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
             && qualify_stdout.contains("v0-1-1-distilled-rc1"),
         "unexpected release-qualify output: {qualify_stdout}"
     );
-
     // (G) `local-distill orchestrate --functional-only --publish-snapshot --strict --json`
     // auto-discovers tasks from `base..from`, verifies acceptances, and publishes ONLY
     // `refs/tags/susi-distill/<name>` to `origin` (never `refs/heads/release/*`).
@@ -934,7 +877,6 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         "remote origin must never receive refs/heads/release/* branches"
     );
 }
-
 #[test]
 fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symlinks() {
     let bins = xtask_bins();
@@ -944,7 +886,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
     let cargo_target = sandbox.dir.join("cargo-target");
     fs::create_dir_all(&target).unwrap();
     fs::create_dir_all(&cargo_target).unwrap();
-
     // Build a bare upstream repository with regular (`100644`), symlink (`120000`),
     // and gitlink (`160000`) Git tree entries via `git fast-import` so the test is
     // 100% deterministic, fast, and OS-portable (Windows & Linux).
@@ -1032,7 +973,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
             ),
         ],
     );
-
     // Initialize clean Susi Core target repo.
     git(&target, &["init", "--quiet", "--initial-branch=main"]);
     write_rel(
@@ -1043,9 +983,7 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
     write_rel(&target, "crates/susi-core/src/lib.rs", "// core root\n");
     git(&target, &["add", "."]);
     git(&target, &["commit", "-qm", "chore: init susi core"]);
-
     let upstream_url = upstream.to_str().unwrap();
-
     // Intake into quarantine refs (`refs/susi/upstream/...`).
     let intake_out = run_bin(
         &bins.local_harvest,
@@ -1067,7 +1005,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
         "intake failed: {}",
         String::from_utf8_lossy(&intake_out.stderr)
     );
-
     // (A) `local-harvest scan` accepts BOTH 1-hop (`minijinja/src`) and 2-hop
     // (`nested/sub/crate_a/src`) confined in-tree symlinked Apache-2.0 licenses!
     let scan_ok_out = run_bin(
@@ -1120,7 +1057,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
         "expected 2-hop basis to show resolved root LICENSE: {}",
         files[1]
     );
-
     // (B) `local-harvest pickup` imports `minijinja/src/template_parser.rs`, writes
     // `LICENSES/Apache-2.0.txt` + `THIRD_PARTY_NOTICES` (from resolved `../NOTICE`),
     // and passes `local-harvest audit` with 0 violations!
@@ -1168,7 +1104,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
         notices.contains("MiniJinja Workspace Attribution Notice 2026"),
         "expected resolved symlinked NOTICE text in THIRD_PARTY_NOTICES: {notices}"
     );
-
     let audit_out = run_bin(
         &bins.local_harvest,
         &target,
@@ -1184,7 +1119,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
     let audit_json: Value = serde_json::from_slice(&audit_out.stdout).unwrap();
     assert_eq!(audit_json["ok"], json!(true));
     assert_eq!(audit_json["violations"], json!([]));
-
     // (C) Hard-reject escaping symlinks, absolute symlinks, > 4-hop symlink chains,
     // directory-target symlinks, AND symlinked `.rs` source files in both `scan` & `pickup`!
     let rejection_cases = [
@@ -1231,7 +1165,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
             "symbolic link cannot be harvested",
         ),
     ];
-
     for (hid, scan_dir, src_file, dst_file, expected_reason) in rejection_cases {
         let bad_scan = run_bin(
             &bins.local_harvest,
@@ -1260,7 +1193,6 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
             reasons.contains(expected_reason),
             "expected scan rejection for {scan_dir} to contain {expected_reason:?}, got {reasons}"
         );
-
         let bad_pickup = run_bin(
             &bins.local_harvest,
             &target,
@@ -1305,14 +1237,12 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
         );
     }
 }
-
 #[test]
 fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
     let bins = xtask_bins();
     let sandbox = Sandbox::new("select-and-dual-symlink");
     let cargo_target = sandbox.dir.join("cargo-target");
     fs::create_dir_all(&cargo_target).unwrap();
-
     // Part 1: `--select T-APP-1 --functional-only` pulls transitive functional
     // dependency `T-CORE-DEP-1` while skipping doc-only dependency `T-DOC-GUIDE-1`.
     let repo = sandbox.dir.join("select-repo");
@@ -1322,7 +1252,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "chore: base"]);
     git(&repo, &["tag", "v0.1.0"]);
-
     write_rel(&repo, "docs/guide.md", "# Guide\n");
     write_task_record(
         &repo,
@@ -1345,7 +1274,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
             "docs: add architecture guide\n\nTask: T-DOC-GUIDE-1",
         ],
     );
-
     write_rel(
         &repo,
         "src/dep_mod.rs",
@@ -1372,7 +1300,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
             "feat(core): add base unit module\n\nTask: T-CORE-DEP-1",
         ],
     );
-
     write_rel(
         &repo,
         "src/lib.rs",
@@ -1399,7 +1326,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
             "feat(core): wire total calculation\n\nTask: T-APP-1",
         ],
     );
-
     let sel_out = run_bin(
         &bins.local_distill,
         &repo,
@@ -1436,7 +1362,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
         sel_receipt["skipped_non_functional_tasks"],
         json!(["T-DOC-GUIDE-1"])
     );
-
     // Part 2: Dual-licensed subfolder crate with `120000` Git symlinks
     // (`LICENSE-APACHE -> ../LICENSE` and `LICENSE-MIT -> ../MIT.txt`) elects
     // `"Apache-2.0"` exclusively!
@@ -1461,7 +1386,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
             ),
         ],
     );
-
     let target = sandbox.dir.join("dual-target");
     fs::create_dir_all(&target).unwrap();
     git(&target, &["init", "--quiet", "--initial-branch=main"]);
@@ -1472,7 +1396,6 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
     );
     git(&target, &["add", "."]);
     git(&target, &["commit", "-qm", "init"]);
-
     let pickup = run_bin(
         &bins.local_harvest,
         &target,
@@ -1508,14 +1431,12 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
     assert_eq!(pj["ok"], json!(true));
     assert_eq!(pj["license"], json!("Apache-2.0"));
 }
-
 #[test]
 fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
     let bins = xtask_bins();
     let sandbox = Sandbox::new("base-leaf-and-cross-repo-deps");
     let cargo_target = sandbox.dir.join("cargo-target");
     fs::create_dir_all(&cargo_target).unwrap();
-
     // -----------------------------------------------------------------------
     // Part 1 (Regression for @gate-audit #60):
     // `base` already carries `T-CODEXHISTORY-1` (whose historical `deps` list a
@@ -1564,7 +1485,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
             "feat(gemi): preserve history\n\nTask: T-CODEXHISTORY-1",
         ],
     );
-
     write_rel(
         &repo,
         "crates/susi-gemi/src/tool_calls.rs",
@@ -1595,7 +1515,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
         ],
     );
     let base_sha = git(&repo, &["rev-parse", "HEAD"]);
-
     // New functional Core task on top of `base_sha`:
     write_rel(
         &repo,
@@ -1626,7 +1545,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
             "refactor(core): trim pillar reach\n\nTask: T-CTOCORELEAN-1",
         ],
     );
-
     // Non-functional landing receipt commit in `base_sha..HEAD`:
     write_rel(
         &repo,
@@ -1635,9 +1553,7 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
     );
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "receipt: gated landing wave3"]);
-
     let range = format!("{base_sha}..HEAD");
-
     // Verify BOTH `--functional-only --strict` and default `--strict` succeed:
     for (name, extra_flag) in [
         ("rc-func-strict", Some("--functional-only")),
@@ -1676,7 +1592,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
         assert_eq!(included, vec!["T-CTOCORELEAN-1"]);
         assert_eq!(receipt["deferred"], json!([]));
         assert_eq!(receipt["rejected"], json!([]));
-
         let base_sat: Vec<&str> = receipt["satisfied_in_base"]
             .as_array()
             .unwrap()
@@ -1685,7 +1600,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
             .collect();
         assert!(base_sat.contains(&"T-CLAUDEGEMIFIX-2"));
         assert!(base_sat.contains(&"T-CODEXHISTORY-1"));
-
         let closure: Vec<&str> = receipt["closure_order"]
             .as_array()
             .unwrap()
@@ -1697,7 +1611,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
             "already_in_base leaf boundary must not expand historical deps, got {closure:?}"
         );
     }
-
     // -----------------------------------------------------------------------
     // Part 2: A NEW Core functional task in `base..HEAD` referencing a cross-repo
     // `susi-commercial-apps` task ID (`T-CLAUDECOMMCHAT-1`) skips that cross-repo
@@ -1715,7 +1628,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
     git(&repo2, &["add", "."]);
     git(&repo2, &["commit", "-qm", "chore: base"]);
     let repo2_base = git(&repo2, &["rev-parse", "HEAD"]);
-
     write_rel(
         &repo2,
         "crates/susi-core/src/bridge.rs",
@@ -1745,7 +1657,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
             "feat(core): add bridge\n\nTask: T-COREBRIDGE-1",
         ],
     );
-
     let cross_ok = run_bin(
         &bins.local_distill,
         &repo2,
@@ -1779,7 +1690,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
         cross_json["skipped_non_functional_tasks"],
         json!(["T-CLAUDECOMMCHAT-1"])
     );
-
     // Explicitly selecting a non-existent commercial task still fails closed:
     let explicit_bad = run_bin(
         &bins.local_distill,
@@ -1805,7 +1715,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
         explicit_json["rejected"][0]["reason_code"],
         json!("missing_manifest")
     );
-
     // A typo dependency on a missing local Core task still fails closed:
     write_rel(
         &repo2,
@@ -1832,7 +1741,6 @@ fn already_in_base_leaf_boundary_and_cross_repo_commercial_deps_do_not_block() {
         &repo2,
         &["commit", "-qm", "feat(core): bad dep\n\nTask: T-BADDEP-1"],
     );
-
     let bad_dep = run_bin(
         &bins.local_distill,
         &repo2,

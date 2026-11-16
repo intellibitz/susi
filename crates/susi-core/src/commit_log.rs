@@ -40,19 +40,15 @@
 //! Copied into every consumer's `src/susi_core/` tree. Sign and verify
 //! must be the *same* code on both sides of the wire, so the record
 //! format lives in the kernel ABI rather than in either peer-plane crate.
-
+use crate::susi_error::{EaiError, EaiResult};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
-
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-
-use crate::susi_error::{EaiError, EaiResult};
 use susi_paths::SusiDirs;
-
 /// A single quorum-commit decision, signed by the coordinator.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitRecord {
@@ -161,7 +157,6 @@ pub struct CommitRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub endorsements: Vec<MemberEndorsement>,
 }
-
 /// One member's endorsement of a privileged record: `sig` is the
 /// member's Ed25519 signature over `susi-endorse-v1:{record.signature}`,
 /// verifiable against the pubkey bound for `node` in the roster.
@@ -172,7 +167,6 @@ pub struct MemberEndorsement {
     /// `member_sign(endorsement_payload(record.signature))` hex.
     pub sig: String,
 }
-
 /// Membership record kinds — roster deltas committed through the same
 /// signed ledger as quorum decisions (Raft's committed configuration
 /// change analog). Carried in `CommitRecord::kind`; the member spec is
@@ -200,7 +194,6 @@ pub const KIND_CLUSTER_REKEY: &str = "cluster_rekey";
 /// stays verifiable. Members that never staged are cryptographically
 /// stranded — revocation of evicted key-holders is the point.
 pub const KIND_CLUSTER_REKEY_ACTIVATE: &str = "cluster_rekey_activate";
-
 /// Inputs for `CommitRecord::seal` — the decision fields a coordinator
 /// knows at commit time. `seq` and `signature` are derived by `seal`.
 #[derive(Debug)]
@@ -219,7 +212,6 @@ pub struct CommitInput<'a> {
     /// The committed output.
     pub value: &'a str,
 }
-
 /// Everything the signature covers — the record minus the signature
 /// itself, serialized in a fixed field order. Both sides of the wire
 /// serialize this identical shape, so the HMAC is reproducible in every
@@ -247,7 +239,6 @@ struct SignedFields<'a> {
     #[serde(skip_serializing_if = "str::is_empty")]
     kind: &'a str,
 }
-
 impl CommitRecord {
     /// Build and seal a record for a freshly committed quorum decision.
     /// `seq` is assigned from the local ledger — the count of this
@@ -296,7 +287,6 @@ impl CommitRecord {
             crate::susi_config::cluster_key::member_sign(&rec.signature).unwrap_or_default();
         Some(rec)
     }
-
     /// Seal a membership-change record (Raft's committed configuration
     /// entry analog). `member` is `node_id@address`; `electorate` is the
     /// roster as the coordinator saw it — audit context, not a vote.
@@ -347,7 +337,6 @@ impl CommitRecord {
         }
         Some(rec)
     }
-
     /// Seal a cluster-key rotation record (prepare phase).
     /// `fingerprint` is the SHA-256 hex of the next-epoch key
     /// (cluster_key::key_fingerprint); the record is signed under the
@@ -371,7 +360,6 @@ impl CommitRecord {
             electorate,
         )
     }
-
     /// Seal the commit-phase record for a staged rotation — applying it
     /// activates the staged key whose fingerprint it carries. Sealed
     /// under the CURRENT (pre-rotation) key: members receive it before
@@ -393,7 +381,6 @@ impl CommitRecord {
             electorate,
         )
     }
-
     /// Shared seal path for the non-decision record kinds — signature,
     /// seq, term, and chain linkage are identical; only the kind's
     /// value validation differs (done by each caller).
@@ -441,7 +428,6 @@ impl CommitRecord {
             crate::susi_config::cluster_key::member_sign(&rec.signature).unwrap_or_default();
         Some(rec)
     }
-
     /// `(kind, node_id, address)` for a membership record — `None` for
     /// decisions and member values that are not `id@address`.
     pub fn member_delta(&self) -> Option<(&str, &str, &str)> {
@@ -461,7 +447,6 @@ impl CommitRecord {
         }
         Some((self.kind.as_str(), id, addr))
     }
-
     /// The committed key fingerprint for either rekey-phase record —
     /// `None` for other kinds or a malformed (non-32-byte-hex) value.
     pub fn rekey_fingerprint(&self) -> Option<&str> {
@@ -476,7 +461,6 @@ impl CommitRecord {
         }
         Some(self.value.as_str())
     }
-
     /// The exact bytes the signature covers (compact JSON of
     /// `SignedFields` — serde emits struct fields in declaration order,
     /// so this is stable across processes).
@@ -502,7 +486,6 @@ impl CommitRecord {
         })
         .unwrap_or_default()
     }
-
     /// Which key epoch this record's signature verifies under. `Current`
     /// is the live cluster key; `Prev` is the key retired by the most
     /// recent `cluster_rekey` activation (`cluster.key.prev`). A `Prev`
@@ -531,7 +514,6 @@ impl CommitRecord {
         }
         None
     }
-
     /// Internal consistency independent of the signature: a correctly
     /// signed decision record can still claim a tally that never reached
     /// quorum — check it. Membership records carry no vote by design
@@ -550,7 +532,6 @@ impl CommitRecord {
         }
         susi_paths::hex::encode(Sha256::digest(self.value.as_bytes())) == self.value_hash
     }
-
     /// Verify a received record against the local cluster key and its own
     /// internal consistency (tally crossed quorum, hash matches value).
     /// Rejects unsigned, forged, tampered, and self-inconsistent records.
@@ -560,14 +541,12 @@ impl CommitRecord {
     pub fn verify(&self) -> bool {
         self.signature_epoch().is_some() && self.internally_consistent()
     }
-
     /// Signature epoch + consistency together — `None` rejects.
     pub fn verify_key_epoch(&self) -> Option<KeyEpoch> {
         self.signature_epoch()
             .filter(|_| self.internally_consistent())
     }
 }
-
 /// Which cluster-key epoch a record's signature verifies under.
 /// `Ord` derives so `Prev < Current` — callers can require current-era
 /// signatures with `>= KeyEpoch::Current` style checks if needed.
@@ -579,7 +558,6 @@ pub enum KeyEpoch {
     /// Signed under the live `cluster.key`.
     Current,
 }
-
 /// Shared env-mutation lock for tests: `cluster_key()` resolves through
 /// XDG env vars, so any test that sets `XDG_CONFIG_HOME`/`HOME` must hold
 /// this guard across the whole seal → verify → append sequence, or a
@@ -587,7 +565,6 @@ pub enum KeyEpoch {
 /// agreement. Public so consumer crates' own tests take the same lock.
 #[doc(hidden)]
 pub static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Next sequence number for `coordinator` in `records` — one past that
 /// coordinator's highest seq. Max-based, not count-based: a ledger
 /// holding {1,3} (a gap a peer later repairs) must seal seq 4, never
@@ -602,7 +579,6 @@ pub fn next_seq_for(records: &[CommitRecord], coordinator: &str) -> u64 {
         .unwrap_or(0)
         + 1
 }
-
 /// The epoch of `coordinator`'s current chain head — its highest-seq
 /// record — or `None` when it has no records. New records seal this into
 /// `prev_epoch`, giving receivers the Raft-style predecessor check.
@@ -613,7 +589,6 @@ fn chain_head_epoch(records: &[CommitRecord], coordinator: &str) -> Option<Strin
         .max_by_key(|r| r.seq)
         .map(|r| r.epoch.clone())
 }
-
 /// Sequence numbers from `coordinator` that a holder of `records` is
 /// missing below `incoming_seq` — non-empty when a replicated record
 /// arrives with gaps (dropped replication, or a forged seq that slipped
@@ -621,7 +596,6 @@ fn chain_head_epoch(records: &[CommitRecord], coordinator: &str) -> Option<Strin
 pub fn missing_seqs(records: &[CommitRecord], coordinator: &str, incoming_seq: u64) -> Vec<u64> {
     missing_seqs_floored(records, coordinator, incoming_seq, 0)
 }
-
 /// `missing_seqs` bounded below by a snapshot floor: seqs at or under
 /// the compaction high-water are archived, not missing — reporting them
 /// would trigger repair pulls for history the snapshot already covers.
@@ -640,7 +614,6 @@ pub fn missing_seqs_floored(
         .filter(|s| !held.contains(s))
         .collect()
 }
-
 /// The snapshot's last-included seq for `coordinator`, or 0 when no
 /// compaction has run — the intake-side floor for `missing_seqs` and
 /// the below-floor dedup check in `append_to`.
@@ -649,7 +622,6 @@ pub fn snapshot_floor(coordinator: &str) -> u64 {
         .and_then(|s| s.high_water.get(coordinator).copied())
         .unwrap_or(0)
 }
-
 /// Snapshot floor relative to an explicit ledger path — the
 /// `append_to`/`commit_log_fetch` seam that can't assume `~/.susi`.
 /// Mtime-cached: intake consults the floor on every record.
@@ -664,7 +636,6 @@ fn snapshot_floor_at(ledger: &Path, coordinator: &str) -> u64 {
         .and_then(|s| s.high_water.get(coordinator).copied())
         .unwrap_or(0)
 }
-
 /// Parsed records of a ledger/archive file, cached by (mtime_ns, len):
 /// `find_in_archive` scanned the whole archive per below-floor record,
 /// and status surfaces re-parse the ledger per call. A stamp change
@@ -709,7 +680,6 @@ fn cached_records(path: &Path) -> Vec<CommitRecord> {
         .insert(path.to_path_buf(), (stamp, records.clone()));
     records
 }
-
 /// Find a record by `(coordinator, seq)` in the compaction archive —
 /// the dedup source for below-floor arrivals.
 fn find_in_archive(archive: &Path, coordinator: &str, seq: u64) -> Option<CommitRecord> {
@@ -717,7 +687,6 @@ fn find_in_archive(archive: &Path, coordinator: &str, seq: u64) -> Option<Commit
         .into_iter()
         .find(|r| r.coordinator == coordinator && r.seq == seq)
 }
-
 /// Persisted consensus term state (`~/.susi/term.json`). Raft's
 /// `currentTerm`/`votedFor` analog simplified for susi's deterministic
 /// bully election: `leader` is the last elected leader this node
@@ -733,19 +702,16 @@ pub struct TermState {
     /// Unix seconds of the last term update.
     pub updated_at: u64,
 }
-
 /// Where term state lives.
 pub fn term_path() -> PathBuf {
     SusiDirs::config_dir().join("term.json")
 }
-
 /// Current term state; defaults to `term 0, no leader` when the file is
 /// absent or unreadable — a node with no term state has never observed
 /// an election, which is a valid starting point.
 pub fn load_term() -> TermState {
     load_term_from(&term_path())
 }
-
 fn parse_term_bytes(raw: &[u8]) -> TermState {
     let default = || TermState {
         term: 0,
@@ -757,7 +723,6 @@ fn parse_term_bytes(raw: &[u8]) -> TermState {
     };
     serde_json::from_str(text).unwrap_or_else(|_| default())
 }
-
 /// Test seam: load term state from an explicit path. Stamp-cached (`mtime`,
 /// `len`, `(dev, ino)`) — the intake path consults term state on every record,
 /// and an anti-entropy pull of hundreds of records should not re-parse the
@@ -768,7 +733,6 @@ pub fn load_term_from(path: &std::path::Path) -> TermState {
     };
     parse_term_bytes(&raw)
 }
-
 /// Read persisted term state directly without consulting `cached_file_bytes`,
 /// used inside `FileLock`-protected read-modify-write critical sections.
 fn load_term_uncached(path: &Path) -> TermState {
@@ -777,13 +741,11 @@ fn load_term_uncached(path: &Path) -> TermState {
     };
     parse_term_bytes(&raw)
 }
-
 /// Persist term state atomically (temp + rename — a crash mid-write
 /// must never corrupt the term file into a state a peer could adopt).
 pub fn save_term(state: &TermState) -> EaiResult<()> {
     save_term_to(&term_path(), state)
 }
-
 /// Test seam: persist term state to an explicit path.
 pub fn save_term_to(path: &Path, state: &TermState) -> EaiResult<()> {
     let body = serde_json::to_string(state)
@@ -791,19 +753,16 @@ pub fn save_term_to(path: &Path, state: &TermState) -> EaiResult<()> {
     crate::susi_config::atomic_write_bytes(path, body.as_bytes())
         .map_err(|e| EaiError::filesystem(format!("write {}: {e}", path.display())))
 }
-
 /// Serializes term read-modify-write sequences (claim + adopt) within
 /// the process — two threads claiming leadership concurrently must not
 /// interleave a lost bump.
 static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const TERM_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// Cross-process mutual exclusion for file read-modify-write.
 ///
 /// Cross-process lockfile; lives in `susi_config::file_lock` so crates that
 /// do not mount this module (the audit chain) share the same primitive.
 pub use crate::susi_config::file_lock::FileLock;
-
 /// Called by a coordinator before sealing a commit: records the elected
 /// leader and bumps the term when leadership changed, returning the
 /// term to stamp on the record. Same-leader re-elections reuse the
@@ -817,7 +776,6 @@ pub fn claim_leadership(leader: &str) -> u64 {
     }
     claim_leadership_at(&term_path(), leader)
 }
-
 /// Test seam: claim leadership against an explicit term file.
 pub fn claim_leadership_at(path: &Path, leader: &str) -> u64 {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -844,7 +802,6 @@ pub fn claim_leadership_at(path: &Path, leader: &str) -> u64 {
     }
     state.term
 }
-
 /// What a receiver should do with an incoming record's term.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TermVerdict {
@@ -864,13 +821,11 @@ pub enum TermVerdict {
     /// verdict surfaces the anomaly for the tool response.
     LeaderConflict,
 }
-
 /// Evaluate an incoming record's term against persisted state, adopting
 /// higher terms. Call before `append` on the push path.
 pub fn check_term(record: &CommitRecord) -> TermVerdict {
     check_term_at(&term_path(), record)
 }
-
 /// Test seam: `check_term` against an explicit term file.
 pub fn check_term_at(path: &Path, record: &CommitRecord) -> TermVerdict {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -902,7 +857,6 @@ pub fn check_term_at(path: &Path, record: &CommitRecord) -> TermVerdict {
     }
     TermVerdict::Current
 }
-
 /// The cluster's consensus view reconstructed by folding the whole
 /// ledger — the honest "state-machine replay": this struct is a pure
 /// function of `commit_log.jsonl`, so any node holding the same records
@@ -931,7 +885,6 @@ pub struct ClusterState {
     /// regressions, term regressions, equivocation).
     pub anomalies: Vec<String>,
 }
-
 /// Fold `records` into a `ClusterState`. File order is NOT the
 /// authoritative order — anti-entropy legitimately appends repaired
 /// history after newer records — so invariants are checked along each
@@ -948,7 +901,6 @@ pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
         &std::collections::BTreeMap::new(),
     )
 }
-
 /// The fold behind `replay_records`/`replay`: `floors` carries the
 /// snapshot's per-coordinator last-included seq. Records at or below
 /// the floor are already represented in the seeded `state` — they are
@@ -1070,7 +1022,6 @@ fn fold_records(
     }
     state
 }
-
 /// Replay the local ledger into the cluster's consensus view. When a
 /// compaction snapshot exists, its derived state seeds the replay and
 /// the per-coordinator high-water marks bound gap detection — the
@@ -1127,13 +1078,11 @@ pub fn replay() -> ClusterState {
     }
     state
 }
-
 /// Where the ledger lives: `~/.susi/commit_log.jsonl` — one JSON record
 /// per line, append-only, shared with peers under the same cluster key.
 pub fn ledger_path() -> PathBuf {
     SusiDirs::config_dir().join("commit_log.jsonl")
 }
-
 /// A log-compaction snapshot (Raft's InstallSnapshot analog): the
 /// derived cluster state at the compaction point plus each
 /// coordinator's last-included seq (`high_water`). After `compact()`
@@ -1166,30 +1115,25 @@ pub struct LedgerSnapshot {
     /// Membership-delta count through the snapshot point.
     pub memberships: usize,
 }
-
 /// Where the snapshot lives.
 pub fn snapshot_path() -> PathBuf {
     SusiDirs::config_dir().join("commit_snapshot.json")
 }
-
 /// Where pre-snapshot records are archived — still served by
 /// `commit_log_fetch` so peers can repair gaps that span the boundary.
 pub fn archive_path() -> PathBuf {
     SusiDirs::config_dir().join("commit_log.archive.jsonl")
 }
-
 /// Current snapshot; `None` when the file is absent or unreadable —
 /// uncompacted nodes simply have no floor.
 pub fn load_snapshot() -> Option<LedgerSnapshot> {
     load_snapshot_from(&snapshot_path())
 }
-
 /// Test seam: load a snapshot from an explicit path.
 pub fn load_snapshot_from(path: &PathBuf) -> Option<LedgerSnapshot> {
     let text = fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }
-
 /// Fold the live ledger into a snapshot and truncate. Keeps each
 /// coordinator's frontier record as the chain/seq anchor so sealing,
 /// `next_seq_for`, and anti-entropy `from_seq` need no snapshot
@@ -1201,7 +1145,6 @@ pub fn load_snapshot_from(path: &PathBuf) -> Option<LedgerSnapshot> {
 pub fn compact() -> EaiResult<usize> {
     compact_at(&ledger_path(), &snapshot_path(), &archive_path())
 }
-
 /// Test seam: compact explicit paths.
 pub fn compact_at(ledger: &Path, snapshot: &Path, archive: &Path) -> EaiResult<usize> {
     let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1290,18 +1233,15 @@ pub fn compact_at(ledger: &Path, snapshot: &Path, archive: &Path) -> EaiResult<u
         .map_err(|e| EaiError::filesystem(format!("write {}: {e}", ledger.display())))?;
     Ok(archived.len())
 }
-
 /// Serializes the verify→dedup-check→write sequence in-process: two
 /// threads appending different records for the same `(coordinator, seq)`
 /// must not both pass the equivocation check and both write.
 static APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Append one record. Verifies the signature first — nothing unsigned or
 /// forged is ever written to the ledger.
 pub fn append(record: &CommitRecord) -> EaiResult<()> {
     append_to(&ledger_path(), record)
 }
-
 /// Test seam: append to an explicit path.
 ///
 /// Delivery is idempotent: re-appending a record the ledger already
@@ -1330,7 +1270,6 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     let mut held = load_from(path);
     append_checked(path, record, &mut held).map(|_| ())
 }
-
 /// Intake checks + file append against a caller-maintained `held` —
 /// the same gates `append_to` runs, minus the lock and the load, so a
 /// batch can pay them once. Returns `true` when the record was written
@@ -1511,7 +1450,6 @@ fn append_checked(
     held.push(record.clone());
     Ok(true)
 }
-
 /// Per-record outcome of a batch intake — `Skipped` is an idempotent
 /// re-delivery (already held, identical), `Refused` a gate failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1520,7 +1458,6 @@ pub enum AppendOutcome {
     Skipped,
     Refused,
 }
-
 /// Batch intake for anti-entropy/gap repair: one lock + one ledger
 /// load, then every record runs the full check sequence against the
 /// growing `held` view — without it a 1000-record repair costs 1000
@@ -1530,7 +1467,6 @@ pub enum AppendOutcome {
 pub fn append_many(records: &[CommitRecord]) -> Vec<AppendOutcome> {
     append_many_to(&ledger_path(), records)
 }
-
 /// Test seam + path-explicit form of `append_many`.
 pub fn append_many_to(path: &PathBuf, records: &[CommitRecord]) -> Vec<AppendOutcome> {
     let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1550,14 +1486,12 @@ pub fn append_many_to(path: &PathBuf, records: &[CommitRecord]) -> Vec<AppendOut
         })
         .collect()
 }
-
 /// Whether this record changes cluster-wide security state — roster
 /// deltas and key rotations alike. Decision records (empty kind) never
 /// do.
 fn privileged_kind(record: &CommitRecord) -> bool {
     record.member_delta().is_some() || record.rekey_fingerprint().is_some()
 }
-
 /// A privileged record (member delta or cluster rekey) only carries
 /// authority when (a) its sealing coordinator is a current explicit
 /// member of the roster — or this node itself (operator-initiated
@@ -1580,7 +1514,6 @@ fn privileged_kind(record: &CommitRecord) -> bool {
 pub fn member_coordinator_known(record: &CommitRecord) -> bool {
     member_coordinator_known_at(record, &SusiDirs::config_dir())
 }
-
 /// Test seam: coordinator-authority check against an explicit roster dir.
 pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     if !privileged_kind(record) {
@@ -1591,7 +1524,6 @@ pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     // `member_add` through the leader's `member_propose` tool instead.
     record.leader == record.coordinator && coordinator_known_at(record, dir)
 }
-
 /// Whether the record's coordinator holds commit authority on this
 /// roster — a current explicit member or this node itself. Commit
 /// authority = membership: records from non-members may still append as
@@ -1601,7 +1533,6 @@ pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
 pub fn coordinator_known(record: &CommitRecord) -> bool {
     coordinator_known_at(record, &SusiDirs::config_dir())
 }
-
 /// Test seam: coordinator-authority check against an explicit roster dir.
 pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     if record.coordinator == crate::susi_config::cluster_key::wire_node_id() {
@@ -1614,7 +1545,6 @@ pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
             && p.get("admission").and_then(|v| v.as_str()) == Some("explicit")
     })
 }
-
 /// The coordinator's bound signing key `(pubkey_hex, bound_at)` — the
 /// roster half of member-signed consensus. `bound_at` is the
 /// `committed_at` of the record (or handshake time) that established
@@ -1644,7 +1574,6 @@ fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64, Option
         Some((pk, at, seq))
     })
 }
-
 /// Whether this record's coordinator attribution is genuine. When the
 /// roster binds a pubkey for the coordinator, records sealed at or
 /// after the binding must carry a valid `member_sig` — a stolen
@@ -1655,7 +1584,6 @@ fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64, Option
 pub fn attribution_valid(record: &CommitRecord) -> bool {
     attribution_valid_at(record, &SusiDirs::config_dir())
 }
-
 /// Test seam: attribution check against an explicit roster dir.
 pub fn attribution_valid_at(record: &CommitRecord, dir: &Path) -> bool {
     let Some((pk, bound_at, bound_seq)) = bound_pubkey_at(&record.coordinator, dir) else {
@@ -1681,14 +1609,12 @@ pub fn attribution_valid_at(record: &CommitRecord, dir: &Path) -> bool {
             &record.member_sig,
         )
 }
-
 /// The payload a member signs to endorse a privileged record — bound to
 /// the record's HMAC signature so an endorsement can never be transplanted
 /// onto a different record.
 pub fn endorsement_payload(signature: &str) -> String {
     format!("susi-endorse-v1:{signature}")
 }
-
 /// Whether a `member_add` carrying `member_pubkey` also carries the
 /// subject's own attestation for it (`subject_sig` over
 /// `susi-bind-v1:{id}:{pubkey}`, sourced from the v3 handshake). A
@@ -1713,7 +1639,6 @@ pub fn subject_attestation_valid(record: &CommitRecord) -> bool {
         &record.subject_sig,
     )
 }
-
 /// Whether `kind` is a privileged roster/config delta — the record kinds
 /// the endorsement gate applies to. Quorum decisions (empty kind) are
 /// already electorate-tallied and stay ungated.
@@ -1727,7 +1652,6 @@ pub fn privileged_kind_name(kind: &str) -> bool {
             | KIND_CLUSTER_REKEY_ACTIVATE
     )
 }
-
 /// Whether a privileged record carries the endorsements its electorate
 /// owes it — the receiver-side joint-consensus gate. The required count
 /// is the majority of electorate members whose pubkey was bound *at the
@@ -1742,7 +1666,6 @@ pub fn privileged_kind_name(kind: &str) -> bool {
 pub fn endorsements_satisfied(record: &CommitRecord) -> bool {
     endorsements_satisfied_at(record, &SusiDirs::config_dir())
 }
-
 /// Test seam: endorsement check against an explicit roster dir.
 pub fn endorsements_satisfied_at(record: &CommitRecord, dir: &Path) -> bool {
     if !privileged_kind_name(&record.kind) {
@@ -1780,7 +1703,6 @@ pub fn endorsements_satisfied_at(record: &CommitRecord, dir: &Path) -> bool {
     }
     supporters.len() >= required
 }
-
 /// The intake half of the joint-consensus gate: the bound electorate is
 /// read off the *committed ledger's applied roster* (this node's
 /// `peers.json` at append time), never off the record's proposer-
@@ -1835,7 +1757,6 @@ pub fn endorsements_satisfied_at_tip(record: &CommitRecord, dir: &Path) -> bool 
     }
     supporters.len() >= required
 }
-
 /// Ask each `(node_id, gmcp_addr)` member to endorse `record` via its
 /// `member_endorse` tool — the leader-side half of the joint-consensus
 /// gate. Runs the calls on scoped threads so one dead member stalls a
@@ -1887,7 +1808,6 @@ pub fn collect_endorsements(
     });
     collected.into_inner().unwrap_or_else(|e| e.into_inner())
 }
-
 /// Bind the member's signing key into a roster row when the committed
 /// add carries one — first write wins. A bound key is only ever
 /// replaced by remove + re-add (leader-gated): letting a later record
@@ -1927,7 +1847,6 @@ fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord, dir: &Pat
     .unwrap_or(0);
     row["key_bound_seq"] = serde_json::json!(floor);
 }
-
 /// Apply a committed membership delta to `peers.json` /
 /// `peers_banned.json` beside the ledger — the roster half of "the
 /// ledger is applied state". `dir` is the ledger's directory (not the
@@ -1955,10 +1874,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
             KIND_MEMBER_REMOVE => {
                 let _ = crate::susi_config::atomic_write_json_pretty(
                     &marker,
-                    &serde_json::json!({
-                        "evicted_at": record.committed_at,
-                        "by": record.coordinator,
-                    }),
+                    &serde_json::json!({"evicted_at":record.committed_at,"by":record.coordinator}),
                 );
             }
             KIND_MEMBER_UNBAN | KIND_MEMBER_ADD => {
@@ -2038,20 +1954,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                 // committed membership grants roster standing, not
                 // liveness. The member stays stale (no quorum weight,
                 // no leadership) until it directly pongs this node.
-                let mut row = serde_json::json!({
-                    "node_id": id,
-                    "address": addr,
-                    "node_type": "PEER",
-                    "is_active": true,
-                    "capabilities": [],
-                    "registry_checksum": 0,
-                    "latency_ms": 0,
-                    "uptime_secs": 0,
-                    "trust_score": 0.8,
-                    "capability_bloom": [0, 0, 0, 0],
-                    "admission": "explicit",
-                    "last_seen_secs": 0,
-                });
+                let mut row = serde_json::json!({"node_id":id,"address":addr,"node_type":"PEER","is_active":true,"capabilities":[],"registry_checksum":0,"latency_ms":0,"uptime_secs":0,"trust_score":0.8,"capability_bloom":[0,0,0,0],"admission":"explicit","last_seen_secs":0});
                 bind_member_key(&mut row, record, dir, id);
                 peers.push(row);
             }
@@ -2060,11 +1963,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
         KIND_MEMBER_REMOVE => {
             peers.retain(|n| !member_matches(n));
             if !banned.iter().any(&member_matches) {
-                banned.push(serde_json::json!({
-                    "node_id": id,
-                    "address": addr,
-                    "banned_at": record.committed_at,
-                }));
+                banned.push(serde_json::json!({"node_id":id,"address":addr,"banned_at":record.committed_at}));
             }
             let _ = crate::susi_config::atomic_write_json_pretty(&peers_path, &peers);
             let _ = crate::susi_config::atomic_write_json_pretty(&banned_path, &banned);
@@ -2076,29 +1975,24 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
         _ => {}
     }
 }
-
 /// Load every well-formed record, oldest first. Malformed lines are
 /// skipped rather than fatal — a torn final line from a mid-append crash
 /// must not hide the valid history before it.
 pub fn load() -> Vec<CommitRecord> {
     load_from(&ledger_path())
 }
-
 /// Test seam: load from an explicit path. Mtime-cached — status and
 /// audit surfaces re-parse the ledger per call in the daemon, while
 /// intake appends invalidate by stamp.
 pub fn load_from(path: &std::path::Path) -> Vec<CommitRecord> {
     cached_records(path)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn test_key_guard() -> std::sync::MutexGuard<'static, ()> {
         ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
-
     #[test]
     fn sealed_record_verifies_and_tampering_fails() {
         let _g = test_key_guard();
@@ -2114,20 +2008,16 @@ mod tests {
             return;
         };
         assert!(rec.verify(), "freshly sealed record must verify");
-
         let mut forged = rec.clone();
         forged.value = "the answer is 43".into();
         assert!(!forged.verify(), "tampered value must fail");
-
         let mut inflated = rec.clone();
         inflated.tally = 99; // signature covers tally → signature breaks
         assert!(!inflated.verify());
-
         let mut unsigned = rec.clone();
         unsigned.signature.clear();
         assert!(!unsigned.verify(), "empty signature must fail");
     }
-
     #[test]
     fn verify_rejects_tally_below_quorum() {
         let _g = test_key_guard();
@@ -2152,14 +2042,12 @@ mod tests {
         }
         assert!(!rec.verify(), "tally < quorum must fail even when signed");
     }
-
     #[test]
     fn ledger_round_trip_skips_malformed_lines() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_commit_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         let Some(rec) = CommitRecord::seal(CommitInput {
             coordinator: "node-a",
             leader: "node-a",
@@ -2176,13 +2064,11 @@ mod tests {
         let mut f = OpenOptions::new().append(true).open(&path).unwrap();
         f.write_all(b"{torn").unwrap();
         drop(f);
-
         let loaded = load_from(&path);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0], rec);
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn append_refuses_unverified_record() {
         let _g = test_key_guard();
@@ -2211,14 +2097,12 @@ mod tests {
         assert!(append_to(&path, &unsigned).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn member_records_seal_verify_and_apply_to_roster() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_member_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         // seal_member assigns seq from the shared ledger path — the
         // path-seamed test ledger is empty, so re-seq + re-sign each
         // record into the test chain (same pattern as the gap tests).
@@ -2236,7 +2120,6 @@ mod tests {
             }
             Some(rec)
         };
-
         let Some(add) = seal_into_test(KIND_MEMBER_ADD, "node-b@10.0.0.2:9090") else {
             eprintln!("skip: no cluster.key on this host");
             return;
@@ -2247,7 +2130,6 @@ mod tests {
             Some((KIND_MEMBER_ADD, "node-b", "10.0.0.2:9090"))
         );
         append_to(&path, &add).expect("append add");
-
         // Applied: peers.json beside the ledger gained the member as
         // explicit — but stale (last_seen 0): committed standing, not
         // liveness.
@@ -2257,7 +2139,6 @@ mod tests {
         assert_eq!(peers[0]["node_id"], "node-b");
         assert_eq!(peers[0]["admission"], "explicit");
         assert_eq!(peers[0]["last_seen_secs"], 0);
-
         // Removal evicts + bans on append.
         let Some(rem) = seal_into_test(KIND_MEMBER_REMOVE, "node-b@10.0.0.2:9090") else {
             return;
@@ -2270,7 +2151,6 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
                 .unwrap();
         assert_eq!(banned.len(), 1);
-
         // A re-add while banned is refused — eviction wins over a stale
         // add arriving late.
         let Some(readd) = seal_into_test(KIND_MEMBER_ADD, "node-b@10.0.0.2:9090") else {
@@ -2280,7 +2160,6 @@ mod tests {
         let peers: Vec<serde_json::Value> =
             serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
         assert!(peers.is_empty(), "banned member must not be resurrected");
-
         // Unban lifts the ban so the member can re-verify naturally.
         let Some(unban) = seal_into_test(KIND_MEMBER_UNBAN, "node-b@10.0.0.2:9090") else {
             return;
@@ -2290,7 +2169,6 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
                 .unwrap();
         assert!(banned.is_empty(), "unban must clear the eviction");
-
         // Identity collapse: a committed add must supersede every row
         // matching its (id|addr) — a synthetic LAN-discovery id at the
         // same address, or the same node_id at a stale pre-move address.
@@ -2298,12 +2176,7 @@ mod tests {
         // admission while keeping its probed liveness.
         fs::write(
             dir.join("peers.json"),
-            serde_json::to_string(&serde_json::json!([
-                { "node_id": "susi-peer-10.0.0.5", "address": "10.0.0.5:9090",
-                  "admission": "discovered", "last_seen_secs": 999 },
-                { "node_id": "node-d", "address": "10.0.0.44:9090",
-                  "admission": "explicit", "last_seen_secs": 12345 },
-            ]))
+            serde_json::to_string(&serde_json::json!([{"node_id":"susi-peer-10.0.0.5","address":"10.0.0.5:9090","admission":"discovered","last_seen_secs":999},{"node_id":"node-d","address":"10.0.0.44:9090","admission":"explicit","last_seen_secs":12345}]))
             .unwrap(),
         )
         .unwrap();
@@ -2321,7 +2194,6 @@ mod tests {
             peers[0]["last_seen_secs"], 999,
             "committed membership grants standing, not liveness"
         );
-
         // Self-edge guard: a committed add naming this node, or any
         // loopback address, never lands in peers.json — `peers add`
         // pushes the member record to the member itself, so this is a
@@ -2345,7 +2217,6 @@ mod tests {
             }),
             "self/loopback member_add must not create a self-edge"
         );
-
         // Self-subject remove: fan-out delivers a node its own eviction
         // record — it must not write a ban entry against itself, but it
         // does stand down: the eviction marker the scout checks lands
@@ -2372,7 +2243,6 @@ mod tests {
             !marker.exists(),
             "self-unban must clear the eviction marker"
         );
-
         // Replay is the pure cluster view — the deltas were committed,
         // so the derived roster reports them even though the local
         // roster correctly declined to apply them. The self-remove
@@ -2381,7 +2251,6 @@ mod tests {
         assert_eq!(state.memberships, 9);
         assert_eq!(state.roster.len(), 2);
         assert!(state.banned.is_empty());
-
         // Malformed member specs can't seal, and a member record
         // carrying one fails verify even when validly signed.
         assert!(
@@ -2426,7 +2295,6 @@ mod tests {
             );
         }
         assert!(!bogus.verify(), "unknown record kind must fail verify");
-
         // A damaged ban list is never read as empty nor rewritten: a
         // committed removal must not erase it, and a committed add must
         // not readmit anyone while it is unreadable.
@@ -2448,7 +2316,6 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.join("peers.json")).unwrap(), before);
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn member_records_require_a_known_coordinator() {
         // Coordinator-authority gate: an evicted node still holds
@@ -2460,10 +2327,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("peers.json"),
-            serde_json::to_string(&serde_json::json!([
-                { "node_id": "coord-a", "admission": "explicit" },
-                { "node_id": "gossip-only", "admission": "discovered" },
-            ]))
+            serde_json::to_string(&serde_json::json!([{"node_id":"coord-a","admission":"explicit"},{"node_id":"gossip-only","admission":"discovered"}]))
             .unwrap(),
         )
         .unwrap();
@@ -2519,7 +2383,6 @@ mod tests {
         assert!(!member_coordinator_known_at(&follower_sealed, &dir));
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn pre_membership_records_parse_as_decisions() {
         // A record serialized before `kind` existed must still load and
@@ -2529,14 +2392,12 @@ mod tests {
         assert!(rec.kind.is_empty());
         assert!(rec.member_delta().is_none());
     }
-
     #[test]
     fn seq_advances_per_coordinator_and_gaps_are_detected() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_seq_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         // Seal reads the shared ledger path for seq — bypass it in the
         // test by asserting on next_seq_for/missing_seqs directly, then
         // append two records under the test path.
@@ -2568,14 +2429,12 @@ mod tests {
         assert!(missing_seqs(&held, "node-a", 2).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn append_is_idempotent_and_detects_equivocation() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_equiv_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         let Some(r1) = CommitRecord::seal(CommitInput {
             coordinator: "node-a",
             leader: "node-a",
@@ -2591,7 +2450,6 @@ mod tests {
         // Re-delivery of the identical record is a no-op, not a dup.
         append_to(&path, &r1).unwrap();
         assert_eq!(load_from(&path).len(), 1);
-
         // A *different* signed record claiming the same (coordinator, seq)
         // slot is equivocation — refuse it rather than ordering both.
         let Some(mut conflict) = CommitRecord::seal(CommitInput {
@@ -2621,14 +2479,12 @@ mod tests {
         assert_eq!(held[0].value, "v1");
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn chain_link_seals_previous_head_and_signature_covers_it() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_chain_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         let Some(mut r1) = CommitRecord::seal(CommitInput {
             coordinator: "node-a",
             leader: "node-a",
@@ -2645,7 +2501,6 @@ mod tests {
         r1.prev_epoch.clear();
         resign(&mut r1);
         append_to(&path, &r1).unwrap();
-
         // An honest successor links its predecessor's epoch.
         let mut r2 = r1.clone();
         r2.epoch = "epoch-two".into();
@@ -2655,7 +2510,6 @@ mod tests {
         r2.prev_epoch = r1.epoch.clone();
         resign(&mut r2);
         append_to(&path, &r2).unwrap();
-
         // Derivation: chain_head_epoch tracks the coordinator's tail.
         let held = load_from(&path);
         assert_eq!(
@@ -2663,21 +2517,18 @@ mod tests {
             Some("epoch-two")
         );
         assert_eq!(chain_head_epoch(&held, "node-b"), None);
-
         // The link is signed — mutating it breaks verification.
         let mut forged = r2.clone();
         forged.prev_epoch = "deadbeef".into();
         assert!(!forged.verify(), "tampered prev_epoch must fail");
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn divergent_predecessor_is_refused_and_replay_flags_chain_break() {
         let _g = test_key_guard();
         let dir = std::env::temp_dir().join(format!("susi_fork_{}", std::process::id()));
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
-
         let Some(mut pred) = CommitRecord::seal(CommitInput {
             coordinator: "node-a",
             leader: "node-a",
@@ -2693,7 +2544,6 @@ mod tests {
         pred.prev_epoch.clear();
         resign(&mut pred);
         append_to(&path, &pred).unwrap();
-
         // A successor claiming a different predecessor epoch is fork
         // evidence — refused at the boundary.
         let mut fork = pred.clone();
@@ -2703,7 +2553,6 @@ mod tests {
         resign(&mut fork);
         let err = append_to(&path, &fork).unwrap_err();
         assert!(err.to_string().contains("chain divergence"), "{err}");
-
         // Out-of-order delivery: seq 2 lands before its predecessor —
         // the link can't be evaluated yet so it appends, but once the
         // divergent predecessor fills in, replay must flag the break.
@@ -2727,7 +2576,6 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&dir);
     }
-
     fn resign(rec: &mut CommitRecord) {
         if let Some(key) = crate::susi_config::cluster_key::cluster_key() {
             rec.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
@@ -2736,7 +2584,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn claim_leadership_bumps_term_and_check_term_classifies() {
         let _g = test_key_guard();
@@ -2744,7 +2591,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let tpath = dir.join("term.json");
-
         // First claim establishes term 1; same leader keeps it; a real
         // transition bumps it.
         assert_eq!(claim_leadership_at(&tpath, "node-a"), 1);
@@ -2752,7 +2598,6 @@ mod tests {
         assert_eq!(claim_leadership_at(&tpath, "node-a"), 1);
         assert_eq!(claim_leadership_at(&tpath, "node-b"), 2);
         assert_eq!(load_term_from(&tpath).term, 2);
-
         let Some(rec) = CommitRecord::seal(CommitInput {
             coordinator: "node-b",
             leader: "node-b",
@@ -2769,13 +2614,11 @@ mod tests {
         cur.leader = "node-b".into();
         resign(&mut cur);
         assert_eq!(check_term_at(&tpath, &cur), TermVerdict::Current);
-
         // Older term → stale push.
         let mut stale = rec.clone();
         stale.term = 1;
         resign(&mut stale);
         assert_eq!(check_term_at(&tpath, &stale), TermVerdict::Stale);
-
         // Newer term → adopted into the term file.
         let mut ahead = rec.clone();
         ahead.term = 5;
@@ -2789,7 +2632,6 @@ mod tests {
             v => panic!("expected Adopted, got {v:?}"),
         }
         assert_eq!(load_term_from(&tpath).term, 5);
-
         // Same term, different leader → split-brain evidence.
         let mut conflict = rec.clone();
         conflict.term = 5;
@@ -2799,14 +2641,11 @@ mod tests {
             check_term_at(&tpath, &conflict),
             TermVerdict::LeaderConflict
         );
-
         let _ = fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn replay_reconstructs_cluster_state_and_flags_anomalies() {
         let _g = test_key_guard();
-
         let seal_at = |coord: &str, leader: &str, seq: u64, term: u64, value: &str| {
             let mut r = CommitRecord::seal(CommitInput {
                 coordinator: coord,
@@ -2821,7 +2660,6 @@ mod tests {
             resign(&mut r);
             Some(r)
         };
-
         // node-a seq 1..3 across terms 1→2, node-b seq 1..2 at term 2,
         // plus a node-a seq-1 equivocation and a term regression.
         let Some(records_base) = (|| {
@@ -2844,7 +2682,6 @@ mod tests {
             susi_paths::hex::encode(Sha256::digest(equivocating.value.as_bytes()));
         resign(&mut equivocating);
         records.push(equivocating);
-
         let state = replay_records(&records);
         assert_eq!(state.term, 2);
         assert_eq!(state.leader, "node-b");
@@ -2870,7 +2707,6 @@ mod tests {
             state.anomalies
         );
     }
-
     #[test]
     fn file_lock_excludes_second_holder_and_releases_on_drop() {
         let dir = std::env::temp_dir().join(format!(
@@ -2903,7 +2739,6 @@ mod tests {
         drop(_d);
         let _ = fs::remove_dir_all(&dir);
     }
-
     /// Real multi-process serialization proof: spawn copies of this test
     /// binary as workers that race `claim_leadership_at` on one term file.
     /// Every claim names a distinct leader, so each is a genuine

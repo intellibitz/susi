@@ -6,12 +6,9 @@
 //!
 //! Extractors return `Err` for an error envelope or an empty reply — an
 //! empty answer must fail over to the next provider, never pass as text.
-
 use serde_json::{json, Value};
-
 /// A reply-text extractor, for callers that pick the protocol at runtime.
 pub type Extractor = fn(&Value) -> Result<String, String>;
-
 /// Wire protocol for an HTTP inference backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InferenceProtocol {
@@ -26,7 +23,6 @@ pub enum InferenceProtocol {
     /// NVIDIA Triton generate endpoint (raw URL).
     Triton,
 }
-
 impl InferenceProtocol {
     /// Map a config `protocol_type` string onto a wire protocol.
     /// Unknown values default to OpenAI chat (the OpenAI-compat majority).
@@ -41,15 +37,10 @@ impl InferenceProtocol {
         }
     }
 }
-
 /// OpenAI `/chat/completions` body with one user message.
 pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     let lower = model.to_lowercase();
-    let mut val = json!({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens
-    });
+    let mut val = json!({"model":model,"messages":[{"role":"user","content":prompt}],"max_tokens":max_tokens});
     if lower.contains("kimi") || lower.contains("moonshot") {
         if let Some(obj) = val.as_object_mut() {
             obj.insert("thinking".into(), json!({"type": "enabled"}));
@@ -57,7 +48,6 @@ pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     }
     val
 }
-
 /// Preserve a caller's chat body while applying the selected provider model
 /// and a safe default budget. Streaming is handled by GEMI, not this request.
 pub fn chat_request_body(model: &str, prompt: &str, chat: Option<&Value>) -> Value {
@@ -74,25 +64,18 @@ pub fn chat_request_body(model: &str, prompt: &str, chat: Option<&Value>) -> Val
     }
     body
 }
-
 /// OpenAI legacy `/completions` body.
 pub fn openai_completions_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     json!({"model": model, "prompt": prompt, "max_tokens": max_tokens})
 }
-
 /// Triton generate-endpoint body.
 pub fn triton_body(prompt: &str, max_tokens: u32) -> Value {
-    json!({
-        "text_input": prompt,
-        "parameters": {"max_tokens": max_tokens, "bad_words": [], "stop_words": []}
-    })
+    json!({"text_input":prompt,"parameters":{"max_tokens":max_tokens,"bad_words":[],"stop_words":[]}})
 }
-
 /// The retry body when a provider rejected `max_tokens` or returned a provider-specific
 /// payload error like Moonshot/Kimi's `invalid thinking: only type=enabled is allowed for this model`.
 pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
     let fields = body.as_object()?;
-
     // Moonshot / Kimi thinking parameter adjustment retry
     if error_body.contains("invalid thinking")
         || error_body.contains("type=enabled")
@@ -105,11 +88,9 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
         );
         return Some(Value::Object(retry));
     }
-
     let error: Value = serde_json::from_str(error_body).unwrap_or(Value::Null);
     let err_param = error.pointer("/error/param").and_then(Value::as_str);
     let err_code = error.pointer("/error/code").and_then(Value::as_str);
-
     // Strip unsupported reasoning / cache parameters when an OpenAI-compatible
     // provider rejects them with HTTP 400 so full-budget reasoning and cache
     // hints degrade gracefully on older or strict endpoints.
@@ -134,7 +115,6 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
             return Some(Value::Object(retry));
         }
     }
-
     let limit = fields.get("max_tokens")?;
     let unsupported = err_code == Some("unsupported_parameter") && err_param == Some("max_tokens");
     if !unsupported && !error_body.contains("max_completion_tokens") {
@@ -145,14 +125,12 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
     retry.insert("max_completion_tokens".to_string(), limit.clone());
     Some(Value::Object(retry))
 }
-
 /// Blocking JSON POST for provider calls: reads error bodies (so the
 /// provider's reason reaches the caller), retries once through
 /// [`token_param_retry`] on a 400, and returns the parsed 2xx reply.
 pub fn post_json(url: &str, headers: &[(&str, &str)], body: &Value) -> Result<Value, String> {
     post_json_timeout(url, headers, body, 30)
 }
-
 /// Same as [`post_json`] with an explicit recv timeout in seconds. Cloud
 /// generation can exceed the 30s default used by eval/benchmark.
 pub fn post_json_timeout(
@@ -203,14 +181,12 @@ pub fn post_json_timeout(
     }
     serde_json::from_slice(&buf).map_err(|e| format!("unreadable response body: {e}"))
 }
-
 fn http_error(status: u16, body: &str) -> String {
     format!(
         "HTTP {status}: {}",
         body.chars().take(200).collect::<String>()
     )
 }
-
 /// `Err` carrying the provider's message when `json` is an error envelope
 /// (`{"error": {"message": …}}` or `{"error": "…"}`).
 fn error_envelope(json: &Value) -> Result<(), String> {
@@ -224,14 +200,12 @@ fn error_envelope(json: &Value) -> Result<(), String> {
         )),
     }
 }
-
 fn non_empty(text: Option<&str>, field: &str) -> Result<String, String> {
     match text {
         Some(text) if !text.is_empty() => Ok(text.to_string()),
         Some(_) | None => Err(format!("response carried no {field} text")),
     }
 }
-
 /// Reply of a `/chat/completions` response; a `refusal` is an error.
 pub fn openai_chat_text(json: &Value) -> Result<String, String> {
     error_envelope(json)?;
@@ -241,7 +215,6 @@ pub fn openai_chat_text(json: &Value) -> Result<String, String> {
     }
     non_empty(message["content"].as_str(), "choices[0].message.content")
 }
-
 /// Extract caller tool calls from an OpenAI-compatible chat reply into the
 /// small neutral shape used by GEMI's caller envelope. `None` means ordinary
 /// text and leaves the existing extractor in charge.
@@ -270,19 +243,16 @@ pub fn openai_chat_tool_reply(json: &Value) -> Result<Option<Value>, String> {
     Ok(if normalized.is_empty() {
         None
     } else {
-        Some(json!({
-            "content": message.get("content").cloned().unwrap_or(Value::Null),
-            "tool_calls": normalized
-        }))
+        Some(
+            json!({"content":message.get("content").cloned().unwrap_or(Value::Null),"tool_calls":normalized}),
+        )
     })
 }
-
 /// Reply of a legacy `/completions` response.
 pub fn openai_completions_text(json: &Value) -> Result<String, String> {
     error_envelope(json)?;
     non_empty(json["choices"][0]["text"].as_str(), "choices[0].text")
 }
-
 /// Reply of a Triton generate response (`text_output`, or the KServe v2
 /// `outputs[0].data[0]` shape).
 pub fn triton_text(json: &Value) -> Result<String, String> {
@@ -294,7 +264,6 @@ pub fn triton_text(json: &Value) -> Result<String, String> {
         "text_output",
     )
 }
-
 /// All `text` blocks of a Messages API response, in order — a reply may
 /// span several blocks (e.g. around tool_use or after thinking blocks).
 pub fn anthropic_text(json: &Value) -> Result<String, String> {
@@ -311,7 +280,6 @@ pub fn anthropic_text(json: &Value) -> Result<String, String> {
         .unwrap_or_default();
     non_empty(Some(&text), "content[].text")
 }
-
 /// Answer of a `generateContent` response: every non-thought part of the
 /// first candidate, in order (thinking models emit `thought: true` parts
 /// ahead of the answer).
@@ -329,13 +297,11 @@ pub fn gemini_text(json: &Value) -> Result<String, String> {
         .unwrap_or_default();
     non_empty(Some(&text), "candidates[0].content.parts[].text")
 }
-
 /// Gemini model resource segment: config may name `gemini-x` or the full
 /// `models/gemini-x` resource.
 pub fn gemini_model_path(model: &str) -> &str {
     model.strip_prefix("models/").unwrap_or(model)
 }
-
 /// Convert an OpenAI-compatible `/chat/completions` payload to Anthropic `/v1/messages`.
 ///
 /// Extracts any `system` message into the top-level `system` property, preserves `user`
@@ -362,10 +328,8 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
         .or_else(|| openai.get("max_completion_tokens"))
         .and_then(Value::as_u64)
         .unwrap_or(4096);
-
     let mut system_prompt = String::new();
     let mut messages: Vec<Value> = Vec::new();
-
     if let Some(msg_array) = openai.get("messages").and_then(Value::as_array) {
         for msg in msg_array {
             let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
@@ -409,12 +373,7 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
                             .and_then(Value::as_str)
                             .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
                             .unwrap_or_else(|| json!({}));
-                        blocks.push(json!({
-                            "type": "tool_use",
-                            "id": id,
-                            "name": name,
-                            "input": input
-                        }));
+                        blocks.push(json!({"type":"tool_use","id":id,"name":name,"input":input}));
                     }
                     if blocks.is_empty() {
                         continue;
@@ -426,11 +385,7 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
                         .get("tool_call_id")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
-                    let block = json!({
-                        "type": "tool_result",
-                        "tool_use_id": id,
-                        "content": text
-                    });
+                    let block = json!({"type":"tool_result","tool_use_id":id,"content":text});
                     // Parallel tool calls: results belong to one user turn.
                     match messages.last_mut() {
                         Some(previous) if is_tool_results(previous) => {
@@ -451,11 +406,9 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
             }
         }
     }
-
     if messages.is_empty() {
         return Err("no user or assistant messages found in payload".to_string());
     }
-
     // Multi-turn rolling cache breakpoints: Anthropic allows up to 4 cache
     // breakpoints per request (1 on system, 1 on tools, and up to 2 on the
     // conversation history). On multi-turn worker loops (`messages.len() > 1`),
@@ -463,40 +416,26 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
     // conversation prefix so every subsequent turn reads the prior turns at
     // the 90% cache-hit discount instead of re-billing the entire history.
     apply_anthropic_rolling_cache(&mut messages);
-
     let mut effective_max_tokens = max_tokens;
     let thinking = anthropic_thinking(openai, &mut effective_max_tokens);
-
-    let mut payload = json!({
-        "model": model,
-        "max_tokens": effective_max_tokens,
-        "messages": messages
-    });
-
+    let mut payload = json!({"model":model,"max_tokens":effective_max_tokens,"messages":messages});
     if !system_prompt.is_empty() {
         // The system prompt is the stable prefix of every turn in a worker run,
         // so it is where prompt caching pays. The Messages API caches nothing
         // without an explicit breakpoint (verified live: repeated identical
         // prefixes report 0 cache_creation and 0 cache_read), and with one the
         // second turn reads the whole prefix back at the hit rate.
-        payload["system"] = json!([{
-            "type": "text",
-            "text": system_prompt,
-            "cache_control": {"type": "ephemeral"}
-        }]);
+        payload["system"] =
+            json!([{"type":"text","text":system_prompt,"cache_control":{"type":"ephemeral"}}]);
     }
-
     if let Some(tools) = anthropic_tools(openai) {
         payload["tools"] = tools;
     }
-
     if let Some(thinking) = thinking {
         payload["thinking"] = thinking;
     }
-
     Ok(payload)
 }
-
 /// Attach up to 2 rolling ephemeral cache breakpoints to the tail of a
 /// multi-turn Anthropic `messages` array (`idx > 0`), leaving single-turn
 /// payloads (`messages.len() == 1`) and `messages[0]` untouched while
@@ -518,17 +457,13 @@ fn apply_anthropic_rolling_cache(messages: &mut [Value]) {
             }
             Some(Value::String(text)) if !text.is_empty() => {
                 let text_owned = text.clone();
-                msg["content"] = json!([{
-                    "type": "text",
-                    "text": text_owned,
-                    "cache_control": {"type": "ephemeral"}
-                }]);
+                msg["content"] =
+                    json!([{"type":"text","text":text_owned,"cache_control":{"type":"ephemeral"}}]);
             }
             _ => {}
         }
     }
 }
-
 /// Translate explicit extended-thinking configuration (`thinking` object or
 /// `thinking_budget_tokens`) into Anthropic's `thinking: {"type": "enabled", "budget_tokens": N}`
 /// shape, ensuring `max_tokens > budget_tokens`.
@@ -547,12 +482,8 @@ fn anthropic_thinking(openai: &Value, max_tokens: &mut u64) -> Option<Value> {
     if *max_tokens <= budget_tokens {
         *max_tokens = budget_tokens.saturating_add(4096);
     }
-    Some(json!({
-        "type": "enabled",
-        "budget_tokens": budget_tokens
-    }))
+    Some(json!({"type":"enabled","budget_tokens":budget_tokens}))
 }
-
 /// A message's text, whether it is a plain string or OpenAI content parts.
 fn content_text(msg: &Value) -> String {
     match msg.get("content") {
@@ -564,7 +495,6 @@ fn content_text(msg: &Value) -> String {
         _ => String::new(),
     }
 }
-
 /// True when the message is a user turn made only of `tool_result` blocks, so
 /// the next result can join it instead of opening a second user turn.
 fn is_tool_results(message: &Value) -> bool {
@@ -579,7 +509,6 @@ fn is_tool_results(message: &Value) -> bool {
                     })
             })
 }
-
 /// The OpenAI `tools` list in the Messages shape, when there is one.
 ///
 /// The tool block is part of the stable prefix, so its last entry carries the
@@ -592,13 +521,7 @@ fn anthropic_tools(openai: &Value) -> Option<Value> {
         .filter_map(|tool| {
             let function = tool.get("function")?;
             let name = function.get("name").and_then(Value::as_str)?;
-            let mut entry = json!({
-                "name": name,
-                "input_schema": function
-                    .get("parameters")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"type": "object", "properties": {}}))
-            });
+            let mut entry = json!({"name":name,"input_schema":function .get("parameters") .cloned() .unwrap_or_else(|| json!({"type":"object","properties":{}}))});
             if let Some(description) = function.get("description").and_then(Value::as_str) {
                 entry["description"] = json!(description);
             }
@@ -610,7 +533,6 @@ fn anthropic_tools(openai: &Value) -> Option<Value> {
     }
     (!mapped.is_empty()).then(|| json!(mapped))
 }
-
 /// Convert an Anthropic Messages API response into an OpenAI-compatible `/chat/completions` reply.
 ///
 /// `tool_use` blocks become `tool_calls` (arguments as the JSON *string* OpenAI
@@ -620,7 +542,6 @@ fn anthropic_tools(openai: &Value) -> Option<Value> {
 /// the OpenAI convention.
 pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value, String> {
     error_envelope(anthropic)?;
-
     let mut text = String::new();
     let mut thinking = String::new();
     let mut tool_calls = Vec::new();
@@ -659,11 +580,7 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
                 let arguments = block
                     .get("input")
                     .map_or_else(|| "{}".to_string(), Value::to_string);
-                tool_calls.push(json!({
-                    "id": id,
-                    "type": "function",
-                    "function": {"name": name, "arguments": arguments}
-                }));
+                tool_calls.push(json!({"id":id,"type":"function","function":{"name":name,"arguments":arguments}}));
             }
             _ => {}
         }
@@ -672,7 +589,6 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
     if text.is_empty() && tool_calls.is_empty() && !truncated {
         return Err("response carried no content[].text or content[].tool_use".to_string());
     }
-
     let input_tokens = anthropic
         .pointer("/usage/input_tokens")
         .and_then(Value::as_u64)
@@ -690,12 +606,10 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         .pointer("/usage/output_tokens")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-
     let id = anthropic
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("anthropic-cmpl");
-
     let finish_reason = match anthropic.get("stop_reason").and_then(Value::as_str) {
         Some("tool_use") => "tool_calls",
         Some("max_tokens") => "length",
@@ -713,7 +627,6 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
     if !tool_calls.is_empty() {
         message["tool_calls"] = json!(tool_calls);
     }
-
     Ok(json!({
         "id": id,
         "object": "chat.completion",
@@ -740,7 +653,6 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         }
     }))
 }
-
 /// Token count usage reported by an inference provider call.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TokenUsage {
@@ -749,7 +661,6 @@ pub struct TokenUsage {
     pub cached_tokens: u64,
     pub total_tokens: u64,
 }
-
 impl TokenUsage {
     /// Construct a new TokenUsage with automatic sum.
     #[must_use]
@@ -761,7 +672,6 @@ impl TokenUsage {
             total_tokens: prompt_tokens.saturating_add(completion_tokens),
         }
     }
-
     /// Construct a new TokenUsage with explicit cached prompt tokens.
     #[must_use]
     pub const fn with_cache(
@@ -777,7 +687,6 @@ impl TokenUsage {
         }
     }
 }
-
 /// Extract reported token usage from an API response body according to protocol.
 #[must_use]
 pub fn extract_token_usage(protocol: InferenceProtocol, json: &Value) -> TokenUsage {
@@ -827,7 +736,6 @@ pub fn extract_token_usage(protocol: InferenceProtocol, json: &Value) -> TokenUs
         InferenceProtocol::Triton => TokenUsage::default(),
     }
 }
-
 /// Calculate estimated cost in millionths of a USD currency unit (micros), factoring in cache discounts.
 #[must_use]
 pub fn estimate_cost_micros(model: &str, usage: &TokenUsage) -> u64 {
@@ -851,7 +759,6 @@ pub fn estimate_cost_micros(model: &str, usage: &TokenUsage) -> u64 {
     } else {
         (1.0, 3.0, 0.50)
     };
-
     let uncached_prompt = usage.prompt_tokens.saturating_sub(usage.cached_tokens);
     let uncached_micros = (uncached_prompt as f64 * in_rate) as u64;
     let cached_micros = (usage.cached_tokens as f64 * in_rate * cache_mult) as u64;
@@ -860,7 +767,6 @@ pub fn estimate_cost_micros(model: &str, usage: &TokenUsage) -> u64 {
         .saturating_add(cached_micros)
         .saturating_add(completion_micros)
 }
-
 /// Build an Anthropic Messages request payload with Full Cache Mode enabled.
 ///
 /// Anchors ephemeral cache breakpoints on the stable system prompt and tools list.
@@ -872,27 +778,11 @@ pub fn anthropic_cache_payload(
     tools: Option<Value>,
     max_tokens: u64,
 ) -> Value {
-    let mut payload = json!({
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [
-            {
-                "role": "user",
-                "content": user_prompt
-            }
-        ]
-    });
-
+    let mut payload = json!({"model":model,"max_tokens":max_tokens,"messages":[{"role":"user","content":user_prompt}]});
     if !system_prompt.is_empty() {
-        payload["system"] = json!([
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]);
+        payload["system"] =
+            json!([{"type":"text","text":system_prompt,"cache_control":{"type":"ephemeral"}}]);
     }
-
     if let Some(mut tool_array) = tools {
         if let Some(arr) = tool_array.as_array_mut() {
             if let Some(last) = arr.last_mut() {
@@ -901,10 +791,8 @@ pub fn anthropic_cache_payload(
         }
         payload["tools"] = tool_array;
     }
-
     payload
 }
-
 /// Build a Gemini generateContent request payload with Full Cache Mode enabled.
 ///
 /// Formats structured systemInstruction and contents, and supports explicit cachedContent.
@@ -914,28 +802,15 @@ pub fn gemini_cache_payload(
     user_prompt: &str,
     cached_content: Option<&str>,
 ) -> Value {
-    let mut payload = json!({
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": user_prompt}]
-            }
-        ]
-    });
-
+    let mut payload = json!({"contents":[{"role":"user","parts":[{"text":user_prompt}]}]});
     if !system_instruction.is_empty() {
-        payload["systemInstruction"] = json!({
-            "parts": [{"text": system_instruction}]
-        });
+        payload["systemInstruction"] = json!({"parts":[{"text":system_instruction}]});
     }
-
     if let Some(cache_name) = cached_content {
         payload["cachedContent"] = json!(cache_name);
     }
-
     payload
 }
-
 /// Build a DeepSeek OpenAI-compatible chat payload structured for prefix caching.
 ///
 /// Ensures strict prefix stability (system message followed by user prompt)
@@ -949,44 +824,22 @@ pub fn deepseek_cache_payload(
 ) -> Value {
     let mut messages = Vec::with_capacity(2);
     if !system_prompt.is_empty() {
-        messages.push(json!({
-            "role": "system",
-            "content": system_prompt
-        }));
+        messages.push(json!({"role":"system","content":system_prompt}));
     }
-    messages.push(json!({
-        "role": "user",
-        "content": user_prompt
-    }));
-
-    json!({
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens
-    })
+    messages.push(json!({"role":"user","content":user_prompt}));
+    json!({"model":model,"messages":messages,"max_tokens":max_tokens})
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn extraction_is_complete_and_never_silently_empty() {
-        let anthropic = json!({"content": [
-            {"type": "thinking", "thinking": "hmm"},
-            {"type": "text", "text": "Hello, "},
-            {"type": "text", "text": "world"}
-        ]});
+        let anthropic = json!({"content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Hello, "},{"type":"text","text":"world"}]});
         assert_eq!(anthropic_text(&anthropic).unwrap(), "Hello, world");
-        let gemini = json!({"candidates": [{"content": {"parts": [
-            {"text": "plan", "thought": true},
-            {"text": "An"},
-            {"text": "swer"}
-        ]}}]});
+        let gemini = json!({"candidates":[{"content":{"parts":[{"text":"plan","thought":true},{"text":"An"},{"text":"swer"}]}}]});
         assert_eq!(gemini_text(&gemini).unwrap(), "Answer");
         assert_eq!(gemini_model_path("models/gemini-2.5-pro"), "gemini-2.5-pro");
         assert_eq!(gemini_model_path("gemini-2.5-pro"), "gemini-2.5-pro");
-
         let chat = json!({"choices": [{"message": {"role": "assistant", "content": "hi"}}]});
         assert_eq!(openai_chat_text(&chat).unwrap(), "hi");
         let refused = json!({"choices": [{"message": {"content": null, "refusal": "no"}}]});
@@ -1003,7 +856,6 @@ mod tests {
             "y"
         );
     }
-
     #[test]
     fn error_envelopes_surface_the_provider_message() {
         let err = json!({"error": {"message": "bad key", "type": "invalid_request_error"}});
@@ -1014,7 +866,6 @@ mod tests {
         let plain = json!({"error": "overloaded"});
         assert!(anthropic_text(&plain).unwrap_err().contains("overloaded"));
     }
-
     #[test]
     fn token_param_retry_only_on_the_documented_rejection() {
         let body = openai_chat_body("o3", "p", 64);
@@ -1027,7 +878,6 @@ mod tests {
         assert!(token_param_retry(&body, other).is_none());
         assert!(token_param_retry(&triton_body("p", 8), openai).is_none());
     }
-
     /// A reasoning-model endpoint that rejects `max_tokens` is served on the
     /// retry; the retry is sent exactly once.
     #[test]
@@ -1121,7 +971,6 @@ mod tests {
             assert_eq!(bodies.len(), 2);
         }
     }
-
     #[test]
     fn request_bodies_match_each_api() {
         assert_eq!(
@@ -1131,19 +980,11 @@ mod tests {
         assert_eq!(openai_completions_body("m", "p", 8)["prompt"], "p");
         assert_eq!(triton_body("p", 8)["parameters"]["max_tokens"], 8);
     }
-
     /// The 5.x Messages models reject `temperature`, `top_p` and `top_k`
     /// outright, so a translator that forwarded them would break every call.
     #[test]
     fn sampling_parameters_are_not_forwarded_to_anthropic() {
-        let openai_req = json!({
-            "model": "claude-sonnet-5-5",
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 16,
-            "temperature": 0.0,
-            "top_p": 0.9,
-            "top_k": 40
-        });
+        let openai_req = json!({"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"temperature":0.0,"top_p":0.9,"top_k":40});
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
         for dropped in ["temperature", "top_p", "top_k"] {
             assert!(
@@ -1154,45 +995,19 @@ mod tests {
         assert_eq!(anthropic_req["model"], "claude-sonnet-5-5");
         assert_eq!(anthropic_req["max_tokens"], 16);
     }
-
     /// A worker turn is a tool loop: tools must survive into the Messages
     /// shape, and a tool call must come back in the OpenAI shape the loop
     /// consumes, or a Claude turn can talk but never act.
     #[test]
     fn tool_declarations_and_calls_cross_the_anthropic_wire() {
-        let openai_req = json!({
-            "model": "claude-haiku",
-            "messages": [
-                {"role": "system", "content": "worker"},
-                {"role": "user", "content": "write the file"},
-                {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": "call_1", "type": "function",
-                     "function": {"name": "write_to_file",
-                                  "arguments": "{\"path\":\"a.txt\",\"content\":\"OK\"}"}}
-                ]},
-                {"role": "tool", "tool_call_id": "call_1", "content": "wrote a.txt"}
-            ],
-            "tools": [
-                {"type": "function", "function": {
-                    "name": "write_to_file",
-                    "description": "write a file",
-                    "parameters": {"type": "object",
-                                   "properties": {"path": {"type": "string"}},
-                                   "required": ["path"]}
-                }}
-            ],
-            "max_tokens": 64,
-            "temperature": 0.0
-        });
+        let openai_req = json!({"model":"claude-haiku","messages":[{"role":"system","content":"worker"},{"role":"user","content":"write the file"},{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"write_to_file","arguments":"{\"path\":\"a.txt\",\"content\":\"OK\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"wrote a.txt"}],"tools":[{"type":"function","function":{"name":"write_to_file","description":"write a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}],"max_tokens":64,"temperature":0.0});
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
-
         assert_eq!(anthropic_req["tools"][0]["name"], "write_to_file");
         assert_eq!(anthropic_req["tools"][0]["input_schema"]["type"], "object");
         assert!(
             anthropic_req["tools"][0].get("function").is_none(),
             "the Messages tools shape has no `function` wrapper"
         );
-
         let calls = &anthropic_req["messages"][1];
         assert_eq!(calls["role"], "assistant");
         assert_eq!(calls["content"][0]["type"], "tool_use");
@@ -1203,25 +1018,14 @@ mod tests {
             json!({"path": "a.txt", "content": "OK"}),
             "arguments must arrive parsed, not as a JSON string"
         );
-
         let result = &anthropic_req["messages"][2];
         assert_eq!(result["role"], "user");
         assert_eq!(result["content"][0]["type"], "tool_result");
         assert_eq!(result["content"][0]["tool_use_id"], "call_1");
         assert_eq!(result["content"][0]["content"], "wrote a.txt");
-
         // The answer: a tool_use block comes back as tool_calls, with a null
         // content and the OpenAI finish reason.
-        let reply = json!({
-            "id": "msg_1",
-            "content": [
-                {"type": "thinking", "thinking": "hmm"},
-                {"type": "tool_use", "id": "call_2", "name": "run_command",
-                 "input": {"command": "ls"}}
-            ],
-            "stop_reason": "tool_use",
-            "usage": {"input_tokens": 10, "output_tokens": 5}
-        });
+        let reply = json!({"id":"msg_1","content":[{"type":"thinking","thinking":"hmm"},{"type":"tool_use","id":"call_2","name":"run_command","input":{"command":"ls"}}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}});
         let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
         let message = &openai_resp["choices"][0]["message"];
         assert!(message["content"].is_null(), "{openai_resp}");
@@ -1234,45 +1038,22 @@ mod tests {
         assert_eq!(openai_resp["choices"][0]["finish_reason"], "tool_calls");
         assert_eq!(openai_resp["usage"]["prompt_tokens"], 10);
     }
-
     /// Parallel tool calls: every result belongs to the one user turn that
     /// answers the assistant's batch, so they are grouped, not split.
     #[test]
     fn parallel_tool_results_share_one_user_turn() {
-        let openai_req = json!({
-            "model": "claude-haiku",
-            "messages": [
-                {"role": "user", "content": "go"},
-                {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": "a", "type": "function", "function": {"name": "one", "arguments": "{}"}},
-                    {"id": "b", "type": "function", "function": {"name": "two", "arguments": "{}"}}
-                ]},
-                {"role": "tool", "tool_call_id": "a", "content": "r1"},
-                {"role": "tool", "tool_call_id": "b", "content": "r2"}
-            ]
-        });
+        let openai_req = json!({"model":"claude-haiku","messages":[{"role":"user","content":"go"},{"role":"assistant","content":"","tool_calls":[{"id":"a","type":"function","function":{"name":"one","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"two","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"r1"},{"role":"tool","tool_call_id":"b","content":"r2"}]});
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
         let messages = anthropic_req["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 3, "{anthropic_req}");
         assert_eq!(messages[2]["content"].as_array().unwrap().len(), 2);
     }
-
     /// A truncated answer (`max_tokens`) with no text is still an answer: it
     /// carries usage, and the worker reports the length stop rather than the
     /// gateway failing the call as unmeterable.
     #[test]
     fn a_truncated_anthropic_answer_still_carries_its_usage() {
-        let reply = json!({
-            "id": "msg_3",
-            "content": [],
-            "stop_reason": "max_tokens",
-            "usage": {
-                "input_tokens": 5,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 7000,
-                "output_tokens": 8
-            }
-        });
+        let reply = json!({"id":"msg_3","content":[],"stop_reason":"max_tokens","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":7000,"output_tokens":8}});
         let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
         assert_eq!(openai_resp["choices"][0]["finish_reason"], "length");
         assert_eq!(openai_resp["usage"]["prompt_tokens"], 7005);
@@ -1280,29 +1061,17 @@ mod tests {
             openai_resp["usage"]["prompt_tokens_details"]["cached_tokens"],
             7000
         );
-
         // An empty complete answer is still an anomaly.
         let empty = json!({"content": [], "stop_reason": "end_turn", "usage": {}});
         assert!(anthropic_to_openai_chat(&empty, "claude-haiku").is_err());
     }
-
     /// The meter charges the hit rate from `prompt_tokens_details.cached_tokens`,
     /// and Anthropic reports cache reads outside `input_tokens` — so both halves
     /// have to be put back together or the cache would be invisible (and priced
     /// as a miss).
     #[test]
     fn anthropic_cache_usage_maps_into_the_openai_shape() {
-        let reply = json!({
-            "id": "msg_2",
-            "content": [{"type": "text", "text": "ok"}],
-            "stop_reason": "end_turn",
-            "usage": {
-                "input_tokens": 12,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 2763,
-                "output_tokens": 5
-            }
-        });
+        let reply = json!({"id":"msg_2","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"cache_creation_input_tokens":0,"cache_read_input_tokens":2763,"output_tokens":5}});
         let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
         let usage = &openai_resp["usage"];
         assert_eq!(usage["prompt_tokens"], 12 + 2763);
@@ -1310,19 +1079,9 @@ mod tests {
         assert_eq!(usage["completion_tokens"], 5);
         assert_eq!(usage["total_tokens"], 12 + 2763 + 5);
     }
-
     #[test]
     fn openai_to_anthropic_and_back_round_trips() {
-        let openai_req = json!({
-            "model": "claude-3-5-sonnet",
-            "messages": [
-                {"role": "system", "content": "You are a test assistant."},
-                {"role": "user", "content": "Hello Claude"}
-            ],
-            "max_tokens": 1024,
-            "temperature": 0.5
-        });
-
+        let openai_req = json!({"model":"claude-3-5-sonnet","messages":[{"role":"system","content":"You are a test assistant."},{"role":"user","content":"Hello Claude"}],"max_tokens":1024,"temperature":0.5});
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
         assert_eq!(anthropic_req["model"], "claude-3-5-sonnet");
         assert_eq!(
@@ -1340,18 +1099,7 @@ mod tests {
             anthropic_req.get("temperature").is_none(),
             "the Messages API deprecates sampling parameters; forwarding them fails every call: {anthropic_req}"
         );
-
-        let anthropic_resp = json!({
-            "id": "msg_123",
-            "content": [
-                {"type": "text", "text": "Hello human!"}
-            ],
-            "usage": {
-                "input_tokens": 15,
-                "output_tokens": 8
-            }
-        });
-
+        let anthropic_resp = json!({"id":"msg_123","content":[{"type":"text","text":"Hello human!"}],"usage":{"input_tokens":15,"output_tokens":8}});
         let openai_resp = anthropic_to_openai_chat(&anthropic_resp, "claude-3-5-sonnet").unwrap();
         assert_eq!(
             openai_resp["choices"][0]["message"]["content"],
@@ -1361,60 +1109,32 @@ mod tests {
         assert_eq!(openai_resp["usage"]["completion_tokens"], 8);
         assert_eq!(openai_resp["usage"]["total_tokens"], 23);
     }
-
     #[test]
     fn token_usage_extracts_and_estimates_cost() {
-        let openai = json!({
-            "usage": {
-                "prompt_tokens": 1000,
-                "completion_tokens": 500,
-                "total_tokens": 1500
-            }
-        });
+        let openai =
+            json!({"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}});
         let usage = extract_token_usage(InferenceProtocol::OpenAiChat, &openai);
         assert_eq!(usage.prompt_tokens, 1000);
         assert_eq!(usage.completion_tokens, 500);
         assert_eq!(usage.total_tokens, 1500);
-
         let cost = estimate_cost_micros("gpt-4o", &usage);
         assert!(cost > 0);
-
-        let anthropic = json!({
-            "usage": {
-                "input_tokens": 1000,
-                "output_tokens": 200,
-                "cache_read_input_tokens": 500
-            }
-        });
+        let anthropic = json!({"usage":{"input_tokens":1000,"output_tokens":200,"cache_read_input_tokens":500}});
         let a_usage = extract_token_usage(InferenceProtocol::Anthropic, &anthropic);
         assert_eq!(a_usage.prompt_tokens, 1500);
         assert_eq!(a_usage.completion_tokens, 200);
-
         let a_cost = estimate_cost_micros("claude-3-5-sonnet", &a_usage);
         assert!(a_cost > 0);
-
-        let gemini = json!({
-            "usageMetadata": {
-                "promptTokenCount": 2000,
-                "candidatesTokenCount": 300,
-                "totalTokenCount": 2300
-            }
-        });
+        let gemini = json!({"usageMetadata":{"promptTokenCount":2000,"candidatesTokenCount":300,"totalTokenCount":2300}});
         let g_usage = extract_token_usage(InferenceProtocol::Gemini, &gemini);
         assert_eq!(g_usage.prompt_tokens, 2000);
         assert_eq!(g_usage.completion_tokens, 300);
         assert_eq!(g_usage.total_tokens, 2300);
     }
-
     #[test]
     fn full_cache_mode_wire_payloads_and_extractions() {
         // 1. Claude (Anthropic) Full Cache Mode
-        let tools = json!([
-            {
-                "name": "lookup",
-                "description": "lookup symbol"
-            }
-        ]);
+        let tools = json!([{"name":"lookup","description":"lookup symbol"}]);
         let anthropic_req = anthropic_cache_payload(
             "claude-3-5-sonnet",
             "System prompt for worker",
@@ -1431,20 +1151,11 @@ mod tests {
             anthropic_req["tools"][0]["cache_control"]["type"],
             "ephemeral"
         );
-
-        let anthropic_resp = json!({
-            "usage": {
-                "input_tokens": 100,
-                "cache_creation_input_tokens": 200,
-                "cache_read_input_tokens": 700,
-                "output_tokens": 50
-            }
-        });
+        let anthropic_resp = json!({"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":700,"output_tokens":50}});
         let claude_usage = extract_token_usage(InferenceProtocol::Anthropic, &anthropic_resp);
         assert_eq!(claude_usage.prompt_tokens, 1000);
         assert_eq!(claude_usage.cached_tokens, 700);
         assert_eq!(claude_usage.completion_tokens, 50);
-
         let claude_full_cost =
             estimate_cost_micros("claude-3-5-sonnet", &TokenUsage::new(1000, 50));
         let claude_cache_cost = estimate_cost_micros("claude-3-5-sonnet", &claude_usage);
@@ -1452,7 +1163,6 @@ mod tests {
             claude_cache_cost < claude_full_cost,
             "Cache hit must discount cost"
         );
-
         // 2. DeepSeek Full Cache Mode
         let deepseek_req = deepseek_cache_payload(
             "deepseek-chat",
@@ -1462,28 +1172,17 @@ mod tests {
         );
         assert_eq!(deepseek_req["messages"][0]["role"], "system");
         assert_eq!(deepseek_req["messages"][1]["role"], "user");
-
-        let deepseek_resp = json!({
-            "usage": {
-                "prompt_tokens": 2000,
-                "completion_tokens": 100,
-                "prompt_cache_hit_tokens": 1800,
-                "prompt_cache_miss_tokens": 200,
-                "total_tokens": 2100
-            }
-        });
+        let deepseek_resp = json!({"usage":{"prompt_tokens":2000,"completion_tokens":100,"prompt_cache_hit_tokens":1800,"prompt_cache_miss_tokens":200,"total_tokens":2100}});
         let ds_usage = extract_token_usage(InferenceProtocol::OpenAiChat, &deepseek_resp);
         assert_eq!(ds_usage.prompt_tokens, 2000);
         assert_eq!(ds_usage.cached_tokens, 1800);
         assert_eq!(ds_usage.completion_tokens, 100);
-
         let ds_full_cost = estimate_cost_micros("deepseek-chat", &TokenUsage::new(2000, 100));
         let ds_cache_cost = estimate_cost_micros("deepseek-chat", &ds_usage);
         assert!(
             ds_cache_cost < ds_full_cost,
             "DeepSeek cache hit must provide ~90% prompt savings"
         );
-
         // 3. Gemini Full Cache Mode
         let gemini_req = gemini_cache_payload(
             "System instruction for Gemini worker",
@@ -1498,20 +1197,11 @@ mod tests {
             gemini_req["cachedContent"],
             "cachedContents/proj1-cache-123"
         );
-
-        let gemini_resp = json!({
-            "usageMetadata": {
-                "promptTokenCount": 5000,
-                "candidatesTokenCount": 250,
-                "cachedContentTokenCount": 4000,
-                "totalTokenCount": 5250
-            }
-        });
+        let gemini_resp = json!({"usageMetadata":{"promptTokenCount":5000,"candidatesTokenCount":250,"cachedContentTokenCount":4000,"totalTokenCount":5250}});
         let g_usage = extract_token_usage(InferenceProtocol::Gemini, &gemini_resp);
         assert_eq!(g_usage.prompt_tokens, 5000);
         assert_eq!(g_usage.cached_tokens, 4000);
         assert_eq!(g_usage.completion_tokens, 250);
-
         let g_full_cost = estimate_cost_micros("gemini-2.5-flash", &TokenUsage::new(5000, 250));
         let g_cache_cost = estimate_cost_micros("gemini-2.5-flash", &g_usage);
         assert!(
@@ -1519,12 +1209,10 @@ mod tests {
             "Gemini cache hit must provide 75% prompt savings"
         );
     }
-
     #[test]
     fn moonshot_kimi_thinking_and_retry_test() {
         let body = openai_chat_body("kimi-k2.7-code-highspeed", "solve this", 1000);
         assert_eq!(body["thinking"]["type"], "enabled");
-
         let err_resp = r#"{"error":{"message":"MoonshotException - invalid thinking: only type=enabled is allowed for this model","type":"invalid_request_error","code":"invalid_thinking"}}"#;
         let retry_body = token_param_retry(
             &json!({"model": "kimi-k2-7-code", "messages": []}),
@@ -1533,36 +1221,9 @@ mod tests {
         .unwrap();
         assert_eq!(retry_body["thinking"]["type"], "enabled");
     }
-
     #[test]
     fn multi_turn_anthropic_messages_carry_rolling_cache_breakpoints_and_thinking() {
-        let openai_req = json!({
-            "model": "claude-opus-5-6",
-            "messages": [
-                {"role": "system", "content": "You are an Opus worker."},
-                {"role": "user", "content": "Inspect lib.rs"},
-                {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": "call_1", "type": "function",
-                     "function": {"name": "read_file", "arguments": "{\"path\":\"lib.rs\"}"}}
-                ]},
-                {"role": "tool", "tool_call_id": "call_1", "content": "pub fn add() {}"},
-                {"role": "assistant", "content": "Now running tests", "tool_calls": [
-                    {"id": "call_2", "type": "function",
-                     "function": {"name": "run_command", "arguments": "{\"command\":\"cargo test\"}"}}
-                ]},
-                {"role": "tool", "tool_call_id": "call_2", "content": "test result: ok"}
-            ],
-            "tools": [
-                {"type": "function", "function": {
-                    "name": "read_file",
-                    "description": "read a file",
-                    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}
-                }}
-            ],
-            "max_tokens": 2048,
-            "thinking_budget_tokens": 8192
-        });
-
+        let openai_req = json!({"model":"claude-opus-5-6","messages":[{"role":"system","content":"You are an Opus worker."},{"role":"user","content":"Inspect lib.rs"},{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"lib.rs\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"pub fn add() {}"},{"role":"assistant","content":"Now running tests","tool_calls":[{"id":"call_2","type":"function","function":{"name":"run_command","arguments":"{\"command\":\"cargo test\"}"}}]},{"role":"tool","tool_call_id":"call_2","content":"test result: ok"}],"tools":[{"type":"function","function":{"name":"read_file","description":"read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"max_tokens":2048,"thinking_budget_tokens":8192});
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
         assert_eq!(
             anthropic_req["system"][0]["cache_control"]["type"],
@@ -1576,7 +1237,6 @@ mod tests {
         assert_eq!(anthropic_req["thinking"]["type"], "enabled");
         assert_eq!(anthropic_req["thinking"]["budget_tokens"], 8192);
         assert!(anthropic_req["max_tokens"].as_u64().unwrap() > 8192);
-
         // Messages: [0: user, 1: assistant(call_1), 2: user(result_1), 3: assistant(call_2), 4: user(result_2)]
         // Only the last 2 turns (3 and 4) carry cache_control so total breakpoints == 4.
         let msgs = anthropic_req["messages"].as_array().unwrap();
@@ -1592,17 +1252,8 @@ mod tests {
             msgs[4]["content"][0]["cache_control"]["type"], "ephemeral",
             "latest turn carries a rolling cache breakpoint"
         );
-
         // Anthropic thinking blocks are preserved in reasoning_content on the OpenAI reply.
-        let anthropic_reply = json!({
-            "id": "msg_think",
-            "content": [
-                {"type": "thinking", "thinking": "Step 1: analyze invariants."},
-                {"type": "text", "text": "All invariants verified."}
-            ],
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 50, "cache_read_input_tokens": 4000, "output_tokens": 120}
-        });
+        let anthropic_reply = json!({"id":"msg_think","content":[{"type":"thinking","thinking":"Step 1: analyze invariants."},{"type":"text","text":"All invariants verified."}],"stop_reason":"end_turn","usage":{"input_tokens":50,"cache_read_input_tokens":4000,"output_tokens":120}});
         let openai_reply = anthropic_to_openai_chat(&anthropic_reply, "claude-opus-5-6").unwrap();
         assert_eq!(
             openai_reply["choices"][0]["message"]["reasoning_content"],
@@ -1613,21 +1264,13 @@ mod tests {
             "All invariants verified."
         );
     }
-
     #[test]
     fn token_param_retry_strips_unsupported_reasoning_or_cache_parameters() {
-        let req = json!({
-            "model": "custom-model",
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 16384,
-            "reasoning_effort": "high",
-            "prompt_cache_key": "susi:m1:t1"
-        });
+        let req = json!({"model":"custom-model","messages":[{"role":"user","content":"hi"}],"max_tokens":16384,"reasoning_effort":"high","prompt_cache_key":"susi:m1:t1"});
         let err_reasoning = r#"{"error":{"message":"Unsupported parameter: 'reasoning_effort' is not supported.","param":"reasoning_effort","code":"unsupported_parameter"}}"#;
         let retry1 = token_param_retry(&req, err_reasoning).unwrap();
         assert!(retry1.get("reasoning_effort").is_none());
         assert_eq!(retry1["prompt_cache_key"], "susi:m1:t1");
-
         let err_cache_key = r#"{"error":{"message":"Unrecognized request argument supplied: prompt_cache_key","type":"invalid_request_error"}}"#;
         let retry2 = token_param_retry(&retry1, err_cache_key).unwrap();
         assert!(retry2.get("prompt_cache_key").is_none());

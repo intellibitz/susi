@@ -5,7 +5,6 @@
     clippy::unreachable
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
-
 //! `susi status` is the single operator surface: missions in flight, the
 //! scheduled queue, brain state and the model it would serve, recorded
 //! spend, and pending approvals — every line measured from the persisted
@@ -13,15 +12,12 @@
 //! prompt through the swarm). These tests run the real binary against a
 //! seeded throwaway HOME, so a regression that swaps any axis back to a
 //! generated answer, drops an axis, or needs the daemon up fails here.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use susi_paths::test_env::isolate_home;
-
 fn scratch(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("susi-unified-status-{tag}-{}", std::process::id()))
 }
-
 /// Run `susi status` against `home` from a *separate* cwd — running with
 /// cwd == HOME makes the binary's workspace-scoped state create `~/.susi`,
 /// which flips `SusiDirs` off the XDG layout this test seeds.
@@ -52,14 +48,12 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
         .join("\n");
     (out.status.code().unwrap_or(-1), surface)
 }
-
 /// The dev build reroots to `$HOME/.susi-dev` (`isolate_if_dev_build`),
 /// which becomes `SUSI_HOME` — `instance_root` then answers every
 /// `SusiDirs` lookup (config, data, cache) with this one root.
 fn dev_root(home: &Path) -> PathBuf {
     home.join(".susi-dev")
 }
-
 #[test]
 fn json_status_reports_actual_executable_without_identity_key_or_narration() {
     use sha2::{Digest, Sha256};
@@ -113,74 +107,41 @@ fn json_status_reports_actual_executable_without_identity_key_or_narration() {
     );
     std::fs::remove_dir_all(home).unwrap();
 }
-
 #[test]
 fn unified_surface_status_reports_all_axes() {
     let home = scratch("axes");
     let root = dev_root(&home);
     std::fs::create_dir_all(root.join("missions")).unwrap();
-
     // One mission dispatched to the ingress dir (runtime_admin's layout).
     std::fs::write(
         root.join("missions").join("m-7-1700000000.json"),
-        serde_json::json!({
-            "id": "m-7",
-            "prompt": "scan the fleet",
-            "dispatched_unix": 1_700_000_000u64,
-        })
+        serde_json::json!({"id":"m-7","prompt":"scan the fleet","dispatched_unix":1_700_000_000u64})
         .to_string(),
     )
     .unwrap();
-
     // One scheduled mission that has never run (due immediately).
     std::fs::write(
         root.join("scheduled-missions.json"),
-        serde_json::json!({
-            "missions": [{
-                "id": "nightly-scan",
-                "prompt": "scan",
-                "schedule": {"every_secs": 3600},
-                "paused": false,
-            }]
-        })
+        serde_json::json!({"missions":[{"id":"nightly-scan","prompt":"scan","schedule":{"every_secs":3600},"paused":false}]})
         .to_string(),
     )
     .unwrap();
-
     // Usage ledger: two recorded calls, one success each for two vendors.
     std::fs::write(
         root.join("usage.json"),
-        serde_json::json!({
-            "records": [
-                {"provider": "groq", "task_class": "chat",
-                 "usage": {"prompt_tokens": 100, "completion_tokens": 50},
-                 "success": true},
-                {"provider": "groq", "task_class": "code",
-                 "usage": {"prompt_tokens": 200, "completion_tokens": 100},
-                 "success": false},
-                {"provider": "openai", "task_class": "chat",
-                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-                 "success": true},
-            ]
-        })
+        serde_json::json!({"records":[{"provider":"groq","task_class":"chat","usage":{"prompt_tokens":100,"completion_tokens":50},"success":true},{"provider":"groq","task_class":"code","usage":{"prompt_tokens":200,"completion_tokens":100},"success":false},{"provider":"openai","task_class":"chat","usage":{"prompt_tokens":10,"completion_tokens":5},"success":true}]})
         .to_string(),
     )
     .unwrap();
-
     // Brain evidence: one provider leads the `chat` class.
     let evidence = scratch("axes-evidence").join("brain_evidence.json");
     std::fs::create_dir_all(evidence.parent().unwrap()).unwrap();
     std::fs::write(
         &evidence,
-        serde_json::json!({
-            "records": {"groq|chat": {"ok": 9, "fail": 1, "ema_ms": 120.0}},
-            "health": {},
-            "applied": [],
-        })
+        serde_json::json!({"records":{"groq|chat":{"ok":9,"fail":1,"ema_ms":120.0}},"health":{},"applied":[]})
         .to_string(),
     )
     .unwrap();
-
     // A pending approval request on the shared broker rendezvous — a
     // sibling pid dir the CLI process's broker scans on read.
     let req_dir = root
@@ -191,22 +152,11 @@ fn unified_surface_status_reports_all_axes() {
     std::fs::create_dir_all(&req_dir).unwrap();
     std::fs::write(
         req_dir.join("req-9.json"),
-        serde_json::json!({
-            "id": "req-9",
-            "requester": "cell-a",
-            "grantor": "susi",
-            "scope": {"resource": "fs:/etc", "action": "write"},
-            "ttl_secs": null,
-            "created_at": 1_700_000_000u64,
-            "status": "pending",
-            "resolved_at": null,
-        })
+        serde_json::json!({"id":"req-9","requester":"cell-a","grantor":"susi","scope":{"resource":"fs:/etc","action":"write"},"ttl_secs":null,"created_at":1_700_000_000u64,"status":"pending","resolved_at":null})
         .to_string(),
     )
     .unwrap();
-
     let (code, out) = run_status(&home, &[("SUSI_BRAIN_EVIDENCE_FILE", evidence)]);
-
     assert_eq!(code, 0, "susi status failed: {out}");
     for axis in [
         "susi status",
@@ -230,13 +180,11 @@ fn unified_surface_status_reports_all_axes() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
-
 #[test]
 fn unified_surface_status_empty_home_reports_measured_zeros() {
     let home = scratch("empty");
     std::fs::create_dir_all(&home).unwrap();
     let (code, out) = run_status(&home, &[]);
-
     assert_eq!(code, 0, "susi status failed on empty HOME: {out}");
     for line in [
         "daemon: not running",
@@ -250,7 +198,6 @@ fn unified_surface_status_empty_home_reports_measured_zeros() {
     }
     let _ = std::fs::remove_dir_all(&home);
 }
-
 #[test]
 fn unified_surface_status_is_deterministic_across_runs() {
     let home = scratch("stable");
@@ -260,7 +207,6 @@ fn unified_surface_status_is_deterministic_across_runs() {
     assert_eq!((c1, o1), (c2, o2), "status output must be deterministic");
     let _ = std::fs::remove_dir_all(&home);
 }
-
 #[test]
 fn unified_surface_status_source_never_touches_the_swarm() {
     // Pin the mandate: the Status arm renders the collected snapshot; the

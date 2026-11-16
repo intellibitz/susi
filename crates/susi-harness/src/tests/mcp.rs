@@ -3,12 +3,10 @@ use std::collections::VecDeque;
 use std::io::{BufReader, Cursor};
 #[cfg(unix)]
 use std::time::Duration;
-
 struct Scripted {
     responses: VecDeque<Value>,
     requests: Vec<Value>,
 }
-
 impl Scripted {
     fn new(responses: Vec<Value>) -> Self {
         Self {
@@ -17,7 +15,6 @@ impl Scripted {
         }
     }
 }
-
 impl Transport for Scripted {
     fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
         self.requests.push(request.clone());
@@ -26,32 +23,25 @@ impl Transport for Scripted {
             .ok_or_else(|| EaiError::internal("scripted transport exhausted"))
     }
 }
-
 fn initialized() -> Value {
     response(
         1,
         json!({"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}),
     )
 }
-
 fn response(id: u64, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
-
 fn error_response(id: u64, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
-
 #[test]
 fn mcp_lists_tools_after_initialize() {
     let transport = Scripted::new(vec![
         initialized(),
         response(
             2,
-            json!({"tools": [
-                {"name": "search", "description": "Search", "inputSchema": {"type": "object"}},
-                {"name": "fetch", "description": "Fetch", "inputSchema": {"type": "object"}}
-            ]}),
+            json!({"tools":[{"name":"search","description":"Search","inputSchema":{"type":"object"}},{"name":"fetch","description":"Fetch","inputSchema":{"type":"object"}}]}),
         ),
     ]);
     let mut client = McpClient::new(transport);
@@ -61,7 +51,6 @@ fn mcp_lists_tools_after_initialize() {
     assert_eq!(client.transport.requests[0]["method"], "initialize");
     assert_eq!(client.transport.requests[1]["method"], "tools/list");
 }
-
 #[test]
 fn mcp_list_tools_follows_next_cursor_until_absent() {
     let transport = Scripted::new(vec![
@@ -84,7 +73,6 @@ fn mcp_list_tools_follows_next_cursor_until_absent() {
     assert_eq!(requests[2]["params"]["cursor"], "rev:1");
     assert_eq!(requests[3]["params"]["cursor"], "rev:2");
 }
-
 #[test]
 fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
     let transport = Scripted::new(vec![
@@ -95,7 +83,6 @@ fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
     let mut client = McpClient::new(transport);
     let error = client.list_tools().unwrap_err().to_string();
     assert!(error.contains("Invalid cursor"), "{error}");
-
     let mut endless = vec![initialized()];
     endless.extend((0..=MAX_LIST_PAGES).enumerate().map(|(index, n)| {
         response(
@@ -107,17 +94,13 @@ fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
     let error = client.list_tools().unwrap_err().to_string();
     assert!(error.contains("still paging"), "{error}");
 }
-
 #[test]
 fn mcp_calls_a_tool_and_joins_text_blocks() {
     let transport = Scripted::new(vec![
         initialized(),
         response(
             2,
-            json!({"content": [
-                {"type": "text", "text": "first"},
-                {"type": "text", "text": "second"}
-            ]}),
+            json!({"content":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}),
         ),
     ]);
     let mut client = McpClient::new(transport);
@@ -128,17 +111,13 @@ fn mcp_calls_a_tool_and_joins_text_blocks() {
     assert_eq!(call["params"]["name"], "search");
     assert_eq!(call["params"]["arguments"]["q"], "rust");
 }
-
 #[test]
 fn mcp_surfaces_a_tool_result_error_instead_of_returning_success_text() {
     let transport = Scripted::new(vec![
         initialized(),
         response(
             2,
-            json!({
-                "isError": true,
-                "content": [{"type": "text", "text": "permission denied"}]
-            }),
+            json!({"isError":true,"content":[{"type":"text","text":"permission denied"}]}),
         ),
     ]);
     let mut client = McpClient::new(transport);
@@ -149,7 +128,6 @@ fn mcp_surfaces_a_tool_result_error_instead_of_returning_success_text() {
     assert!(error.contains("tools/call 'read_file' failed"), "{error}");
     assert!(error.contains("permission denied"), "{error}");
 }
-
 #[test]
 fn stdio_skips_notifications_before_the_json_rpc_response() {
     let stream = concat!(
@@ -162,7 +140,6 @@ fn stdio_skips_notifications_before_the_json_rpc_response() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["result"]["ok"], true);
 }
-
 #[cfg(unix)]
 #[test]
 fn stdio_transport_reads_a_response_from_the_reader_worker() {
@@ -182,7 +159,6 @@ fn stdio_transport_reads_a_response_from_the_reader_worker() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["result"]["ok"], true);
 }
-
 #[cfg(unix)]
 #[test]
 fn stdio_transport_times_out_and_reaps_an_unresponsive_child() {
@@ -196,7 +172,6 @@ fn stdio_transport_times_out_and_reaps_an_unresponsive_child() {
         .to_string();
     assert!(error.contains("mcp response timed out after"), "{error}");
 }
-
 #[cfg(unix)]
 #[test]
 fn closing_an_mcp_client_reaps_its_stdio_child_immediately() {
@@ -208,7 +183,6 @@ fn closing_an_mcp_client_reaps_its_stdio_child_immediately() {
     assert!(client.transport.child.try_wait().unwrap().is_some());
     client.close().unwrap();
 }
-
 #[test]
 fn mcp_surfaces_a_json_rpc_error() {
     let transport = Scripted::new(vec![
@@ -219,7 +193,6 @@ fn mcp_surfaces_a_json_rpc_error() {
     let error = client.list_tools().unwrap_err().to_string();
     assert!(error.contains("method not found"), "{error}");
 }
-
 #[test]
 fn mcp_tools_turn_into_registry_specs() {
     let tool = McpTool {
@@ -231,7 +204,6 @@ fn mcp_tools_turn_into_registry_specs() {
     assert_eq!(spec.name, "search");
     assert_eq!(spec.policy, Policy::Ask);
 }
-
 #[test]
 fn supported_versions_list_the_modern_revisions_and_keep_the_offered_one() {
     assert_eq!(PROTOCOL_VERSION, "2025-11-25");
@@ -243,7 +215,6 @@ fn supported_versions_list_the_modern_revisions_and_keep_the_offered_one() {
     assert!(is_supported_protocol_version("2026-07-28"));
     assert!(!is_supported_protocol_version("1999-01-01"));
 }
-
 #[test]
 fn mcp_records_the_negotiated_protocol_version() {
     let transport = Scripted::new(vec![
@@ -263,7 +234,6 @@ fn mcp_records_the_negotiated_protocol_version() {
         client.transport().requests[0]["params"]["protocolVersion"],
         PROTOCOL_VERSION
     );
-
     let mut legacy = McpClient::new(Scripted::new(vec![
         response(1, json!({"protocolVersion": "2025-06-18"})),
         response(2, json!({"tools": []})),
@@ -272,7 +242,6 @@ fn mcp_records_the_negotiated_protocol_version() {
     assert_eq!(legacy.negotiated_protocol_version(), Some("2025-06-18"));
     assert!(!legacy.negotiated_supported());
 }
-
 #[test]
 fn mcp_rejects_initialize_without_a_protocol_version_before_ready_notification() {
     let transport = Scripted::new(vec![response(1, json!({"capabilities": {}}))]);
@@ -282,14 +251,11 @@ fn mcp_rejects_initialize_without_a_protocol_version_before_ready_notification()
     assert_eq!(client.transport.requests.len(), 1);
     assert!(!client.initialized);
 }
-
 #[test]
 fn mcp_rejects_a_response_for_another_request_id() {
-    let transport = Scripted::new(vec![json!({
-        "jsonrpc": "2.0",
-        "id": 99,
-        "result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}
-    })]);
+    let transport = Scripted::new(vec![
+        json!({"jsonrpc":"2.0","id":99,"result":{"protocolVersion":PROTOCOL_VERSION,"capabilities":{}}}),
+    ]);
     let mut client = McpClient::new(transport);
     let error = client.initialize().unwrap_err().to_string();
     assert!(
@@ -297,18 +263,15 @@ fn mcp_rejects_a_response_for_another_request_id() {
         "{error}"
     );
 }
-
 #[test]
 fn mcp_rejects_a_response_without_the_json_rpc_version() {
-    let transport = Scripted::new(vec![json!({
-        "id": 1,
-        "result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}
-    })]);
+    let transport = Scripted::new(vec![
+        json!({"id":1,"result":{"protocolVersion":PROTOCOL_VERSION,"capabilities":{}}}),
+    ]);
     let mut client = McpClient::new(transport);
     let error = client.initialize().unwrap_err().to_string();
     assert!(error.contains("invalid jsonrpc version"), "{error}");
 }
-
 #[test]
 fn http_endpoints_gain_the_gmcp_path_only_when_they_have_none() {
     assert_eq!(
@@ -329,7 +292,6 @@ fn http_endpoints_gain_the_gmcp_path_only_when_they_have_none() {
         "http://127.0.0.1:9090/mcp"
     );
 }
-
 #[test]
 fn event_streams_yield_the_response_matching_the_request_id() {
     let stream = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\r\n\r\n\
@@ -341,14 +303,12 @@ fn event_streams_yield_the_response_matching_the_request_id() {
     assert_eq!(last["id"], 8);
     assert!(response_from_event_stream(": keep-alive\n\n", None).is_err());
 }
-
 /// One recorded HTTP request: lowercase header map and body.
 struct Recorded {
     request_line: String,
     headers: Vec<(String, String)>,
     body: Value,
 }
-
 impl Recorded {
     fn header(&self, name: &str) -> Option<&str> {
         self.headers
@@ -357,7 +317,6 @@ impl Recorded {
             .map(|(_, value)| value.as_str())
     }
 }
-
 /// Serve one canned response per connection, in order, and hand back
 /// every request it read. Each request is read in full (head and
 /// `Content-Length` body) before the reply, so Windows never resets the
@@ -413,7 +372,6 @@ fn serve(replies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<Recorded>
     });
     (url, handle)
 }
-
 fn reply(status: &str, extra_headers: &str, content_type: &str, body: &str) -> String {
     format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
@@ -421,25 +379,17 @@ fn reply(status: &str, extra_headers: &str, content_type: &str, body: &str) -> S
         body.len()
     )
 }
-
 #[test]
 fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
-    let init = json!({
-        "jsonrpc": "2.0", "id": 1,
-        "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}}
-    })
+    let init = json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}}}})
     .to_string();
     let list = format!(
         "event: message\ndata: {}\n\n",
-        json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": [
-            {"name": "susi.status", "description": "Status", "inputSchema": {"type": "object"}}
-        ]}})
+        json!({"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"susi.status","description":"Status","inputSchema":{"type":"object"}}]}})
     );
-    let call = json!({
-        "jsonrpc": "2.0", "id": 3,
-        "result": {"content": [{"type": "text", "text": "healthy"}]}
-    })
-    .to_string();
+    let call =
+        json!({"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"healthy"}]}})
+            .to_string();
     let (url, server) = serve(vec![
         reply(
             "200 OK",
@@ -451,7 +401,6 @@ fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
         reply("200 OK", "", "text/event-stream", &list),
         reply("200 OK", "", "application/json", &call),
     ]);
-
     let transport = HttpSocketTransport::new(&url)
         .with_timeout_secs(10)
         .with_bearer("token-1");
@@ -463,7 +412,6 @@ fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
     assert_eq!(client.transport().session_id(), Some("sess-42"));
     let answer = client.call("susi.status", &json!({})).unwrap();
     assert_eq!(answer, "healthy");
-
     let requests = server.join().unwrap();
     assert_eq!(requests.len(), 4);
     for request in &requests {
@@ -482,7 +430,6 @@ fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
     assert_eq!(init.body["params"]["protocolVersion"], PROTOCOL_VERSION);
     assert_eq!(init.header("mcp-session-id"), None);
     assert_eq!(init.header("mcp-protocol-version"), None);
-
     let initialized = &requests[1];
     assert_eq!(initialized.body["method"], "notifications/initialized");
     assert!(initialized.body.get("id").is_none());
@@ -495,14 +442,11 @@ fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
     assert_eq!(requests[3].body["method"], "tools/call");
     assert_eq!(requests[3].body["params"]["name"], "susi.status");
 }
-
 #[test]
 fn http_socket_transport_closes_a_session_once_and_carries_session_headers() {
-    let init = json!({
-        "jsonrpc": "2.0", "id": 1,
-        "result": {"protocolVersion": "2025-11-25", "capabilities": {}}
-    })
-    .to_string();
+    let init =
+        json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{}}})
+            .to_string();
     let (url, server) = serve(vec![
         reply(
             "200 OK",
@@ -522,7 +466,6 @@ fn http_socket_transport_closes_a_session_once_and_carries_session_headers() {
     client.close().unwrap();
     client.close().unwrap();
     assert!(client.initialize().is_err());
-
     let requests = server.join().unwrap();
     assert_eq!(requests.len(), 3);
     let delete = &requests[2];
@@ -532,14 +475,11 @@ fn http_socket_transport_closes_a_session_once_and_carries_session_headers() {
     assert_eq!(delete.header("mcp-protocol-version"), Some("2025-11-25"));
     assert_eq!(delete.header("authorization"), Some("Bearer token-close"));
 }
-
 #[test]
 fn dropping_an_initialized_http_client_releases_its_session() {
-    let init = json!({
-        "jsonrpc": "2.0", "id": 1,
-        "result": {"protocolVersion": "2025-11-25", "capabilities": {}}
-    })
-    .to_string();
+    let init =
+        json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{}}})
+            .to_string();
     let (url, server) = serve(vec![
         reply(
             "200 OK",
@@ -558,7 +498,6 @@ fn dropping_an_initialized_http_client_releases_its_session() {
     assert_eq!(requests[2].request_line, "DELETE /mcp HTTP/1.1");
     assert_eq!(requests[2].header("mcp-session-id"), Some("drop-42"));
 }
-
 #[test]
 fn http_socket_transport_surfaces_http_errors_and_unreachable_sockets() {
     let (url, server) = serve(vec![reply(
@@ -574,7 +513,6 @@ fn http_socket_transport_surfaces_http_errors_and_unreachable_sockets() {
         "{error}"
     );
     server.join().unwrap();
-
     let mut closed =
         McpClient::new(HttpSocketTransport::new("http://127.0.0.1:1").with_timeout_secs(2));
     assert!(closed.initialize().is_err());

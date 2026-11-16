@@ -3,7 +3,6 @@
 //! Cryptographic capability tokens (HMAC-SHA256) bound to subject / action /
 //! resource / expiry. Composition root loads the host key and privacy mode;
 //! every tool dispatch must pass [`MacPolicy::authorize_tool`].
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -12,7 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::sync::RwLock;
 use susi_error::{EaiError, EaiResult};
-
 /// Privacy posture for the substrate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -38,12 +36,10 @@ pub enum PrivacyMode {
     /// Permissive: default grants include network.egress (still audited).
     Open,
 }
-
 impl PrivacyMode {
     pub fn parse(s: &str) -> Self {
         Self::parse_requested(s).unwrap_or(Self::Balanced)
     }
-
     /// Parse a mode an operator asked for (canonical names and aliases,
     /// any case); `None` for anything else, so a typo in a request never
     /// silently relaxes a stricter mode into `balanced`.
@@ -56,7 +52,6 @@ impl PrivacyMode {
             _ => None,
         }
     }
-
     /// Exact parse of a persisted mode (`as_str` output). The sticky file
     /// is machine-written, so anything else — empty, torn, garbled — is
     /// damage, not a request for the lenient `parse` default.
@@ -69,7 +64,6 @@ impl PrivacyMode {
             _ => None,
         }
     }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Balanced => "balanced",
@@ -78,7 +72,6 @@ impl PrivacyMode {
             Self::Open => "open",
         }
     }
-
     /// Where host-initiated traffic may go under this mode, in the words
     /// every status and mode-change report shows the operator. Every mode
     /// but `host_only` keeps the local network in reach (`url_stays_local`);
@@ -97,7 +90,6 @@ impl PrivacyMode {
             Self::Open => "this machine and its local network, plus the internet (egress audited)",
         }
     }
-
     /// Whether this mode withholds the default egress, cloud and host-exec
     /// grants and forces host exec through the sandbox (`local_only` and
     /// the stricter `host_only`).
@@ -107,7 +99,6 @@ impl PrivacyMode {
             Self::Balanced | Self::Open => false,
         }
     }
-
     /// Whether this mode confines every connection to this machine.
     pub fn confines_to_host(self) -> bool {
         match self {
@@ -115,7 +106,6 @@ impl PrivacyMode {
             Self::Balanced | Self::LocalOnly | Self::Open => false,
         }
     }
-
     /// Whether `url` lies inside the reach this mode never blocks: loopback
     /// under `host_only`, this machine and its local network otherwise.
     pub fn keeps_local(self, url: &str) -> bool {
@@ -126,7 +116,6 @@ impl PrivacyMode {
         }
     }
 }
-
 /// Canonical capability actions (align with extension-pack vocabulary).
 pub mod actions {
     pub const FILESYSTEM_READ: &str = "filesystem.read";
@@ -137,7 +126,6 @@ pub mod actions {
     pub const TRANSMIT: &str = "transmit";
     pub const CLOUD_INFERENCE: &str = "cloud.inference";
 }
-
 /// HMAC-signed capability grant.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapabilityToken {
@@ -149,7 +137,6 @@ pub struct CapabilityToken {
     /// Hex-encoded HMAC-SHA256 over the canonical payload.
     pub signature: String,
 }
-
 impl CapabilityToken {
     fn canonical_payload(&self) -> String {
         format!(
@@ -161,24 +148,20 @@ impl CapabilityToken {
                 .unwrap_or_else(|| "none".into())
         )
     }
-
     pub fn is_expired(&self, now: u64) -> bool {
         self.expires_at.is_some_and(|exp| exp <= now)
     }
 }
-
 /// HMAC-SHA256: the one implementation lives in `susi_config::cluster_key`.
 fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     crate::cluster_key::hmac_sha256(key, message)
 }
-
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
-
 fn grant_key(subject: &str, action: &str, resource: &str) -> String {
     if [subject, action, resource]
         .iter()
@@ -196,7 +179,6 @@ fn grant_key(subject: &str, action: &str, resource: &str) -> String {
         format!("{subject}|{action}|{resource}")
     }
 }
-
 /// Process-wide MAC enforcer.
 pub struct MacPolicy {
     key: [u8; 32],
@@ -213,13 +195,10 @@ pub struct MacPolicy {
     /// local-only defaults, but must never acknowledge a durable mutation.
     persistence_error: Option<String>,
 }
-
 static POLICY: OnceLock<MacPolicy> = OnceLock::new();
-
 fn enc(key: &str) -> String {
     susi_paths::encode_file_component(key)
 }
-
 fn grant_paths(
     dir: &Path,
     subject: &str,
@@ -238,14 +217,12 @@ fn grant_paths(
     let old = (legacy.len() <= 255).then(|| dir.join(legacy));
     (current, old)
 }
-
 /// Load the shared substrate HMAC key, creating it (0600) on first boot.
 /// Every wired process — the daemon and each cell — signs/verifies with it, so
 /// creation is race-safe and a malformed key is an error, never rotated.
 pub fn load_or_create_key(dir: &Path) -> std::io::Result<[u8; 32]> {
     crate::load_or_create_secret(&dir.join("mac.hmac.key"))
 }
-
 /// A key private to this process, for a policy that cannot join the
 /// shared substrate key. OS entropy when available; otherwise a digest of
 /// process-unique inputs — never an all-zero key.
@@ -273,7 +250,6 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
         }
     }
 }
-
 /// Whether `url` stays on this host or its LAN: loopback, private (RFC 1918
 /// / unique-local), or link-local addresses, `localhost`, `*.localhost`,
 /// `*.local`. Anything else leaves the network — including a plain-`http://`
@@ -300,7 +276,6 @@ pub fn url_stays_local(url: &str) -> bool {
         }
     }
 }
-
 /// The host of `scheme://[user@]host[:port][/...]`, brackets stripped from
 /// an IPv6 literal; `None` without a scheme.
 fn url_host(url: &str) -> Option<&str> {
@@ -313,7 +288,6 @@ fn url_host(url: &str) -> Option<&str> {
         host_port.split(':').next().unwrap_or_default()
     })
 }
-
 /// Whether `url` names this machine alone: a loopback address
 /// (`127.0.0.0/8`, `::1`, or an IPv4-mapped loopback) or the name
 /// `localhost`. Private, link-local, unique-local and `*.local` hosts are
@@ -323,7 +297,6 @@ fn url_host(url: &str) -> Option<&str> {
 pub fn url_stays_on_host(url: &str) -> bool {
     url_host(url).is_some_and(host_is_this_machine)
 }
-
 /// Whether `host` (a bare host, no port) is a loopback address or
 /// `localhost` (see [`url_stays_on_host`]).
 pub fn host_is_this_machine(host: &str) -> bool {
@@ -332,7 +305,6 @@ pub fn host_is_this_machine(host: &str) -> bool {
         Err(_) => host.trim_end_matches('.').eq_ignore_ascii_case("localhost"),
     }
 }
-
 /// Whether host-initiated network traffic to `url` is allowed right now:
 /// always for host/LAN targets; otherwise only when the posture does not
 /// block network egress by default or an egress grant is held. Under
@@ -342,13 +314,11 @@ pub fn host_is_this_machine(host: &str) -> bool {
 pub fn egress_permitted(url: &str) -> bool {
     MacPolicy::global().egress_permitted(url)
 }
-
 /// Why host-initiated traffic to `url` is refused right now, or `None`
 /// when it may go (see [`MacPolicy::egress_refusal`]).
 pub fn egress_refusal(url: &str) -> Option<String> {
     MacPolicy::global().egress_refusal(url)
 }
-
 /// Whether the shared posture is `host_only` at this moment. Read per
 /// operation (the sticky mode file is authoritative across processes), so
 /// a mode switch made by any process applies to the next datagram,
@@ -356,7 +326,6 @@ pub fn egress_refusal(url: &str) -> Option<String> {
 pub fn host_only_in_force() -> bool {
     MacPolicy::global().mode().confines_to_host()
 }
-
 /// Whether a host listener must drop a client connecting from `peer`:
 /// `host_only` serves this machine alone, so every non-loopback peer is
 /// refused, whatever `bind_address` exposes. Loopback peers never read
@@ -364,7 +333,6 @@ pub fn host_only_in_force() -> bool {
 pub fn refuses_remote_client(peer: std::net::IpAddr) -> bool {
     !peer.to_canonical().is_loopback() && host_only_in_force()
 }
-
 /// Whether a grant on `granted` covers a request for `requested`.
 ///
 /// Exact match; an explicit trailing `*` globs its prefix (`app://*`);
@@ -383,7 +351,6 @@ pub fn grant_covers(granted: &str, requested: &str) -> bool {
         .strip_prefix(granted)
         .is_some_and(|rest| granted.ends_with('/') || rest.starts_with('/'))
 }
-
 /// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\server\share` becomes
 /// `\\server\share`; any other path is returned unchanged.
 fn strip_verbatim_prefix(path: &Path) -> PathBuf {
@@ -396,7 +363,6 @@ fn strip_verbatim_prefix(path: &Path) -> PathBuf {
         None => path.to_path_buf(),
     }
 }
-
 fn process_local_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     if getrandom::fill(&mut key).is_ok() {
@@ -414,7 +380,6 @@ fn process_local_key() -> [u8; 32] {
     key.copy_from_slice(&Sha256::digest(seed.as_bytes()));
     key
 }
-
 impl MacPolicy {
     pub fn new(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> Self {
         let p = Self {
@@ -431,7 +396,6 @@ impl MacPolicy {
         }
         p
     }
-
     /// Enable shared-state persistence: grants mirror to `<dir>/mac.grants/`
     /// and mode reads/writes `<dir>/privacy_mode`.
     fn with_state_dir(mut self, dir: PathBuf) -> Self {
@@ -440,7 +404,6 @@ impl MacPolicy {
         self.state_dir = Some(dir);
         self
     }
-
     /// Initialize the global policy (first call wins). Wired via the
     /// substrate state dir so sibling processes share grants and mode.
     pub fn init_global(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> &'static Self {
@@ -449,7 +412,6 @@ impl MacPolicy {
                 .with_state_dir(susi_paths::SusiDirs::substrate_home())
         })
     }
-
     /// The wired constructor every cell uses for `global()`: shared key
     /// file, sticky mode, persisted grants — all under `substrate_home`.
     pub fn wired() -> Self {
@@ -489,7 +451,6 @@ impl MacPolicy {
         let mandatory = privacy.mandatory_sandbox_for_exec || mode.restricts_egress();
         Self::new(key, mode, mandatory).with_state_dir(dir)
     }
-
     /// A key for one purpose, derived from this policy's signing key by
     /// HMAC-SHA256 over `purpose`, so a token of one kind can never verify as
     /// another. Refused when this copy runs on a process-private fallback
@@ -500,7 +461,6 @@ impl MacPolicy {
             None => Ok(hmac_sha256(&self.key, purpose)),
         }
     }
-
     pub fn global() -> &'static Self {
         POLICY.get_or_init(|| {
             // Production leaf crates embed this module independently and do
@@ -521,11 +481,9 @@ impl MacPolicy {
             }
         })
     }
-
     fn grants_dir(&self) -> Option<PathBuf> {
         self.state_dir.as_ref().map(|d| d.join("mac.grants"))
     }
-
     fn locked_store(&self) -> std::io::Result<Option<(PathBuf, std::fs::File)>> {
         if let Some(error) = &self.persistence_error {
             return Err(std::io::Error::other(error.clone()));
@@ -543,7 +501,6 @@ impl MacPolicy {
         lock.lock()?;
         Ok(Some((dir, lock)))
     }
-
     /// Writers hold the shared lock while atomically moving a legacy-only
     /// record to its bounded location. Its prior signed bytes are preserved.
     fn migrate_record(
@@ -575,7 +532,6 @@ impl MacPolicy {
         }
         Ok(current)
     }
-
     fn publish(&self, tokens: &[CapabilityToken]) -> std::io::Result<()> {
         let Some((dir, _lock)) = self.locked_store()? else {
             for token in tokens {
@@ -621,7 +577,6 @@ impl MacPolicy {
         }
         Ok(())
     }
-
     fn current_token(
         &self,
         subject: &str,
@@ -655,7 +610,6 @@ impl MacPolicy {
             .cloned()
             .filter(matches)
     }
-
     fn bindings_for(&self, subject: &str) -> std::collections::BTreeSet<(String, String)> {
         let mut bindings: std::collections::BTreeSet<_> = self
             .grants
@@ -686,11 +640,9 @@ impl MacPolicy {
         }
         bindings
     }
-
     fn sticky_mode(&self) -> Option<PrivacyMode> {
         read_sticky_mode(self.state_dir.as_ref()?)
     }
-
     pub fn mode(&self) -> PrivacyMode {
         // Wired copies share the sticky file so a mode switch in any copy is
         // authoritative everywhere; unwired copies use the in-memory value.
@@ -699,7 +651,6 @@ impl MacPolicy {
         }
         *self.mode.read().unwrap_or_else(|e| e.into_inner())
     }
-
     /// Switch the posture. For a wired policy the sticky file is what every
     /// other copy enforces, so it is replaced atomically and a failed write
     /// is returned: reporting a switch other processes never see would be a
@@ -725,13 +676,11 @@ impl MacPolicy {
         self.seed_defaults().map_err(std::io::Error::other)?;
         Ok(())
     }
-
     /// Whether this policy shares its posture through the sticky file
     /// (`set_mode` then persists it); unwired copies keep it in memory.
     pub fn persists_mode(&self) -> bool {
         self.state_dir.is_some()
     }
-
     /// Whether host-initiated network traffic to `url` is allowed under this
     /// policy instance. Local targets are always permitted; non-local targets
     /// require an open posture or an explicit egress grant. Under
@@ -739,7 +688,6 @@ impl MacPolicy {
     pub fn egress_permitted(&self, url: &str) -> bool {
         self.egress_refusal(url).is_none()
     }
-
     /// Why host-initiated traffic to `url` is refused under this policy, or
     /// `None` when it may go. The one reach decision every egress gate
     /// shares: one mode read, so the verdict and its reason agree.
@@ -763,7 +711,6 @@ impl MacPolicy {
             mode.as_str()
         ))
     }
-
     /// Why an inference payload may not go to the provider at `api_base`, or
     /// `None` when it may: off the mode's local reach (the LAN included
     /// under `host_only`) while cloud inference is blocked.
@@ -776,21 +723,17 @@ impl MacPolicy {
             )
         })
     }
-
     pub fn mandatory_sandbox(&self) -> bool {
         self.mandatory_sandbox.load(Ordering::Relaxed) || self.mode().restricts_egress()
     }
-
     pub fn set_mandatory_sandbox(&self, on: bool) {
         self.mandatory_sandbox.store(on, Ordering::Relaxed);
     }
-
     /// True when cloud inference / remote providers must not receive payloads.
     /// Under `host_only` always: no grant reopens it (see `is_permitted`).
     pub fn blocks_cloud_inference(&self) -> bool {
         self.mode().restricts_egress() && !self.is_permitted("susi", actions::CLOUD_INFERENCE, "*")
     }
-
     /// True when network egress tools must not run without a grant.
     pub fn blocks_network_by_default(&self) -> bool {
         match self.mode() {
@@ -798,11 +741,9 @@ impl MacPolicy {
             PrivacyMode::Open => false,
         }
     }
-
     fn sign(&self, token: &CapabilityToken) -> String {
         susi_paths::hex::encode(hmac_sha256(&self.key, token.canonical_payload().as_bytes()))
     }
-
     pub fn verify(&self, token: &CapabilityToken) -> bool {
         if token.is_expired(now_secs()) {
             return false;
@@ -817,7 +758,6 @@ impl MacPolicy {
                 .fold(0u8, |acc, (a, b)| acc | (a ^ b))
                 == 0
     }
-
     fn issue_token(
         &self,
         subject: &str,
@@ -843,7 +783,6 @@ impl MacPolicy {
         token.signature = self.sign(&token);
         Ok(token)
     }
-
     /// Issue and store a capability token. An unwritable shared store never
     /// turns a failed grant into a successful process-local permission.
     pub fn grant(
@@ -858,12 +797,10 @@ impl MacPolicy {
             .map_err(|e| EaiError::io(format!("could not persist capability grant: {e}")))?;
         Ok(token)
     }
-
     pub fn revoke(&self, subject: &str, action: &str, resource: &str) -> EaiResult<bool> {
         self.revoke_record(subject, action, resource)
             .map_err(|e| EaiError::io(format!("could not revoke capability grant: {e}")))
     }
-
     fn revoke_record(&self, subject: &str, action: &str, resource: &str) -> std::io::Result<bool> {
         let key = grant_key(subject, action, resource);
         let Some((dir, _lock)) = self.locked_store()? else {
@@ -896,14 +833,12 @@ impl MacPolicy {
             .remove(&key);
         Ok(present)
     }
-
     pub fn grants_for(&self, subject: &str) -> Vec<CapabilityToken> {
         self.bindings_for(subject)
             .into_iter()
             .filter_map(|(a, r)| self.current_token(subject, &a, &r))
             .collect()
     }
-
     /// Explicit operator consent for network egress (and optionally cloud).
     /// Refused under `host_only`: that mode admits no egress at all, so a
     /// consent token would report a permission the gates never honour.
@@ -928,7 +863,6 @@ impl MacPolicy {
             .map_err(|e| EaiError::io(format!("could not persist egress consent: {e}")))?;
         Ok(tokens)
     }
-
     pub fn is_permitted(&self, subject: &str, action: &str, resource: &str) -> bool {
         if !self.enforce.load(Ordering::Relaxed) {
             return true;
@@ -952,7 +886,6 @@ impl MacPolicy {
             a == action && r != resource && r != "*" && grant_covers(&r, resource) && live(&r)
         })
     }
-
     fn seed_defaults(&self) -> EaiResult<()> {
         let mut bindings = vec![
             (actions::FILESYSTEM_READ, "*"),
@@ -974,7 +907,6 @@ impl MacPolicy {
         self.publish(&tokens)
             .map_err(|e| EaiError::io(format!("could not store MAC defaults: {e}")))
     }
-
     /// Tools that send data off-host but whose names match none of the
     /// substring rules below; without this list they were classified as
     /// local reads and bypassed the egress gate under `local_only`.
@@ -995,7 +927,6 @@ impl MacPolicy {
         "harness_budget",    // provider balances fetched with their keys
         "harness_plan",      // provider balances fetched with their keys
     ];
-
     /// Extra requirements for storing an adapter document over the socket:
     /// a stored adapter is run later by `agents_run`, `frameworks_run`,
     /// retries or an MCP enable, so storing one that names a program needs
@@ -1031,7 +962,6 @@ impl MacPolicy {
             _ => Vec::new(),
         }
     }
-
     /// Map a tool name to required (action, resource) pairs.
     pub fn requirements_for_tool(tool: &str) -> Vec<(&'static str, &'static str)> {
         let t = tool.to_ascii_lowercase();
@@ -1082,7 +1012,6 @@ impl MacPolicy {
         // Default: treat unknown tools as needing read (fail open-ish within local).
         vec![(actions::FILESYSTEM_READ, "*")]
     }
-
     /// Authorize a tool invocation for `subject` (defaults to `"susi"`).
     pub fn authorize_tool(
         &self,
@@ -1092,7 +1021,6 @@ impl MacPolicy {
         subject: Option<&str>,
     ) -> EaiResult<()> {
         let subject = subject.unwrap_or("susi");
-
         // Local-only / mandatory sandbox: host exec may proceed only with
         // process.exec, otherwise CoreTools redirects to sandbox_exec — allow
         // when sandbox.exec is held.
@@ -1110,7 +1038,6 @@ impl MacPolicy {
                 actions::SANDBOX_EXEC
             )));
         }
-
         let mut reqs = Self::requirements_for_tool(tool);
         // Task inspection is local unless `refresh` asks the cloud vendor;
         // provider checks are local unless `live` lists the vendor's models,
@@ -1170,7 +1097,6 @@ impl MacPolicy {
         }
         Ok(())
     }
-
     /// Resolve a workspace a socket caller names for a tool that acts on a
     /// caller's working tree (the CLI's cwd). The socket has no caller cwd,
     /// so the path must be absolute; it must be an existing directory and
@@ -1214,7 +1140,6 @@ impl MacPolicy {
         }
         Ok(plain)
     }
-
     /// Resolve one file path a socket caller names for a tool to read
     /// (`write == false`) or write. The socket has no caller working
     /// directory, so the path must be absolute. The path need not exist
@@ -1280,28 +1205,17 @@ impl MacPolicy {
         }
         Ok(resolved)
     }
-
     /// Snapshot for CLI / telemetry.
     pub fn status_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "mode": self.mode().as_str(),
-            "network_scope": self.mode().network_scope(),
-            "mandatory_sandbox": self.mandatory_sandbox(),
-            "blocks_cloud_inference": self.blocks_cloud_inference(),
-            "blocks_network_by_default": self.blocks_network_by_default(),
-            "grants": self.grants_for("susi"),
-        })
+        serde_json::json!({"mode":self.mode().as_str(),"network_scope":self.mode().network_scope(),"mandatory_sandbox":self.mandatory_sandbox(),"blocks_cloud_inference":self.blocks_cloud_inference(),"blocks_network_by_default":self.blocks_network_by_default(),"grants":self.grants_for("susi")})
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn policy(mode: PrivacyMode) -> MacPolicy {
         MacPolicy::new([7u8; 32], mode, mode.restricts_egress())
     }
-
     #[test]
     fn socket_workspaces_are_absolute_existing_directories_the_policy_grants() {
         let p = policy(PrivacyMode::Balanced);
@@ -1334,7 +1248,6 @@ mod tests {
         assert!(p.confine_workspace("stranger", &text, true).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn tokens_verify_and_expire() {
         let p = policy(PrivacyMode::Balanced);
@@ -1349,7 +1262,6 @@ mod tests {
         assert!(!p.is_permitted("agent-b", actions::NETWORK_EGRESS, "*"));
         assert!(expired.is_expired(now_secs()));
     }
-
     #[test]
     fn live_wired_readers_follow_revocation_and_refuse_a_misfiled_token() {
         let root = std::env::temp_dir().join(format!(
@@ -1386,7 +1298,6 @@ mod tests {
             .unwrap());
         std::fs::remove_dir_all(root).unwrap();
     }
-
     #[test]
     fn revoke_masks_a_siblings_preexisting_memory_binding() {
         let root = std::env::temp_dir().join(format!(
@@ -1422,7 +1333,6 @@ mod tests {
         assert!(restarted.is_permitted("worker", actions::PROCESS_EXEC, "*"));
         std::fs::remove_dir_all(root).unwrap();
     }
-
     #[test]
     fn revoke_masks_a_siblings_memory_binding_without_a_disk_record() {
         let root = std::env::temp_dir().join(format!(
@@ -1452,7 +1362,6 @@ mod tests {
         assert_eq!(std::fs::read(path).unwrap(), b"null");
         std::fs::remove_dir_all(root).unwrap();
     }
-
     #[test]
     fn blocked_consent_record_does_not_publish_the_other_capability() {
         let root = std::env::temp_dir().join(format!(
@@ -1477,7 +1386,6 @@ mod tests {
         assert!(!reader.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
         std::fs::remove_dir_all(root).unwrap();
     }
-
     /// Every mode's report names the local network as in reach, so no
     /// operator reads `local_only` as "this machine only".
     #[test]
@@ -1504,7 +1412,6 @@ mod tests {
         );
         assert_eq!(host["mode"], "host_only");
     }
-
     #[test]
     fn host_only_parses_persists_and_round_trips() {
         for spelled in ["host_only", "host-only", "host", "  HOST_ONLY  "] {
@@ -1537,7 +1444,6 @@ mod tests {
         // A typo never relaxes a request into `balanced`.
         assert_eq!(PrivacyMode::parse_requested("host_onyl"), None);
         assert_eq!(PrivacyMode::default(), PrivacyMode::Balanced);
-
         let root = std::env::temp_dir().join(format!("mac-host-only-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let p = policy(PrivacyMode::Balanced).with_state_dir(root.clone());
@@ -1551,7 +1457,6 @@ mod tests {
         assert!(sibling.mandatory_sandbox());
         let _ = std::fs::remove_dir_all(&root);
     }
-
     #[test]
     fn host_only_reach_is_loopback_alone() {
         for url in [
@@ -1591,7 +1496,6 @@ mod tests {
         assert!(PrivacyMode::LocalOnly.keeps_local("http://printer.local/"));
         assert!(!PrivacyMode::LocalOnly.keeps_local("https://example.com/"));
     }
-
     #[test]
     fn host_only_refuses_every_off_host_target_whatever_is_granted() {
         let p = policy(PrivacyMode::HostOnly);
@@ -1645,7 +1549,6 @@ mod tests {
             .authorize_tool("exec_command", &serde_json::json!({}), Path::new("."), None)
             .is_ok());
         assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
-
         // The same grants under local_only do open the internet: unchanged.
         let lan = policy(PrivacyMode::LocalOnly);
         assert!(lan.egress_permitted("http://192.168.1.20:9093/mcp"));
@@ -1654,7 +1557,6 @@ mod tests {
         assert!(lan.egress_permitted("https://example.com/"));
         assert!(!lan.blocks_cloud_inference());
     }
-
     #[test]
     fn local_only_denies_network_without_consent() {
         let p = policy(PrivacyMode::LocalOnly);
@@ -1667,7 +1569,6 @@ mod tests {
             .authorize_tool("browser_automate", &arg, Path::new("."), None)
             .is_ok());
     }
-
     #[test]
     fn local_only_gates_every_off_host_tool() {
         let p = MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, true);
@@ -1696,7 +1597,6 @@ mod tests {
             .authorize_tool("agents_status", &refresh, ws, None)
             .is_ok());
     }
-
     #[test]
     fn keyed_harness_reads_need_egress_under_local_only() {
         let p = MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, true);
@@ -1730,7 +1630,6 @@ mod tests {
             .authorize_tool("harness_models", &available, ws, None)
             .is_ok());
     }
-
     #[test]
     fn harness_run_and_stdio_mcp_need_process_exec() {
         // Egress allowed, process.exec revoked: what `privacy consent
@@ -1756,17 +1655,13 @@ mod tests {
             .is_ok());
         assert!(p.authorize_tool("mcp_add", &stdio, ws, None).is_ok());
     }
-
     #[test]
     fn adapter_overrides_need_write_and_what_the_adapter_runs() {
         let p = policy(PrivacyMode::Balanced);
         let ws = Path::new(".");
-        let command = serde_json::json!({"kind": "agents", "id": "a",
-            "adapter": {"kind": "command", "program": "/bin/sh", "args": []}});
-        let acp = serde_json::json!({"kind": "frameworks", "id": "f",
-            "adapter": {"kind": "acp", "program": "x", "args": []}});
-        let a2a = serde_json::json!({"kind": "agents", "id": "r",
-            "adapter": {"kind": "a2a", "url": "https://agent.example"}});
+        let command = serde_json::json!({"kind":"agents","id":"a","adapter":{"kind":"command","program":"/bin/sh","args":[]}});
+        let acp = serde_json::json!({"kind":"frameworks","id":"f","adapter":{"kind":"acp","program":"x","args":[]}});
+        let a2a = serde_json::json!({"kind":"agents","id":"r","adapter":{"kind":"a2a","url":"https://agent.example"}});
         let mcp_runner =
             serde_json::json!({"kind": "mcp", "id": "m", "adapter": {"runner": "npx"}});
         let model = serde_json::json!({"kind": "models", "id": "c", "adapter": {"model": "x"}});
@@ -1806,7 +1701,6 @@ mod tests {
             .authorize_tool("adapter_configure", &model, ws, None)
             .is_err());
     }
-
     #[test]
     fn socket_file_paths_are_absolute_and_confined_by_the_grants() {
         let p = policy(PrivacyMode::LocalOnly);
@@ -1848,7 +1742,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&outside);
     }
-
     #[test]
     fn local_only_blocks_host_exec_without_grant() {
         let p = policy(PrivacyMode::LocalOnly);
@@ -1871,7 +1764,6 @@ mod tests {
             .is_ok());
         assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
     }
-
     #[test]
     fn balanced_allows_read_write_exec() {
         let p = policy(PrivacyMode::Balanced);
@@ -1896,7 +1788,6 @@ mod tests {
             )
             .is_ok());
     }
-
     #[test]
     fn switching_to_local_only_revokes_cloud_grants() {
         let p = policy(PrivacyMode::Balanced);
@@ -1907,7 +1798,6 @@ mod tests {
         assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
         assert!(p.mandatory_sandbox());
     }
-
     #[test]
     fn damaged_sticky_mode_fails_closed() {
         let dir = std::env::temp_dir().join(format!(
@@ -1932,7 +1822,6 @@ mod tests {
         assert_eq!(read_sticky_mode(&dir), Some(PrivacyMode::Open));
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn scoped_grants_stop_at_a_path_or_host_boundary() {
         let p = policy(PrivacyMode::LocalOnly);
@@ -1965,7 +1854,6 @@ mod tests {
         assert!(p.is_permitted("cell-a", actions::TRANSMIT, "app://agent-b"));
         assert!(!p.is_permitted("cell-a", actions::TRANSMIT, "tcp://agent-b"));
     }
-
     #[test]
     fn ipc_send_is_authorized_by_the_default_transmit_grant() {
         for mode in [
@@ -1982,7 +1870,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn only_host_and_lan_urls_stay_local() {
         for local in [
@@ -2006,7 +1893,6 @@ mod tests {
             assert!(!url_stays_local(remote), "{remote}");
         }
     }
-
     #[test]
     fn web_search_tools_need_egress_but_semantic_search_stays_local() {
         for tool in ["brave_search", "google_search", "web_search"] {
@@ -2021,7 +1907,6 @@ mod tests {
             vec![(actions::FILESYSTEM_READ, "*")]
         );
     }
-
     #[test]
     fn a_signed_binding_with_a_delimiter_cannot_be_repartitioned() {
         let policy = policy(PrivacyMode::LocalOnly);
@@ -2040,7 +1925,6 @@ mod tests {
             grant_key("mission", "worker|process.exec", "*")
         );
     }
-
     #[test]
     fn tampered_token_rejected() {
         let p = policy(PrivacyMode::Open);

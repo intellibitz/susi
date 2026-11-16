@@ -1,5 +1,4 @@
 use super::*;
-
 fn config(model: &str) -> ExecutorConfig {
     ExecutorConfig {
         gateway_url: "http://127.0.0.1:1".into(),
@@ -13,14 +12,12 @@ fn config(model: &str) -> ExecutorConfig {
         prompt: "say OK".into(),
     }
 }
-
 /// A runner that records the model of every turn it is handed and answers
 /// with a fixed outcome.
 struct Scripted {
     outcome: RunOutcome,
     seen: Mutex<Vec<String>>,
 }
-
 impl Scripted {
     fn new(outcome: RunOutcome) -> Self {
         Self {
@@ -28,44 +25,37 @@ impl Scripted {
             seen: Mutex::new(Vec::new()),
         }
     }
-
     fn ok(text: &str) -> Self {
         Self::new(RunOutcome::Succeeded {
             final_text: text.into(),
             reported_cost_usd: None,
         })
     }
-
     fn failed(message: &str) -> Self {
         Self::new(RunOutcome::Failed {
             message: message.into(),
         })
     }
-
     fn seen(&self) -> Vec<String> {
         self.seen.lock().unwrap().clone()
     }
 }
-
 impl Runner for Scripted {
     fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
         self.seen.lock().unwrap().push(config.model.clone());
         Ok(self.outcome.clone())
     }
 }
-
 fn text(outcome: &RunOutcome) -> &str {
     match outcome {
         RunOutcome::Succeeded { final_text, .. } => final_text,
         other => panic!("expected success, got {other:?}"),
     }
 }
-
 fn system32(program: &str) -> PathBuf {
     let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
     PathBuf::from(root).join("System32").join(program)
 }
-
 #[test]
 fn strategies_parse_from_their_env_names_and_default_to_auto() {
     assert_eq!(
@@ -100,7 +90,6 @@ fn strategies_parse_from_their_env_names_and_default_to_auto() {
         assert_eq!(AdaptiveStrategy::parse(strategy.as_str()), Some(strategy));
     }
 }
-
 #[test]
 fn cli_specs_parse_with_prefix_tool_and_optional_submodel() {
     let cases = [
@@ -136,11 +125,9 @@ fn cli_specs_parse_with_prefix_tool_and_optional_submodel() {
         assert_eq!(CliToolKind::from_name(kind.as_str()), Some(kind));
     }
 }
-
 #[test]
 fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
     let strings = |args: &[&str]| args.iter().map(|a| (*a).to_string()).collect::<Vec<_>>();
-
     let (programs, args, pipe) = build_invocation(CliToolKind::Claude, None);
     assert_eq!(programs, ["claude", "claude.exe"]);
     assert_eq!(
@@ -159,7 +146,6 @@ fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
             "opus"
         ])
     );
-
     let (programs, args, _) = build_invocation(CliToolKind::Codex, None);
     assert_eq!(programs, ["codex", "codex.exe"]);
     assert_eq!(
@@ -183,14 +169,12 @@ fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
             "o3"
         ])
     );
-
     let (programs, args, _) = build_invocation(CliToolKind::Gemini, Some("flash"));
     assert_eq!(programs, ["gemini", "gemini.cmd", "gemini.exe"]);
     assert_eq!(
         args,
         strings(&["--yolo", "-p", STDIN_PROMPT, "-m", "flash"])
     );
-
     let (programs, args, _) =
         build_invocation(CliToolKind::Antigravity, Some("gemini-4-argon-high"));
     assert_eq!(programs, ["agy", "agy.exe", "antigravity"]);
@@ -206,27 +190,22 @@ fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
             "gemini-4-argon-high"
         ])
     );
-
     let (programs, args, _) = build_invocation(CliToolKind::Qwen, None);
     assert_eq!(programs, ["qwen", "qwen.cmd", "qwen.exe"]);
     assert_eq!(args, strings(&["--yolo", "-p", STDIN_PROMPT]));
-
     let (programs, args, _) = build_invocation(CliToolKind::Aider, None);
     assert_eq!(programs, ["aider", "aider.exe"]);
     assert_eq!(
         args,
         strings(&["--yes-always", "--no-auto-commits", "--message-file", "-"])
     );
-
     let (programs, args, _) = build_invocation(CliToolKind::OpenCode, None);
     assert_eq!(programs, ["opencode", "opencode.exe"]);
     assert_eq!(args, strings(&["run"]));
-
     for kind in CliToolKind::ALL {
         assert!(build_invocation(kind, None).2, "{kind:?} must pipe stdin");
     }
 }
-
 #[test]
 fn discovery_finds_mock_binaries_and_the_first_directory_wins() {
     let first = susi_paths::tempfile::tempdir().unwrap();
@@ -237,7 +216,6 @@ fn discovery_finds_mock_binaries_and_the_first_directory_wins() {
     std::fs::write(second.path().join("agy"), b"").unwrap();
     // A directory named like a tool is not a tool.
     std::fs::create_dir(second.path().join("codex")).unwrap();
-
     let dirs = vec![first.path().to_path_buf(), second.path().to_path_buf()];
     let found = discover_cli_tools_in(&dirs);
     let kinds: Vec<CliToolKind> = found.iter().map(|tool| tool.kind).collect();
@@ -257,7 +235,6 @@ fn discovery_finds_mock_binaries_and_the_first_directory_wins() {
     // The live scan never panics, whatever this machine has installed.
     let _ = discover_cli_tools();
 }
-
 #[test]
 fn antigravity_resolves_the_requested_model_without_permission_bypass() {
     let installed = susi_paths::tempfile::tempdir().unwrap();
@@ -285,7 +262,6 @@ fn antigravity_resolves_the_requested_model_without_permission_bypass() {
     let (_, args, _) = build_invocation(CliToolKind::Antigravity, None);
     assert!(!args.iter().any(|arg| arg == "--model"));
 }
-
 // Scripted runners test outer routing only; real CLI enforcement is tested
 // separately through the production builder below.
 impl AdaptiveRunner<Scripted, Scripted> {
@@ -294,7 +270,6 @@ impl AdaptiveRunner<Scripted, Scripted> {
         self
     }
 }
-
 #[test]
 fn argon_builder_enforces_cli_policy_before_an_override_can_launch() {
     let runner = AdaptiveRunner::new(
@@ -313,7 +288,6 @@ fn argon_builder_enforces_cli_policy_before_an_override_can_launch() {
         if message.contains("refuses an unverified command override")));
     assert!(runner.payg_runner.seen().is_empty());
 }
-
 #[test]
 fn argon_policy_pins_missing_model_and_refuses_conflicts_before_launch() {
     let installed = susi_paths::tempfile::tempdir().unwrap();
@@ -342,7 +316,6 @@ fn argon_policy_pins_missing_model_and_refuses_conflicts_before_launch() {
     };
     assert!(overridden.resolve("cli:agy").is_err());
 }
-
 #[test]
 fn argon_policy_never_spends_payg_for_an_antigravity_request() {
     for strategy in [
@@ -388,7 +361,6 @@ fn argon_policy_never_spends_payg_for_an_antigravity_request() {
         assert!(runner.cli_runner.seen().is_empty());
     }
 }
-
 #[test]
 fn argon_policy_from_env_wires_both_production_layers() {
     let runner = AdaptiveRunner::from_env();
@@ -403,7 +375,6 @@ fn argon_policy_from_env_wires_both_production_layers() {
         ));
     }
 }
-
 #[test]
 fn argon_policy_is_opt_in_and_does_not_restrict_other_routes() {
     let unrestricted = AdaptiveRunner::new(
@@ -424,7 +395,6 @@ fn argon_policy_is_opt_in_and_does_not_restrict_other_routes() {
     assert_eq!(restricted.cli_runner.seen(), ["cli:claude:opus"]);
     assert_eq!(restricted.payg_runner.seen(), ["paid-model"]);
 }
-
 #[test]
 fn default_discovery_includes_antigravity_local_installation() {
     // Read-only environment inspection avoids racing parallel tests.
@@ -433,7 +403,6 @@ fn default_discovery_includes_antigravity_local_installation() {
         assert!(default_search_dirs().contains(&expected));
     }
 }
-
 #[test]
 fn quota_and_credit_classifiers_recognise_provider_refusals() {
     for quota in [
@@ -446,7 +415,6 @@ fn quota_and_credit_classifiers_recognise_provider_refusals() {
         assert!(is_subscription_quota_exhausted(quota), "{quota}");
     }
     assert!(!is_subscription_quota_exhausted("compiled 12 crates"));
-
     for credit in [
         "{\"error\":{\"code\":\"insufficient_quota\"}}",
         "Insufficient Balance",
@@ -460,7 +428,6 @@ fn quota_and_credit_classifiers_recognise_provider_refusals() {
     }
     assert!(!is_payg_credit_or_key_exhausted("all tests passed"));
 }
-
 #[test]
 fn payg_only_and_cli_only_never_touch_the_other_plane() {
     let runner = AdaptiveRunner::new(
@@ -472,7 +439,6 @@ fn payg_only_and_cli_only_never_touch_the_other_plane() {
     let outcome = runner.run(&config("deepseek-flash")).unwrap();
     assert!(matches!(outcome, RunOutcome::Failed { .. }));
     assert!(runner.cli_runner.seen().is_empty());
-
     let runner = AdaptiveRunner::new(
         Scripted::ok("payg"),
         Scripted::failed("usage limit reached"),
@@ -484,7 +450,6 @@ fn payg_only_and_cli_only_never_touch_the_other_plane() {
     assert!(runner.payg_runner.seen().is_empty());
     assert_eq!(runner.cli_runner.seen(), ["cli:claude"]);
 }
-
 #[test]
 fn cli_first_does_not_replay_a_started_turn_on_quota_exhaustion() {
     let runner = AdaptiveRunner::new(
@@ -498,7 +463,6 @@ fn cli_first_does_not_replay_a_started_turn_on_quota_exhaustion() {
     assert_eq!(runner.cli_runner.seen(), ["cli:claude:opus"]);
     assert!(runner.payg_runner.seen().is_empty());
 }
-
 #[test]
 fn cli_first_does_not_replay_a_timeout() {
     let runner = AdaptiveRunner::new(
@@ -509,7 +473,6 @@ fn cli_first_does_not_replay_a_timeout() {
     let outcome = runner.run(&config("glm-4.6")).unwrap();
     assert_eq!(outcome, RunOutcome::TimedOut);
     assert!(runner.payg_runner.seen().is_empty());
-
     // A cli: spec with no PAYG fallback has nowhere to go.
     let runner = AdaptiveRunner::new(
         Scripted::ok("from payg"),
@@ -522,7 +485,6 @@ fn cli_first_does_not_replay_a_timeout() {
     );
     assert!(runner.payg_runner.seen().is_empty());
 }
-
 #[test]
 fn cli_first_success_never_spends_payg_money() {
     let runner = AdaptiveRunner::new(
@@ -537,7 +499,6 @@ fn cli_first_success_never_spends_payg_money() {
     );
     assert!(runner.payg_runner.seen().is_empty());
 }
-
 #[test]
 fn payg_first_fails_over_on_a_pre_dispatch_credential_refusal() {
     let runner = AdaptiveRunner::new(
@@ -551,7 +512,6 @@ fn payg_first_fails_over_on_a_pre_dispatch_credential_refusal() {
     assert_eq!(runner.payg_runner.seen(), ["deepseek-flash"]);
     assert_eq!(runner.cli_runner.seen(), ["cli:codex"]);
 }
-
 #[test]
 fn payg_first_does_not_fail_over_on_a_payg_timeout() {
     let runner = AdaptiveRunner::new(
@@ -566,7 +526,6 @@ fn payg_first_does_not_fail_over_on_a_payg_timeout() {
     );
     assert!(runner.cli_runner.seen().is_empty());
 }
-
 #[test]
 fn payg_first_with_a_cli_spec_runs_payg_only_through_the_fallback_model() {
     let runner = AdaptiveRunner::new(
@@ -581,7 +540,6 @@ fn payg_first_with_a_cli_spec_runs_payg_only_through_the_fallback_model() {
     );
     assert_eq!(runner.payg_runner.seen(), ["deepseek-flash"]);
     assert_eq!(runner.cli_runner.seen(), ["cli:gemini"]);
-
     let runner = AdaptiveRunner::new(
         Scripted::ok("from payg"),
         Scripted::ok("from cli"),
@@ -593,7 +551,6 @@ fn payg_first_with_a_cli_spec_runs_payg_only_through_the_fallback_model() {
     );
     assert!(runner.payg_runner.seen().is_empty());
 }
-
 #[test]
 fn auto_dispatch_never_crosses_billing_class_even_with_legacy_fallbacks() {
     for (model, mode) in [
@@ -624,7 +581,6 @@ fn auto_dispatch_never_crosses_billing_class_even_with_legacy_fallbacks() {
         }
     }
 }
-
 #[test]
 fn a_double_failure_reports_both_planes() {
     let runner = AdaptiveRunner::new(
@@ -645,7 +601,6 @@ fn a_double_failure_reports_both_planes() {
         "{message}"
     );
 }
-
 #[test]
 fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
     let empty = susi_paths::tempfile::tempdir().unwrap();
@@ -659,7 +614,6 @@ fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
         cli.run(&config("deepseek-flash")).unwrap(),
         RunOutcome::Failed { .. }
     ));
-
     let runner = AdaptiveRunner::new(
         Scripted::ok("from payg"),
         cli,
@@ -672,18 +626,15 @@ fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
     );
     assert_eq!(runner.payg_runner.seen(), ["deepseek-flash"]);
 }
-
 #[test]
 fn cli_resolution_prefers_the_spec_then_the_default_then_discovery() {
     let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("codex"), b"").unwrap();
     std::fs::write(dir.path().join("claude"), b"").unwrap();
     let dirs = vec![dir.path().to_path_buf()];
-
     let discovered = CliSubRunner::default().with_search_dirs(dirs.clone());
     let commands = discovered.resolve("deepseek-flash").unwrap();
     assert_eq!(commands[0].program, dir.path().join("claude"));
-
     let defaulted =
         CliSubRunner::with_default_kind(CliToolKind::Codex).with_search_dirs(dirs.clone());
     let commands = defaulted.resolve("deepseek-flash").unwrap();
@@ -697,11 +648,9 @@ fn cli_resolution_prefers_the_spec_then_the_default_then_discovery() {
             "-"
         ]
     );
-
     let commands = defaulted.resolve("cli:claude:opus").unwrap();
     assert_eq!(commands[0].program, dir.path().join("claude"));
     assert_eq!(commands[0].args.last().map(String::as_str), Some("opus"));
-
     // With no explicit search list an absent tool falls back to PATH
     // lookup over every candidate name.
     let path_lookup = CliSubRunner::with_default_kind(CliToolKind::Gemini);
@@ -718,7 +667,6 @@ fn cli_resolution_prefers_the_spec_then_the_default_then_discovery() {
         );
     }
 }
-
 /// A command on every platform that copies stdin to stdout (sorted).
 fn sort_command() -> CliCommand {
     let program = if cfg!(windows) {
@@ -732,7 +680,6 @@ fn sort_command() -> CliCommand {
         pipe_prompt_on_stdin: true,
     }
 }
-
 /// A command on every platform that runs for about 30 seconds.
 fn slow_command() -> (PathBuf, Vec<String>) {
     if cfg!(windows) {
@@ -744,7 +691,6 @@ fn slow_command() -> (PathBuf, Vec<String>) {
         (PathBuf::from("sleep"), vec!["30".into()])
     }
 }
-
 #[test]
 fn cli_runner_pipes_a_multi_line_quoted_prompt_on_stdin_at_zero_payg_cost() {
     let prompt = "line one says \"hello world\"\n\
@@ -769,7 +715,6 @@ fn cli_runner_pipes_a_multi_line_quoted_prompt_on_stdin_at_zero_payg_cost() {
         );
     }
 }
-
 #[test]
 fn cli_runner_drains_output_larger_than_a_pipe_buffer() {
     let prompt: String = (0..6_000)
@@ -789,7 +734,6 @@ fn cli_runner_drains_output_larger_than_a_pipe_buffer() {
     };
     assert_eq!(final_text.lines().count(), 6_000);
 }
-
 #[test]
 fn cli_runner_kills_a_child_that_outlives_its_timeout() {
     let (program, args) = slow_command();
@@ -808,7 +752,6 @@ fn cli_runner_kills_a_child_that_outlives_its_timeout() {
         started.elapsed()
     );
 }
-
 #[test]
 fn a_non_zero_exit_is_a_failed_turn_quoting_the_output() {
     let (program, args): (PathBuf, Vec<String>) = if cfg!(windows) {
@@ -844,7 +787,6 @@ fn a_non_zero_exit_is_a_failed_turn_quoting_the_output() {
         "{message}"
     );
 }
-
 #[test]
 fn output_survives_a_grandchild_that_holds_the_pipe_open() {
     let (program, args): (PathBuf, Vec<String>) = if cfg!(windows) {
@@ -879,7 +821,6 @@ fn output_survives_a_grandchild_that_holds_the_pipe_open() {
         started.elapsed()
     );
 }
-
 #[test]
 fn a_missing_workspace_is_a_failed_turn_not_the_harness_cwd() {
     let mut cfg = config("cli:claude");
@@ -890,7 +831,6 @@ fn a_missing_workspace_is_a_failed_turn_not_the_harness_cwd() {
     };
     assert!(message.contains("workspace"), "{message}");
 }
-
 #[test]
 fn a_program_that_does_not_exist_is_not_found_not_an_error() {
     let missing = CliCommand {
@@ -912,14 +852,12 @@ fn a_program_that_does_not_exist_is_not_found_not_an_error() {
         RunOutcome::Failed { .. }
     ));
 }
-
 #[test]
 fn failure_tails_are_bounded_on_a_char_boundary() {
     let long = "\u{e9}".repeat(FAILURE_TAIL_CHARS + 50);
     assert_eq!(tail(&long).chars().count(), FAILURE_TAIL_CHARS);
     assert_eq!(tail("short"), "short");
 }
-
 #[test]
 fn socket_endpoints_default_to_the_susi_os_ports_and_shift_by_offset() {
     let default = SusiSocketEndpoints::default();
@@ -939,7 +877,6 @@ fn socket_endpoints_default_to_the_susi_os_ports_and_shift_by_offset() {
     let saturated = SusiSocketEndpoints::from_port_offset(u16::MAX);
     assert_eq!(saturated.gmcp_http_url, "http://127.0.0.1:65535");
 }
-
 #[test]
 fn execution_modes_have_stable_names_and_the_default_runner_is_auto() {
     assert_eq!(ExecutionMode::PaygByok.as_str(), "payg-byok");

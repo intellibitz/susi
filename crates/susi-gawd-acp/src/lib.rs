@@ -9,7 +9,6 @@
         clippy::wildcard_enum_match_arm
     )
 )]
-
 //! Agent Client Protocol / Agent Communication Protocol (ACP) open-socket pillar.
 //!
 //! `susi_gawd::acp` provides GAWD's Apache-2.0 standard ACP surface over
@@ -26,7 +25,6 @@
 //! - Mandatory Access Control (`MacPolicy`) capability & privacy admission
 //!   before session creation or prompt execution, and
 //! - zero third-party HTTP/RPC dependencies (`std::net` + `plain_http`).
-
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -38,7 +36,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_config::mac_policy::{self, MacPolicy};
 use susi_config::plain_http;
-
 /// Discovery schema identifier for `GET /.well-known/acp.json`.
 pub const ACP_DISCOVERY_SCHEMA: &str = "susi-acp-discovery/v1";
 /// Canonical ACP wire protocol version.
@@ -57,7 +54,6 @@ pub const ACP_HEALTH_PATH: &str = "/health";
 pub const ACP_CANONICAL_PORT: u16 = 9094;
 /// Canonical HTTP session-binding header (`acp-session-id`).
 pub const ACP_SESSION_ID_HEADER: &str = "acp-session-id";
-
 /// JSON-RPC 2.0 standard error codes and ACP domain refusal codes.
 pub const JSONRPC_PARSE_ERROR: i64 = -32700;
 pub const JSONRPC_INVALID_REQUEST: i64 = -32600;
@@ -66,19 +62,16 @@ pub const JSONRPC_INVALID_PARAMS: i64 = -32602;
 pub const JSONRPC_INTERNAL_ERROR: i64 = -32603;
 pub const ACP_ERR_NOT_FOUND: i64 = -32001;
 pub const ACP_ERR_CAPABILITY_REFUSED: i64 = -32003;
-
 /// Default maximum retained messages per ACP session ring buffer.
 pub const DEFAULT_MAX_HISTORY_MESSAGES: usize = 64;
 /// Default maximum retained message payload bytes per ACP session.
 pub const DEFAULT_MAX_HISTORY_BYTES: usize = 512 * 1024;
-
 const DEFAULT_MAX_SESSIONS: usize = 256;
 const DEFAULT_MAX_PROMPT_BYTES: usize = 512 * 1024;
 const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
 const MAX_HTTP_HEADERS: usize = 64;
 const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
 const MAX_STDIO_LINE_BYTES: usize = 1024 * 1024;
-
 /// Baseline ACP capabilities always permitted on an authenticated socket
 /// unless blocked by explicit workspace traversal checks.
 const BASELINE_ACP_CAPABILITIES: &[&str] = &[
@@ -88,7 +81,6 @@ const BASELINE_ACP_CAPABILITIES: &[&str] = &[
     "acp.cancel",
     "mcp.read",
 ];
-
 /// Discovery document served at `GET /.well-known/acp.json` and `acp/discover`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpDiscoveryDocument {
@@ -100,7 +92,6 @@ pub struct AcpDiscoveryDocument {
     pub auth: AcpAuthScheme,
     pub capabilities: AcpCapabilities,
 }
-
 /// Agent identity advertised in discovery and `initialize`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpAgentInfo {
@@ -110,7 +101,6 @@ pub struct AcpAgentInfo {
     pub license: String,
     pub canonical_port: u16,
 }
-
 /// Transport endpoints advertised by the ACP pillar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpEndpoints {
@@ -119,7 +109,6 @@ pub struct AcpEndpoints {
     pub stream: String,
     pub stdio: String,
 }
-
 /// Authentication requirement advertised for non-discovery ACP routes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpAuthScheme {
@@ -127,11 +116,9 @@ pub struct AcpAuthScheme {
     pub header: String,
     pub realm: String,
 }
-
 fn default_true() -> bool {
     true
 }
-
 /// Feature flags advertised by the ACP pillar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpCapabilities {
@@ -143,7 +130,6 @@ pub struct AcpCapabilities {
     #[serde(default = "default_true")]
     pub session_history: bool,
 }
-
 impl Default for AcpCapabilities {
     fn default() -> Self {
         Self {
@@ -156,7 +142,6 @@ impl Default for AcpCapabilities {
         }
     }
 }
-
 /// Conversation participant role for multi-turn ACP session messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -166,7 +151,6 @@ pub enum AcpMessageRole {
     Assistant,
     Tool,
 }
-
 impl AcpMessageRole {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -177,7 +161,6 @@ impl AcpMessageRole {
             Self::Tool => "tool",
         }
     }
-
     pub fn from_wire_str(raw: &str) -> Result<Self, (i64, String)> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "system" | "developer" => Ok(Self::System),
@@ -191,7 +174,6 @@ impl AcpMessageRole {
         }
     }
 }
-
 /// Structured tool invocation metadata attached to a multi-turn ACP message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpToolCallMeta {
@@ -202,7 +184,6 @@ pub struct AcpToolCallMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
 }
-
 impl AcpToolCallMeta {
     #[must_use]
     pub fn approx_byte_len(&self) -> usize {
@@ -218,7 +199,6 @@ impl AcpToolCallMeta {
             .saturating_add(status_len)
     }
 }
-
 /// Reason a prompt turn terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -228,7 +208,6 @@ pub enum AcpStopReason {
     Refused,
     Failed,
 }
-
 impl AcpStopReason {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -240,7 +219,6 @@ impl AcpStopReason {
         }
     }
 }
-
 /// Structured content block carried in ACP prompts and turn outputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpContentBlock {
@@ -248,7 +226,6 @@ pub struct AcpContentBlock {
     pub kind: String,
     pub text: String,
 }
-
 impl AcpContentBlock {
     #[must_use]
     pub fn text(value: impl Into<String>) -> Self {
@@ -258,7 +235,6 @@ impl AcpContentBlock {
         }
     }
 }
-
 /// Bounded conversation message stored in an ACP session's multi-turn ring buffer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpSessionMessage {
@@ -275,7 +251,6 @@ pub struct AcpSessionMessage {
     pub created_unix_ms: u64,
     pub byte_len: usize,
 }
-
 /// Compact multi-turn conversation message projection ready for downstream
 /// model inference and commercial ACP plugs (`role`, `content`, `turn_id`, `tool_calls`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,7 +261,6 @@ pub struct AcpInferenceMessage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<AcpToolCallMeta>,
 }
-
 /// Per-session ring-buffer bounds and live occupancy telemetry.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpHistoryBounds {
@@ -298,7 +272,6 @@ pub struct AcpHistoryBounds {
     pub oldest_seq: Option<u64>,
     pub newest_seq: Option<u64>,
 }
-
 /// Ordered event emitted during an ACP prompt turn (returned in JSON-RPC and
 /// streamed live as `event: acp.turn.event` SSE frames on `/acp/stream`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,7 +285,6 @@ pub struct AcpTurnEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<AcpStopReason>,
 }
-
 /// Completed or cancelled turn outcome returned from `session/prompt`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpTurnResult {
@@ -331,7 +303,6 @@ pub struct AcpTurnResult {
     #[serde(default)]
     pub history_bounds: AcpHistoryBounds,
 }
-
 /// Summary of an ACP session tracked by [`AcpEngine`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpSessionSummary {
@@ -351,7 +322,6 @@ pub struct AcpSessionSummary {
     pub evicted_messages: u64,
     pub active_turn_id: Option<String>,
 }
-
 /// Execution context passed to an [`AcpTurnExecutor`].
 #[derive(Debug, Clone)]
 pub struct AcpTurnContext {
@@ -364,14 +334,12 @@ pub struct AcpTurnContext {
     pub tool_calls: Vec<AcpToolCallMeta>,
     pub history: Vec<AcpSessionMessage>,
 }
-
 impl AcpTurnContext {
     /// Concatenated text blocks in `prompt`, separated by newlines.
     #[must_use]
     pub fn joined_prompt_text(&self) -> String {
         join_text_blocks(&self.prompt)
     }
-
     /// Multi-turn conversation context combining non-cancelled session history
     /// with the active turn's prompt and `tool_calls` metadata.
     #[must_use]
@@ -386,14 +354,12 @@ impl AcpTurnContext {
         out
     }
 }
-
 /// Rich turn output returned by multi-turn / tool-aware [`AcpTurnExecutor`] implementations.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AcpExecutorOutput {
     pub blocks: Vec<AcpContentBlock>,
     pub tool_calls: Vec<AcpToolCallMeta>,
 }
-
 /// Pluggable turn execution strategy behind [`AcpEngine`].
 pub trait AcpTurnExecutor: Send + Sync {
     fn execute_turn(
@@ -402,7 +368,6 @@ pub trait AcpTurnExecutor: Send + Sync {
         cancelled: &AtomicBool,
         emit_delta: &mut dyn FnMut(&str),
     ) -> Result<Vec<AcpContentBlock>, String>;
-
     fn execute_turn_with_tools(
         &self,
         ctx: &AcpTurnContext,
@@ -415,7 +380,6 @@ pub trait AcpTurnExecutor: Send + Sync {
             tool_calls: Vec::new(),
         })
     }
-
     /// Execute a turn with an owned cancellation token available to nested
     /// transports and cooperative workers. Existing executors keep the
     /// pointer-based default; executors that cross a bus can override this
@@ -431,11 +395,9 @@ pub trait AcpTurnExecutor: Send + Sync {
         })
     }
 }
-
 /// Default zero-bloat deterministic ACP substrate executor.
 #[derive(Debug, Default)]
 pub struct SubstrateAcpExecutor;
-
 impl AcpTurnExecutor for SubstrateAcpExecutor {
     fn execute_turn(
         &self,
@@ -452,7 +414,6 @@ impl AcpTurnExecutor for SubstrateAcpExecutor {
         Ok(vec![AcpContentBlock::text(summary)])
     }
 }
-
 /// Admission configuration binding ACP sessions and turns to [`MacPolicy`].
 #[derive(Clone)]
 pub struct AcpAdmissionPolicy {
@@ -463,7 +424,6 @@ pub struct AcpAdmissionPolicy {
     pub max_history_messages: usize,
     pub max_history_bytes: usize,
 }
-
 impl Default for AcpAdmissionPolicy {
     fn default() -> Self {
         Self {
@@ -476,7 +436,6 @@ impl Default for AcpAdmissionPolicy {
         }
     }
 }
-
 impl AcpAdmissionPolicy {
     #[must_use]
     pub fn with_mac_policy(mac_policy: Arc<MacPolicy>, subject: impl Into<String>) -> Self {
@@ -489,21 +448,18 @@ impl AcpAdmissionPolicy {
             max_history_bytes: DEFAULT_MAX_HISTORY_BYTES,
         }
     }
-
     #[must_use]
     pub fn with_history_bounds(mut self, max_messages: usize, max_bytes: usize) -> Self {
         self.max_history_messages = max_messages.max(1);
         self.max_history_bytes = max_bytes.max(64);
         self
     }
-
     fn policy(&self) -> &MacPolicy {
         match &self.mac_policy {
             Some(custom) => custom.as_ref(),
             None => MacPolicy::global(),
         }
     }
-
     fn validate_workspace(workspace: Option<&str>) -> Result<Option<String>, (i64, String)> {
         let Some(raw) = workspace else {
             return Ok(None);
@@ -522,7 +478,6 @@ impl AcpAdmissionPolicy {
         }
         Ok(Some(trimmed.to_owned()))
     }
-
     fn check_capabilities(
         &self,
         requested: &[String],
@@ -582,7 +537,6 @@ impl AcpAdmissionPolicy {
         Ok(admitted)
     }
 }
-
 struct SessionEntry {
     summary: AcpSessionSummary,
     metadata: Value,
@@ -590,7 +544,6 @@ struct SessionEntry {
     next_msg_seq: u64,
     messages: VecDeque<AcpSessionMessage>,
 }
-
 impl SessionEntry {
     fn new(summary: AcpSessionSummary, metadata: Value) -> Self {
         Self {
@@ -601,7 +554,6 @@ impl SessionEntry {
             messages: VecDeque::new(),
         }
     }
-
     #[allow(clippy::too_many_arguments)]
     fn push_message(
         &mut self,
@@ -631,7 +583,6 @@ impl SessionEntry {
             };
         }
         let byte_len = content.len().saturating_add(tool_bytes);
-
         while self.messages.len() >= cap_messages
             || (!self.messages.is_empty()
                 && self.summary.history_bytes.saturating_add(byte_len) > cap_bytes)
@@ -643,7 +594,6 @@ impl SessionEntry {
                 self.summary.history_bytes.saturating_sub(evicted.byte_len);
             self.summary.evicted_messages = self.summary.evicted_messages.saturating_add(1);
         }
-
         let seq = self.next_msg_seq;
         self.next_msg_seq = self.next_msg_seq.saturating_add(1);
         self.messages.push_back(AcpSessionMessage {
@@ -660,7 +610,6 @@ impl SessionEntry {
         self.summary.history_bytes = self.summary.history_bytes.saturating_add(byte_len);
         self.summary.message_count = self.messages.len();
     }
-
     fn bounds(&self, max_messages: usize, max_bytes: usize) -> AcpHistoryBounds {
         AcpHistoryBounds {
             max_messages: max_messages.max(1),
@@ -672,7 +621,6 @@ impl SessionEntry {
             newest_seq: self.messages.back().map(|m| m.seq),
         }
     }
-
     fn query_messages(
         &self,
         since_seq: u64,
@@ -693,9 +641,7 @@ impl SessionEntry {
         (out, next_seq, has_more)
     }
 }
-
 type RpcErr = (i64, String);
-
 struct TurnRequestSpec {
     session_id: String,
     turn_id: String,
@@ -704,12 +650,10 @@ struct TurnRequestSpec {
     tool_calls: Vec<AcpToolCallMeta>,
     turn_caps: Vec<String>,
 }
-
 struct PreparedTurn {
     ctx: AcpTurnContext,
     cancel_flag: Arc<AtomicBool>,
 }
-
 #[derive(Default)]
 struct EngineState {
     order: VecDeque<String>,
@@ -717,7 +661,6 @@ struct EngineState {
     active_cancellations: BTreeMap<String, Arc<AtomicBool>>,
     turn_cancellations: BTreeMap<(String, String), Arc<AtomicBool>>,
 }
-
 /// Core stateful ACP protocol engine shared across HTTP, A2A port 9094, and stdio.
 pub struct AcpEngine {
     admission: AcpAdmissionPolicy,
@@ -727,7 +670,6 @@ pub struct AcpEngine {
     next_id: AtomicU64,
     state: Mutex<EngineState>,
 }
-
 impl Default for AcpEngine {
     fn default() -> Self {
         Self::new(
@@ -736,7 +678,6 @@ impl Default for AcpEngine {
         )
     }
 }
-
 impl AcpEngine {
     #[must_use]
     pub fn new(admission: AcpAdmissionPolicy, executor: Arc<dyn AcpTurnExecutor>) -> Self {
@@ -749,7 +690,6 @@ impl AcpEngine {
             state: Mutex::new(EngineState::default()),
         }
     }
-
     #[must_use]
     pub fn discovery_document(&self) -> AcpDiscoveryDocument {
         AcpDiscoveryDocument {
@@ -780,13 +720,11 @@ impl AcpEngine {
             capabilities: AcpCapabilities::default(),
         }
     }
-
     /// Dispatch a raw JSON-RPC 2.0 request body and return a serialized JSON-RPC 2.0 response.
     #[must_use]
     pub fn handle_jsonrpc_bytes(&self, body: &[u8]) -> Vec<u8> {
         self.handle_jsonrpc_bytes_with_session_header(body, None)
     }
-
     /// Dispatch a raw JSON-RPC 2.0 request body with optional HTTP `acp-session-id` binding.
     #[must_use]
     pub fn handle_jsonrpc_bytes_with_session_header(
@@ -810,7 +748,6 @@ impl AcpEngine {
         let reply = self.handle_jsonrpc_value(parsed, &mut |_| {});
         serialize_rpc_response(&reply)
     }
-
     /// Dispatch a raw JSON-RPC 2.0 request body while streaming SSE frames.
     ///
     /// If the request is not a valid `session/prompt` (`acp/turn/start`), returns `Err(json_bytes)`
@@ -818,12 +755,10 @@ impl AcpEngine {
     pub fn handle_sse_stream_bytes(&self, body: &[u8]) -> Result<Vec<String>, Vec<u8>> {
         self.handle_sse_stream_bytes_with_session_header(body, None)
     }
-
     /// Validate an ACP SSE request without starting its turn.
     pub fn validate_sse_stream_bytes(&self, body: &[u8]) -> Result<(), Vec<u8>> {
         self.validate_sse_stream_bytes_with_session_header(body, None)
     }
-
     /// Validate an ACP SSE request with an optional HTTP session binding.
     pub fn validate_sse_stream_bytes_with_session_header(
         &self,
@@ -833,7 +768,6 @@ impl AcpEngine {
         self.parse_sse_stream_request(body, session_header)
             .map(|_| ())
     }
-
     /// Dispatch a raw JSON-RPC 2.0 SSE stream request with optional HTTP `acp-session-id` binding.
     pub fn handle_sse_stream_bytes_with_session_header(
         &self,
@@ -846,7 +780,6 @@ impl AcpEngine {
         })?;
         Ok(frames)
     }
-
     /// Dispatch an ACP SSE request and deliver each frame as soon as it is produced.
     pub fn handle_sse_stream_bytes_with_session_header_and(
         &self,
@@ -870,7 +803,6 @@ impl AcpEngine {
             Err((code, msg)) => Err(serialize_rpc_response(&rpc_error(id, code, msg))),
         }
     }
-
     fn parse_sse_stream_request(
         &self,
         body: &[u8],
@@ -902,7 +834,6 @@ impl AcpEngine {
         }
         Ok((id, params))
     }
-
     /// Dispatch a parsed JSON-RPC 2.0 value and return the JSON-RPC 2.0 reply object.
     pub fn handle_jsonrpc_value(
         &self,
@@ -934,7 +865,6 @@ impl AcpEngine {
             Err((code, message)) => rpc_error(id, code, message),
         }
     }
-
     fn dispatch_initialize(&self, params: &Value) -> Result<Value, (i64, String)> {
         let requested_version = params
             .get("protocol_version")
@@ -951,15 +881,10 @@ impl AcpEngine {
             ));
         }
         let doc = self.discovery_document();
-        Ok(json!({
-            "protocol_version": ACP_PROTOCOL_VERSION,
-            "requested_protocol_version": requested_version,
-            "agent_info": doc.agent,
-            "capabilities": doc.capabilities,
-            "endpoints": doc.endpoints,
-        }))
+        Ok(
+            json!({"protocol_version":ACP_PROTOCOL_VERSION,"requested_protocol_version":requested_version,"agent_info":doc.agent,"capabilities":doc.capabilities,"endpoints":doc.endpoints}),
+        )
     }
-
     fn dispatch_session_new(&self, params: &Value) -> Result<Value, (i64, String)> {
         let workspace = AcpAdmissionPolicy::validate_workspace(
             params.get("workspace").and_then(Value::as_str),
@@ -971,7 +896,6 @@ impl AcpEngine {
             .check_capabilities(&requested_caps, resource)?;
         let metadata = params.get("metadata").cloned().unwrap_or_else(|| json!({}));
         let seed_messages = parse_seed_messages(params, self.admission.max_prompt_bytes)?;
-
         let seq = self.next_id.fetch_add(1, Ordering::Relaxed);
         let session_id = format!("acp-sess-{seq:06}");
         let summary = AcpSessionSummary {
@@ -1000,7 +924,6 @@ impl AcpEngine {
             );
         }
         let snapshot_summary = entry.summary.clone();
-
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         while guard.sessions.len() >= self.admission.max_sessions {
             let Some(oldest) = guard.order.pop_front() else {
@@ -1027,7 +950,6 @@ impl AcpEngine {
         guard.sessions.insert(session_id, entry);
         serde_json::to_value(snapshot_summary).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
     }
-
     fn dispatch_session_load(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
         let (since_seq, limit, include_cancelled) =
@@ -1046,18 +968,10 @@ impl AcpEngine {
             self.admission.max_history_messages,
             self.admission.max_history_bytes,
         );
-        Ok(json!({
-            "session": entry.summary,
-            "metadata": entry.metadata,
-            "messages": messages,
-            "inference_messages": inference_messages,
-            "history_bounds": bounds,
-            "next_seq": next_seq,
-            "has_more": has_more,
-            "replay_complete": !has_more,
-        }))
+        Ok(
+            json!({"session":entry.summary,"metadata":entry.metadata,"messages":messages,"inference_messages":inference_messages,"history_bounds":bounds,"next_seq":next_seq,"has_more":has_more,"replay_complete":!has_more}),
+        )
     }
-
     fn dispatch_session_history(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
         let (since_seq, limit, include_cancelled) =
@@ -1076,17 +990,10 @@ impl AcpEngine {
             self.admission.max_history_messages,
             self.admission.max_history_bytes,
         );
-        Ok(json!({
-            "session_id": entry.summary.session_id,
-            "messages": messages,
-            "inference_messages": inference_messages,
-            "history_bounds": bounds,
-            "next_seq": next_seq,
-            "has_more": has_more,
-            "replay_complete": !has_more,
-        }))
+        Ok(
+            json!({"session_id":entry.summary.session_id,"messages":messages,"inference_messages":inference_messages,"history_bounds":bounds,"next_seq":next_seq,"has_more":has_more,"replay_complete":!has_more}),
+        )
     }
-
     fn dispatch_session_list(&self) -> Result<Value, (i64, String)> {
         let guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let list: Vec<&AcpSessionSummary> = guard
@@ -1096,7 +1003,6 @@ impl AcpEngine {
             .collect();
         Ok(json!({ "sessions": list }))
     }
-
     fn dispatch_session_close(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1113,16 +1019,11 @@ impl AcpEngine {
         guard
             .turn_cancellations
             .retain(|(sid, _), _| sid != session_id);
-        Ok(json!({
-            "session_id": session_id,
-            "closed": true,
-        }))
+        Ok(json!({"session_id":session_id,"closed":true}))
     }
-
     fn dispatch_cancel(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
         let turn_id = optional_turn_id(params);
-
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !guard.sessions.contains_key(session_id) {
             return Err((
@@ -1153,14 +1054,10 @@ impl AcpEngine {
                 }
             }
         }
-        Ok(json!({
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "cancelled": signalled,
-            "stop_reason": AcpStopReason::Cancelled.as_str(),
-        }))
+        Ok(
+            json!({"session_id":session_id,"turn_id":turn_id,"cancelled":signalled,"stop_reason":AcpStopReason::Cancelled.as_str()}),
+        )
     }
-
     fn dispatch_prompt(
         &self,
         params: &Value,
@@ -1183,7 +1080,6 @@ impl AcpEngine {
                 format!("acp-turn-{n:06}")
             }
         };
-
         let prepared = self.prepare_turn_context(TurnRequestSpec {
             session_id: session_id.clone(),
             turn_id: turn_id.clone(),
@@ -1194,7 +1090,6 @@ impl AcpEngine {
         })?;
         let ctx = prepared.ctx;
         let cancel_flag = prepared.cancel_flag;
-
         let mut seq = 1_u64;
         let mut events = Vec::new();
         let mut record_event = |kind: &str, delta: Option<String>, stop: Option<AcpStopReason>| {
@@ -1210,9 +1105,7 @@ impl AcpEngine {
             on_event(ev.clone());
             events.push(ev);
         };
-
         record_event("turn_started", None, None);
-
         let (stop_reason, exec_out) = if cancel_flag.load(Ordering::SeqCst) {
             record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
             (AcpStopReason::Cancelled, AcpExecutorOutput::default())
@@ -1252,7 +1145,6 @@ impl AcpEngine {
                 }
             }
         };
-
         let (messages, inference_messages, history_bounds) =
             self.finalize_turn_history(&ctx, stop_reason, &exec_out);
         let receipt_sha256 =
@@ -1271,7 +1163,6 @@ impl AcpEngine {
         };
         serde_json::to_value(result).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
     }
-
     fn prepare_turn_context(&self, spec: TurnRequestSpec) -> Result<PreparedTurn, RpcErr> {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let entry = guard.sessions.get_mut(&spec.session_id).ok_or_else(|| {
@@ -1307,7 +1198,6 @@ impl AcpEngine {
             tool_calls: spec.tool_calls,
             history: prior_history,
         };
-
         let flag = match guard.turn_cancellations.get(&key) {
             Some(existing) => Arc::clone(existing),
             None => {
@@ -1327,7 +1217,6 @@ impl AcpEngine {
             cancel_flag: flag,
         })
     }
-
     fn abort_failed_turn(&self, session_id: &str, turn_id: &str) {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = guard.sessions.get_mut(session_id) {
@@ -1340,7 +1229,6 @@ impl AcpEngine {
             .turn_cancellations
             .remove(&(session_id.to_owned(), turn_id.to_owned()));
     }
-
     fn finalize_turn_history(
         &self,
         ctx: &AcpTurnContext,
@@ -1400,14 +1288,11 @@ impl AcpEngine {
         (snapshot_msgs, inference, bounds)
     }
 }
-
 // ---------------------------------------------------------------------------
 // Stdio NDJSON Transport
 // ---------------------------------------------------------------------------
-
 /// Newline-delimited JSON-RPC 2.0 ACP transport over `BufRead` + `Write`.
 pub struct AcpStdioTransport;
-
 impl AcpStdioTransport {
     /// Process a single NDJSON line and return the serialized JSON-RPC 2.0 response line.
     #[must_use]
@@ -1427,7 +1312,6 @@ impl AcpStdioTransport {
         let reply_bytes = engine.handle_jsonrpc_bytes(trimmed.as_bytes());
         Some(String::from_utf8_lossy(&reply_bytes).into_owned())
     }
-
     /// Serve NDJSON requests from `reader` and write one response line per request to `writer`.
     pub fn serve_reader_writer<R: BufRead, W: Write>(
         engine: &AcpEngine,
@@ -1452,18 +1336,15 @@ impl AcpStdioTransport {
         Ok(handled)
     }
 }
-
 // ---------------------------------------------------------------------------
 // Pure-std HTTP/1.1 Socket Server & Client
 // ---------------------------------------------------------------------------
-
 /// Handle for a running standalone HTTP/1.1 ACP socket server.
 pub struct AcpSocketServer {
     addr: SocketAddr,
     shutdown: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
 }
-
 impl AcpSocketServer {
     /// Bind a standalone HTTP/1.1 ACP server on loopback (`127.0.0.1:0`) with
     /// mandatory Bearer token verification on non-discovery routes.
@@ -1474,7 +1355,6 @@ impl AcpSocketServer {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         Self::from_listener(listener, engine, bearer_token.into())
     }
-
     /// Serve an already-bound `TcpListener` on a background OS thread.
     pub fn from_listener(
         listener: TcpListener,
@@ -1495,17 +1375,14 @@ impl AcpSocketServer {
             join: Some(join),
         })
     }
-
     #[must_use]
     pub const fn local_addr(&self) -> SocketAddr {
         self.addr
     }
-
     #[must_use]
     pub fn base_url(&self) -> String {
         format!("http://{}", self.addr)
     }
-
     pub fn shutdown(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(50));
@@ -1514,13 +1391,11 @@ impl AcpSocketServer {
         }
     }
 }
-
 impl Drop for AcpSocketServer {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
-
 fn accept_loop(
     listener: &TcpListener,
     engine: &Arc<AcpEngine>,
@@ -1555,7 +1430,6 @@ fn accept_loop(
         }
     }
 }
-
 fn serve_http_connection(
     mut stream: TcpStream,
     _peer: IpAddr,
@@ -1565,7 +1439,6 @@ fn serve_http_connection(
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(15)))?;
-
     let (method, path, headers, body) = match read_http_request(&stream) {
         Ok(parts) => parts,
         Err(status) => {
@@ -1573,7 +1446,6 @@ fn serve_http_connection(
             return Ok(());
         }
     };
-
     if method == "GET" && path == ACP_HEALTH_PATH {
         return write_http_response(
             &mut stream,
@@ -1583,12 +1455,10 @@ fn serve_http_connection(
             br#"{"status":"ok"}"#,
         );
     }
-
     if method == "GET" && path == WELL_KNOWN_ACP_PATH {
         let payload = serde_json::to_vec(&engine.discovery_document()).unwrap_or_default();
         return write_http_response(&mut stream, 200, "application/json", &[], &payload);
     }
-
     // Every non-public route requires valid Bearer authorization.
     let auth_header = headers
         .iter()
@@ -1603,12 +1473,10 @@ fn serve_http_connection(
             b"",
         );
     }
-
     let session_header = headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(ACP_SESSION_ID_HEADER))
         .map(|(_, v)| v.as_str());
-
     match (method.as_str(), path.as_str()) {
         ("POST", ACP_RPC_PATH) => {
             let reply = engine.handle_jsonrpc_bytes_with_session_header(&body, session_header);
@@ -1640,15 +1508,12 @@ fn serve_http_connection(
         _ => write_http_response(&mut stream, 404, "text/plain", &[], b""),
     }
 }
-
 type ParsedHttpRequest = (String, String, Vec<(String, String)>, Vec<u8>);
-
 fn read_http_request(stream: &TcpStream) -> Result<ParsedHttpRequest, u16> {
     let cloned = stream.try_clone().map_err(|_| 400_u16)?;
     let mut reader = BufReader::new(cloned);
     let mut request_line = String::new();
     let mut head_bytes = 0usize;
-
     let n = reader
         .by_ref()
         .take(MAX_HTTP_HEAD_BYTES as u64)
@@ -1669,7 +1534,6 @@ fn read_http_request(stream: &TcpStream) -> Result<ParsedHttpRequest, u16> {
         .next()
         .unwrap_or(raw_target)
         .to_owned();
-
     let mut headers = Vec::new();
     let mut content_length = 0usize;
     loop {
@@ -1701,14 +1565,12 @@ fn read_http_request(stream: &TcpStream) -> Result<ParsedHttpRequest, u16> {
         }
         headers.push((key, val));
     }
-
     let mut body = vec![0_u8; content_length];
     if content_length > 0 {
         reader.read_exact(&mut body).map_err(|_| 400_u16)?;
     }
     Ok((method, path, headers, body))
 }
-
 fn write_http_response(
     stream: &mut TcpStream,
     status: u16,
@@ -1743,10 +1605,8 @@ fn write_http_response(
     }
     stream.flush()
 }
-
 /// Decoded Server-Sent Event `(event_name, json_payload)` frame returned by `POST /acp/stream`.
 pub type AcpSseFrame = (String, Value);
-
 /// Blocking HTTP/1.1 ACP socket client built on `susi_config::plain_http`.
 #[derive(Debug, Clone)]
 pub struct AcpSocketClient {
@@ -1754,7 +1614,6 @@ pub struct AcpSocketClient {
     bearer_token: Option<String>,
     timeout_secs: u64,
 }
-
 impl AcpSocketClient {
     #[must_use]
     pub fn new(base_url: impl Into<String>, bearer_token: Option<String>) -> Self {
@@ -1764,7 +1623,6 @@ impl AcpSocketClient {
             timeout_secs: 15,
         }
     }
-
     /// Fetch unauthenticated `GET /.well-known/acp.json`.
     pub fn discover(&self) -> Result<AcpDiscoveryDocument, String> {
         let url = format!("{}{WELL_KNOWN_ACP_PATH}", self.base_url);
@@ -1777,12 +1635,10 @@ impl AcpSocketClient {
             .map_err(|e| e.to_string())?;
         serde_json::from_slice(&bytes).map_err(|e| format!("invalid ACP discovery JSON: {e}"))
     }
-
     /// Send a raw JSON-RPC 2.0 request to `POST /acp` and return `(http_status, parsed_json)`.
     pub fn raw_rpc(&self, body: &Value) -> Result<(u16, Option<Value>), String> {
         self.raw_rpc_with_headers(body, &[])
     }
-
     /// Send a raw JSON-RPC 2.0 request to `POST /acp` with extra HTTP headers.
     pub fn raw_rpc_with_headers(
         &self,
@@ -1813,15 +1669,9 @@ impl AcpSocketClient {
             .map_err(|e| format!("invalid JSON-RPC response (HTTP {status}): {e}"))?;
         Ok((status, Some(parsed)))
     }
-
     /// Load an ACP session snapshot and its bounded multi-turn `messages` context.
     pub fn session_load(&self, id: u64, session_id: &str) -> Result<Value, String> {
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "session/load",
-            "params": { "session_id": session_id }
-        });
+        let req = json!({"jsonrpc":"2.0","id":id,"method":"session/load","params":{"session_id":session_id}});
         let (status, parsed) =
             self.raw_rpc_with_headers(&req, &[(ACP_SESSION_ID_HEADER, session_id)])?;
         if status != 200 {
@@ -1829,7 +1679,6 @@ impl AcpSocketClient {
         }
         parsed.ok_or_else(|| "ACP session/load returned empty body".to_owned())
     }
-
     /// Replay bounded multi-turn conversation history via `session/history`.
     pub fn session_history(
         &self,
@@ -1847,12 +1696,7 @@ impl AcpSocketClient {
                 obj.insert("limit".to_owned(), json!(cap));
             }
         }
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "session/history",
-            "params": params
-        });
+        let req = json!({"jsonrpc":"2.0","id":id,"method":"session/history","params":params});
         let (status, parsed) =
             self.raw_rpc_with_headers(&req, &[(ACP_SESSION_ID_HEADER, session_id)])?;
         if status != 200 {
@@ -1860,7 +1704,6 @@ impl AcpSocketClient {
         }
         parsed.ok_or_else(|| "ACP session/history returned empty body".to_owned())
     }
-
     /// Execute `session/prompt` over `POST /acp/stream` and return decoded SSE `(event_type, data_json)` frames.
     pub fn prompt_stream_sse(
         &self,
@@ -1875,7 +1718,6 @@ impl AcpSocketClient {
         })?;
         Ok((status, events))
     }
-
     /// Execute `session/prompt` over `POST /acp/stream` and invoke `on_frame`
     /// as each bounded SSE frame arrives. The callback runs on the caller's
     /// thread, so backpressure is explicit: returning an error stops reading.
@@ -1890,15 +1732,7 @@ impl AcpSocketClient {
         F: FnMut(AcpSseFrame) -> Result<(), String>,
     {
         let url = format!("{}{ACP_STREAM_PATH}", self.base_url);
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "session/prompt",
-            "params": {
-                "session_id": session_id,
-                "prompt": [{ "type": "text", "text": prompt_text }],
-            }
-        });
+        let req = json!({"jsonrpc":"2.0","id":id,"method":"session/prompt","params":{"session_id":session_id,"prompt":[{"type":"text","text":prompt_text}]}});
         let payload = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
         let auth_value = self
             .bearer_token
@@ -1922,7 +1756,6 @@ impl AcpSocketClient {
         Ok(status)
     }
 }
-
 fn read_sse_stream<R, F>(mut reader: R, on_frame: &mut F) -> Result<(), String>
 where
     R: BufRead,
@@ -1956,7 +1789,6 @@ where
         }
     }
 }
-
 fn emit_sse_block<F>(block: &str, on_frame: &mut F) -> Result<(), String>
 where
     F: FnMut(AcpSseFrame) -> Result<(), String>,
@@ -1978,11 +1810,9 @@ where
         .map_err(|error| format!("malformed SSE JSON frame: {error}"))?;
     on_frame((event_name, value))
 }
-
 // ---------------------------------------------------------------------------
 // Internal JSON-RPC, Multi-Turn History & Receipt Helpers
 // ---------------------------------------------------------------------------
-
 fn bearer_matches_expected(header: Option<&str>, expected_token: &str) -> bool {
     let expected = expected_token.trim().as_bytes();
     if expected.is_empty() {
@@ -1998,7 +1828,6 @@ fn bearer_matches_expected(header: Option<&str>, expected_token: &str) -> bool {
             .fold(0_u8, |acc, (x, y)| acc | (x ^ y))
             == 0
 }
-
 fn bind_or_verify_session_header(
     request: &mut Value,
     session_header: Option<&str>,
@@ -2059,7 +1888,6 @@ fn bind_or_verify_session_header(
         }
     }
 }
-
 fn validate_rpc_envelope(request: &Value) -> Result<(Value, String, Value), Value> {
     let Some(obj) = request.as_object() else {
         return Err(rpc_error(
@@ -2107,7 +1935,6 @@ fn validate_rpc_envelope(request: &Value) -> Result<(Value, String, Value), Valu
     };
     Ok((id, method.to_owned(), params))
 }
-
 fn extract_session_id(params: &Value) -> Result<&str, (i64, String)> {
     params
         .get("session_id")
@@ -2122,7 +1949,6 @@ fn extract_session_id(params: &Value) -> Result<&str, (i64, String)> {
             )
         })
 }
-
 fn optional_turn_id(params: &Value) -> Option<String> {
     params
         .get("turn_id")
@@ -2132,7 +1958,6 @@ fn optional_turn_id(params: &Value) -> Option<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
 }
-
 fn extract_history_query(
     params: &Value,
     default_limit: usize,
@@ -2191,7 +2016,6 @@ fn extract_history_query(
     };
     Ok((since_seq, limit, include_cancelled))
 }
-
 fn extract_string_list(field: Option<&Value>) -> Result<Vec<String>, (i64, String)> {
     match field {
         None | Some(Value::Null) => Ok(Vec::new()),
@@ -2214,7 +2038,6 @@ fn extract_string_list(field: Option<&Value>) -> Result<Vec<String>, (i64, Strin
         )),
     }
 }
-
 fn parse_prompt_blocks(
     raw: Option<&Value>,
     max_prompt_bytes: usize,
@@ -2262,7 +2085,6 @@ fn parse_prompt_blocks(
     }
     Ok(blocks)
 }
-
 fn parse_tool_calls(
     raw: Option<&Value>,
     max_bytes: usize,
@@ -2303,14 +2125,12 @@ fn parse_tool_calls(
         )),
     }
 }
-
 type SeedMessageTuple = (
     String,
     AcpMessageRole,
     Vec<AcpContentBlock>,
     Vec<AcpToolCallMeta>,
 );
-
 fn parse_seed_messages(
     params: &Value,
     max_prompt_bytes: usize,
@@ -2378,7 +2198,6 @@ fn parse_seed_messages(
         )),
     }
 }
-
 fn join_text_blocks(blocks: &[AcpContentBlock]) -> String {
     let mut out = String::new();
     for block in blocks {
@@ -2391,7 +2210,6 @@ fn join_text_blocks(blocks: &[AcpContentBlock]) -> String {
     }
     out
 }
-
 fn project_inference_messages<'a, I>(messages: I) -> Vec<AcpInferenceMessage>
 where
     I: IntoIterator<Item = &'a AcpSessionMessage>,
@@ -2410,13 +2228,11 @@ where
     }
     out
 }
-
 fn measure_tool_calls_bytes(tool_calls: &[AcpToolCallMeta]) -> usize {
     tool_calls
         .iter()
         .fold(0usize, |acc, tc| acc.saturating_add(tc.approx_byte_len()))
 }
-
 fn truncate_utf8(input: &str, max_bytes: usize) -> String {
     if input.len() <= max_bytes {
         return input.to_owned();
@@ -2427,26 +2243,13 @@ fn truncate_utf8(input: &str, max_bytes: usize) -> String {
     }
     input[..boundary].to_owned()
 }
-
 fn compute_turn_receipt(
     ctx: &AcpTurnContext,
     stop_reason: AcpStopReason,
     output: &[AcpContentBlock],
     tool_calls: &[AcpToolCallMeta],
 ) -> String {
-    let canonical = json!({
-        "schema": "susi-acp-turn-receipt/v1",
-        "session_id": ctx.session_id,
-        "turn_id": ctx.turn_id,
-        "workspace": ctx.workspace,
-        "admitted_capabilities": ctx.admitted_capabilities,
-        "role": ctx.role.as_str(),
-        "history_seq": ctx.history.last().map(|m| m.seq),
-        "prompt": ctx.prompt,
-        "stop_reason": stop_reason.as_str(),
-        "output": output,
-        "tool_calls": tool_calls,
-    });
+    let canonical = json!({"schema":"susi-acp-turn-receipt/v1","session_id":ctx.session_id,"turn_id":ctx.turn_id,"workspace":ctx.workspace,"admitted_capabilities":ctx.admitted_capabilities,"role":ctx.role.as_str(),"history_seq":ctx.history.last().map(|m| m.seq),"prompt":ctx.prompt,"stop_reason":stop_reason.as_str(),"output":output,"tool_calls":tool_calls});
     let bytes = serde_json::to_vec(&canonical).unwrap_or_default();
     let digest = Sha256::digest(&bytes);
     let mut hex = String::with_capacity(64);
@@ -2456,40 +2259,24 @@ fn compute_turn_receipt(
     }
     hex
 }
-
 fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
 }
-
 fn rpc_ok(id: Value, result: Value) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": result,
-    })
+    json!({"jsonrpc":"2.0","id":id,"result":result})
 }
-
 fn rpc_error(id: Value, code: i64, message: String) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": {
-            "code": code,
-            "message": message,
-        }
-    })
+    json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-
 fn serialize_rpc_response(value: &Value) -> Vec<u8> {
     serde_json::to_vec(value).unwrap_or_else(|_| {
         br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal serialization error"}}"#
             .to_vec()
     })
 }
-
 #[cfg(test)]
 #[path = "tests/acp_conformance.rs"]
 mod tests;

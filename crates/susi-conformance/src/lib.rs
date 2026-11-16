@@ -9,15 +9,12 @@
 //! `susi acp serve`). Every check records its own wall-clock latency.
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-
-pub use susi_wire_client::http;
-
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-
+pub use susi_wire_client::http;
 /// Contract ports before `port_offset` is applied, plus the explicit
 /// out-of-contract internal port and IPC inventory (`B1`).
 pub mod ports {
@@ -32,10 +29,8 @@ pub mod ports {
     pub const MCP_ALIAS: u16 = 9093;
     /// A2A + ACP HTTP (JSON-RPC, SSE, agent card, ACP discovery).
     pub const A2A: u16 = 9094;
-
     /// The five stable host-contract base ports.
     pub const CONTRACT_PORTS: [u16; 5] = [MCP, GEMI, UDP_DISCOVERY, MCP_ALIAS, A2A];
-
     /// Explicit out-of-contract internal TCP/UDP ports (`B1`). External
     /// products must never couple to these internal substrate ports.
     pub const OUT_OF_CONTRACT_PORTS: &[(u16, &str)] = &[
@@ -52,16 +47,13 @@ pub mod ports {
         (19092, "cell-gawd"),
         (19093, "cell-universal"),
     ];
-
     /// Explicit out-of-contract local IPC surfaces (`B1`).
     pub const OUT_OF_CONTRACT_IPC: &[&str] = &["plane_bus"];
-
     /// True when `base_port` is one of the five public host-contract ports.
     #[must_use]
     pub fn is_contract_port(base_port: u16) -> bool {
         CONTRACT_PORTS.contains(&base_port)
     }
-
     /// Internal role name when `base_port` is on the out-of-contract list.
     #[must_use]
     pub fn out_of_contract_role(base_port: u16) -> Option<&'static str> {
@@ -70,12 +62,10 @@ pub mod ports {
             .find_map(|&(port, role)| (port == base_port).then_some(role))
     }
 }
-
 pub use ports::{
     is_contract_port, out_of_contract_role, CONTRACT_PORTS, OUT_OF_CONTRACT_IPC,
     OUT_OF_CONTRACT_PORTS,
 };
-
 /// Current MCP revision: stateless requests named by the `Mcp-Method` header.
 pub const MCP_CURRENT: &str = "2026-07-28";
 /// Session-based MCP revision most deployed clients still speak.
@@ -84,7 +74,6 @@ pub const MCP_SESSION: &str = "2025-06-18";
 pub const ACP_DISCOVERY_SCHEMA: &str = "susi-acp-discovery/v1";
 /// Canonical ACP wire protocol version.
 pub const ACP_PROTOCOL: &str = "2026-11-11";
-
 /// Where and how to reach the host under test.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -97,7 +86,6 @@ pub struct Target {
     /// Per-request timeout.
     pub timeout: Duration,
 }
-
 /// Checks that do more than read the host, so they run only when asked.
 #[derive(Debug, Clone, Default)]
 pub struct Optional {
@@ -116,7 +104,6 @@ pub struct Optional {
     /// (for example `"SUSI_PONG_SIG2:"`).
     pub signed_udp_pong_prefix: Option<String>,
 }
-
 /// Outcome of one contract check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -129,7 +116,6 @@ pub enum Outcome {
     /// Not run (for example, no token was available).
     Skip,
 }
-
 impl Outcome {
     /// Lower-case label used in reports.
     #[must_use]
@@ -142,7 +128,6 @@ impl Outcome {
         }
     }
 }
-
 /// One check's result.
 #[derive(Debug, Clone)]
 pub struct Check {
@@ -155,25 +140,17 @@ pub struct Check {
     /// What was observed.
     pub detail: String,
 }
-
 impl Check {
     /// JSON form for machine consumers.
     #[must_use]
     pub fn to_json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "outcome": self.outcome.label().to_ascii_lowercase(),
-            "ms": self.millis,
-            "detail": self.detail,
-        })
+        json!({"id":self.id,"outcome":self.outcome.label().to_ascii_lowercase(),"ms":self.millis,"detail":self.detail})
     }
 }
-
 impl Target {
     fn port(&self, base: u16) -> u16 {
         base.saturating_add(self.port_offset)
     }
-
     fn call(&self, base: u16, req: Call<'_>) -> Result<http::Response, String> {
         let bearer = self.token.as_ref().map(|t| format!("Bearer {t}"));
         let mut headers: Vec<(&str, &str)> = req.headers.to_vec();
@@ -199,7 +176,6 @@ impl Target {
         )
     }
 }
-
 /// A contract request before authentication and encoding.
 #[derive(Clone, Copy)]
 struct Call<'a> {
@@ -209,7 +185,6 @@ struct Call<'a> {
     headers: &'a [(&'a str, &'a str)],
     body: Option<&'a Value>,
 }
-
 impl<'a> Call<'a> {
     fn get(path: &'a str, auth: bool) -> Self {
         Self {
@@ -230,7 +205,6 @@ impl<'a> Call<'a> {
         }
     }
 }
-
 /// JSON-RPC payload from a plain JSON body or the last JSON-RPC `data:` event
 /// of an SSE body (MCP Streamable HTTP may answer either way).
 #[must_use]
@@ -244,7 +218,6 @@ pub fn rpc_payload(response: &http::Response) -> Option<Value> {
         .filter_map(|data| serde_json::from_str::<Value>(data.trim()).ok())
         .rfind(|value| value.get("jsonrpc").is_some())
 }
-
 fn timed(id: String, run: impl FnOnce() -> (Outcome, String)) -> Check {
     let started = Instant::now();
     let (outcome, detail) = run();
@@ -255,11 +228,9 @@ fn timed(id: String, run: impl FnOnce() -> (Outcome, String)) -> Check {
         detail,
     }
 }
-
 fn verdict(ok: bool, detail: String) -> (Outcome, String) {
     (if ok { Outcome::Pass } else { Outcome::Fail }, detail)
 }
-
 /// Liveness must not require credentials (load balancers, supervisors).
 fn health(target: &Target, base: u16) -> Check {
     timed(format!("health@{}", target.port(base)), || {
@@ -272,12 +243,10 @@ fn health(target: &Target, base: u16) -> Check {
         }
     })
 }
-
 /// A protected request without a token must be refused with 401.
 fn auth_required(target: &Target, base: u16, method: &str, path: &str) -> Check {
     auth_required_as(target, base, method, path, "")
 }
-
 /// [`auth_required`] with `suffix` appended to the check id, so a second
 /// route on the same port (`/stream`) gets its own id.
 fn auth_required_as(target: &Target, base: u16, method: &str, path: &str, suffix: &str) -> Check {
@@ -304,7 +273,6 @@ fn auth_required_as(target: &Target, base: u16, method: &str, path: &str, suffix
         },
     )
 }
-
 fn needs_token(target: &Target, id: &str) -> Option<Check> {
     target.token.is_none().then(|| Check {
         id: id.to_string(),
@@ -313,12 +281,9 @@ fn needs_token(target: &Target, id: &str) -> Option<Check> {
         detail: "no bearer token available".into(),
     })
 }
-
 const MCP_ACCEPT: (&str, &str) = ("Accept", "application/json, text/event-stream");
-
 /// Upper bound on `tools/list` pages one listing follows.
 const MAX_LIST_PAGES: usize = 50;
-
 /// Every tool across a paginated `tools/list`. `fetch(page, cursor)` returns
 /// the JSON-RPC payload for one page (`cursor` is `None` for the first);
 /// pages are followed until `nextCursor` is absent, at most
@@ -359,22 +324,18 @@ fn list_all_tools(
         "tools/list still paging after {MAX_LIST_PAGES} pages"
     ))
 }
-
 /// `tools/list` params for one page: empty for the first, the cursor after.
 fn list_params(cursor: Option<&str>) -> Value {
     cursor.map_or_else(|| json!({}), |cursor| json!({"cursor": cursor}))
 }
-
 /// JSON-RPC id for `tools/list` page `page`, starting at `first`.
 fn page_id(first: i64, page: usize) -> i64 {
     first.saturating_add(i64::try_from(page).unwrap_or(i64::MAX))
 }
-
 /// One stateless request at the current MCP revision.
 fn mcp_current(target: &Target, base: u16, id: i64, method: &str) -> Result<(u16, Value), String> {
     mcp_current_with(target, base, id, method, json!({}))
 }
-
 /// One stateless request at the current MCP revision with extra `params`
 /// (such as a `tools/list` cursor) beside the revision `_meta`.
 fn mcp_current_with(
@@ -384,9 +345,7 @@ fn mcp_current_with(
     method: &str,
     mut params: Value,
 ) -> Result<(u16, Value), String> {
-    params["_meta"] = json!({
-        "io.modelcontextprotocol/protocolVersion": MCP_CURRENT,
-        "io.modelcontextprotocol/clientCapabilities": {}});
+    params["_meta"] = json!({"io.modelcontextprotocol/protocolVersion":MCP_CURRENT,"io.modelcontextprotocol/clientCapabilities":{}});
     let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
     let headers = [
         MCP_ACCEPT,
@@ -396,7 +355,6 @@ fn mcp_current_with(
     let r = target.call(base, Call::post("/mcp", true, &headers, &request))?;
     Ok((r.status, rpc_payload(&r).unwrap_or(Value::Null)))
 }
-
 fn mcp_discover(target: &Target, base: u16) -> Check {
     let id = format!("mcp.discover@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
@@ -418,7 +376,6 @@ fn mcp_discover(target: &Target, base: u16) -> Check {
         }
     })
 }
-
 fn mcp_tools_at(target: &Target, base: u16) -> Check {
     let id = format!("mcp.tools-list@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
@@ -445,7 +402,6 @@ fn mcp_tools_at(target: &Target, base: u16) -> Check {
         }
     })
 }
-
 fn mcp_unknown(target: &Target) -> Check {
     let id = format!("mcp.unknown-method@{}", target.port(ports::MCP));
     if let Some(skip) = needs_token(target, &id) {
@@ -464,7 +420,6 @@ fn mcp_unknown(target: &Target) -> Check {
         }
     })
 }
-
 /// The session flow of MCP 2025-06-18: `initialize`, `notifications/initialized`,
 /// then `tools/list` on the same `Mcp-Session-Id`.
 fn mcp_session_at(target: &Target, base: u16) -> Check {
@@ -473,9 +428,7 @@ fn mcp_session_at(target: &Target, base: u16) -> Check {
         return skip;
     }
     timed(id, || {
-        let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-            "protocolVersion": MCP_SESSION, "capabilities": {},
-            "clientInfo": {"name":"susi-conformance","version": env!("CARGO_PKG_VERSION")}}});
+        let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":MCP_SESSION,"capabilities":{},"clientInfo":{"name":"susi-conformance","version":env!("CARGO_PKG_VERSION")}}});
         let r = match target.call(base, Call::post("/mcp", true, &[MCP_ACCEPT], &init)) {
             Ok(r) => r,
             Err(e) => return (Outcome::Fail, format!("initialize: {e}")),
@@ -500,8 +453,7 @@ fn mcp_session_at(target: &Target, base: u16) -> Check {
             .call(base, Call::post("/mcp", true, &headers, &note))
             .map(|r| r.status);
         let listed = list_all_tools(|page, cursor| {
-            let list = json!({"jsonrpc":"2.0","id":page_id(2, page),"method":"tools/list",
-                "params":list_params(cursor)});
+            let list = json!({"jsonrpc":"2.0","id":page_id(2,page),"method":"tools/list","params":list_params(cursor)});
             let r = target.call(base, Call::post("/mcp", true, &headers, &list))?;
             if r.status == 200 {
                 Ok(rpc_payload(&r).unwrap_or(Value::Null))
@@ -524,7 +476,6 @@ fn mcp_session_at(target: &Target, base: u16) -> Check {
         }
     })
 }
-
 /// Validate A2A agent card identity, streaming capability, per-capability
 /// skills, and honesty (`B6` / `PSP-05` / `PSP-11`).
 ///
@@ -575,7 +526,6 @@ pub fn validate_agent_card_honesty(card: &Value) -> Result<usize, String> {
     }
     Ok(skills.len())
 }
-
 fn a2a_card(target: &Target) -> Check {
     timed(
         format!("a2a.agent-card@{}", target.port(ports::A2A)),
@@ -605,7 +555,6 @@ fn a2a_card(target: &Target) -> Check {
         },
     )
 }
-
 fn a2a_unknown(target: &Target) -> Check {
     let id = format!("a2a.unknown-method@{}", target.port(ports::A2A));
     if let Some(skip) = needs_token(target, &id) {
@@ -630,7 +579,6 @@ fn a2a_unknown(target: &Target) -> Check {
         }
     })
 }
-
 /// The A2A SSE route (`POST /stream`) dispatches the streaming JSON-RPC
 /// methods: an unknown method is `-32601`, and subscribing to a task that
 /// does not exist is A2A task-not-found (`-32001`), both under the A2A 1.0
@@ -650,10 +598,7 @@ fn a2a_stream(target: &Target) -> Check {
         };
         let unknown =
             json!({"jsonrpc":"2.0","id":8,"method":"susi/conformance-unknown-method","params":{}});
-        let missing = |id: i64, method: &str| {
-            json!({"jsonrpc":"2.0","id":id,"method":method,
-                "params":{"id":"susi-conformance-no-such-task"}})
-        };
+        let missing = |id: i64, method: &str| json!({"jsonrpc":"2.0","id":id,"method":method,"params":{"id":"susi-conformance-no-such-task"}});
         match (
             code(&unknown),
             code(&missing(9, "SubscribeToTask")),
@@ -669,7 +614,6 @@ fn a2a_stream(target: &Target) -> Check {
         }
     })
 }
-
 /// Public ACP discovery at `GET /.well-known/acp.json` on `9094 + offset`
 /// requires no credentials and advertises `/acp` and `/acp/stream`.
 fn acp_discover(target: &Target) -> Check {
@@ -707,13 +651,11 @@ fn acp_discover(target: &Target) -> Check {
         },
     )
 }
-
 fn acp_post(target: &Target, id: i64, method: &str, params: Value) -> Result<(u16, Value), String> {
     let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
     let r = target.call(ports::A2A, Call::post("/acp", true, &[], &request))?;
     Ok((r.status, rpc_payload(&r).unwrap_or(Value::Null)))
 }
-
 /// Authenticated ACP JSON-RPC 2.0 session lifecycle on `POST /acp`:
 /// `initialize` -> `session/new` -> `session/close`, plus `-32601` on an
 /// unknown method.
@@ -743,7 +685,6 @@ fn acp_rpc(target: &Target) -> Check {
                 format!("initialize status {s_init}, negotiated {negotiated:?}"),
             );
         }
-
         let (s_new, p_new) = match acp_post(
             target,
             2,
@@ -764,7 +705,6 @@ fn acp_rpc(target: &Target) -> Check {
                 format!("session/new status {s_new}, session_id {session_id:?}"),
             );
         }
-
         let (s_close, p_close) = match acp_post(
             target,
             3,
@@ -781,7 +721,6 @@ fn acp_rpc(target: &Target) -> Check {
                 format!("session/close status {s_close}, closed={closed}"),
             );
         }
-
         let (s_unk, p_unk) = match acp_post(target, 4, "acp/no_such_method", json!({})) {
             Ok(v) => v,
             Err(e) => return (Outcome::Fail, format!("acp/no_such_method: {e}")),
@@ -795,7 +734,6 @@ fn acp_rpc(target: &Target) -> Check {
         )
     })
 }
-
 /// What one unauthenticated datagram to the discovery port drew back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UdpProbe {
@@ -808,7 +746,6 @@ pub enum UdpProbe {
     /// Local socket error.
     Error(String),
 }
-
 /// Send `payload` to `host:port` from a connected UDP socket and classify
 /// the result. A connected socket surfaces ICMP port-unreachable as
 /// `ConnectionReset` (Windows) or `ConnectionRefused` (Unix), which is how
@@ -819,7 +756,6 @@ pub fn udp_probe(host: &str, port: u16, payload: &[u8], timeout: Duration) -> Ud
         .pop()
         .unwrap_or_else(|| UdpProbe::Error("no probe sent".into()))
 }
-
 /// [`udp_probe`] for several payloads at once: one connected socket per
 /// payload, every datagram sent first, then each socket read against one
 /// shared deadline. A silent port therefore costs one `timeout`, not one per
@@ -899,7 +835,6 @@ pub fn udp_probe_all(
         })
         .collect()
 }
-
 /// Unauthenticated datagrams the discovery port must never answer: the
 /// retired LAN, bare and plaintext-token peer dialects, the retired unbound
 /// signed pings (`SUSI_PING_SIG`, `SUSI_PING_SIG2`) and a bound ping
@@ -912,7 +847,6 @@ pub const UNAUTHENTICATED_PINGS: [&str; 6] = [
     "SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged",
     "SUSI_PING_SIG3:susi-conformance:CORE:0:00:3132372e302e302e313a39303933:0:00:forged",
 ];
-
 /// UDP 9092 is bound and answers only cluster-key signed pings. The suite
 /// holds no cluster key, so it checks the other half of that contract: every
 /// unauthenticated datagram draws silence, and the port is not unbound.
@@ -963,7 +897,6 @@ fn udp_discovery(target: &Target) -> Check {
         }
     })
 }
-
 /// Opt-in positive UDP discovery check: when a cluster-key signed
 /// `SUSI_PING_SIG3` datagram is supplied, UDP 9092 must answer with a
 /// `SUSI_PONG_SIG*` frame. A bound ping verifies only from the source
@@ -1014,7 +947,6 @@ fn udp_discovery_signed(target: &Target, optional: &Optional) -> Check {
         }
     })
 }
-
 /// Opt-in GEMI SSE check: `stream: true` on `/v1/chat/completions` answers
 /// `text/event-stream` with `data:` chunks and a final `data: [DONE]`. The
 /// request is local-only and 1 token. A host with no local inference target
@@ -1034,9 +966,7 @@ fn gemi_stream(target: &Target, optional: &Optional) -> Check {
         return skip;
     }
     timed(id, || {
-        let request = json!({"stream": true, "max_tokens": 1,
-            "messages": [{"role": "user", "content": "Reply with one word."}],
-            "susi": {"allow_cloud": false}});
+        let request = json!({"stream":true,"max_tokens":1,"messages":[{"role":"user","content":"Reply with one word."}],"susi":{"allow_cloud":false}});
         let accept = [("Accept", "text/event-stream")];
         let r = match target.call(
             ports::GEMI,
@@ -1063,7 +993,6 @@ fn gemi_stream(target: &Target, optional: &Optional) -> Check {
         gemi_stream_fallback(r.status, &content_type, &r.body)
     })
 }
-
 /// Classify a non-SSE reply to the streamed completion. Only the documented
 /// "no local inference target" answer (`503`, placement reason starting
 /// `request prohibits cloud inference`) is a warning; every other error is a
@@ -1087,7 +1016,6 @@ fn gemi_stream_fallback(status: u16, content_type: &str, body: &[u8]) -> (Outcom
         ),
     }
 }
-
 /// Read newline-delimited JSON-RPC from `lines` until the response with
 /// `id` arrives or `timeout` passes. MCP stdio reserves stdout for MCP
 /// messages, so any non-empty line that is not a JSON-RPC 2.0 object (a
@@ -1122,7 +1050,6 @@ fn stdio_response(
         }
     }
 }
-
 /// One MCP stdio session: `initialize`, `notifications/initialized`,
 /// `tools/list` (every page). Returns `(negotiated revision, server name,
 /// tool count)`.
@@ -1138,9 +1065,7 @@ fn stdio_session(
             .map_err(|e| format!("write to stdin: {e}"))
     };
     send(
-        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-        "protocolVersion": MCP_SESSION, "capabilities": {},
-        "clientInfo": {"name":"susi-conformance","version": env!("CARGO_PKG_VERSION")}}}),
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":MCP_SESSION,"capabilities":{},"clientInfo":{"name":"susi-conformance","version":env!("CARGO_PKG_VERSION")}}}),
     )?;
     let init = stdio_response(lines, 1, first)?;
     let negotiated = init["result"]["protocolVersion"]
@@ -1159,7 +1084,6 @@ fn stdio_session(
     })?;
     Ok((negotiated, server, tools.len()))
 }
-
 /// Spawn `<bin> <args...>` with piped stdin/stdout, run `session`, then close
 /// stdin and reap the child regardless of outcome.
 fn run_stdio_child<T>(
@@ -1202,7 +1126,6 @@ fn run_stdio_child<T>(
     let _ = child.wait();
     outcome
 }
-
 /// Opt-in MCP stdio check: `<susi_bin> mcp serve` speaks newline-delimited
 /// JSON-RPC at the session revision. The child is stopped before the check
 /// returns, whatever the outcome.
@@ -1231,7 +1154,6 @@ fn mcp_stdio(target: &Target, optional: &Optional) -> Check {
         }
     })
 }
-
 /// One ACP stdio session: `initialize`, `session/new`, `session/list`, and
 /// `session/close`. Rejects any non-JSON-RPC banner line on stdout via
 /// [`stdio_response`].
@@ -1246,12 +1168,9 @@ fn acp_stdio_session(
             .and_then(|()| stdin.flush())
             .map_err(|e| format!("write to stdin: {e}"))
     };
-    send(json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {"protocolVersion": ACP_PROTOCOL}
-    }))?;
+    send(
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":ACP_PROTOCOL}}),
+    )?;
     let init = stdio_response(lines, 1, first)?;
     if let Some(err) = init.get("error") {
         return Err(format!("initialize JSON-RPC error: {err}"));
@@ -1264,13 +1183,9 @@ fn acp_stdio_session(
     if negotiated.is_empty() {
         return Err("initialize returned empty protocol_version".into());
     }
-
-    send(json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "session/new",
-        "params": {"workspace": ".", "cwd": "."}
-    }))?;
+    send(
+        json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"workspace":".","cwd":"."}}),
+    )?;
     let created = stdio_response(lines, 2, timeout)?;
     if let Some(err) = created.get("error") {
         return Err(format!("session/new JSON-RPC error: {err}"));
@@ -1283,13 +1198,7 @@ fn acp_stdio_session(
     if session_id.is_empty() {
         return Err("session/new returned empty session_id".into());
     }
-
-    send(json!({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "session/list",
-        "params": {}
-    }))?;
+    send(json!({"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}))?;
     let listed = stdio_response(lines, 3, timeout)?;
     if let Some(err) = listed.get("error") {
         return Err(format!("session/list JSON-RPC error: {err}"));
@@ -1305,13 +1214,9 @@ fn acp_stdio_session(
             "session/list did not include created session {session_id:?}"
         ));
     }
-
-    send(json!({
-        "jsonrpc": "2.0",
-        "id": 4,
-        "method": "session/close",
-        "params": {"session_id": session_id, "sessionId": session_id}
-    }))?;
+    send(
+        json!({"jsonrpc":"2.0","id":4,"method":"session/close","params":{"session_id":session_id,"sessionId":session_id}}),
+    )?;
     let closed = stdio_response(lines, 4, timeout)?;
     if let Some(err) = closed.get("error") {
         return Err(format!("session/close JSON-RPC error: {err}"));
@@ -1321,7 +1226,6 @@ fn acp_stdio_session(
     }
     Ok((negotiated, session_id))
 }
-
 /// Opt-in ACP stdio check: `<susi_bin> acp serve` speaks pure newline-delimited
 /// JSON-RPC 2.0 on stdout with zero banner lines, negotiates ACP, and completes
 /// `session/new` -> `session/list` -> `session/close`.
@@ -1348,7 +1252,6 @@ fn acp_stdio(target: &Target, optional: &Optional) -> Check {
         }
     })
 }
-
 /// True for ids that disclose a local filesystem location.
 #[must_use]
 pub fn is_local_path(id: &str) -> bool {
@@ -1357,7 +1260,6 @@ pub fn is_local_path(id: &str) -> bool {
         || id.starts_with("\\\\")
         || (bytes.len() > 2 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/'))
 }
-
 fn gemi_models(target: &Target) -> Check {
     let id = format!("gemi.models@{}", target.port(ports::GEMI));
     if let Some(skip) = needs_token(target, &id) {
@@ -1395,14 +1297,12 @@ fn gemi_models(target: &Target) -> Check {
         }
     })
 }
-
 /// Run every contract check against `target`, in a stable order. The
 /// opt-in checks (GEMI SSE, MCP stdio, ACP stdio) report `skip`; see [`run_with`].
 #[must_use]
 pub fn run(target: &Target) -> Vec<Check> {
     run_with(target, &Optional::default())
 }
-
 /// [`run`] plus the opt-in checks `optional` enables.
 #[must_use]
 pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
@@ -1449,7 +1349,6 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     checks.push(acp_stdio(target, optional));
     checks
 }
-
 /// Fail every passing check slower than `max_millis`: the speed mandate made
 /// enforceable. Results that already failed, warned or skipped are unchanged.
 pub fn enforce_latency_budget(checks: &mut [Check], max_millis: u128) {
@@ -1463,17 +1362,14 @@ pub fn enforce_latency_budget(checks: &mut [Check], max_millis: u128) {
         }
     }
 }
-
 /// True when no check failed (warnings and skips do not fail the suite).
 #[must_use]
 pub fn conformant(checks: &[Check]) -> bool {
     checks.iter().all(|c| c.outcome != Outcome::Fail)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn list_all_tools_follows_next_cursor_until_absent() {
         let pages = [
@@ -1498,7 +1394,6 @@ mod tests {
             ]
         );
     }
-
     #[test]
     fn list_all_tools_fails_clearly_on_cursor_error_shape_and_runaway() {
         let stale = list_all_tools(|page, _| {
@@ -1527,7 +1422,6 @@ mod tests {
         assert!(runaway.contains("still paging"), "{runaway}");
         assert_eq!(calls, MAX_LIST_PAGES);
     }
-
     #[test]
     fn sse_and_plain_rpc_payloads_parse() {
         let sse = http::Response {
@@ -1544,7 +1438,6 @@ mod tests {
         };
         assert_eq!(rpc_payload(&plain).unwrap()["error"]["code"], -32601);
     }
-
     #[test]
     fn latency_budget_fails_only_slow_passes() {
         let check = |outcome, millis| Check {
@@ -1569,7 +1462,6 @@ mod tests {
             .detail
             .starts_with("slow: 500 ms exceeds the 100 ms budget"));
     }
-
     #[test]
     fn local_paths_are_recognized() {
         for id in [
@@ -1588,7 +1480,6 @@ mod tests {
             assert!(!is_local_path(id), "{id}");
         }
     }
-
     #[test]
     fn udp_probe_tells_silence_from_answers_and_unbound_ports() {
         use std::net::UdpSocket;
@@ -1623,7 +1514,6 @@ mod tests {
         );
         drop(silent);
     }
-
     #[test]
     fn opt_in_checks_skip_unless_enabled() {
         let checks = run(&Target {
@@ -1643,7 +1533,6 @@ mod tests {
             assert!(check.detail.starts_with("opt-in"), "{id}");
         }
     }
-
     #[test]
     fn udp_discovery_signed_passes_on_valid_pong_and_fails_on_silence_or_bad_reply() {
         use std::net::UdpSocket;
@@ -1655,14 +1544,12 @@ mod tests {
         assert!(UNAUTHENTICATED_PINGS.contains(
             &"SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged"
         ));
-
         let opt = Optional {
             signed_udp_ping: Some(
                 "SUSI_PING_SIG2:susi-conformance:CORE:9090:1:deadbeef:127.0.0.1:cafebabe".into(),
             ),
             ..Optional::default()
         };
-
         // 1. Valid SUSI_PONG_SIG2 reply passes.
         let valid = UdpSocket::bind("127.0.0.1:0").unwrap();
         let valid_port = valid.local_addr().unwrap().port();
@@ -1686,7 +1573,6 @@ mod tests {
             &opt,
         );
         assert_eq!(check_ok.outcome, Outcome::Pass, "{}", check_ok.detail);
-
         // 2. Unauthenticated/legacy pong reply fails.
         let bad = UdpSocket::bind("127.0.0.1:0").unwrap();
         let bad_port = bad.local_addr().unwrap().port();
@@ -1707,7 +1593,6 @@ mod tests {
             &opt,
         );
         assert_eq!(check_bad.outcome, Outcome::Fail, "{}", check_bad.detail);
-
         // 3. Silent socket fails.
         let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
         let silent_port = silent.local_addr().unwrap().port();
@@ -1729,14 +1614,12 @@ mod tests {
         );
         drop(silent);
     }
-
     /// A UDP port known to be free: bound, then released. Ports at a fixed
     /// offset can sit in the OS ephemeral range and be held by anything.
     fn free_udp_port() -> u16 {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         socket.local_addr().unwrap().port()
     }
-
     #[test]
     fn udp_discovery_fails_when_nothing_is_bound() {
         let port = free_udp_port();
@@ -1749,7 +1632,6 @@ mod tests {
         });
         assert_eq!(check.outcome, Outcome::Fail, "{}", check.detail);
     }
-
     /// A correct daemon stays silent, so the check must cost one silence
     /// window, not one per ping: CI runs `--timeout-ms 30000 --max-ms 2000`.
     #[test]
@@ -1768,7 +1650,6 @@ mod tests {
         assert!(checks[0].millis < 2_000, "{} ms", checks[0].millis);
         drop(silent);
     }
-
     #[test]
     fn check_ids_are_unique() {
         let checks = run_with(
@@ -1796,7 +1677,6 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), before, "duplicate check ids");
     }
-
     #[test]
     fn gemi_stream_warns_only_without_a_local_target() {
         let error = |m: &str| json!({"error": {"message": m}}).to_string().into_bytes();
@@ -1820,7 +1700,6 @@ mod tests {
             Outcome::Fail
         );
     }
-
     #[test]
     fn stdio_rejects_non_mcp_stdout_lines() {
         let reply = json!({"jsonrpc":"2.0","id":1,"result":{}}).to_string();
@@ -1837,7 +1716,6 @@ mod tests {
         let err = stdio_response(&rx, 1, Duration::from_millis(200)).unwrap_err();
         assert!(err.contains("bootloader"), "{err}");
     }
-
     #[test]
     fn unreachable_host_fails_closed_and_skips_without_token() {
         // Contract ports shifted far above anything a test host serves.
@@ -1856,7 +1734,6 @@ mod tests {
             .filter(|c| !c.id.starts_with("udp."))
             .all(|c| c.outcome != Outcome::Pass));
     }
-
     #[test]
     fn contract_and_out_of_contract_port_inventories_are_disjoint_and_complete() {
         assert_eq!(CONTRACT_PORTS, [9090, 9091, 9092, 9093, 9094]);
@@ -1880,7 +1757,6 @@ mod tests {
         }
         assert!(OUT_OF_CONTRACT_IPC.contains(&"plane_bus"));
     }
-
     #[test]
     fn mcp_alias_9093_runs_tools_list_conformance_check() {
         let checks = run_with(
@@ -1896,7 +1772,6 @@ mod tests {
         assert!(ids.contains(&"mcp.tools-list@59090"), "{ids:?}");
         assert!(ids.contains(&"mcp.tools-list@59093"), "{ids:?}");
     }
-
     #[test]
     fn mcp_alias_9093_runs_stateful_session_conformance_check() {
         let checks = run_with(
@@ -1912,69 +1787,29 @@ mod tests {
         assert!(ids.contains(&"mcp.session-2025-06-18@59090"), "{ids:?}");
         assert!(ids.contains(&"mcp.session-2025-06-18@59093"), "{ids:?}");
     }
-
     #[test]
     fn agent_card_honesty_validator_accepts_per_capability_skills_and_rejects_dishonest_cards() {
-        let valid_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
-                {"id": "models", "name": "models", "description": "Route through GEMI models."}
-            ]
-        });
+        let valid_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Run a GAWD mission."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."},{"id":"models","name":"models","description":"Route through GEMI models."}]});
         assert_eq!(validate_agent_card_honesty(&valid_card), Ok(4));
-
         // Missing per-capability skill ("models")
-        let missing_skill_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."}
-            ]
-        });
+        let missing_skill_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Run a GAWD mission."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."}]});
         let err_missing = validate_agent_card_honesty(&missing_skill_card).unwrap_err();
         assert!(err_missing.contains("models"), "{err_missing}");
-
         // streaming: false
-        let no_streaming_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": false},
-            "skills": valid_card["skills"].clone()
-        });
+        let no_streaming_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":false},"skills":valid_card["skills"].clone()});
         let err_streaming = validate_agent_card_honesty(&no_streaming_card).unwrap_err();
         assert!(err_streaming.contains("streaming"), "{err_streaming}");
-
         // Dishonest card claiming egui / desktop ui
-        let dishonest_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Renders an egui desktop UI dashboard."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
-                {"id": "models", "name": "models", "description": "Route through GEMI models."}
-            ]
-        });
+        let dishonest_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Renders an egui desktop UI dashboard."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."},{"id":"models","name":"models","description":"Route through GEMI models."}]});
         let err_dishonest = validate_agent_card_honesty(&dishonest_card).unwrap_err();
         assert!(err_dishonest.contains("dishonest skill"), "{err_dishonest}");
     }
-
     struct MockReply {
         status: u16,
         content_type: &'static str,
         headers: Vec<(&'static str, &'static str)>,
         body: String,
     }
-
     impl MockReply {
         fn json(status: u16, value: &Value) -> Self {
             Self {
@@ -1985,7 +1820,6 @@ mod tests {
             }
         }
     }
-
     fn read_http_request(stream: &mut std::net::TcpStream) -> String {
         use std::io::Read;
         let mut buf = Vec::new();
@@ -2018,7 +1852,6 @@ mod tests {
         }
         String::from_utf8_lossy(&buf).into_owned()
     }
-
     fn spawn_loopback_http(
         base_port: u16,
         replies: Vec<MockReply>,
@@ -2059,31 +1892,10 @@ mod tests {
         };
         (target, handle)
     }
-
     #[test]
     fn loopback_a2a_card_unknown_and_stream_conformance_checks() {
-        let honest_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
-                {"id": "models", "name": "models", "description": "Route through GEMI models."}
-            ]
-        });
-        let dishonest_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Renders a desktop UI via egui."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
-                {"id": "models", "name": "models", "description": "Route through GEMI models."}
-            ]
-        });
+        let honest_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Run a GAWD mission."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."},{"id":"models","name":"models","description":"Route through GEMI models."}]});
+        let dishonest_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Renders a desktop UI via egui."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."},{"id":"models","name":"models","description":"Route through GEMI models."}]});
         let (target, handle) = spawn_loopback_http(
             ports::A2A,
             vec![
@@ -2115,13 +1927,11 @@ mod tests {
                 ),
             ],
         );
-
         let c_card_ok = a2a_card(&target);
         assert_eq!(c_card_ok.outcome, Outcome::Pass, "{}", c_card_ok.detail);
         let c_card_bad = a2a_card(&target);
         assert_eq!(c_card_bad.outcome, Outcome::Fail, "{}", c_card_bad.detail);
         assert!(c_card_bad.detail.contains("dishonest skill"));
-
         let c_auth_root = auth_required(&target, ports::A2A, "POST", "/");
         assert_eq!(c_auth_root.outcome, Outcome::Pass, "{}", c_auth_root.detail);
         let c_auth_stream = auth_required_as(&target, ports::A2A, "POST", "/stream", "/stream");
@@ -2131,20 +1941,16 @@ mod tests {
             "{}",
             c_auth_stream.detail
         );
-
         let c_unknown = a2a_unknown(&target);
         assert_eq!(c_unknown.outcome, Outcome::Pass, "{}", c_unknown.detail);
-
         let c_stream = a2a_stream(&target);
         assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
-
         let requests = handle.join().unwrap();
         assert_eq!(requests.len(), 8);
         assert!(requests[0].starts_with("GET /.well-known/agent-card.json HTTP/1.1"));
         assert!(requests[5].contains("SubscribeToTask") || requests[6].contains("SubscribeToTask"));
         assert!(requests[7].contains("tasks/resubscribe"));
     }
-
     #[test]
     fn loopback_mcp_and_alias_9093_discover_tools_unauth_and_session_checks() {
         for base in [ports::MCP, ports::MCP_ALIAS] {
@@ -2158,63 +1964,33 @@ mod tests {
                     // 3. mcp_discover
                     MockReply::json(
                         200,
-                        &json!({
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "result": {
-                                "capabilities": {"tools": {}},
-                                "_meta": {
-                                    "io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}
-                                }
-                            }
-                        }),
+                        &json!({"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"susi-gmcp"}}}}),
                     ),
                     // 4. mcp_tools_at
                     MockReply::json(
                         200,
-                        &json!({
-                            "jsonrpc": "2.0",
-                            "id": 2,
-                            "result": {"tools": [{"name": "echo"}]}
-                        }),
+                        &json!({"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo"}]}}),
                     ),
                     // 5..=7. mcp_session_at (initialize with Mcp-Session-Id -> notifications/initialized -> tools/list)
                     MockReply {
                         status: 200,
                         content_type: "application/json",
                         headers: vec![("Mcp-Session-Id", "sess-123")],
-                        body: json!({
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "result": {
-                                "protocolVersion": MCP_SESSION,
-                                "capabilities": {"tools": {}},
-                                "serverInfo": {"name": "susi-gmcp"}
-                            }
-                        })
+                        body: json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":MCP_SESSION,"capabilities":{"tools":{}},"serverInfo":{"name":"susi-gmcp"}}})
                         .to_string(),
                     },
                     MockReply::json(202, &json!({})),
                     MockReply::json(
                         200,
-                        &json!({
-                            "jsonrpc": "2.0",
-                            "id": 2,
-                            "result": {"tools": [{"name": "echo"}, {"name": "ping"}]}
-                        }),
+                        &json!({"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo"},{"name":"ping"}]}}),
                     ),
                     // 8. mcp_session_at negative: missing Mcp-Session-Id header on initialize -> Fail
                     MockReply::json(
                         200,
-                        &json!({
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "result": {"protocolVersion": MCP_SESSION}
-                        }),
+                        &json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":MCP_SESSION}}),
                     ),
                 ],
             );
-
             assert_eq!(health(&target, base).outcome, Outcome::Pass);
             assert_eq!(
                 auth_required(&target, base, "POST", "/mcp").outcome,
@@ -2222,15 +1998,12 @@ mod tests {
             );
             assert_eq!(mcp_discover(&target, base).outcome, Outcome::Pass);
             assert_eq!(mcp_tools_at(&target, base).outcome, Outcome::Pass);
-
             let c_sess = mcp_session_at(&target, base);
             assert_eq!(c_sess.outcome, Outcome::Pass, "{}", c_sess.detail);
             assert!(c_sess.detail.contains("2 tools"), "{}", c_sess.detail);
-
             let c_sess_bad = mcp_session_at(&target, base);
             assert_eq!(c_sess_bad.outcome, Outcome::Fail, "{}", c_sess_bad.detail);
             assert!(c_sess_bad.detail.contains("without Mcp-Session-Id"));
-
             let requests = handle.join().unwrap();
             assert_eq!(requests.len(), 8);
             assert!(requests[5]
@@ -2241,7 +2014,6 @@ mod tests {
                 .contains("mcp-session-id: sess-123"));
         }
     }
-
     #[test]
     fn loopback_gemi_models_unauth_and_sse_stream_checks() {
         let (target, handle) = spawn_loopback_http(
@@ -2269,14 +2041,11 @@ mod tests {
                 },
             ],
         );
-
         let c_unauth = auth_required(&target, ports::GEMI, "GET", "/v1/models");
         assert_eq!(c_unauth.outcome, Outcome::Pass, "{}", c_unauth.detail);
-
         let c_models_ok = gemi_models(&target);
         assert_eq!(c_models_ok.outcome, Outcome::Pass, "{}", c_models_ok.detail);
         assert_eq!(c_models_ok.detail, "2 models");
-
         let c_models_warn = gemi_models(&target);
         assert_eq!(
             c_models_warn.outcome,
@@ -2285,7 +2054,6 @@ mod tests {
             c_models_warn.detail
         );
         assert!(c_models_warn.detail.contains("local filesystem paths"));
-
         let c_stream = gemi_stream(
             &target,
             &Optional {
@@ -2295,12 +2063,10 @@ mod tests {
         );
         assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
         assert!(c_stream.detail.contains("1 JSON chunks, [DONE] true"));
-
         let requests = handle.join().unwrap();
         assert_eq!(requests.len(), 4);
         assert!(requests[3].starts_with("POST /v1/chat/completions HTTP/1.1"));
     }
-
     fn serve_bound_http(
         listener: std::net::TcpListener,
         replies: Vec<MockReply>,
@@ -2332,7 +2098,6 @@ mod tests {
             count
         })
     }
-
     #[test]
     fn full_suite_run_with_passes_across_all_five_contract_ports_at_shared_offset() {
         use std::net::{TcpListener, UdpSocket};
@@ -2352,46 +2117,27 @@ mod tests {
         }
         let (offset, mcp_l, gemi_l, udp_s, alias_l, a2a_l) =
             bound.expect("failed to bind 5 contiguous contract ports in 20000..45000");
-
         let discover_reply = || {
             MockReply::json(
                 200,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "result": {
-                        "capabilities": {"tools": {}},
-                        "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}}
-                    }
-                }),
+                &json!({"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"susi-gmcp"}}}}),
             )
         };
         let tools_reply = || {
             MockReply::json(
                 200,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "result": {"tools": [{"name": "echo"}]}
-                }),
+                &json!({"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo"}]}}),
             )
         };
-        let session_init_reply = || MockReply {
+        let session_init_reply = || {
+            MockReply {
             status: 200,
             content_type: "application/json",
             headers: vec![("Mcp-Session-Id", "sess-5port")],
-            body: json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "protocolVersion": MCP_SESSION,
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "susi-gmcp"}
-                }
-            })
+            body: json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":MCP_SESSION,"capabilities":{"tools":{}},"serverInfo":{"name":"susi-gmcp"}}})
             .to_string(),
+        }
         };
-
         // 1. MCP (9090 + offset): 8 requests (health, auth_required, discover, tools, unknown, 3x session)
         let h_mcp = serve_bound_http(
             mcp_l,
@@ -2409,7 +2155,6 @@ mod tests {
                 tools_reply(),
             ],
         );
-
         // 2. GEMI (9091 + offset): 4 requests (health, auth_required, models, stream)
         let h_gemi = serve_bound_http(
             gemi_l,
@@ -2426,7 +2171,6 @@ mod tests {
                 },
             ],
         );
-
         // 3. MCP_ALIAS (9093 + offset): 7 requests (health, auth_required, discover, tools, 3x session)
         let h_alias = serve_bound_http(
             alias_l,
@@ -2440,29 +2184,11 @@ mod tests {
                 tools_reply(),
             ],
         );
-
         // 4. A2A + ACP (9094 + offset): 15 requests (health, auth /, auth /stream,
         // auth /acp, auth /acp/stream, card, a2a unknown, 3x a2a stream,
         // acp discover, 4x acp rpc)
-        let honest_card = json!({
-            "name": "susi-gawd",
-            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
-            "capabilities": {"streaming": true},
-            "skills": [
-                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
-                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
-                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
-                {"id": "models", "name": "models", "description": "Route through GEMI models."}
-            ]
-        });
-        let honest_acp_discovery = json!({
-            "schema": ACP_DISCOVERY_SCHEMA,
-            "protocol_version": ACP_PROTOCOL,
-            "endpoints": {
-                "rpc": "/acp",
-                "stream": "/acp/stream"
-            }
-        });
+        let honest_card = json!({"name":"susi-gawd","supportedInterfaces":[{"url":"http://127.0.0.1:9094/"}],"capabilities":{"streaming":true},"skills":[{"id":"missions","name":"missions","description":"Run a GAWD mission."},{"id":"agents","name":"agents","description":"Delegate to installed agents."},{"id":"frameworks","name":"frameworks","description":"Run external frameworks."},{"id":"models","name":"models","description":"Route through GEMI models."}]});
+        let honest_acp_discovery = json!({"schema":ACP_DISCOVERY_SCHEMA,"protocol_version":ACP_PROTOCOL,"endpoints":{"rpc":"/acp","stream":"/acp/stream"}});
         let h_a2a = serve_bound_http(
             a2a_l,
             vec![
@@ -2507,7 +2233,6 @@ mod tests {
                 ),
             ],
         );
-
         // 5. UDP_DISCOVERY (9092 + offset): every unauthenticated datagram
         // (silent) + 1 signed datagram (pong)
         let h_udp = std::thread::spawn(move || {
@@ -2525,7 +2250,6 @@ mod tests {
                 }
             }
         });
-
         let target = Target {
             host: "127.0.0.1".into(),
             port_offset: offset,
@@ -2540,7 +2264,6 @@ mod tests {
             ),
             signed_udp_pong_prefix: Some("SUSI_PONG_SIG2:host:CORE:".into()),
         };
-
         let checks = run_with(&target, &optional);
         assert!(conformant(&checks), "{checks:?}");
         for check in &checks {
@@ -2556,40 +2279,17 @@ mod tests {
                 );
             }
         }
-
         assert_eq!(h_mcp.join().unwrap(), 8);
         assert_eq!(h_gemi.join().unwrap(), 4);
         assert_eq!(h_alias.join().unwrap(), 7);
         assert_eq!(h_a2a.join().unwrap(), 15);
         h_udp.join().unwrap();
     }
-
     #[test]
     fn loopback_acp_discover_auth_and_rpc_conformance_checks() {
-        let valid_discovery = json!({
-            "schema": ACP_DISCOVERY_SCHEMA,
-            "protocol_version": ACP_PROTOCOL,
-            "endpoints": {
-                "rpc": "/acp",
-                "stream": "/acp/stream"
-            }
-        });
-        let bad_schema_discovery = json!({
-            "schema": "wrong/v0",
-            "protocol_version": ACP_PROTOCOL,
-            "endpoints": {
-                "rpc": "/acp",
-                "stream": "/acp/stream"
-            }
-        });
-        let missing_stream_discovery = json!({
-            "schema": ACP_DISCOVERY_SCHEMA,
-            "protocol_version": ACP_PROTOCOL,
-            "endpoints": {
-                "rpc": "/acp"
-            }
-        });
-
+        let valid_discovery = json!({"schema":ACP_DISCOVERY_SCHEMA,"protocol_version":ACP_PROTOCOL,"endpoints":{"rpc":"/acp","stream":"/acp/stream"}});
+        let bad_schema_discovery = json!({"schema":"wrong/v0","protocol_version":ACP_PROTOCOL,"endpoints":{"rpc":"/acp","stream":"/acp/stream"}});
+        let missing_stream_discovery = json!({"schema":ACP_DISCOVERY_SCHEMA,"protocol_version":ACP_PROTOCOL,"endpoints":{"rpc":"/acp"}});
         let (target, handle) = spawn_loopback_http(
             ports::A2A,
             vec![
@@ -2639,7 +2339,6 @@ mod tests {
                 ),
             ],
         );
-
         let c_disc_ok = acp_discover(&target);
         assert_eq!(c_disc_ok.outcome, Outcome::Pass, "{}", c_disc_ok.detail);
         assert!(
@@ -2647,7 +2346,6 @@ mod tests {
             "{}",
             c_disc_ok.detail
         );
-
         let c_disc_bad_schema = acp_discover(&target);
         assert_eq!(
             c_disc_bad_schema.outcome,
@@ -2656,7 +2354,6 @@ mod tests {
             c_disc_bad_schema.detail
         );
         assert!(c_disc_bad_schema.detail.contains("wrong/v0"));
-
         let c_disc_missing_stream = acp_discover(&target);
         assert_eq!(
             c_disc_missing_stream.outcome,
@@ -2671,10 +2368,8 @@ mod tests {
             "{}",
             c_disc_missing_stream.detail
         );
-
         let c_auth_acp = auth_required_as(&target, ports::A2A, "POST", "/acp", "/acp");
         assert_eq!(c_auth_acp.outcome, Outcome::Pass, "{}", c_auth_acp.detail);
-
         let c_auth_stream =
             auth_required_as(&target, ports::A2A, "POST", "/acp/stream", "/acp/stream");
         assert_eq!(
@@ -2683,12 +2378,10 @@ mod tests {
             "{}",
             c_auth_stream.detail
         );
-
         let mut no_token_target = target.clone();
         no_token_target.token = None;
         let c_rpc_skip = acp_rpc(&no_token_target);
         assert_eq!(c_rpc_skip.outcome, Outcome::Skip, "{}", c_rpc_skip.detail);
-
         let c_rpc_ok = acp_rpc(&target);
         assert_eq!(c_rpc_ok.outcome, Outcome::Pass, "{}", c_rpc_ok.detail);
         assert!(
@@ -2696,7 +2389,6 @@ mod tests {
             "{}",
             c_rpc_ok.detail
         );
-
         let c_rpc_bad_unknown = acp_rpc(&target);
         assert_eq!(
             c_rpc_bad_unknown.outcome,
@@ -2705,7 +2397,6 @@ mod tests {
             c_rpc_bad_unknown.detail
         );
         assert!(c_rpc_bad_unknown.detail.contains("-32601"));
-
         let requests = handle.join().unwrap();
         assert_eq!(requests.len(), 13);
         assert!(requests[0].starts_with("GET /.well-known/acp.json HTTP/1.1"));
@@ -2716,11 +2407,9 @@ mod tests {
         assert!(requests[7].contains("\"session/close\""));
         assert!(requests[8].contains("\"acp/no_such_method\""));
     }
-
     #[test]
     fn acp_stdio_session_and_subprocess_reject_banner_and_validate_lifecycle() {
         let wait = Duration::from_millis(200);
-
         // 1. Valid initialize -> session/new -> session/list -> session/close passes.
         let (tx, rx) = std::sync::mpsc::channel();
         tx.send(
@@ -2734,21 +2423,13 @@ mod tests {
         )
         .unwrap();
         tx.send(
-            json!({
-                "jsonrpc": "2.0",
-                "id": 3,
-                "result": {"sessions": [{"session_id": "acp-sess-000001"}]}
-            })
+            json!({"jsonrpc":"2.0","id":3,"result":{"sessions":[{"session_id":"acp-sess-000001"}]}})
             .to_string(),
         )
         .unwrap();
         tx.send(
-            json!({
-                "jsonrpc": "2.0",
-                "id": 4,
-                "result": {"session_id": "acp-sess-000001", "closed": true}
-            })
-            .to_string(),
+            json!({"jsonrpc":"2.0","id":4,"result":{"session_id":"acp-sess-000001","closed":true}})
+                .to_string(),
         )
         .unwrap();
         let mut stdin_buf = Vec::new();
@@ -2762,7 +2443,6 @@ mod tests {
         assert!(sent_lines[1].contains("\"session/new\""));
         assert!(sent_lines[2].contains("\"session/list\""));
         assert!(sent_lines[3].contains("\"session/close\""));
-
         // 2. Non-JSON banner on stdout fails immediately.
         let (tx_banner, rx_banner) = std::sync::mpsc::channel();
         tx_banner
@@ -2771,7 +2451,6 @@ mod tests {
         let mut sink = Vec::new();
         let banner_err = acp_stdio_session(&mut sink, &rx_banner, wait, wait).unwrap_err();
         assert!(banner_err.contains("bootloader banner"), "{banner_err}");
-
         // 3. session/list omitting created session fails.
         let (tx_list, rx_list) = std::sync::mpsc::channel();
         tx_list
@@ -2795,7 +2474,6 @@ mod tests {
             list_err.contains("did not include created session"),
             "{list_err}"
         );
-
         // 4. acp_stdio subprocess spawn failure & non-ACP binary failure reap cleanly.
         let target = Target {
             host: "127.0.0.1".into(),

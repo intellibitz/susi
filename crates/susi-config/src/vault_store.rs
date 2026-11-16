@@ -8,7 +8,6 @@
 //! - Subkey derived via domain-separated SHA-256 over `(master_key, salt)`
 //! - AAD binds envelope format, KDF tag, and salt so ciphertext cannot be transplanted
 //! - Zero secret values are ever printed, logged, or stored in `vault.json` metadata.
-
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -16,17 +15,13 @@ use std::process::Command;
 use std::sync::atomic::{compiler_fence, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
-
 const KEYSTORE_TIMEOUT: Duration = Duration::from_secs(15);
-
+use super::cloud_env::parse_env_file;
+use super::json_util::{atomic_write_bytes, create_private_dir, file_node};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-use super::cloud_env::parse_env_file;
-use super::json_util::{atomic_write_bytes, create_private_dir, file_node};
-
 /// Non-secret vault metadata filename inside the Susi config directory.
 pub const VAULT_CONFIG_FILE: &str = "vault.json";
 /// AEAD-sealed vault filename inside the Susi config directory.
@@ -37,7 +32,6 @@ pub const SEALED_VAULT_FORMAT: &str = "susi-sealed-vault-v1";
 pub const SEALED_VAULT_KDF: &str = "sha256-domain-v1";
 /// Inline prefix used when sealing individual `cloud-credentials/*.json` values.
 pub const SEALED_VALUE_PREFIX: &str = "enc:v1:";
-
 /// Cloud / container / CI explicit master key environment variable.
 pub const VAULT_KEY_ENV: &str = "SUSI_VAULT_KEY";
 /// File path containing the vault master key (e.g. mounted Docker/K8s secret).
@@ -52,11 +46,9 @@ pub const SUSI_CREDENTIALS_DIR_ENV: &str = "SUSI_CREDENTIALS_DIRECTORY";
 pub const KDBX_PASSPHRASE_ENV: &str = "SUSI_VAULT_KDBX_PASSPHRASE";
 /// File containing the KeePassXC `.kdbx` passphrase.
 pub const KDBX_PASSPHRASE_FILE_ENV: &str = "SUSI_VAULT_KDBX_PASSPHRASE_FILE";
-
 static VAULT_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static CLOUD_ENV_CACHE: OnceLock<Mutex<BTreeMap<PathBuf, CachedCloudEnv>>> = OnceLock::new();
 static UNLOCK_WARN_ONCE: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceLock::new();
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VaultCacheStamp {
     generation: u64,
@@ -64,17 +56,14 @@ struct VaultCacheStamp {
     unlock_digest: [u8; 32],
     env_digest: [u8; 32],
 }
-
 #[derive(Debug, Clone)]
 struct CachedCloudEnv {
     stamp: VaultCacheStamp,
     entries: Vec<(String, String)>,
 }
-
 fn bump_vault_cache_generation() {
     VAULT_CACHE_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
-
 pub(crate) fn write_private_vault_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     atomic_write_bytes(path, bytes)?;
     #[cfg(windows)]
@@ -84,30 +73,25 @@ pub(crate) fn write_private_vault_bytes(path: &Path, bytes: &[u8]) -> std::io::R
     bump_vault_cache_generation();
     Ok(())
 }
-
 /// Purpose identifier for the local AEAD vault master key.
 pub const PURPOSE_VAULT: &str = "vault";
 /// Purpose identifier for the cross-OS KeePassXC `.kdbx` unlock passphrase.
 pub const PURPOSE_KDBX: &str = "kdbx";
-
 const MASTER_DOMAIN: &[u8] = b"susi-vault-passphrase-v1";
 const FP_DOMAIN: &[u8] = b"susi-vault-fp-v1";
 const AEAD_KEY_DOMAIN: &[u8] = b"susi-vault-aead-v1";
 const CRED_KEY_DOMAIN: &[u8] = b"susi-cred-aead-v1";
 const CRED_AAD: &[u8] = b"susi-cred-v1";
-
 /// Overwrite byte slice with zeros and emit a compiler fence to prevent dead-store elimination.
 pub fn wipe_bytes(bytes: &mut [u8]) {
     bytes.fill(0);
     compiler_fence(Ordering::SeqCst);
 }
-
 /// Overwrite a string buffer cleanly and clear its length.
 pub fn wipe_string(secret: &mut String) {
     let owned = std::mem::take(secret);
     drop_secret_string(owned);
 }
-
 /// Best-effort in-place wipe of an owned String's backing buffer using `into_bytes` + `wipe_bytes`.
 pub fn drop_secret_string(secret: String) {
     let mut raw = secret.into_bytes();
@@ -117,7 +101,6 @@ pub fn drop_secret_string(secret: String) {
     }
     wipe_bytes(&mut raw);
 }
-
 /// How an unattended host obtains its unlock material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,7 +113,6 @@ pub enum UnlockBackendKind {
     SecretService,
     PrivateKeyFile,
 }
-
 impl UnlockBackendKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -144,7 +126,6 @@ impl UnlockBackendKind {
             Self::PrivateKeyFile => "keyfile",
         }
     }
-
     /// Parse a user-supplied backend flag.
     pub fn parse(raw: &str) -> Result<Self, String> {
         match raw.trim().to_ascii_lowercase().as_str() {
@@ -161,13 +142,11 @@ impl UnlockBackendKind {
         }
     }
 }
-
 impl fmt::Display for UnlockBackendKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
-
 /// Non-secret vault & Google Drive sync metadata (`~/.susi/vault.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultConfig {
@@ -191,7 +170,6 @@ pub struct VaultConfig {
     #[serde(default)]
     pub synced_entry_count: usize,
 }
-
 impl Default for VaultConfig {
     fn default() -> Self {
         Self {
@@ -208,14 +186,12 @@ impl Default for VaultConfig {
         }
     }
 }
-
 impl VaultConfig {
     /// Path to `vault.json` under `dir`.
     #[must_use]
     pub fn path_in(dir: &Path) -> PathBuf {
         dir.join(VAULT_CONFIG_FILE)
     }
-
     /// Load `vault.json` if present and valid; return default otherwise.
     #[must_use]
     pub fn load(dir: &Path) -> Self {
@@ -225,7 +201,6 @@ impl VaultConfig {
         };
         serde_json::from_str(&raw).unwrap_or_default()
     }
-
     /// Persist `vault.json` atomically with `0600` permissions.
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
@@ -234,7 +209,6 @@ impl VaultConfig {
         write_private_vault_bytes(&Self::path_in(dir), format!("{text}\n").as_bytes())
             .map_err(|e| format!("write vault.json: {e}"))
     }
-
     fn record_backend(&mut self, purpose: &str, kind: UnlockBackendKind) {
         let target = if purpose == PURPOSE_KDBX {
             &mut self.kdbx_unlock_backends
@@ -247,7 +221,6 @@ impl VaultConfig {
         }
     }
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedVaultEnvelope {
     format: String,
@@ -257,26 +230,22 @@ struct SealedVaultEnvelope {
     nonce_hex: String,
     ciphertext_hex: String,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct SealedPayload {
     entries: Vec<SealedEntryWire>,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedEntryWire {
     scope: String,
     name: String,
     value: String,
 }
-
 /// Decrypted in-memory view of `~/.susi/vault.sealed.json`. Wiped on drop.
 #[derive(Debug, Clone)]
 pub struct SealedVault {
     salt: [u8; 32],
     entries: BTreeMap<String, BTreeMap<String, String>>,
 }
-
 impl Default for SealedVault {
     fn default() -> Self {
         let mut salt = [0u8; 32];
@@ -287,7 +256,6 @@ impl Default for SealedVault {
         }
     }
 }
-
 impl Drop for SealedVault {
     fn drop(&mut self) {
         wipe_bytes(&mut self.salt);
@@ -301,14 +269,12 @@ impl Drop for SealedVault {
         }
     }
 }
-
 impl SealedVault {
     /// Path to `vault.sealed.json` inside `dir`.
     #[must_use]
     pub fn path_in(dir: &Path) -> PathBuf {
         dir.join(SEALED_VAULT_FILE)
     }
-
     /// Open and authenticate `vault.sealed.json` from `dir` using unattended host unlock.
     /// Returns `Ok(None)` when no `vault.sealed.json` file exists yet.
     pub fn open(dir: &Path) -> Result<Option<Self>, String> {
@@ -322,7 +288,6 @@ impl SealedVault {
         wipe_bytes(&mut master);
         res
     }
-
     /// Open `path` with an explicit 256-bit `master_key`.
     pub fn open_with_key(path: &Path, master_key: &[u8; 32]) -> Result<Option<Self>, String> {
         if !path.is_file() {
@@ -389,7 +354,6 @@ impl SealedVault {
         }
         Ok(Some(Self { salt, entries }))
     }
-
     /// Open an existing sealed vault in `dir` or construct a fresh empty vault when absent.
     pub fn open_or_init(dir: &Path) -> Result<Self, String> {
         match Self::open(dir)? {
@@ -397,7 +361,6 @@ impl SealedVault {
             None => Ok(Self::default()),
         }
     }
-
     /// Encrypt and persist atomically (`0600`) to `dir/vault.sealed.json` using unattended host unlock.
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let mut master = resolve_master_key(dir)?.ok_or_else(|| {
@@ -408,7 +371,6 @@ impl SealedVault {
         wipe_bytes(&mut master);
         res
     }
-
     /// Encrypt and persist atomically (`0600`) to `path` with explicit `master_key`.
     pub fn save_with_key(&self, path: &Path, master_key: &[u8; 32]) -> Result<(), String> {
         if let Some(parent) = path.parent() {
@@ -416,7 +378,6 @@ impl SealedVault {
         }
         let mut nonce = [0u8; 12];
         getrandom::fill(&mut nonce).map_err(|e| format!("generate vault nonce: {e}"))?;
-
         let mut payload_entries = Vec::new();
         for (scope, map) in &self.entries {
             for (name, value) in map {
@@ -432,7 +393,6 @@ impl SealedVault {
         })
         .map_err(|e| format!("serialize vault payload: {e}"))?;
         let mut pt = payload_json.into_bytes();
-
         let mut subkey = derive_vault_subkey(master_key, &self.salt);
         let cipher = ChaCha20Poly1305::new(Key::from(&subkey));
         wipe_bytes(&mut subkey);
@@ -448,7 +408,6 @@ impl SealedVault {
             .map_err(|_| "vault AEAD encryption failed".to_string());
         wipe_bytes(&mut pt);
         let ct = ct?;
-
         let envelope = SealedVaultEnvelope {
             format: SEALED_VAULT_FORMAT.to_string(),
             kdf: SEALED_VAULT_KDF.to_string(),
@@ -463,7 +422,6 @@ impl SealedVault {
         write_private_vault_bytes(path, encoded.as_bytes())
             .map_err(|e| format!("write {}: {e}", path.display()))
     }
-
     /// Read a secret value for `(scope, name)`.
     #[must_use]
     pub fn get(&self, scope: &str, name: &str) -> Option<&str> {
@@ -472,7 +430,6 @@ impl SealedVault {
             .and_then(|map| map.get(name))
             .map(String::as_str)
     }
-
     /// Look up a named key by exact `(scope, name)` or fall back across standard scopes.
     #[must_use]
     pub fn lookup_any(&self, key_or_path: &str) -> Option<&str> {
@@ -489,7 +446,6 @@ impl SealedVault {
         }
         None
     }
-
     /// Insert or update `(scope, name)`.
     pub fn set(&mut self, scope: &str, name: &str, value: &str) {
         self.entries
@@ -497,14 +453,12 @@ impl SealedVault {
             .or_default()
             .insert(name.trim().to_string(), value.to_string());
     }
-
     /// Remove `(scope, name)`. Returns `true` if a value was present.
     pub fn remove(&mut self, scope: &str, name: &str) -> bool {
         self.entries
             .get_mut(scope)
             .is_some_and(|map| map.remove(name).is_some())
     }
-
     /// Return `(name, value)` pairs inside `scope`.
     #[must_use]
     pub fn scope_entries(&self, scope: &str) -> Vec<(String, String)> {
@@ -513,7 +467,6 @@ impl SealedVault {
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default()
     }
-
     /// Return all `(scope, name)` metadata keys WITHOUT secret values.
     #[must_use]
     pub fn list_keys(&self) -> Vec<(String, String)> {
@@ -525,14 +478,12 @@ impl SealedVault {
         }
         out
     }
-
     /// Total secret entries stored in the vault.
     #[must_use]
     pub fn entry_count(&self) -> usize {
         self.entries.values().map(BTreeMap::len).sum()
     }
 }
-
 /// Safe metadata snapshot of vault state (NEVER holds secret values).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultStatus {
@@ -551,14 +502,12 @@ pub struct VaultStatus {
     pub last_sync_unix: Option<u64>,
     pub plaintext_cloud_env_keys: usize,
 }
-
 /// Outcome of migrating plaintext `cloud.env` into `SealedVault`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationSummary {
     pub migrated_keys: Vec<String>,
     pub cloud_env_cleared: bool,
 }
-
 /// Derive a stable 16-hex-char fingerprint of a 32-byte master key.
 #[must_use]
 pub fn key_fingerprint(master_key: &[u8; 32]) -> String {
@@ -568,7 +517,6 @@ pub fn key_fingerprint(master_key: &[u8; 32]) -> String {
     let digest = hasher.finalize();
     susi_paths::hex::encode(&digest[..8])
 }
-
 /// Normalize arbitrary passphrase or 64-hex-char key material into a 32-byte key.
 #[must_use]
 pub fn normalize_master_key(raw_secret: &str) -> [u8; 32] {
@@ -588,7 +536,6 @@ pub fn normalize_master_key(raw_secret: &str) -> [u8; 32] {
     out.copy_from_slice(&digest);
     out
 }
-
 fn derive_vault_subkey(master_key: &[u8; 32], salt: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(AEAD_KEY_DOMAIN);
@@ -599,7 +546,6 @@ fn derive_vault_subkey(master_key: &[u8; 32], salt: &[u8; 32]) -> [u8; 32] {
     out.copy_from_slice(&digest);
     out
 }
-
 fn derive_cred_subkey(master_key: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(CRED_KEY_DOMAIN);
@@ -610,7 +556,6 @@ fn derive_cred_subkey(master_key: &[u8; 32], nonce: &[u8; 12]) -> [u8; 32] {
     out.copy_from_slice(&digest);
     out
 }
-
 fn build_vault_aad(salt: &[u8; 32]) -> Vec<u8> {
     let mut aad =
         Vec::with_capacity(SEALED_VAULT_FORMAT.len() + 1 + SEALED_VAULT_KDF.len() + 1 + 32);
@@ -621,7 +566,6 @@ fn build_vault_aad(salt: &[u8; 32]) -> Vec<u8> {
     aad.extend_from_slice(salt);
     aad
 }
-
 fn constant_time_eq_bytes(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -632,7 +576,6 @@ fn constant_time_eq_bytes(a: &[u8], b: &[u8]) -> bool {
     }
     diff == 0
 }
-
 /// Resolve the 32-byte AEAD master key for `dir` without prompting for a password.
 pub fn resolve_master_key(dir: &Path) -> Result<Option<[u8; 32]>, String> {
     let Some((mut raw, _backend)) = resolve_unlock_secret(dir, PURPOSE_VAULT)? else {
@@ -642,13 +585,11 @@ pub fn resolve_master_key(dir: &Path) -> Result<Option<[u8; 32]>, String> {
     wipe_string(&mut raw);
     Ok(Some(key))
 }
-
 fn record_unlock_err(slot: &mut Option<String>, err: String) {
     if slot.is_none() {
         *slot = Some(err);
     }
 }
-
 /// Resolve unattended unlock secret for `purpose` (`"vault"` or `"kdbx"`).
 pub fn resolve_unlock_secret(
     dir: &Path,
@@ -695,7 +636,6 @@ pub fn resolve_unlock_secret(
     }
     Ok(None)
 }
-
 fn resolve_from_env(purpose: &str) -> Result<Option<(String, UnlockBackendKind)>, String> {
     let (val_vars, file_vars): (&[&str], &[&str]) = if purpose == PURPOSE_KDBX {
         (
@@ -733,7 +673,6 @@ fn resolve_from_env(purpose: &str) -> Result<Option<(String, UnlockBackendKind)>
     }
     Ok(None)
 }
-
 fn resolve_from_credentials_dir(
     purpose: &str,
 ) -> Result<Option<(String, UnlockBackendKind)>, String> {
@@ -753,7 +692,6 @@ fn resolve_from_credentials_dir(
     }
     resolve_from_secret_dirs(purpose, &dirs)
 }
-
 fn resolve_from_secret_dirs(
     purpose: &str,
     dirs: &[PathBuf],
@@ -782,36 +720,29 @@ fn resolve_from_secret_dirs(
     }
     Ok(None)
 }
-
 #[cfg(target_os = "linux")]
 fn cred_file_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.cred"))
 }
-
 #[cfg(windows)]
 fn dpapi_file_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.dpapi"))
 }
-
 #[cfg(any(target_os = "macos", test))]
 fn macos_keychain_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.keychain"))
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.secretservice"))
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_legacy_marker_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.secret"))
 }
-
 fn keyfile_path(dir: &Path, purpose: &str) -> PathBuf {
     dir.join(format!("{purpose}.unlock.key"))
 }
-
 fn encode_secret_payload(purpose: &str, secret: &str) -> String {
     if purpose == PURPOSE_VAULT && !secret.contains(['\r', '\n']) {
         format!("{}\n", secret.trim())
@@ -819,7 +750,6 @@ fn encode_secret_payload(purpose: &str, secret: &str) -> String {
         format!("hex:{}\n", susi_paths::hex::encode(secret.as_bytes()))
     }
 }
-
 fn decode_secret_payload(raw: &str, label: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -835,13 +765,11 @@ fn decode_secret_payload(raw: &str, label: &str) -> Result<String, String> {
     }
     Ok(trimmed.to_string())
 }
-
 #[cfg(target_os = "linux")]
 fn seal_systemd_cred(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
     let dest = cred_file_path(dir, purpose);
     let cred_name = format!("susi-{purpose}");
-
     // Try TPM2+host first, then host-only, then systemd default key mode via stdout pipe
     // so no temporary plaintext or unencrypted credential file ever hits disk.
     for key_flag in [Some("--with-key=host+tpm2"), Some("--with-key=host"), None] {
@@ -865,7 +793,6 @@ fn seal_systemd_cred(dir: &Path, purpose: &str, secret: &str) -> Result<(), Stri
     }
     Err("systemd-creds --user encrypt failed on this host".to_string())
 }
-
 #[cfg(target_os = "linux")]
 fn unseal_systemd_cred(dir: &Path, purpose: &str) -> Result<Option<String>, String> {
     let src = cred_file_path(dir, purpose);
@@ -895,7 +822,6 @@ fn unseal_systemd_cred(dir: &Path, purpose: &str) -> Result<Option<String>, Stri
     }
     Ok(Some(secret))
 }
-
 #[cfg(any(windows, test))]
 pub(crate) fn windows_powershell_exe_from(system_root: Option<&str>) -> String {
     match system_root.map(str::trim).filter(|s| !s.is_empty()) {
@@ -906,7 +832,6 @@ pub(crate) fn windows_powershell_exe_from(system_root: Option<&str>) -> String {
         None => "powershell.exe".to_string(),
     }
 }
-
 #[cfg(windows)]
 fn windows_powershell_exe() -> String {
     let root = std::env::var("SystemRoot")
@@ -914,7 +839,6 @@ fn windows_powershell_exe() -> String {
         .ok();
     windows_powershell_exe_from(root.as_deref())
 }
-
 #[cfg(windows)]
 fn seal_windows_dpapi(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
@@ -947,7 +871,6 @@ fn seal_windows_dpapi(dir: &Path, purpose: &str, secret: &str) -> Result<(), Str
     write_private_vault_bytes(&dest, format!("{b64}\n").as_bytes())
         .map_err(|e| format!("write {}: {e}", dest.display()))
 }
-
 #[cfg(windows)]
 fn unseal_windows_dpapi(dir: &Path, purpose: &str) -> Result<Option<String>, String> {
     let src = dpapi_file_path(dir, purpose);
@@ -991,7 +914,6 @@ fn unseal_windows_dpapi(dir: &Path, purpose: &str) -> Result<Option<String>, Str
     wipe_bytes(&mut decoded);
     secret.map(Some)
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_service_scope_tag(dir: &Path, purpose: &str) -> String {
     let mut hasher = Sha256::new();
@@ -1000,7 +922,6 @@ fn secret_service_scope_tag(dir: &Path, purpose: &str) -> String {
     let tag = susi_paths::hex::encode(&digest[..6]);
     format!("susi-{purpose}-{tag}")
 }
-
 #[cfg(any(target_os = "macos", test))]
 fn macos_keychain_add_script(account: &str, secret: &str) -> String {
     let mut encoded = format!("hex:{}", susi_paths::hex::encode(secret.as_bytes()));
@@ -1010,7 +931,6 @@ fn macos_keychain_add_script(account: &str, secret: &str) -> String {
     wipe_string(&mut encoded);
     script
 }
-
 #[cfg(target_os = "macos")]
 fn seal_macos_keychain(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
@@ -1030,7 +950,6 @@ fn seal_macos_keychain(dir: &Path, purpose: &str, secret: &str) -> Result<(), St
     write_private_vault_bytes(&marker, format!("{account}\n").as_bytes())
         .map_err(|e| format!("write {}: {e}", marker.display()))
 }
-
 #[cfg(target_os = "macos")]
 fn unseal_macos_keychain(dir: &Path, purpose: &str) -> Result<Option<String>, String> {
     let marker = macos_keychain_marker_path(dir, purpose);
@@ -1064,7 +983,6 @@ fn unseal_macos_keychain(dir: &Path, purpose: &str) -> Result<Option<String>, St
     wipe_string(&mut raw);
     secret.map(Some)
 }
-
 #[cfg(any(all(unix, not(target_os = "macos")), test))]
 fn resolve_dbus_session_bus_with<F>(
     env_addr: Option<&str>,
@@ -1109,7 +1027,6 @@ where
     }
     None
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(crate) fn resolve_dbus_session_bus() -> Option<String> {
     let env_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok();
@@ -1133,14 +1050,12 @@ pub(crate) fn resolve_dbus_session_bus() -> Option<String> {
         |p| p.exists(),
     )
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn apply_dbus_session_env(cmd: &mut Command) {
     if let Some(bus) = resolve_dbus_session_bus() {
         cmd.env("DBUS_SESSION_BUS_ADDRESS", bus);
     }
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn seal_secret_service(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
@@ -1176,7 +1091,6 @@ fn seal_secret_service(dir: &Path, purpose: &str, secret: &str) -> Result<(), St
     write_private_vault_bytes(&marker, format!("{account}\n").as_bytes())
         .map_err(|e| format!("write {}: {e}", marker.display()))
 }
-
 #[cfg(all(unix, not(target_os = "macos")))]
 fn unseal_secret_service(dir: &Path, purpose: &str) -> Result<Option<String>, String> {
     let primary = secret_service_marker_path(dir, purpose);
@@ -1223,7 +1137,6 @@ fn unseal_secret_service(dir: &Path, purpose: &str) -> Result<Option<String>, St
     }
     Err("Freedesktop secret-tool lookup failed".to_string())
 }
-
 fn seal_private_keyfile(dir: &Path, purpose: &str, secret: &str) -> Result<(), String> {
     create_private_dir(dir).map_err(|e| format!("create config dir: {e}"))?;
     let dest = keyfile_path(dir, purpose);
@@ -1233,7 +1146,6 @@ fn seal_private_keyfile(dir: &Path, purpose: &str, secret: &str) -> Result<(), S
     wipe_string(&mut body);
     res
 }
-
 fn read_private_keyfile(dir: &Path, purpose: &str) -> Result<Option<String>, String> {
     let path = keyfile_path(dir, purpose);
     if !path.is_file() {
@@ -1246,7 +1158,6 @@ fn read_private_keyfile(dir: &Path, purpose: &str) -> Result<Option<String>, Str
     wipe_string(&mut raw);
     res.map(Some)
 }
-
 fn seal_secret_for_host(
     dir: &Path,
     purpose: &str,
@@ -1321,7 +1232,6 @@ fn seal_secret_for_host(
         }
     }
 }
-
 /// Generate or enroll the local vault master key and store it unattended on this host.
 pub fn enroll_master_key(
     dir: &Path,
@@ -1346,15 +1256,12 @@ pub fn enroll_master_key(
         wipe_bytes(&mut raw);
         hex
     };
-
     let enrolled = seal_secret_for_host(dir, PURPOSE_VAULT, &secret, backend)?;
     let master = normalize_master_key(&secret);
     drop_secret_string(secret);
-
     let mut cfg = VaultConfig::load(dir);
     cfg.record_backend(PURPOSE_VAULT, enrolled);
     cfg.save(dir)?;
-
     let sealed_path = SealedVault::path_in(dir);
     if !sealed_path.is_file() {
         let vault = SealedVault::default();
@@ -1370,7 +1277,6 @@ pub fn enroll_master_key(
     }
     Ok(enrolled)
 }
-
 /// Enroll the cross-OS KeePassXC `.kdbx` passphrase on this host for non-interactive syncs.
 pub fn enroll_kdbx_passphrase(
     dir: &Path,
@@ -1393,7 +1299,6 @@ pub fn enroll_kdbx_passphrase(
     cfg.save(dir)?;
     Ok(enrolled)
 }
-
 /// Seal a single credential secret for `cloud-credentials/*.json`.
 /// Returns `Ok(None)` when no unattended vault key is available on this host yet.
 pub fn seal_credential_secret(dir: &Path, plaintext: &str) -> Result<Option<String>, String> {
@@ -1424,7 +1329,6 @@ pub fn seal_credential_secret(dir: &Path, plaintext: &str) -> Result<Option<Stri
         susi_paths::hex::encode(&ct)
     )))
 }
-
 /// Unseal a `cloud-credentials/*.json` value if prefixed with `enc:v1:`; otherwise pass through.
 pub fn unseal_credential_secret(dir: &Path, stored: &str) -> Result<String, String> {
     let Some(rest) = stored.strip_prefix(SEALED_VALUE_PREFIX) else {
@@ -1465,7 +1369,6 @@ pub fn unseal_credential_secret(dir: &Path, stored: &str) -> Result<String, Stri
     wipe_bytes(&mut pt);
     out
 }
-
 fn file_stamp_string(path: &Path) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     let mtime_nanos = meta
@@ -1475,11 +1378,9 @@ fn file_stamp_string(path: &Path) -> Option<String> {
         .map_or(0, |d| d.as_nanos());
     Some(format!("{}:{}:{mtime_nanos}", file_node(&meta), meta.len()))
 }
-
 fn compute_vault_cache_stamp(dir: &Path) -> VaultCacheStamp {
     let sealed_path = SealedVault::path_in(dir);
     let file_sig = file_stamp_string(&sealed_path);
-
     let mut unlock_hasher = Sha256::new();
     for name in [
         "vault.unlock.cred",
@@ -1496,7 +1397,6 @@ fn compute_vault_cache_stamp(dir: &Path) -> VaultCacheStamp {
         }
         unlock_hasher.update(b"\n");
     }
-
     let mut env_hasher = Sha256::new();
     for var in [
         VAULT_KEY_ENV,
@@ -1548,7 +1448,6 @@ fn compute_vault_cache_stamp(dir: &Path) -> VaultCacheStamp {
             }
         }
     }
-
     VaultCacheStamp {
         generation: VAULT_CACHE_GENERATION.load(Ordering::SeqCst),
         file_sig,
@@ -1556,7 +1455,6 @@ fn compute_vault_cache_stamp(dir: &Path) -> VaultCacheStamp {
         env_digest: env_hasher.finalize().into(),
     }
 }
-
 fn warn_vault_unlock_once(dir: &Path, err: &str) {
     let key = dir.to_path_buf();
     let map = UNLOCK_WARN_ONCE.get_or_init(|| Mutex::new(BTreeMap::new()));
@@ -1569,7 +1467,6 @@ fn warn_vault_unlock_once(dir: &Path, err: &str) {
         );
     }
 }
-
 /// Resolve all `"env"` + `"cloud"` scope secrets from `dir/vault.sealed.json` when available.
 /// Uses an mtime+size+env-validated cache to avoid repeated OS keystore subprocess spawns,
 /// invalidating automatically on any vault edit or credential rotation.
@@ -1587,7 +1484,6 @@ pub fn resolve_cloud_env_map(dir: &Path) -> Vec<(String, String)> {
     {
         return hit.entries;
     }
-
     let opened = SealedVault::open(dir);
     let vault = match opened {
         Ok(Some(v)) => v,
@@ -1627,7 +1523,6 @@ pub fn resolve_cloud_env_map(dir: &Path) -> Vec<(String, String)> {
     );
     out
 }
-
 /// Try persisting a cloud API key into `dir/vault.sealed.json` if an unattended master key exists.
 /// Returns `Ok(true)` if written into the sealed vault, `Ok(false)` if un-enrolled.
 pub fn try_store_cloud_key(dir: &Path, env_name: &str, value: &str) -> Result<bool, String> {
@@ -1640,7 +1535,6 @@ pub fn try_store_cloud_key(dir: &Path, env_name: &str, value: &str) -> Result<bo
     vault.save(dir)?;
     Ok(true)
 }
-
 /// Remove a cloud API key from `dir/vault.sealed.json` if present and unlockable.
 pub fn try_remove_cloud_key(dir: &Path, env_name: &str) -> Result<bool, String> {
     let Some(mut vault) = SealedVault::open(dir)? else {
@@ -1652,7 +1546,6 @@ pub fn try_remove_cloud_key(dir: &Path, env_name: &str) -> Result<bool, String> 
     }
     Ok(removed)
 }
-
 /// Move plaintext keys from `dir/cloud.env` into `dir/vault.sealed.json` (`"cloud"` scope).
 /// Ensures a master unlock key is enrolled first if needed.
 pub fn migrate_plaintext_cloud_env(
@@ -1678,7 +1571,6 @@ pub fn migrate_plaintext_cloud_env(
         }
     }
     vault.save(dir)?;
-
     let cleared = if !keep_plaintext && cloud_env_path.is_file() {
         atomic_write_bytes(
             &cloud_env_path,
@@ -1694,7 +1586,6 @@ pub fn migrate_plaintext_cloud_env(
         cloud_env_cleared: cleared,
     })
 }
-
 /// Compute safe diagnostic status of `dir` without ever releasing secret values.
 #[must_use]
 pub fn vault_status(dir: &Path) -> VaultStatus {
@@ -1713,7 +1604,6 @@ pub fn vault_status(dir: &Path) -> VaultStatus {
         Ok(None) => (None, None, None),
         Err(e) => (None, None, Some(e)),
     };
-
     let (unlocked, sealed_entry_count, open_err) = if sealed_vault_exists {
         match SealedVault::open(dir) {
             Ok(Some(v)) => (true, v.entry_count(), None),
@@ -1723,7 +1613,6 @@ pub fn vault_status(dir: &Path) -> VaultStatus {
     } else {
         (unlock_backend.is_some(), 0, None)
     };
-
     let (kdbx_unlock_enrolled, kdbx_unlock_backend) = match resolve_unlock_secret(dir, PURPOSE_KDBX)
     {
         Ok(Some((mut s, kind))) => {
@@ -1732,12 +1621,10 @@ pub fn vault_status(dir: &Path) -> VaultStatus {
         }
         Ok(None) | Err(_) => (false, None),
     };
-
     let plaintext_cloud_env_keys = std::fs::read_to_string(dir.join("cloud.env"))
         .ok()
         .map(|text| parse_env_file(&text).len())
         .unwrap_or(0);
-
     VaultStatus {
         config_dir: dir.to_path_buf(),
         sealed_vault_exists,
@@ -1755,14 +1642,12 @@ pub fn vault_status(dir: &Path) -> VaultStatus {
         plaintext_cloud_env_keys,
     }
 }
-
 #[cfg(test)]
 // Unit-test module only; production code in this module uses explicit Result handling.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicU64;
-
     fn temp_dir(tag: &str) -> PathBuf {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
@@ -1773,24 +1658,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
-
     #[test]
     fn sealed_vault_roundtrips_with_aead_and_rejects_wrong_key_or_tamper() {
         let dir = temp_dir("roundtrip");
         let path = SealedVault::path_in(&dir);
         let key = normalize_master_key("correct-horse-battery-staple-test");
         let wrong_key = normalize_master_key("wrong-key-test");
-
         let mut vault = SealedVault::default();
         vault.set("cloud", "OPENAI_API_KEY", "sk-sealed-openai-test");
         vault.set("commercial", "SUSI_COMMERCIAL_SECRET", "comm-secret-123456");
         vault.save_with_key(&path, &key).unwrap();
-
         let disk_text = std::fs::read_to_string(&path).unwrap();
         assert!(!disk_text.contains("sk-sealed-openai-test"));
         assert!(!disk_text.contains("comm-secret-123456"));
         assert!(disk_text.contains(SEALED_VAULT_FORMAT));
-
         let reopened = SealedVault::open_with_key(&path, &key).unwrap().unwrap();
         assert_eq!(
             reopened.get("cloud", "OPENAI_API_KEY"),
@@ -1801,10 +1682,8 @@ mod tests {
             Some("comm-secret-123456")
         );
         assert_eq!(reopened.list_keys().len(), 2);
-
         let wrong_err = SealedVault::open_with_key(&path, &wrong_key).unwrap_err();
         assert!(wrong_err.contains("fingerprint mismatch"));
-
         // Corrupt the ciphertext while keeping matching fingerprint/envelope.
         let mut parsed: serde_json::Value = serde_json::from_str(&disk_text).unwrap();
         let ct = parsed["ciphertext_hex"].as_str().unwrap().to_string();
@@ -1818,20 +1697,16 @@ mod tests {
         std::fs::write(&path, serde_json::to_string(&parsed).unwrap()).unwrap();
         let tamper_err = SealedVault::open_with_key(&path, &key).unwrap_err();
         assert!(tamper_err.contains("authentication failed"));
-
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn keyfile_enroll_and_credential_sealing_work_unattended() {
         let _guard = crate::env_test_lock();
         let dir = temp_dir("enroll");
         let prev = std::env::var_os(VAULT_KEY_ENV);
         std::env::remove_var(VAULT_KEY_ENV);
-
         let backend = enroll_master_key(&dir, Some("keyfile"), None).unwrap();
         assert_eq!(backend, UnlockBackendKind::PrivateKeyFile);
-
         let sealed = seal_credential_secret(&dir, "sk-live-secret-999")
             .unwrap()
             .expect("keyfile backend should seal credentials");
@@ -1845,40 +1720,34 @@ mod tests {
             unseal_credential_secret(&dir, "legacy-plain").unwrap(),
             "legacy-plain"
         );
-
         assert!(try_store_cloud_key(&dir, "DEEPSEEK_API_KEY", "ds-secret-42").unwrap());
         let cloud_map = resolve_cloud_env_map(&dir);
         assert_eq!(
             cloud_map,
             vec![("DEEPSEEK_API_KEY".to_string(), "ds-secret-42".to_string())]
         );
-
         let status = vault_status(&dir);
         assert!(status.sealed_vault_exists);
         assert!(status.unlocked);
         assert_eq!(status.unlock_backend.as_deref(), Some("keyfile"));
         assert_eq!(status.sealed_entry_count, 1);
-
         if let Some(v) = prev {
             std::env::set_var(VAULT_KEY_ENV, v);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn migrate_plaintext_cloud_env_seals_and_clears_legacy_file() {
         let _guard = crate::env_test_lock();
         let dir = temp_dir("migrate");
         let prev = std::env::var_os(VAULT_KEY_ENV);
         std::env::remove_var(VAULT_KEY_ENV);
-
         std::fs::write(
             dir.join("cloud.env"),
             "OPENAI_API_KEY=\"sk-migrate-1\"\nHF_TOKEN=hf_migrate_2\n",
         )
         .unwrap();
         enroll_master_key(&dir, Some("keyfile"), None).unwrap();
-
         let summary = migrate_plaintext_cloud_env(&dir, false).unwrap();
         assert!(summary.cloud_env_cleared);
         assert_eq!(
@@ -1888,17 +1757,14 @@ mod tests {
         let cleared = std::fs::read_to_string(dir.join("cloud.env")).unwrap();
         assert!(!cleared.contains("sk-migrate-1"));
         assert!(!cleared.contains("hf_migrate_2"));
-
         let cloud_map = resolve_cloud_env_map(&dir);
         assert!(cloud_map.contains(&("OPENAI_API_KEY".to_string(), "sk-migrate-1".to_string())));
         assert!(cloud_map.contains(&("HF_TOKEN".to_string(), "hf_migrate_2".to_string())));
-
         if let Some(v) = prev {
             std::env::set_var(VAULT_KEY_ENV, v);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn systemd_creds_user_unattended_roundtrip_when_available() {
@@ -1908,18 +1774,15 @@ mod tests {
         let prev_kdbx = std::env::var_os(KDBX_PASSPHRASE_ENV);
         std::env::remove_var(VAULT_KEY_ENV);
         std::env::remove_var(KDBX_PASSPHRASE_ENV);
-
         if let Ok(backend) = enroll_master_key(&dir, Some("systemd-creds"), None) {
             assert_eq!(backend, UnlockBackendKind::SystemdCreds);
             let kdbx_backend =
                 enroll_kdbx_passphrase(&dir, "cross-os-kdbx-test-pass", Some("systemd-creds"))
                     .unwrap();
             assert_eq!(kdbx_backend, UnlockBackendKind::SystemdCreds);
-
             let (recovered, kind) = resolve_unlock_secret(&dir, PURPOSE_KDBX).unwrap().unwrap();
             assert_eq!(kind, UnlockBackendKind::SystemdCreds);
             assert_eq!(recovered, "cross-os-kdbx-test-pass");
-
             assert!(try_store_cloud_key(&dir, "ANTHROPIC_API_KEY", "sk-ant-systemd-1").unwrap());
             let map = resolve_cloud_env_map(&dir);
             assert_eq!(
@@ -1930,7 +1793,6 @@ mod tests {
                 )]
             );
         }
-
         if let Some(v) = prev_vault {
             std::env::set_var(VAULT_KEY_ENV, v);
         }
@@ -1939,7 +1801,6 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn container_secret_dirs_unlock_without_tty() {
         let dir = temp_dir("container_secrets");
@@ -1955,22 +1816,18 @@ mod tests {
             "container-kdbx-pass\n",
         )
         .unwrap();
-
         let (vk, vb) = resolve_from_secret_dirs(PURPOSE_VAULT, std::slice::from_ref(&run_secrets))
             .unwrap()
             .unwrap();
         assert_eq!(vk, "k8s-sealed-master-key");
         assert_eq!(vb, UnlockBackendKind::CredentialsDirectory);
-
         let (kp, kb) = resolve_from_secret_dirs(PURPOSE_KDBX, &[run_secrets])
             .unwrap()
             .unwrap();
         assert_eq!(kp, "container-kdbx-pass");
         assert_eq!(kb, UnlockBackendKind::CredentialsDirectory);
-
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn passphrase_and_susi_credentials_directory_unlock_cross_os() {
         let _guard = crate::env_test_lock();
@@ -1978,7 +1835,6 @@ mod tests {
         let cred_dir = dir.join("creds");
         std::fs::create_dir_all(&cred_dir).unwrap();
         std::fs::write(cred_dir.join("susi-vault-key"), "dir-pass-123\n").unwrap();
-
         let prev_vk = std::env::var_os(VAULT_KEY_ENV);
         let prev_vp = std::env::var_os(VAULT_PASSPHRASE_ENV);
         let prev_cd = std::env::var_os("CREDENTIALS_DIRECTORY");
@@ -1987,16 +1843,13 @@ mod tests {
         std::env::remove_var(VAULT_PASSPHRASE_ENV);
         std::env::remove_var("CREDENTIALS_DIRECTORY");
         std::env::set_var(SUSI_CREDENTIALS_DIR_ENV, &cred_dir);
-
         let (s1, b1) = resolve_unlock_secret(&dir, PURPOSE_VAULT).unwrap().unwrap();
         assert_eq!(s1, "dir-pass-123");
         assert_eq!(b1, UnlockBackendKind::CredentialsDirectory);
-
         std::env::set_var(VAULT_PASSPHRASE_ENV, "env-passphrase-456");
         let (s2, b2) = resolve_unlock_secret(&dir, PURPOSE_VAULT).unwrap().unwrap();
         assert_eq!(s2, "env-passphrase-456");
         assert_eq!(b2, UnlockBackendKind::EnvBootstrap);
-
         for (name, val) in [
             (VAULT_KEY_ENV, prev_vk),
             (VAULT_PASSPHRASE_ENV, prev_vp),
@@ -2010,7 +1863,6 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn broken_primary_unlock_falls_through_to_keyfile() {
         let _guard = crate::env_test_lock();
@@ -2019,17 +1871,14 @@ mod tests {
         let prev_p = std::env::var_os(VAULT_PASSPHRASE_ENV);
         std::env::remove_var(VAULT_KEY_ENV);
         std::env::remove_var(VAULT_PASSPHRASE_ENV);
-
         seal_private_keyfile(&dir, PURPOSE_VAULT, "fallback-keyfile-secret").unwrap();
         #[cfg(target_os = "linux")]
         std::fs::write(cred_file_path(&dir, PURPOSE_VAULT), b"corrupt-cred").unwrap();
         #[cfg(all(unix, not(target_os = "macos")))]
         std::fs::write(secret_service_marker_path(&dir, PURPOSE_VAULT), "").unwrap();
-
         let (secret, backend) = resolve_unlock_secret(&dir, PURPOSE_VAULT).unwrap().unwrap();
         assert_eq!(secret, "fallback-keyfile-secret");
         assert_eq!(backend, UnlockBackendKind::PrivateKeyFile);
-
         match prev {
             Some(v) => std::env::set_var(VAULT_KEY_ENV, v),
             None => std::env::remove_var(VAULT_KEY_ENV),
@@ -2040,7 +1889,6 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn macos_keychain_and_windows_powershell_helpers_are_well_formed() {
         let dir = temp_dir("helpers");
@@ -2049,7 +1897,6 @@ mod tests {
             dir.join("vault.unlock.keychain")
         );
         let _ = std::fs::remove_dir_all(&dir);
-
         let mut script = macos_keychain_add_script("susi-vault-abc", "s e c\nr e t");
         assert!(script.starts_with(
             "add-generic-password -T /usr/bin/security -U -s susi-vault -a susi-vault-abc -w hex:"
@@ -2060,7 +1907,6 @@ mod tests {
             "s e c\nr e t"
         );
         wipe_string(&mut script);
-
         assert_eq!(
             windows_powershell_exe_from(Some(r"C:\Windows")),
             r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -2070,33 +1916,28 @@ mod tests {
             UnlockBackendKind::MacosKeychain
         );
     }
-
     #[test]
     fn cloud_env_cache_invalidates_on_update() {
         let _guard = crate::env_test_lock();
         let dir = temp_dir("cache_invalidate");
         let prev = std::env::var_os(VAULT_KEY_ENV);
         std::env::remove_var(VAULT_KEY_ENV);
-
         enroll_master_key(&dir, Some("keyfile"), None).unwrap();
         try_store_cloud_key(&dir, "OPENAI_API_KEY", "sk-first").unwrap();
         assert_eq!(
             resolve_cloud_env_map(&dir),
             vec![("OPENAI_API_KEY".to_string(), "sk-first".to_string())]
         );
-
         try_store_cloud_key(&dir, "OPENAI_API_KEY", "sk-second").unwrap();
         assert_eq!(
             resolve_cloud_env_map(&dir),
             vec![("OPENAI_API_KEY".to_string(), "sk-second".to_string())]
         );
-
         if let Some(v) = prev {
             std::env::set_var(VAULT_KEY_ENV, v);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn dbus_session_bus_resolution_handles_env_xdg_and_run_user_uid() {
         assert_eq!(
@@ -2109,27 +1950,23 @@ mod tests {
             ),
             Some("unix:path=/tmp/custom-bus".to_string())
         );
-
         assert_eq!(
             resolve_dbus_session_bus_with(None, Some("/run/user/1001/"), None, None, |p| p
                 == Path::new("/run/user/1001/bus"),),
             Some("unix:path=/run/user/1001/bus".to_string())
         );
-
         let proc_status = "Name:\tsusi\nUid:\t1002\t1002\t1002\t1002\nGid:\t1002\t1002\n";
         assert_eq!(
             resolve_dbus_session_bus_with(None, None, Some(proc_status), Some("9999"), |p| p
                 == Path::new("/run/user/1002/bus"),),
             Some("unix:path=/run/user/1002/bus".to_string())
         );
-
         assert_eq!(
             resolve_dbus_session_bus_with(None, None, None, Some("1003"), |p| {
                 p == Path::new("/run/user/1003/bus")
             }),
             Some("unix:path=/run/user/1003/bus".to_string())
         );
-
         assert_eq!(
             resolve_dbus_session_bus_with(None, None, None, None, |_| true),
             None

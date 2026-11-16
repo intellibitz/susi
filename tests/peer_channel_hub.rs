@@ -3,7 +3,6 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)] // integration test crate: no public API to document
-
 //! The sealed peer channel in the hub topology (T-PEERCHAN-1,
 //! `docs/peer-channel.md`), end to end over real sockets:
 //!
@@ -28,29 +27,23 @@
 //!   node id.
 //!
 //! Every accept, read and wait is bounded: a regression fails, never hangs.
-
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
 use susi_config::peer_channel::{Expect, LocalIdentity};
 use susi_config::peer_channel_link::{self as link, Target};
 use susi_core::commit_log;
 use susi_paths::test_env::{isolate_home, EnvGuard};
-
 mod common;
-
 const CLUSTER_KEY: [u8; 32] = [0x5Au8; 32];
-
 // `SocketTestGuard` is shared across test processes, but the two tests in
 // this binary can still enter it concurrently because the OS lock is
 // re-entrant within one process. Their four-block allocations must be
 // serialized locally as well.
 static PEER_CHANNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Ports of one contract block at offset 0 (TCP true, UDP false).
 const BLOCK: [(u16, bool); 6] = [
     (9090, true),
@@ -60,7 +53,6 @@ const BLOCK: [(u16, bool); 6] = [
     (9094, true),
     (9095, false),
 ];
-
 fn block_free(offset: u16) -> bool {
     BLOCK.iter().all(|(port, tcp)| {
         let port = port + offset;
@@ -75,7 +67,6 @@ fn block_free(offset: u16) -> bool {
         }
     })
 }
-
 /// Free contract blocks at offsets 2100 through 20000, `n` of them,
 /// skipping `taken`. The scan starts at a per-process point so concurrent
 /// test processes rarely probe the same block first.
@@ -106,14 +97,12 @@ fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     );
     found
 }
-
 /// Four free contract blocks at offsets of 2100 and up: three daemon blocks
 /// and one machine-wide reservation for the router's forwarded channel port.
 fn free_offsets() -> [u16; 4] {
     let b = free_blocks(4, &[]);
     [b[0], b[1], b[2], b[3]]
 }
-
 /// This host's routed non-loopback IPv4 address (UDP `connect` sends
 /// nothing).
 fn lan_ip() -> std::net::IpAddr {
@@ -128,7 +117,6 @@ fn lan_ip() -> std::net::IpAddr {
     );
     ip
 }
-
 struct Node {
     name: &'static str,
     home: PathBuf,
@@ -138,7 +126,6 @@ struct Node {
     node_id: String,
     pubkey: String,
 }
-
 /// The env of a client process running as `node` (this test process
 /// switches identity by switching homes).
 fn env_for(node: &Node) -> EnvGuard {
@@ -154,7 +141,6 @@ fn env_for(node: &Node) -> EnvGuard {
     env.set("SUSI_PORT_OFFSET", node.offset.to_string());
     env
 }
-
 fn make_node(
     root: &Path,
     name: &'static str,
@@ -192,27 +178,14 @@ fn make_node(
     node.pubkey = LocalIdentity::from_seed(&[seed; 32], &node.node_id).pubkey_hex();
     node
 }
-
 fn write_json(path: &Path, value: &serde_json::Value) {
     std::fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
-
 /// A bound roster row advertising `node` at `hint`, an address its traffic
 /// never comes from.
 fn roster_row(node: &Node, hint: &str) -> serde_json::Value {
-    serde_json::json!({
-        "node_id": node.node_id,
-        "address": hint,
-        "node_type": "PEER",
-        "is_active": true,
-        "capabilities": ["CORE"],
-        "admission": "explicit",
-        "pubkey": node.pubkey,
-        "key_bound_at": 1u64,
-        "last_seen_secs": 1u64,
-    })
+    serde_json::json!({"node_id":node.node_id,"address":hint,"node_type":"PEER","is_active":true,"capabilities":["CORE"],"admission":"explicit","pubkey":node.pubkey,"key_bound_at":1u64,"last_seen_secs":1u64})
 }
-
 fn susi(node: &Node) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
     isolate_home(&mut cmd, &node.home);
@@ -229,19 +202,16 @@ fn susi(node: &Node) -> Command {
         .current_dir(&node.home);
     cmd
 }
-
 /// Stops the daemon child on every exit path.
 struct Daemon {
     child: Child,
     stop: Command,
     log: PathBuf,
 }
-
 impl Daemon {
     fn log(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
     }
-
     fn assert_log_contains(&self, expected: &str) {
         // accept() drops the refused socket before its caller writes the log.
         // EOF therefore proves refusal, not that the diagnostic is readable yet.
@@ -259,7 +229,6 @@ impl Daemon {
         }
     }
 }
-
 impl Drop for Daemon {
     fn drop(&mut self) {
         if matches!(self.child.try_wait(), Ok(None)) {
@@ -277,7 +246,6 @@ impl Drop for Daemon {
         let _ = self.child.wait();
     }
 }
-
 fn start_daemon(node: &Node, extra_env: &[(&str, &Path)]) -> Daemon {
     let log = node.home.join("daemon.log");
     let mut cmd = susi(node);
@@ -298,7 +266,6 @@ fn start_daemon(node: &Node, extra_env: &[(&str, &Path)]) -> Daemon {
         log,
     }
 }
-
 /// Wait until `daemon` has published its ports (its listeners follow).
 /// `Err` when it refused to start because another process took one of its
 /// ports between the probe and the bind (the contract never moves a pinned
@@ -336,7 +303,6 @@ fn wait_published(node: &Node, daemon: &mut Daemon) -> Result<(), ()> {
         std::thread::sleep(Duration::from_millis(15));
     }
 }
-
 /// Start every node's daemon at once and wait for each; a node whose block
 /// another process took in the meantime moves to the next free block and
 /// starts again (at most three times).
@@ -362,7 +328,6 @@ fn boot(nodes: &mut [&mut Node], extra_env: &[(&str, &Path)]) -> Vec<Daemon> {
     }
     daemons
 }
-
 /// Bytes a recording forwarder saw, per direction, over every connection.
 #[derive(Default)]
 struct Capture {
@@ -371,7 +336,6 @@ struct Capture {
     /// Each connection's client-to-hub bytes, kept whole for the replay test.
     connections: Vec<Vec<u8>>,
 }
-
 /// A TCP forwarder in front of `target`: the stand-in for the router's port
 /// forward. Every connection it relays reaches the hub from this process's
 /// loopback socket, never from the member's own address.
@@ -435,21 +399,11 @@ fn recording_forwarder(
     });
     (addr, capture)
 }
-
 /// An MCP `initialize` over `stream`, as the destination's GMCP surface
 /// answers it. Returns the raw HTTP response.
 fn mcp_initialize(mut stream: link::ChannelStream) -> String {
     stream.set_read_timeout(Some(Duration::from_secs(30)));
-    let body = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "peer-channel-test", "version": "1"}
-        }
-    }))
+    let body = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"peer-channel-test","version":"1"}}}))
     .unwrap();
     let head = format!(
         "POST /mcp HTTP/1.1\r\nhost: 127.0.0.1\r\naccept: application/json, text/event-stream\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -471,7 +425,6 @@ fn mcp_initialize(mut stream: link::ChannelStream) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
-
 /// Run a `susi` client command as `node` to completion within `limit`.
 fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String) {
     let mut cmd = susi(node);
@@ -522,7 +475,6 @@ fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-
 /// `susi peers status --json` as `node`: the status row each member's
 /// daemon answered through the real peer client, keyed by node id.
 fn peers_status(node: &Node) -> std::collections::HashMap<String, serde_json::Value> {
@@ -542,7 +494,6 @@ fn peers_status(node: &Node) -> std::collections::HashMap<String, serde_json::Va
         .filter_map(|r| Some((r.get("node")?.as_str()?.to_string(), r)))
         .collect()
 }
-
 /// Poll the product status surface until every requested member answers
 /// without an error. A sealed HTTP exchange can be retried after a transient
 /// channel close; the final returned rows are still required to be successful.
@@ -568,11 +519,9 @@ fn peers_status_until(
         std::thread::sleep(Duration::from_millis(100));
     }
 }
-
 fn allow_all(_: &SocketAddr) -> Result<(), String> {
     Ok(())
 }
-
 /// Call `target` as `caller` (this process takes `caller`'s home and key)
 /// until it answers, within `limit`; the uplinks come up asynchronously.
 fn call_until_up(caller: &Node, target: &Node, limit: Duration) -> String {
@@ -606,7 +555,6 @@ fn call_until_up(caller: &Node, target: &Node, limit: Duration) -> String {
         }
     }
 }
-
 /// Read whatever a socket sends within `limit` (empty when it closes or
 /// stays silent).
 fn read_some(stream: &mut TcpStream, limit: Duration) -> Vec<u8> {
@@ -621,7 +569,6 @@ fn read_some(stream: &mut TcpStream, limit: Duration) -> Vec<u8> {
     }
     out
 }
-
 /// Nothing a call carries may appear in `bytes`.
 fn assert_opaque(what: &str, bytes: &[u8], ids: &[&str]) {
     assert!(!bytes.is_empty(), "{what}: nothing was captured");
@@ -647,7 +594,6 @@ fn assert_opaque(what: &str, bytes: &[u8], ids: &[&str]) {
         );
     }
 }
-
 #[test]
 fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     let _process = PEER_CHANNEL_TEST_LOCK
@@ -676,14 +622,12 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     // host with a different cluster key.
     let stranger = make_node(&root, "c", oa, 0x44, CLUSTER_KEY);
     let outsider = make_node(&root, "d", oa, 0x55, [0x77u8; 32]);
-
     // The hub's dedicated channel port, and the "router" in front of it.
     // Reserve the whole block, not just an ephemeral bind: another agent's
     // gate must not select this forwarding port between probe and listen.
     let channel_port = 9090 + oc;
     let channel = SocketAddr::from(([127, 0, 0, 1], channel_port));
     let (forward, capture) = recording_forwarder(std::net::IpAddr::from([127, 0, 0, 1]), channel);
-
     // Rosters advertise every member at a TEST-NET address it never
     // connects from: identity, not address, decides.
     write_json(
@@ -712,11 +656,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         // forwarder, as the router's public address would be).
         write_json(
             &me.config.join(link::HUBS_FILE),
-            &serde_json::json!([{
-                "node_id": hub.node_id,
-                "pubkey": hub.pubkey,
-                "address": forward.to_string(),
-            }]),
+            &serde_json::json!([{"node_id":hub.node_id,"pubkey":hub.pubkey,"address":forward.to_string()}]),
         );
         write_json(
             &me.config.join("config.json"),
@@ -725,12 +665,8 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     }
     write_json(
         &hub.config.join("config.json"),
-        &serde_json::json!({
-            "bind_address": "127.0.0.1",
-            "peer_channel_listen": channel.to_string(),
-        }),
+        &serde_json::json!({"bind_address":"127.0.0.1","peer_channel_listen":channel.to_string()}),
     );
-
     let relay_trace = root.join("hub-relay-trace.bin");
     let mut daemons = boot(
         &mut [&mut hub, &mut a, &mut b],
@@ -741,7 +677,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     else {
         panic!("three daemons booted");
     };
-
     // Member to hub, member to member (relayed), hub to member (over the
     // member's outbound uplink): each answered by the destination's GMCP
     // surface, authorized by the identity the channel proved, no bearer.
@@ -791,7 +726,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         a_d.log(),
         b_d.log()
     );
-
     // The network path (the forwarder) saw only the preamble and ciphertext.
     let ids = [hub.node_id.as_str(), a.node_id.as_str(), b.node_id.as_str()];
     {
@@ -803,7 +737,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     // ciphertext, no request, no response.
     let trace = std::fs::read(&relay_trace).unwrap_or_default();
     assert_opaque("the hub's relay trace", &trace, &ids);
-
     // Plaintext HTTP on the channel port gets nothing back.
     let mut plain = TcpStream::connect_timeout(&channel, Duration::from_secs(5)).unwrap();
     plain
@@ -813,7 +746,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         read_some(&mut plain, Duration::from_millis(250)).is_empty(),
         "the channel port answered plaintext HTTP"
     );
-
     // A captured handshake replayed verbatim, inside its freshness window,
     // gets no answer: a fresh call through the "router", then its bytes.
     call_until_up(&a, &hub, up);
@@ -829,7 +761,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         "the hub answered a replayed handshake"
     );
     hub_d.assert_log_contains("replayed handshake refused");
-
     // Dialing the hub while expecting another node's key fails closed.
     {
         let env = env_for(&a);
@@ -848,7 +779,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         link::close_links();
         drop(env);
     }
-
     // A node without this cluster's key gets no handshake answer at all.
     {
         let env = env_for(&outsider);
@@ -867,7 +797,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         link::close_links();
         drop(env);
     }
-
     // An unbound cluster-key holder may call the hub, but the hub relays
     // nothing for it.
     {
@@ -888,7 +817,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         link::close_links();
         drop(env);
     }
-
     // Admission by identity: the unbound cluster-key holder runs `susi
     // peers add` against the hub's public endpoint (the forwarder). The
     // channel handshake proves the hub's key; the endpoint proof runs in the
@@ -924,7 +852,6 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         );
         eprintln!("peers add over the channel:\n{stdout}{stderr}");
     }
-
     // Someone claiming member A's node id under another key is refused.
     {
         let impostor = make_node(&root, "e", oa, 0x66, CLUSTER_KEY);
@@ -952,14 +879,12 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         drop(env);
         hub_d.assert_log_contains("is bound to a different node key");
     }
-
     link::close_links();
     drop(hub_d);
     drop(a_d);
     drop(b_d);
     let _ = std::fs::remove_dir_all(&root);
 }
-
 /// Rows of `node`'s roster, keyed by node id.
 fn roster_of(node: &Node) -> std::collections::HashMap<String, serde_json::Value> {
     std::fs::read(node.config.join("peers.json"))
@@ -970,14 +895,12 @@ fn roster_of(node: &Node) -> std::collections::HashMap<String, serde_json::Value
         .filter_map(|r| Some((r.get("node_id")?.as_str()?.to_string(), r)))
         .collect()
 }
-
 /// Whether `node`'s roster binds `other` by its key.
 fn binds(node: &Node, other: &Node) -> bool {
     roster_of(node)
         .get(&other.node_id)
         .is_some_and(|r| r["pubkey"] == other.pubkey.as_str())
 }
-
 /// `susi peers add <endpoint>` as `node`, repeated until the hub confirms
 /// the remote admission. A local binding succeeds before a new hub has
 /// elected a leader and the CLI explicitly asks the operator to retry.
@@ -1026,7 +949,6 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
         std::thread::sleep(Duration::from_millis(150));
     }
 }
-
 /// The CEO topology from nothing: a fresh hub with one forwarded channel
 /// port, two fresh members behind it with no listener. Each member runs
 /// `susi peers add <hub public endpoint>`; the channel handshake proves the
@@ -1081,7 +1003,6 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     else {
         panic!("three daemons booted");
     };
-
     let endpoint = forward.to_string();
     // The daemons are deliberately started together. Under the native
     // six-lane workspace gate their listener and leader threads can be

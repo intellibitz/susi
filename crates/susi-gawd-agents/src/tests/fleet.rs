@@ -1,5 +1,4 @@
 use super::*;
-
 /// The meta registry lives under `SUSI_HOME`, which sibling tests swap and
 /// other test processes may share; a test that registers and then reads
 /// it must own a private home for the whole round trip.
@@ -12,7 +11,6 @@ fn private_registry_home(test: &str) -> std::sync::MutexGuard<'static, ()> {
     std::env::set_var("SUSI_HOME", &dir);
     guard
 }
-
 /// The DAG must report verification failure without publishing accepted
 /// evidence when the test substrate has no independent verifier.
 #[test]
@@ -61,13 +59,11 @@ fn test_dispatch_explosive_swarm_reports_unverified_dag() {
     run_git(&repo, &["add", "README.md"]);
     run_git(&repo, &["commit", "--quiet", "-m", "init"]);
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(1024));
-
     let results = GawdAgentFleet::dispatch_explosive_swarm(
         "status".to_string(),
         repo,
         Arc::clone(&blackboard),
     );
-
     assert!(
         results.iter().any(|(name, _)| name == "MissionDag"),
         "expected a MissionDag entry in the swarm results, got: {:?}",
@@ -81,10 +77,8 @@ fn test_dispatch_explosive_swarm_reports_unverified_dag() {
         .into_iter()
         .any(|entry| entry.0.starts_with("EvidenceRecord::")));
     std::env::remove_var("SUSI_TEST_MOCK_INFERENCE");
-
     let _ = std::fs::remove_dir_all(&tmp);
 }
-
 /// Regression: "What is the capital of France?" (and ordinary questions
 /// like it) used to fall through the meta-command-only allowlist and
 /// trigger wasteful Neural Agent Synthesis - verified live to cost two
@@ -112,7 +106,6 @@ fn test_is_meta_or_simple_query_covers_plain_questions() {
         "List three benefits of TDD?"
     ));
 }
-
 #[test]
 fn test_is_meta_or_simple_query_covers_substrate_meta_commands() {
     assert!(GawdAgentFleet::is_meta_or_simple_query("admin pulse: sync"));
@@ -121,7 +114,6 @@ fn test_is_meta_or_simple_query_covers_substrate_meta_commands() {
     assert!(GawdAgentFleet::is_meta_or_simple_query("ls"));
     assert!(GawdAgentFleet::is_meta_or_simple_query("whoami"));
 }
-
 #[test]
 fn test_is_meta_or_simple_query_false_for_substantive_non_question_goals() {
     // Must not swallow every goal - only real meta-commands and
@@ -133,7 +125,6 @@ fn test_is_meta_or_simple_query_false_for_substantive_non_question_goals() {
         "custom domain analytics build pipeline"
     ));
 }
-
 /// Regression: `TranslationAgent`/`SearchAgent` must gate their
 /// no-op short-circuit on `is_meta_command` (substrate meta-commands
 /// only), never on the broader `is_meta_or_simple_query` - a real
@@ -155,7 +146,6 @@ fn test_is_meta_command_excludes_plain_questions_unlike_is_meta_or_simple_query(
         "the broader check should still recognize it as question-shaped"
     );
 }
-
 #[test]
 fn test_context_store_eviction_past_capacity_does_not_self_deadlock() {
     // Regression test for a self-deadlock in HighDensityContextStore::insert's
@@ -172,12 +162,10 @@ fn test_context_store_eviction_past_capacity_does_not_self_deadlock() {
         }
         let _ = tx.send(());
     });
-
     rx.recv_timeout(std::time::Duration::from_secs(5))
         .expect("insert() past capacity deadlocked instead of evicting");
     assert!(store.iter().len() <= 4);
 }
-
 #[test]
 fn test_fleet_synthesis() {
     let _home = private_registry_home("fleet_synthesis");
@@ -191,7 +179,6 @@ fn test_fleet_synthesis() {
         base_rank: 0.85,
         is_core: false,
     });
-
     let fleet = GawdAgentFleet::synthesize_fleet(
         "custom domain analytics DevOpsStatus build",
         Path::new("."),
@@ -202,7 +189,6 @@ fn test_fleet_synthesis() {
             || fleet.iter().any(|a| a.name() == "UniversalReasoner")
     );
 }
-
 /// External executor peers (categories contain "external") run managed
 /// CLIs / paid APIs with real side effects. A generic goal must never
 /// recruit them via broad semantic match — only explicit invocation
@@ -220,7 +206,6 @@ fn test_external_executor_requires_explicit_invocation() {
         base_rank: 0.9,
         is_core: false,
     });
-
     let generic = GawdAgentFleet::synthesize_fleet(
         "reply to this chat message with a short answer",
         Path::new("."),
@@ -229,7 +214,6 @@ fn test_external_executor_requires_explicit_invocation() {
         !generic.iter().any(|a| a.name() == "PaidCliPeerAgent"),
         "generic goal must not fan out to external executor peers"
     );
-
     let explicit =
         GawdAgentFleet::synthesize_fleet("use paidclipeer to refactor the parser", Path::new("."));
     assert!(
@@ -237,7 +221,6 @@ fn test_external_executor_requires_explicit_invocation() {
         "explicitly naming the peer must still recruit it"
     );
 }
-
 /// Remote inference endpoints receive the mission goal as the request
 /// body before auth is evaluated — loopback engines are local
 /// substrates, everything else is egress.
@@ -250,7 +233,6 @@ fn test_remote_inference_endpoint_classification() {
     assert!(is_remote_inference_endpoint("http://10.0.0.5:8000/v1"));
     assert!(!is_remote_inference_endpoint(""));
 }
-
 /// The zero-config credential contract: env wins, `~/.susi/cloud.env`
 /// fills the rest (with `export ` prefix tolerated).
 #[test]
@@ -266,21 +248,18 @@ fn test_resolve_inference_key_env_and_cloud_env() {
         None
     );
 }
-
 #[test]
 fn test_blackboard_convergence() {
     let bb = Arc::new(HighDensityContextStore::new(100));
     // Skip actual execution in unit test to avoid hang/inference dependency
     // let agent = DynamicAgent { agent_name: "SusiTier2SwarmAgent".into(), mission_profile: "Test".into(), agent_rank: 0.5 };
     // let _ = agent.execute("sub-substrate convergence mission", Path::new("."), &bb);
-
     // Manually insert for test if reasoning fails in environment without weights
     if !bb.contains_key("SusiTier2SwarmAgent") {
         bb.insert("SusiTier2SwarmAgent".into(), "Converged".into());
     }
     assert!(bb.contains_key("SusiTier2SwarmAgent"));
 }
-
 #[test]
 fn test_semantic_anchors() {
     let _home = private_registry_home("semantic_anchors");
@@ -300,13 +279,11 @@ fn test_semantic_anchors() {
         .into_iter()
         .any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
 }
-
 #[test]
 fn test_devops_agent_review_goal_returns_real_bloat_audit_not_llm_narration() {
     use crate::admin_hooks::AdminHooks;
     use std::io::Write;
     use std::path::Path;
-
     struct StubBloatHooks;
     impl AdminHooks for StubBloatHooks {
         fn enforce_version_consistency(&self, _: &Path) -> EaiResult<String> {
@@ -335,7 +312,6 @@ fn test_devops_agent_review_goal_returns_real_bloat_audit_not_llm_narration() {
         }
     }
     crate::admin_hooks::init(Box::new(StubBloatHooks));
-
     let dir = std::env::temp_dir().join(format!(
         "susi_devops_agent_review_test_{}",
         std::process::id()
@@ -344,19 +320,15 @@ fn test_devops_agent_review_goal_returns_real_bloat_audit_not_llm_narration() {
     std::fs::create_dir_all(&src_dir).unwrap();
     let mut f = std::fs::File::create(src_dir.join("lib.rs")).unwrap();
     writeln!(f, "fn ok() {{ let _ = Some(1).unwrap(); }}").unwrap();
-
     let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(100));
     let agent = DevOpsAgent;
     let res = agent.execute("code review susi", &dir, &bb).unwrap();
-
     // Host owns BloatAuditor; DevOpsAgent must route via admin_hooks, not LLM-narrate.
     assert!(res.contains("Files Scanned"));
     assert!(res.contains(".unwrap() / .expect() / .clone() calls"));
     assert_eq!(bb.get("DevOpsAgent").as_deref(), Some(res.as_str()));
-
     let _ = std::fs::remove_dir_all(&dir);
 }
-
 #[test]
 fn test_admin_agent_does_not_fire_mutating_actions_on_incidental_wording() {
     // Regression test for goal text triggering destructive admin actions
@@ -377,7 +349,6 @@ fn test_admin_agent_does_not_fire_mutating_actions_on_incidental_wording() {
         "mutating actions require the explicit admin pulse sentinel"
     );
 }
-
 #[test]
 fn test_admin_agent_fires_mutating_actions_with_explicit_admin_pulse() {
     assert_eq!(
@@ -395,7 +366,6 @@ fn test_admin_agent_fires_mutating_actions_with_explicit_admin_pulse() {
         Some("install".to_string())
     );
 }
-
 #[test]
 fn test_admin_agent_read_only_actions_stay_reachable_without_admin_pulse() {
     assert_eq!(
@@ -411,7 +381,6 @@ fn test_admin_agent_read_only_actions_stay_reachable_without_admin_pulse() {
         Some("list_models".to_string())
     );
 }
-
 fn raw_synthesized_profile(name: &str, description: &str) -> AgentProfile {
     AgentProfile {
         name: name.to_string(),
@@ -422,7 +391,6 @@ fn raw_synthesized_profile(name: &str, description: &str) -> AgentProfile {
         is_core: false,
     }
 }
-
 #[test]
 fn test_sanitize_profile_forces_is_core_false() {
     let mut profile = raw_synthesized_profile("SneakyAgent", "harmless");
@@ -433,7 +401,6 @@ fn test_sanitize_profile_forces_is_core_false() {
         "LLM-synthesized profiles must never be auto-recruited into every future mission"
     );
 }
-
 #[test]
 fn test_sanitize_profile_strips_invalid_name_chars_and_truncates() {
     let profile = raw_synthesized_profile(
@@ -447,26 +414,22 @@ fn test_sanitize_profile_strips_invalid_name_chars_and_truncates() {
         NeuralAgentFactory::MAX_DESCRIPTION_LEN
     );
 }
-
 #[test]
 fn test_sanitize_profile_rejects_name_that_is_entirely_invalid_chars() {
     let profile = raw_synthesized_profile("!!! ### ???", "harmless");
     assert!(NeuralAgentFactory::sanitize_profile(profile, Path::new(".")).is_err());
 }
-
 #[test]
 fn test_sanitize_profile_clamps_base_rank_into_valid_range() {
     let mut profile = raw_synthesized_profile("RankTestAgent", "harmless");
     profile.base_rank = 99.0;
     let sanitized = NeuralAgentFactory::sanitize_profile(profile, Path::new(".")).unwrap();
     assert!((0.1..=1.0).contains(&sanitized.base_rank));
-
     let mut profile2 = raw_synthesized_profile("RankTestAgent2", "harmless");
     profile2.base_rank = -5.0;
     let sanitized2 = NeuralAgentFactory::sanitize_profile(profile2, Path::new(".")).unwrap();
     assert!((0.1..=1.0).contains(&sanitized2.base_rank));
 }
-
 #[test]
 fn test_sanitize_profile_rejects_destructive_pattern_in_description() {
     let profile = raw_synthesized_profile(
@@ -477,7 +440,6 @@ fn test_sanitize_profile_rejects_destructive_pattern_in_description() {
         .expect_err("a description containing a destructive command pattern must be rejected");
     assert!(err.to_string().contains("SafetyAgent"));
 }
-
 #[test]
 fn test_sanitize_profile_caps_keyword_lists() {
     let mut profile = raw_synthesized_profile("KeywordAgent", "harmless");
@@ -493,7 +455,6 @@ fn test_sanitize_profile_caps_keyword_lists() {
         .iter()
         .all(|a| a.len() <= NeuralAgentFactory::MAX_KEYWORD_LEN));
 }
-
 #[test]
 fn test_synthesis_similarity_threshold_respects_trust_level() {
     assert_eq!(
@@ -518,7 +479,6 @@ fn test_synthesis_similarity_threshold_respects_trust_level() {
         0.4
     );
 }
-
 #[test]
 fn test_conservative_trust_level_raises_bar_above_autonomous() {
     let conservative = GawdAgentFleet::synthesis_similarity_threshold("conservative");
@@ -527,19 +487,16 @@ fn test_conservative_trust_level_raises_bar_above_autonomous() {
     assert!(conservative > balanced);
     assert!(balanced > autonomous);
 }
-
 #[test]
 fn test_extract_candidate_file_paths_finds_real_shapes_and_ignores_noise() {
     let text = "See src/gawd/agents.rs:606 and (Cargo.toml), also plain text with no path.";
     let paths = extract_candidate_file_paths(text);
     assert_eq!(paths, vec!["src/gawd/agents.rs", "Cargo.toml"]);
 }
-
 #[test]
 fn test_extract_candidate_file_paths_empty_for_no_paths() {
     assert!(extract_candidate_file_paths("Hardware Saturated: 8 CPUs, 32GB RAM.").is_empty());
 }
-
 #[test]
 fn test_audit_claim_grounding_verifies_real_file() {
     let workspace = Path::new(".");
@@ -548,7 +505,6 @@ fn test_audit_claim_grounding_verifies_real_file() {
     assert_eq!(referenced, 1);
     assert!(hallucinated.is_empty());
 }
-
 #[test]
 fn test_audit_claim_grounding_flags_nonexistent_file() {
     let workspace = Path::new(".");
@@ -560,7 +516,6 @@ fn test_audit_claim_grounding_flags_nonexistent_file() {
         vec!["src/totally/made/up/file.rs".to_string()]
     );
 }
-
 #[test]
 fn test_epistemic_auditor_flags_hallucinated_path() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -582,7 +537,6 @@ fn test_epistemic_auditor_flags_hallucinated_path() {
     assert!(!res.contains("FAILURE"));
     assert!(!res.contains("GAP"));
 }
-
 #[test]
 fn test_epistemic_auditor_rejects_unverified_evidence_record() {
     use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
@@ -612,7 +566,6 @@ fn test_epistemic_auditor_rejects_unverified_evidence_record() {
         .unwrap_err();
     assert!(err.to_string().contains("NAKED OR REJECTED ASSERTIONS"));
 }
-
 #[test]
 fn test_epistemic_auditor_verifies_real_path() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -625,7 +578,6 @@ fn test_epistemic_auditor_verifies_real_path() {
     assert!(res.contains("Epistemic integrity: FILE REFERENCES VERIFIED"));
     assert!(res.contains("1 file-grounded"));
 }
-
 #[test]
 fn test_epistemic_auditor_inconclusive_when_nothing_file_grounded() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -637,7 +589,6 @@ fn test_epistemic_auditor_inconclusive_when_nothing_file_grounded() {
     let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
     assert!(res.contains("INCONCLUSIVE"));
 }
-
 #[test]
 fn test_summarize_swarm_signals_detects_real_conflict() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -653,7 +604,6 @@ fn test_summarize_swarm_signals_detects_real_conflict() {
     assert_eq!(critical, vec!["GmcpAgent".to_string()]);
     assert_eq!(healthy, vec!["HardwareAgent".to_string()]);
 }
-
 #[test]
 fn test_consensus_mediator_reports_real_conflict_not_hardcoded_zero() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -673,7 +623,6 @@ fn test_consensus_mediator_reports_real_conflict_not_hardcoded_zero() {
     assert!(!res.contains("FAILURE"));
     assert!(!res.contains("GAP"));
 }
-
 #[test]
 fn test_consensus_mediator_reports_clean_when_no_critical_signals() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -683,14 +632,12 @@ fn test_consensus_mediator_reports_clean_when_no_critical_signals() {
     assert!(res.contains("No critical/problem signals detected"));
     assert!(!res.contains("CONFLICT"));
 }
-
 #[test]
 fn test_context_agent_is_natively_instantiated_not_generic_fallback() {
     let agent = instantiate_native_agent("ContextAgent")
         .expect("ContextAgent must have a real native implementation");
     assert_eq!(agent.name(), "ContextAgent");
 }
-
 #[test]
 fn test_detect_project_markers_finds_real_markers_ignores_absent_ones() {
     let tmp = std::env::temp_dir().join(format!(
@@ -699,14 +646,11 @@ fn test_detect_project_markers_finds_real_markers_ignores_absent_ones() {
     ));
     let _ = std::fs::create_dir_all(&tmp);
     std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
-
     let markers = detect_project_markers(&tmp);
     assert!(markers.contains(&"Cargo.toml".to_string()));
     assert!(!markers.contains(&"package.json".to_string()));
-
     let _ = std::fs::remove_dir_all(&tmp);
 }
-
 #[test]
 fn test_scan_workspace_top_level_counts_real_entries() {
     let tmp = std::env::temp_dir().join(format!(
@@ -717,14 +661,11 @@ fn test_scan_workspace_top_level_counts_real_entries() {
     std::fs::create_dir_all(tmp.join("subdir")).unwrap();
     std::fs::write(tmp.join("a.txt"), "x").unwrap();
     std::fs::write(tmp.join("b.txt"), "y").unwrap();
-
     let (files, dirs) = scan_workspace_top_level(&tmp);
     assert_eq!(files, 2);
     assert_eq!(dirs, 1);
-
     let _ = std::fs::remove_dir_all(&tmp);
 }
-
 #[test]
 fn test_context_agent_execute_reports_real_workspace_state() {
     let tmp = std::env::temp_dir().join(format!(
@@ -734,21 +675,17 @@ fn test_context_agent_execute_reports_real_workspace_state() {
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
-
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
     let agent = ContextAgent;
     let res = agent.execute("goal", &tmp, &blackboard).unwrap();
-
     assert!(res.contains("1 top-level file"));
     assert!(res.contains("Cargo.toml"));
     assert_eq!(
         blackboard.get("ContextAgent").as_deref(),
         Some(res.as_str())
     );
-
     let _ = std::fs::remove_dir_all(&tmp);
 }
-
 #[test]
 fn test_devops_agent_observes_disk_natively() {
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -777,7 +714,6 @@ fn test_devops_agent_observes_disk_natively() {
     );
     assert_eq!(blackboard.get("DevOpsAgent").as_deref(), Some(res.as_str()));
 }
-
 #[test]
 fn test_search_agent_does_not_ship_a_weather_client() {
     let agent = instantiate_native_agent("SearchAgent")
@@ -801,7 +737,6 @@ fn test_search_agent_does_not_ship_a_weather_client() {
     );
     assert_eq!(blackboard.get("SearchAgent").as_deref(), Some(res.as_str()));
 }
-
 /// TranslationAgent must not be a DynamicAgent-only phantom in the
 /// bundled defaults: either it has a native factory, or it is absent
 /// from `agents.default.json` entirely.
@@ -836,7 +771,6 @@ fn translation_agent_native_or_absent() {
         );
     }
 }
-
 /// Every `is_core: true` entry in agents.default.json has a live
 /// native factory in the registry — core agents are never phantoms.
 #[test]

@@ -15,10 +15,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-
 /// Replies with the received text, uppercased, as a completed task.
 struct Shout;
-
 impl AgentExecutor for Shout {
     fn execute<'a>(
         &'a self,
@@ -44,7 +42,6 @@ impl AgentExecutor for Shout {
             Ok(())
         })
     }
-
     fn cancel<'a>(
         &'a self,
         _ctx: &'a RequestContext,
@@ -53,12 +50,10 @@ impl AgentExecutor for Shout {
         Box::pin(async { Ok(()) })
     }
 }
-
 struct PausingAcp {
     entered: Arc<AtomicBool>,
     release: Arc<AtomicBool>,
 }
-
 impl AcpTurnExecutor for PausingAcp {
     fn execute_turn(
         &self,
@@ -74,7 +69,6 @@ impl AcpTurnExecutor for PausingAcp {
         Ok(vec![AcpContentBlock::text("done")])
     }
 }
-
 /// The production stack around `Shout`, admitting every caller, on a
 /// loopback port.
 fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
@@ -95,7 +89,6 @@ fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
     );
     super::serve_on_loopback(runtime, app)
 }
-
 fn post(addr: SocketAddr, path: &str, body: &serde_json::Value) -> serde_json::Value {
     let payload = serde_json::to_vec(body).unwrap();
     let reply = susi_http_transport::http_call_with_body(
@@ -112,7 +105,6 @@ fn post(addr: SocketAddr, path: &str, body: &serde_json::Value) -> serde_json::V
     .unwrap();
     serde_json::from_str(&reply.into_utf8(1_000_000).unwrap()).unwrap()
 }
-
 #[test]
 fn unauthorized_carries_bearer_challenge() {
     let response = super::unauthorized();
@@ -125,7 +117,6 @@ fn unauthorized_carries_bearer_challenge() {
         Some("Bearer realm=\"susi-a2a\"")
     );
 }
-
 /// The shared outbound `message/send` shape round-trips through the real
 /// JSON-RPC router: the v1.0 part is decoded as text and the task
 /// result folds back into its reply.
@@ -140,7 +131,6 @@ fn shared_message_send_round_trips_through_the_a2a_router() {
         "{reply}"
     );
 }
-
 /// The SSE route answers JSON-RPC errors with the standard codes too:
 /// an unknown method on `/stream` is -32601 and a resubscribe to a task
 /// that does not exist is A2A task-not-found (-32001), not a wrapped
@@ -154,16 +144,17 @@ fn stream_route_errors_carry_standard_codes() {
         call(serde_json::json!({"jsonrpc":"2.0","id":5,"method":"x/unknown","params":{}}));
     assert_eq!(unknown["error"]["code"], -32601, "{unknown}");
     assert_eq!(unknown["id"], 5, "{unknown}");
-    let missing = call(serde_json::json!({"jsonrpc":"2.0","id":6,
-        "method":"tasks/resubscribe","params":{"id":"no-such-task"}}));
+    let missing = call(
+        serde_json::json!({"jsonrpc":"2.0","id":6,"method":"tasks/resubscribe","params":{"id":"no-such-task"}}),
+    );
     assert_eq!(missing["error"]["code"], -32001, "{missing}");
     // The A2A 1.0 name reaches the same handler.
-    let subscribe = call(serde_json::json!({"jsonrpc":"2.0","id":7,
-        "method":"SubscribeToTask","params":{"id":"no-such-task"}}));
+    let subscribe = call(
+        serde_json::json!({"jsonrpc":"2.0","id":7,"method":"SubscribeToTask","params":{"id":"no-such-task"}}),
+    );
     assert_eq!(subscribe["error"]["code"], -32001, "{subscribe}");
     assert_eq!(subscribe["id"], 7, "{subscribe}");
 }
-
 /// The card claims A2A 1.0, so the 1.0 method names (`SendMessage`, ...)
 /// dispatch like the slash names, which stay accepted as aliases.
 #[test]
@@ -186,7 +177,6 @@ fn a2a_1_0_method_names_dispatch() {
     let get = send("GetTask");
     assert_ne!(get["error"]["code"], -32601, "GetTask must dispatch: {get}");
 }
-
 /// Envelope and params failures carry the standard JSON-RPC codes and
 /// the request id; a handler refusal on `/` stays -32603.
 #[test]
@@ -221,11 +211,9 @@ fn rpc_errors_carry_standard_codes_and_ids() {
     );
     assert_eq!(
         refused,
-        serde_json::json!({"jsonrpc":"2.0","id":null,
-            "error":{"code":-32603,"message":"task not found: t"}})
+        serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"task not found: t"}})
     );
 }
-
 #[test]
 fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -250,7 +238,6 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
         }),
     );
     let addr = super::serve_on_loopback(&runtime, guarded_app);
-
     // Public discovery at /.well-known/acp.json needs no token.
     let disc_resp = susi_http_transport::http_call_with_body(
         "GET",
@@ -266,7 +253,6 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
         serde_json::from_str(&disc_resp.into_utf8(1_000_000).unwrap()).unwrap();
     assert_eq!(disc["schema"], ACP_DISCOVERY_SCHEMA);
     assert_eq!(disc["protocol_version"], ACP_PROTOCOL_VERSION);
-
     // POST /acp without token returns 401.
     let unauth = susi_http_transport::http_call_with_body(
         "POST",
@@ -278,15 +264,9 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     )
     .unwrap();
     assert_eq!(unauth.status, 401);
-
     // POST /acp with valid Bearer token creates a session and POST /acp/stream streams SSE.
     let session_wt = crate::test_board_fixture::init_board_workspace("srv-routes-session");
-    let new_payload = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 10,
-        "method": "session/new",
-        "params": { "workspace": session_wt.to_string_lossy() }
-    }))
+    let new_payload = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":10,"method":"session/new","params":{"workspace":session_wt.to_string_lossy()}}))
     .unwrap();
     let authed_new = susi_http_transport::http_call_with_body(
         "POST",
@@ -304,16 +284,7 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     let new_json: serde_json::Value =
         serde_json::from_str(&authed_new.into_utf8(1_000_000).unwrap()).unwrap();
     let sid = new_json["result"]["session_id"].as_str().unwrap();
-
-    let stream_payload = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 11,
-        "method": "session/prompt",
-        "params": {
-            "session_id": sid,
-            "prompt": [{ "type": "text", "text": "acp over 9094" }]
-        }
-    }))
+    let stream_payload = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"session_id":sid,"prompt":[{"type":"text","text":"acp over 9094"}]}}))
     .unwrap();
     let stream_resp = susi_http_transport::http_call_with_body(
         "POST",
@@ -338,7 +309,6 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     );
     assert!(!sse_text.contains("acp-ack["), "{sse_text}");
 }
-
 #[test]
 fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
     let entered = Arc::new(AtomicBool::new(false));
@@ -351,12 +321,9 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
         }),
     ));
     let session = engine.handle_jsonrpc_bytes(
-        &serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "session/new",
-            "params": {}
-        }))
+        &serde_json::to_vec(
+            &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}),
+        )
         .unwrap(),
     );
     let session_id = serde_json::from_slice::<serde_json::Value>(&session).unwrap()["result"]
@@ -364,12 +331,7 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
         .as_str()
         .unwrap()
         .to_owned();
-    let body = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "session/prompt",
-        "params": {"session_id": session_id, "prompt": "stream this"}
-    }))
+    let body = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"session_id":session_id,"prompt":"stream this"}}))
     .unwrap();
     let (frames_tx, frames_rx) = std::sync::mpsc::channel();
     let worker_engine = Arc::clone(&engine);
@@ -379,7 +341,6 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
             .handle_sse_stream_bytes_with_session_header_and(&body, None, &mut send)
             .unwrap();
     });
-
     let first = frames_rx
         .recv_timeout(Duration::from_secs(1))
         .expect("turn_started arrives before the mission blocks");
@@ -394,7 +355,6 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
         .expect("message_delta arrives before the mission is released");
     assert!(delta.contains("message_delta"), "{delta}");
     assert!(delta.contains("early"), "{delta}");
-
     release.store(true, Ordering::Release);
     let mut result = String::new();
     while !result.contains("acp.turn.result") {
@@ -405,18 +365,13 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
     assert!(result.contains("done"), "{result}");
     worker.join().unwrap();
 }
-
 #[test]
 fn acp_routes_propagate_and_enforce_acp_session_id_header() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let addr = serve_shout(&runtime);
-
-    let new_payload = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "session/new",
-        "params": {}
-    }))
+    let new_payload = serde_json::to_vec(
+        &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}),
+    )
     .unwrap();
     let created = susi_http_transport::http_call_with_body(
         "POST",
@@ -431,14 +386,8 @@ fn acp_routes_propagate_and_enforce_acp_session_id_header() {
     let created_json: serde_json::Value =
         serde_json::from_str(&created.into_utf8(1_000_000).unwrap()).unwrap();
     let sid = created_json["result"]["session_id"].as_str().unwrap();
-
     // 1. POST /acp omits session_id in params, bound via HTTP Acp-Session-Id header.
-    let prompt_no_sid = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "session/prompt",
-        "params": { "prompt": "header-bound rpc turn" }
-    }))
+    let prompt_no_sid = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"prompt":"header-bound rpc turn"}}))
     .unwrap();
     let rpc_resp = susi_http_transport::http_call_with_body(
         "POST",
@@ -457,14 +406,8 @@ fn acp_routes_propagate_and_enforce_acp_session_id_header() {
         serde_json::from_str(&rpc_resp.into_utf8(1_000_000).unwrap()).unwrap();
     assert_eq!(rpc_json["result"]["session_id"], sid, "{rpc_json}");
     assert_eq!(rpc_json["result"]["stop_reason"], "end_turn", "{rpc_json}");
-
     // 2. POST /acp rejects mismatched Acp-Session-Id header vs JSON-RPC params.session_id.
-    let prompt_conflict = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "session/prompt",
-        "params": { "session_id": "acp-sess-other", "prompt": "conflict" }
-    }))
+    let prompt_conflict = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"session_id":"acp-sess-other","prompt":"conflict"}}))
     .unwrap();
     let rpc_conflict = susi_http_transport::http_call_with_body(
         "POST",
@@ -484,14 +427,8 @@ fn acp_routes_propagate_and_enforce_acp_session_id_header() {
         rpc_conflict_json["error"]["code"], JSONRPC_INVALID_PARAMS,
         "{rpc_conflict_json}"
     );
-
     // 3. POST /acp/stream binds session_id from Acp-Session-Id header when omitted from params.
-    let sse_no_sid = serde_json::to_vec(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 4,
-        "method": "session/prompt",
-        "params": { "prompt": "header-bound sse turn" }
-    }))
+    let sse_no_sid = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"prompt":"header-bound sse turn"}}))
     .unwrap();
     let sse_resp = susi_http_transport::http_call_with_body(
         "POST",
@@ -512,7 +449,6 @@ fn acp_routes_propagate_and_enforce_acp_session_id_header() {
     assert!(sse_text.contains("header-bound rpc turn"), "{sse_text}");
     assert!(sse_text.contains("header-bound sse turn"), "{sse_text}");
     assert!(sse_text.contains("gawd mission:"), "{sse_text}");
-
     // 4. POST /acp/stream rejects mismatched Acp-Session-Id header vs JSON-RPC params.session_id.
     let sse_conflict = susi_http_transport::http_call_with_body(
         "POST",

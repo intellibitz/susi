@@ -1,7 +1,5 @@
 //! Tests for `extensions`.
-
 use crate::extensions::*;
-
 fn with_temp_home<F: FnOnce()>(f: F) {
     let _guard = crate::env_test_lock();
     let tmp = std::env::temp_dir().join(format!(
@@ -33,26 +31,13 @@ fn with_temp_home<F: FnOnce()>(f: F) {
     invalidate_extension_caches();
     let _ = std::fs::remove_dir_all(tmp);
 }
-
 /// A synthetic pack manifest built inside the test (core bundles none): it
 /// maps catalogs through `../../` and declares `filesystem.read`, the shape
 /// the old bundled default pack had.
 fn synthetic_manifest() -> ExtensionManifest {
-    serde_json::from_value(serde_json::json!({
-        "id": "acme",
-        "name": "Acme Pack",
-        "version": "0.1.0",
-        "apiVersion": "1",
-        "capabilities": ["catalog.cloud_vendors", "catalog.mcp"],
-        "permissions": ["filesystem.read"],
-        "files": {
-            "cloud-vendors.json": "cloud-vendors.json",
-            "leading-mcp.json": "../../shared/leading-mcp.json"
-        }
-    }))
+    serde_json::from_value(serde_json::json!({"id":"acme","name":"Acme Pack","version":"0.1.0","apiVersion":"1","capabilities":["catalog.cloud_vendors","catalog.mcp"],"permissions":["filesystem.read"],"files":{"cloud-vendors.json":"cloud-vendors.json","leading-mcp.json":"../../shared/leading-mcp.json"}}))
     .expect("synthetic manifest")
 }
-
 #[test]
 fn synthetic_pack_manifest_validates() {
     let m = synthetic_manifest();
@@ -61,14 +46,12 @@ fn synthetic_pack_manifest_validates() {
     assert!(validate_manifest(&m).is_ok());
     assert_eq!(m.api_version.chars().next(), Some('1'));
 }
-
 #[test]
 fn validate_manifest_rejects_incompatible_api_major() {
     let mut m = synthetic_manifest();
     m.api_version = "2.0.0".into();
     assert!(validate_manifest(&m).is_err());
 }
-
 #[test]
 fn load_pack_rejects_incompatible_api_without_activating() {
     with_temp_home(|| {
@@ -91,7 +74,6 @@ fn load_pack_rejects_incompatible_api_without_activating() {
         assert_eq!(active_pack().id, "default");
     });
 }
-
 #[test]
 fn bundled_cloud_vendors_parse() {
     let vendors: Vec<CloudVendorEntry> =
@@ -100,7 +82,6 @@ fn bundled_cloud_vendors_parse() {
     let openai = vendors.iter().find(|v| v.id == "openai").expect("openai");
     assert_eq!(openai.api_key_env, "OPENAI_API_KEY");
 }
-
 #[test]
 fn load_json_or_bundled_uses_bundled_when_no_host_file() {
     // Must hold env_test_lock via with_temp_home: load_json_or_bundled
@@ -113,7 +94,6 @@ fn load_json_or_bundled_uses_bundled_when_no_host_file() {
         assert!(!vendors.is_empty());
     });
 }
-
 /// Zero-UI plan A9: core seeds no pack. A fresh host keeps no extensions
 /// directory at all, and every reader serves compiled defaults.
 #[test]
@@ -135,7 +115,6 @@ fn a_fresh_host_seeds_no_pack_and_writes_nothing() {
         assert!(!extensions_root().exists(), "reads write nothing");
     });
 }
-
 /// With no pack installed the managed-peer catalogs are empty, and the
 /// adapter files the host (or the commercial desktop) writes under
 /// `execution-agents/` and `agent-engines/` are admitted as managed peers.
@@ -168,7 +147,6 @@ fn managed_peers_work_with_an_empty_catalog_and_pick_up_host_adapters() {
         let names: Vec<_> = peers.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["acme-coder", "acme-flow"]);
         assert!(peers.iter().all(|p| p.protocol == "managed"));
-
         // A pack entry plus a same-id host file (the per-id adapter override
         // `susi agents configure acme-coder` writes) is one peer, not two.
         let pack = extensions_root().join("peers");
@@ -191,7 +169,6 @@ fn managed_peers_work_with_an_empty_catalog_and_pick_up_host_adapters() {
         unload_pack("peers").unwrap();
     });
 }
-
 /// CLI/HTTP/A2A peers ship in a pack as `external-peer-agents.json` (a bare
 /// array of peer specs): admitted while the pack is loaded, gone after
 /// unload.
@@ -225,7 +202,6 @@ fn pack_external_peer_agents_are_admitted_while_loaded() {
         assert!(names().is_empty());
     });
 }
-
 /// `default` means compiled defaults, also on an upgraded host that still
 /// holds a legacy `extensions/default/` an earlier core seeded: unloading it
 /// stops serving its files, and unloading the active pack never activates
@@ -245,7 +221,6 @@ fn unload_falls_back_to_compiled_defaults_only() {
         invalidate_extension_caches();
         let rows: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[]");
         assert_eq!(rows.len(), 1, "an upgraded host serves its legacy pack");
-
         unload_pack("default").unwrap();
         assert!(pack_file("leading-mcp.json").is_none());
         let rows: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[]");
@@ -253,7 +228,6 @@ fn unload_falls_back_to_compiled_defaults_only() {
         assert!(list_packs()
             .iter()
             .any(|p| p.id == "default" && !p.active && !p.loaded));
-
         // Unloading the active pack does not activate another installed one.
         create_pack("aaa-old").unwrap();
         create_pack("zzz-new").unwrap();
@@ -261,13 +235,11 @@ fn unload_falls_back_to_compiled_defaults_only() {
         unload_pack("zzz-new").unwrap();
         assert_eq!(active_pack().id, "default");
         assert!(pack_file("leading-mcp.json").is_none());
-
         // An explicit load re-admits the legacy pack.
         load_pack("default").unwrap();
         assert!(pack_file("leading-mcp.json").is_some());
     });
 }
-
 #[test]
 fn load_unload_round_trip_custom_pack() {
     with_temp_home(|| {
@@ -289,15 +261,12 @@ fn load_unload_round_trip_custom_pack() {
             r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
         )
         .unwrap();
-
         let loaded = load_pack("custom").unwrap();
         assert!(loaded.active && loaded.loaded);
         assert_eq!(active_pack().id, "custom");
-
         let vendors = load_cloud_vendors();
         assert_eq!(vendors.len(), 1);
         assert_eq!(vendors[0].id, "acme");
-
         unload_pack("custom").unwrap();
         assert_eq!(active_pack().id, "default");
         let after = list_packs();
@@ -306,7 +275,6 @@ fn load_unload_round_trip_custom_pack() {
             .any(|p| p.id == "custom" && !p.loaded && !p.active));
     });
 }
-
 #[test]
 fn create_pack_writes_manifest_shell() {
     with_temp_home(|| {
@@ -323,7 +291,6 @@ fn create_pack_writes_manifest_shell() {
         assert_eq!(active_pack().id, "default");
     });
 }
-
 #[test]
 fn validate_manifest_rejects_unknown_permission() {
     let mut m = synthetic_manifest();
@@ -331,7 +298,6 @@ fn validate_manifest_rejects_unknown_permission() {
     let err = validate_manifest(&m).expect_err("unknown permission must fail");
     assert!(err.contains("unknown permission"), "{err}");
 }
-
 #[test]
 fn validate_manifest_rejects_escaping_files_without_permission() {
     let mut m = synthetic_manifest();
@@ -341,7 +307,6 @@ fn validate_manifest_rejects_escaping_files_without_permission() {
     let err = validate_manifest(&m).expect_err("escape without filesystem.read must fail");
     assert!(err.contains("filesystem.read"), "{err}");
 }
-
 #[test]
 fn validate_manifest_rejects_backslash_escapes_on_every_host() {
     // `\` separates components on Windows, so a manifest validated on any
@@ -362,7 +327,6 @@ fn validate_manifest_rejects_backslash_escapes_on_every_host() {
         .insert("ok.json".into(), "sub\\..\\inside.json".into());
     assert!(validate_manifest(&m).is_ok());
 }
-
 #[test]
 fn validate_manifest_allows_escaping_files_with_filesystem_read() {
     // A pack that maps catalogs via `../../` and declares filesystem.read
@@ -374,7 +338,6 @@ fn validate_manifest_allows_escaping_files_with_filesystem_read() {
     );
     assert!(validate_manifest(&m).is_ok());
 }
-
 #[test]
 fn validate_manifest_rejects_absolute_file_paths_even_with_permission() {
     let mut m = synthetic_manifest();
@@ -389,7 +352,6 @@ fn validate_manifest_rejects_absolute_file_paths_even_with_permission() {
     let err = validate_manifest(&m).expect_err("absolute path must fail");
     assert!(err.contains("absolute"), "{err}");
 }
-
 #[test]
 fn load_pack_rejects_escaping_files_manifest() {
     with_temp_home(|| {
@@ -411,7 +373,6 @@ fn load_pack_rejects_escaping_files_manifest() {
         assert_eq!(active_pack().id, "default");
     });
 }
-
 #[test]
 fn resolve_pack_path_jails_escapes_without_filesystem_read() {
     with_temp_home(|| {
@@ -441,7 +402,6 @@ fn resolve_pack_path_jails_escapes_without_filesystem_read() {
         assert!(resolve_pack_path(&pack, &manifest, "loot").is_none());
     });
 }
-
 #[test]
 fn external_manifest_must_parse_and_match_the_directory_even_when_forced() {
     with_temp_home(|| {
@@ -470,7 +430,6 @@ fn external_manifest_must_parse_and_match_the_directory_even_when_forced() {
         }
     });
 }
-
 #[test]
 fn external_pack_consumes_only_declared_bytes_even_with_a_shadowing_direct_file() {
     with_temp_home(|| {
@@ -485,7 +444,6 @@ fn external_pack_consumes_only_declared_bytes_even_with_a_shadowing_direct_file(
         load_pack("external").unwrap();
         assert!(pack_file("cloud-vendors.json").is_none());
         assert!(!load_cloud_vendors().iter().any(|v| v.id == "shadow"));
-
         let declared = root.join("catalogs/vendors.json");
         write_private_file(&declared, &overlay.replace("shadow", "declared")).unwrap();
         write_private_file(
@@ -505,7 +463,6 @@ fn external_pack_consumes_only_declared_bytes_even_with_a_shadowing_direct_file(
             .any(|p| p.id == "external" && p.quarantined));
     });
 }
-
 #[cfg(any(windows, unix))]
 #[test]
 #[cfg_attr(
@@ -537,7 +494,6 @@ fn external_pack_cannot_read_through_a_redirected_directory_or_file() {
         assert!(load_pack("external").is_err());
     });
 }
-
 #[test]
 fn external_pack_with_permission_can_use_an_explicit_relative_mapping() {
     with_temp_home(|| {
@@ -552,7 +508,6 @@ fn external_pack_with_permission_can_use_an_explicit_relative_mapping() {
         );
     });
 }
-
 #[test]
 fn credential_redaction_covers_governance_tokens_and_env_secrets() {
     with_temp_home(|| {
@@ -578,7 +533,6 @@ fn credential_redaction_covers_governance_tokens_and_env_secrets() {
         assert!(out.contains("ok=plain"), "{out}");
     });
 }
-
 #[test]
 fn cloud_env_keys_are_read_from_file_without_touching_process_env() {
     with_temp_home(|| {
@@ -608,20 +562,16 @@ fn cloud_env_keys_are_read_from_file_without_touching_process_env() {
         assert!(!overlay.iter().any(|(k, _)| k == "SUSI_PROBE_SHADOWED_KEY"));
     });
 }
-
 fn modified(path: &std::path::Path) -> std::time::SystemTime {
     std::fs::metadata(path).unwrap().modified().unwrap()
 }
-
 /// A moment well after every file a test wrote: no entry is still racy.
 fn a_minute_later() -> std::time::SystemTime {
     std::time::SystemTime::now() + std::time::Duration::from_secs(60)
 }
-
 fn decisions() -> usize {
     ENSURE_DECISIONS.with(std::cell::Cell::get)
 }
-
 /// Every catalog read re-derives the substrate. Once it has settled nothing
 /// is rewritten: each rewrite was a synced temp file and a rename, hundreds
 /// of them per CLI command.
@@ -642,7 +592,6 @@ fn a_settled_substrate_is_not_rewritten() {
         assert_eq!((modified(&state_path()), modified(&manifest)), before);
     });
 }
-
 /// A pack that fails its integrity check is quarantined once; the catalog
 /// reads after that do not rewrite the state to record it again.
 #[test]
@@ -683,7 +632,6 @@ fn a_standing_quarantine_is_not_rewritten_by_every_read() {
         assert_eq!(modified(&state), before);
     });
 }
-
 /// The answer is remembered while nothing it read has changed, and decided
 /// afresh the moment something has — here another process activating a
 /// pack by editing the state file, which no in-process invalidation
@@ -722,7 +670,6 @@ fn the_remembered_pack_follows_an_edit_on_disk() {
         assert!(state.contains("\"ours\""), "{state}");
     });
 }
-
 /// The state file hard-linked from another directory (a dotfiles copy) and
 /// edited through that other link. On Windows the extensions directory's
 /// own listing keeps the old size and time for such a write, so a stamp
@@ -750,7 +697,6 @@ fn an_edit_through_a_hard_link_elsewhere_is_seen() {
         assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "mine");
     });
 }
-
 /// A file rewritten within one timestamp tick at the same size keeps its
 /// size and modification time: a stamp taken that soon after a write is not
 /// trusted, so the rewrite is read rather than answered from memory.
@@ -793,7 +739,6 @@ fn a_rewrite_within_one_timestamp_tick_is_not_hidden() {
         );
     });
 }
-
 /// The state file replaced by another file of the same size whose
 /// modification time was set back to the old one's (`cp -p`, `rsync -a`,
 /// a restore from backup): name, size and mtime all match, but it is
@@ -813,7 +758,6 @@ fn a_replaced_file_with_the_old_size_and_mtime_is_seen() {
         let decided = decisions();
         assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
         assert_eq!(decisions(), decided, "remembered while unchanged");
-
         let old = std::fs::metadata(state_path()).unwrap();
         let staged = state_path().with_extension("restored");
         std::fs::write(&staged, &edited).unwrap();
@@ -837,7 +781,6 @@ fn a_replaced_file_with_the_old_size_and_mtime_is_seen() {
         assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, target);
     });
 }
-
 /// A decision that warns (here about a pack the host cannot load) warns on
 /// every call until the operator acts, as it always did: it is taken again
 /// each time, never answered from memory.
@@ -860,7 +803,6 @@ fn a_decision_that_warns_is_taken_on_every_call() {
         assert_eq!(decisions(), decided + 2);
     });
 }
-
 #[test]
 fn damaged_state_is_never_rewritten_or_reset() {
     with_temp_home(|| {
@@ -882,7 +824,6 @@ fn damaged_state_is_never_rewritten_or_reset() {
         );
     });
 }
-
 fn author_pack(
     name: &str,
     manifest: &serde_json::Value,
@@ -903,7 +844,6 @@ fn author_pack(
     }
     root
 }
-
 #[test]
 fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
     use sha2::{Digest, Sha256};
@@ -912,24 +852,17 @@ fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let base = serde_json::json!({
-        "id": "acme-pack", "name": "Acme", "version": "1.0.0", "apiVersion": "1",
-        "capabilities": [], "permissions": [],
-        "files": {"cloud-vendors.json": "cloud-vendors.json"},
-        "checksums": {"cloud-vendors.json": digest},
-    });
+    let base = serde_json::json!({"id":"acme-pack","name":"Acme","version":"1.0.0","apiVersion":"1","capabilities":[],"permissions":[],"files":{"cloud-vendors.json":"cloud-vendors.json"},"checksums":{"cloud-vendors.json":digest}});
     let ok = author_pack("ok", &base, &[("cloud-vendors.json", body)]);
     let (manifest, artifacts) = validate_pack_dir(&ok).unwrap();
     assert_eq!(manifest.id, "acme-pack");
     assert_eq!(artifacts["cloud-vendors.json"], format!("sha256:{digest}"));
     assert!(artifacts.contains_key("manifest.json"));
-
     let mut tampered = author_pack("tampered", &base, &[("cloud-vendors.json", "{}")]);
     assert!(validate_pack_dir(&tampered)
         .unwrap_err()
         .contains("checksum mismatch"));
     std::fs::remove_dir_all(&tampered).ok();
-
     let mut unknown = base.clone();
     unknown["permissions"] = serde_json::json!(["root.everything"]);
     tampered = author_pack("perm", &unknown, &[("cloud-vendors.json", body)]);
@@ -937,14 +870,12 @@ fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
         .unwrap_err()
         .contains("unknown permission"));
     std::fs::remove_dir_all(&tampered).ok();
-
     let mut escape = base.clone();
     escape["files"] = serde_json::json!({"cloud-vendors.json": "../outside.json"});
     escape["checksums"] = serde_json::json!({});
     tampered = author_pack("escape", &escape, &[]);
     assert!(validate_pack_dir(&tampered).is_err());
     std::fs::remove_dir_all(&tampered).ok();
-
     let broken = author_pack("broken", &serde_json::json!({"id": 7}), &[]);
     assert!(validate_pack_dir(&broken)
         .unwrap_err()
@@ -952,7 +883,6 @@ fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
     std::fs::remove_dir_all(&broken).ok();
     std::fs::remove_dir_all(&ok).ok();
 }
-
 #[test]
 fn pack_admission_probe_admits_a_signed_pack_and_cleans_up() {
     let scratch = std::env::temp_dir().join(format!(

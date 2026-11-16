@@ -3,11 +3,9 @@ use crate::catalog::PriceCatalogue;
 use crate::ledger::read_entries;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
 fn account() -> Account {
     Account::new("sk-test", "alice").with_rate(2)
 }
-
 #[test]
 fn ingress_requires_a_known_token() {
     let ingress = Ingress::new(vec![account()]);
@@ -21,7 +19,6 @@ fn ingress_requires_a_known_token() {
         Ok("alice".to_string())
     );
 }
-
 #[test]
 fn ingress_without_accounts_is_open() {
     let ingress = Ingress::new(Vec::new());
@@ -32,7 +29,6 @@ fn ingress_without_accounts_is_open() {
         .admit(&account, MicroUsd::ZERO, Spend::default(), 0)
         .is_ok());
 }
-
 #[test]
 fn ingress_rate_limits_per_minute() {
     let ingress = Ingress::new(vec![account()]);
@@ -47,7 +43,6 @@ fn ingress_rate_limits_per_minute() {
     // A new minute reopens the window.
     assert!(ingress.admit(&account, MicroUsd::ZERO, spent, 101).is_ok());
 }
-
 #[test]
 fn ingress_refuses_an_estimate_over_the_budget() {
     let ingress = Ingress::new(vec![
@@ -66,7 +61,6 @@ fn ingress_refuses_an_estimate_over_the_budget() {
         .admit(&account, MicroUsd::from_micros(5), spent, 0)
         .is_ok());
 }
-
 /// Admission read the ledger and reserved nothing, so every call started
 /// before the first row landed was checked against the same spend.
 #[test]
@@ -103,7 +97,6 @@ fn calls_in_flight_share_the_accounts_remaining_dollars() {
         .unwrap();
     ingress.settle(fits, charged);
 }
-
 #[test]
 fn ingress_parses_accounts_with_a_budget_and_rate() {
     let json = r#"{"accounts":[
@@ -119,7 +112,6 @@ fn ingress_parses_accounts_with_a_budget_and_rate() {
     assert_eq!(ingress.accounts()[1].name, unnamed_account("sk-b"));
     assert!(!ingress.accounts()[1].name.contains("sk-b"));
 }
-
 #[test]
 fn ingress_rejects_duplicate_tokens_and_zero_rates() {
     let duplicate = r#"{"accounts":[{"token":"a"},{"token":"a"}]}"#;
@@ -127,7 +119,6 @@ fn ingress_rejects_duplicate_tokens_and_zero_rates() {
     let zero = r#"{"accounts":[{"token":"a","requests_per_minute":0}]}"#;
     assert!(Ingress::parse(zero).is_err());
 }
-
 /// The gateway reads the mission back with `to_str`; a name it cannot
 /// read was booked as `unscoped`, so that account's cap never bound.
 #[test]
@@ -142,7 +133,6 @@ fn an_account_name_the_gateway_cannot_read_back_is_refused() {
         "team alpha"
     );
 }
-
 /// An unnamed account used to be named after its token, and the name is
 /// every ledger row's mission: the ledger held a credential anyone reading
 /// it could spend. Its name is now a stable digest of the token.
@@ -162,7 +152,6 @@ fn an_unnamed_account_is_never_named_after_its_token() {
     let error = Ingress::parse(&repeated).unwrap_err().to_string();
     assert!(!error.contains(token), "the token never shows: {error}");
 }
-
 #[test]
 fn only_loopback_may_serve_without_an_account_to_authenticate() {
     for host in ["127.0.0.1", "::1", "localhost", "LOCALHOST", "127.0.0.2"] {
@@ -182,7 +171,6 @@ fn only_loopback_may_serve_without_an_account_to_authenticate() {
         assert!(require_accounts_off_loopback(host, Some(&one)).is_ok());
     }
 }
-
 #[test]
 fn a_requests_own_output_limit_and_the_starved_retry_are_reserved() {
     let request = |text: &str| serde_json::from_str::<Value>(text).unwrap();
@@ -213,7 +201,6 @@ fn a_requests_own_output_limit_and_the_starved_retry_are_reserved() {
         (8_000, None)
     );
 }
-
 /// A capped call that named no output limit was priced at 8192 output
 /// tokens and sent with none, so the provider's own default (often the
 /// model's maximum) applied. It now goes out with the limit admission
@@ -263,7 +250,6 @@ fn a_capped_call_is_sent_with_the_output_limit_admission_priced() {
     let (_, request) = named(r#"{"model":"m","max_tokens":0}"#, None);
     assert_eq!(request["max_tokens"], DEFAULT_OUTPUT_RESERVE);
 }
-
 /// A value under a limit's name that is not a whole number was kept
 /// whenever the other name held one: priced at the one, it went out
 /// beside it, and a server that reads `50000.0` as a number and prefers
@@ -289,7 +275,6 @@ fn a_limit_that_is_not_a_whole_number_never_goes_out_beside_one_that_is() {
         assert_eq!(output_allowance(&request, None), (40, Some(2_088)));
     }
 }
-
 /// An `n` that is not a whole number was priced as admission read it and
 /// went out as it was: `"8"` was priced as one answer, and a provider
 /// that reads numeric strings as numbers answered eight times.
@@ -308,7 +293,6 @@ fn a_count_of_answers_that_is_not_a_whole_number_goes_out_as_the_one_priced() {
         estimate(&state, Some(&eight), body),
         Ok(single.saturating_mul(8))
     );
-
     let sent = |text: &str| {
         let mut request = serde_json::from_str::<Value>(text).unwrap();
         let changed = name_answers(&mut request);
@@ -322,7 +306,6 @@ fn a_count_of_answers_that_is_not_a_whole_number_goes_out_as_the_one_priced() {
     assert_eq!(sent(r#"{"n":0}"#), (false, Some(json!(0))));
     assert_eq!(sent(r#"{}"#), (false, None));
 }
-
 /// `n` asks for that many answers, each billed: priced as one, a call
 /// could bill many times what it reserved.
 #[test]
@@ -347,7 +330,6 @@ fn every_answer_a_call_asks_for_is_priced() {
     assert_eq!(answers_of(r#"{"n":"8"}"#), 8);
     assert_eq!(answers_of(r#"{"n":"lots"}"#), 1);
 }
-
 /// What a provider fetches is billed but is not in the body: priced by
 /// the body's length, 300 image URLs in one capped call billed 45 times
 /// its reservation. Each fetched image is priced at a ceiling; a file or a
@@ -408,21 +390,18 @@ fn what_the_provider_fetches_is_priced_or_refused() {
         with(r#"{"type":"file","file":{"file_data":"data:application/pdf;base64,AAAA"}}"#);
     assert!(inline_file.is_ok());
 }
-
 const CATALOGUE: &str = r#"{
     "schema": "susi/harness/prices/v1",
     "models": {
         "deepseek-flash": {"input_miss": 150000, "input_hit": 3000, "output": 600000}
     }
 }"#;
-
 /// The transport keeps one pooled agent per timeout, shared by every test
 /// in the process. A pooled connection to a server a finished test left
 /// behind failed calls with os error 10053; a timeout no other test uses
 /// keeps these calls off those connections, and `connection: close` on
 /// both legs keeps them from leaving any.
 const WIRE_TIMEOUT_SECS: u64 = 11;
-
 fn gateway_state(upstream: SocketAddr, ledger_path: PathBuf) -> Arc<GatewayState> {
     Arc::new(GatewayState {
         catalogue: PriceCatalogue::from_json(CATALOGUE).unwrap(),
@@ -435,7 +414,6 @@ fn gateway_state(upstream: SocketAddr, ledger_path: PathBuf) -> Arc<GatewayState
         cache: None,
     })
 }
-
 #[test]
 fn a_capped_estimate_prices_the_requests_own_limit() {
     let state = gateway_state(SocketAddr::from(([127, 0, 0, 1], 9)), PathBuf::new());
@@ -453,7 +431,6 @@ fn a_capped_estimate_prices_the_requests_own_limit() {
         Err(Denial::Unpriced)
     );
 }
-
 /// What admission reserves for `body` from a capped account, priced as
 /// `completions` prices it.
 fn reserved_for(state: &GatewayState, body: &str) -> MicroUsd {
@@ -465,7 +442,6 @@ fn reserved_for(state: &GatewayState, body: &str) -> MicroUsd {
     };
     estimate(state, Some(&request), &body).unwrap()
 }
-
 /// Serve `app` for one test. The server reads every request in full before
 /// it answers: a connection closed (these servers answer `connection:
 /// close`) with part of a request unread is reset on Windows, and the
@@ -481,7 +457,6 @@ async fn spawn(app: Router) -> SocketAddr {
     ));
     address
 }
-
 /// POST `body` to the ingress at `address` with `token` and `extra` headers.
 async fn send(
     address: SocketAddr,
@@ -520,24 +495,15 @@ async fn send(
     .await
     .unwrap()
 }
-
 /// The upstream's answer, on a connection it closes after answering.
 fn answer() -> impl IntoResponse {
     (
         [(header::CONNECTION, "close")],
-        Json(json!({
-            "id": "cmpl-ingress",
-            "object": "chat.completion",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5}
-        })),
+        Json(
+            json!({"id":"cmpl-ingress","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}),
+        ),
     )
 }
-
 /// An upstream that answers every call and counts them.
 async fn counting_upstream() -> (SocketAddr, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -554,9 +520,7 @@ async fn counting_upstream() -> (SocketAddr, Arc<AtomicUsize>) {
     );
     (spawn(app).await, calls)
 }
-
 const BODY: &str = r#"{"model":"deepseek-flash","messages":[{"role":"user","content":"ping"}]}"#;
-
 #[tokio::test]
 async fn a_caller_cannot_move_its_spend_off_its_account_with_its_own_mission() {
     let (upstream, _) = counting_upstream().await;
@@ -567,7 +531,6 @@ async fn a_caller_cannot_move_its_spend_off_its_account_with_its_own_mission() {
         Account::new("sk-bob", "bob").with_budget(MicroUsd::from_micros(1_000_000)),
     ]));
     let proxy = spawn(router(gateway_state(upstream, ledger.clone()), ingress)).await;
-
     for mission in ["bob", "anything"] {
         let (status, text) = send(proxy, "sk-alice", &[(MISSION, mission)], BODY).await;
         assert_eq!(status, 200, "{text}");
@@ -584,7 +547,6 @@ async fn a_caller_cannot_move_its_spend_off_its_account_with_its_own_mission() {
     );
     assert_eq!(Budget::spent(&ledger, "bob").calls, 0);
 }
-
 #[tokio::test]
 async fn a_capped_account_cannot_call_a_model_the_catalogue_does_not_price() {
     let (upstream, calls) = counting_upstream().await;
@@ -596,19 +558,16 @@ async fn a_capped_account_cannot_call_a_model_the_catalogue_does_not_price() {
     ]));
     let proxy = spawn(router(gateway_state(upstream, ledger.clone()), ingress)).await;
     let unpriced = r#"{"model":"deepseek/deepseek-v4-pro","messages":[]}"#;
-
     let (status, text) = send(proxy, "sk-capped", &[], unpriced).await;
     assert_eq!(status, 400, "{text}");
     assert!(text.contains("no catalogue price"), "{text}");
     assert_eq!(calls.load(Ordering::SeqCst), 0, "refused before dispatch");
     assert!(!ledger.exists());
-
     // With no cap there is nothing to bypass: the call runs, uncosted.
     let (status, text) = send(proxy, "sk-open", &[], unpriced).await;
     assert_eq!(status, 200, "{text}");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
-
 #[tokio::test]
 async fn calls_in_flight_hold_their_estimate_so_together_they_cannot_overrun_the_cap() {
     let arrived = Arc::new(tokio::sync::Notify::new());
@@ -638,7 +597,6 @@ async fn calls_in_flight_hold_their_estimate_so_together_they_cannot_overrun_the
         Account::new("sk-alice", "alice").with_budget(cap)
     ]));
     let proxy = spawn(router(state, ingress.clone())).await;
-
     let first = tokio::spawn(async move { send(proxy, "sk-alice", &[], BODY).await });
     arrived.notified().await;
     assert_eq!(ingress.reserved("alice"), one);
@@ -646,7 +604,6 @@ async fn calls_in_flight_hold_their_estimate_so_together_they_cannot_overrun_the
     // case is spoken for.
     let (status, text) = send(proxy, "sk-alice", &[], BODY).await;
     assert_eq!(status, 402, "{text}");
-
     gate.add_permits(1);
     let (status, text) = first.await.unwrap();
     assert_eq!(status, 200, "{text}");
@@ -656,10 +613,8 @@ async fn calls_in_flight_hold_their_estimate_so_together_they_cannot_overrun_the
     assert_eq!(status, 200, "{text}");
     assert_eq!(read_entries(&ledger).unwrap().len(), 2);
 }
-
 const STREAMED: &str =
     r#"{"model":"deepseek-flash","stream":true,"messages":[{"role":"user","content":"ping"}]}"#;
-
 /// An upstream that says when a call arrives and answers only once the
 /// gate lets it: buffered, or as a stream whose first chunk comes at once
 /// and whose usage comes after the gate.
@@ -709,7 +664,6 @@ async fn gated_upstream() -> (
     };
     (spawn(app).await, arrived, gate)
 }
-
 /// POST `body` with `token` over a raw socket and hang up: once the
 /// upstream has the call when `wait_for` is empty, otherwise as soon as
 /// the answer shows `wait_for`. A client timeout, Esc in an agent, or a
@@ -743,7 +697,6 @@ async fn post_and_hang_up(
     }
     drop(socket);
 }
-
 /// `check` once it holds, or `false` after five seconds.
 async fn eventually(check: impl Fn() -> bool) -> bool {
     for _ in 0..100 {
@@ -754,7 +707,6 @@ async fn eventually(check: impl Fn() -> bool) -> bool {
     }
     check()
 }
-
 /// A caller that hangs up while the provider is still answering keeps
 /// its reservation until the call's row is written. Released with the
 /// request, it came back the moment the client went, while the gateway
@@ -775,7 +727,6 @@ async fn a_caller_that_hangs_up_keeps_its_reservation_until_the_call_is_settled(
             Account::new("sk-alice", "alice").with_budget(cap)
         ]));
         let proxy = spawn(router(state, ingress.clone())).await;
-
         post_and_hang_up(proxy, "sk-alice", body, wait_for, &arrived).await;
         // Time for the server to see the hang-up and drop the request.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -786,7 +737,6 @@ async fn a_caller_that_hangs_up_keeps_its_reservation_until_the_call_is_settled(
         );
         let (status, text) = send(proxy, "sk-alice", &[], body).await;
         assert_eq!(status, 402, "{body}: {text}");
-
         gate.add_permits(1);
         assert!(
             eventually(|| ingress.reserved("alice") == MicroUsd::ZERO).await,
@@ -797,7 +747,6 @@ async fn a_caller_that_hangs_up_keeps_its_reservation_until_the_call_is_settled(
         assert_eq!(rows[0].mission, "alice");
     }
 }
-
 /// An upstream that answers every call and keeps each request it got.
 async fn recording_upstream() -> (SocketAddr, Arc<Mutex<Vec<Value>>>) {
     let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -819,7 +768,6 @@ async fn recording_upstream() -> (SocketAddr, Arc<Mutex<Vec<Value>>>) {
     };
     (spawn(app).await, seen)
 }
-
 /// A capped call that named no output limit was admitted against 8192
 /// output tokens and sent with none, so the provider's own default, often
 /// the model's maximum, decided what it billed.
@@ -833,7 +781,6 @@ async fn a_capped_call_that_names_no_limit_reaches_the_provider_with_the_one_res
     ]));
     let state = gateway_state(upstream, dir.path().join("ledger.jsonl"));
     let proxy = spawn(router(state, ingress)).await;
-
     for token in ["sk-capped", "sk-open"] {
         let (status, text) = send(proxy, token, &[], BODY).await;
         assert_eq!(status, 200, "{text}");
@@ -843,7 +790,6 @@ async fn a_capped_call_that_names_no_limit_reaches_the_provider_with_the_one_res
     // An uncapped account's request goes as it was sent.
     assert!(seen[1].get("max_tokens").is_none(), "{}", seen[1]);
 }
-
 /// A capped call reaches the provider asking for what admission priced
 /// and nothing more. A second limit that was not a whole number went out
 /// beside the one priced (`max_completion_tokens: 50000.0`, which a
@@ -872,14 +818,12 @@ async fn a_capped_call_reaches_the_provider_asking_for_no_more_than_was_priced()
             .with_budget(MicroUsd::from_micros(one.micros().saturating_mul(3))),
     ]));
     let proxy = spawn(router(state, ingress)).await;
-
     let (status, text) = send(proxy, "sk-tight", &[], &two_limits).await;
     assert_eq!(status, 200, "priced at its 100 tokens: {text}");
     let (status, text) = send(proxy, "sk-tight", &[], &eight).await;
     assert_eq!(status, 402, "eight answers do not fit: {text}");
     let (status, text) = send(proxy, "sk-roomy", &[], &eight).await;
     assert_eq!(status, 200, "{text}");
-
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 2, "the refused call never left: {seen:?}");
     assert_eq!(seen[0]["max_tokens"], 100, "{}", seen[0]);
@@ -891,7 +835,6 @@ async fn a_capped_call_reaches_the_provider_asking_for_no_more_than_was_priced()
     assert!(seen[1]["n"].is_u64(), "{}", seen[1]);
     assert_eq!(seen[1]["n"], 8, "{}", seen[1]);
 }
-
 /// A capped call's lone `max_completion_tokens` was priced and went out
 /// as it was: a provider that reads only `max_tokens` (DeepSeek) ignored
 /// it and answered at its own default length, past what was reserved.
@@ -905,9 +848,7 @@ async fn a_capped_calls_limit_reaches_the_provider_as_the_max_tokens_every_serve
     let state = gateway_state(upstream, dir.path().join("ledger.jsonl"));
     let proxy = spawn(router(state, ingress)).await;
     let body = r#"{"model":"deepseek-flash","max_completion_tokens":40,"messages":[{"role":"user","content":"ping"}]}"#;
-
     let (status, text) = send(proxy, "sk-capped", &[], body).await;
-
     assert_eq!(status, 200, "{text}");
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
@@ -918,7 +859,6 @@ async fn a_capped_calls_limit_reaches_the_provider_as_the_max_tokens_every_serve
         seen[0]
     );
 }
-
 /// OpenAI's reasoning models refuse `max_tokens` (400
 /// `unsupported_parameter`), and a capped call is sent with one even
 /// when its caller named none: the gateway sends it again with the same
@@ -939,12 +879,7 @@ async fn a_capped_call_to_a_provider_that_refuses_max_tokens_is_answered_and_set
                     let refused = request.get("max_tokens").is_some();
                     seen.lock().unwrap().push(request);
                     if refused {
-                        let error = json!({"error": {
-                            "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
-                            "type": "invalid_request_error",
-                            "param": "max_tokens",
-                            "code": "unsupported_parameter"
-                        }});
+                        let error = json!({"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error","param":"max_tokens","code":"unsupported_parameter"}});
                         return (
                             StatusCode::BAD_REQUEST,
                             [(header::CONNECTION, "close")],
@@ -968,9 +903,7 @@ async fn a_capped_call_to_a_provider_that_refuses_max_tokens_is_answered_and_set
         ingress.clone(),
     ))
     .await;
-
     let (status, text) = send(proxy, "sk-capped", &[], BODY).await;
-
     assert_eq!(status, 200, "{text}");
     let (rows, _) = crate::ledger::read_entries_lenient(&ledger);
     assert_eq!(rows.len(), 1, "the refusal billed nothing and has no row");
@@ -983,7 +916,6 @@ async fn a_capped_call_to_a_provider_that_refuses_max_tokens_is_answered_and_set
     assert_eq!(seen[1]["max_completion_tokens"], DEFAULT_OUTPUT_RESERVE);
     assert!(seen[1].get("max_tokens").is_none(), "{}", seen[1]);
 }
-
 /// A completed row booked under `mission` that cost `micros`.
 fn row(mission: &str, micros: u64) -> crate::ledger::LedgerEntry {
     crate::ledger::LedgerEntry::settle(crate::ledger::Dispatch {
@@ -1003,7 +935,6 @@ fn row(mission: &str, micros: u64) -> crate::ledger::LedgerEntry {
         outcome: crate::ledger::Outcome::Completed,
     })
 }
-
 /// Earlier releases booked an account the accounts file names nowhere
 /// under its token. Booked now under a digest of it, its spend read as
 /// zero after the upgrade, and an account that had used its cap could
@@ -1030,7 +961,6 @@ async fn an_unnamed_accounts_spend_booked_under_its_token_still_counts_against_i
     // A named account was always booked under its name, never its token.
     let named = ingress.authenticate(Some("sk-named")).unwrap();
     assert_eq!(named.spent(&ledger).total, MicroUsd::ZERO);
-
     let proxy = spawn(router(
         gateway_state(upstream, ledger.clone()),
         Arc::new(ingress),
@@ -1043,7 +973,6 @@ async fn an_unnamed_accounts_spend_booked_under_its_token_still_counts_against_i
     let (rows, _) = crate::ledger::read_entries_lenient(&ledger);
     assert_eq!(rows.len(), 3, "and nothing more is written");
 }
-
 #[test]
 fn ingress_models_list_the_registry_and_aliases() {
     let payload = models_payload();
@@ -1058,7 +987,6 @@ fn ingress_models_list_the_registry_and_aliases() {
     assert!(ids.contains(&"coder"));
     assert_eq!(payload["object"], "list");
 }
-
 #[test]
 fn ingress_reads_bearer_and_api_key_tokens() {
     let mut headers = HeaderMap::new();
