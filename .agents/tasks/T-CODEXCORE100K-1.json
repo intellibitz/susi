@@ -26,7 +26,14 @@
     "scripts/parallel-workflow.sh",
     "tests/workflow_publication.rs",
     "xtask/src/build_time.rs",
-    ".agents/build-time.jsonl"
+    ".agents/build-time.jsonl",
+    "crates/susi-cli-defs/src/harness.rs",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-harness/src/lifecycle.rs",
+    "crates/susi-harness/src/rsi_scorecard.rs",
+    "crates/susi-daemon/src/harness_ops.rs",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "docs/harness.md"
   ],
   "reuse": {
     "decision": "existing",

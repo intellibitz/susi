@@ -381,7 +381,7 @@ pub fn run_options(payload: &Value) -> R<operator::RunOptions> {
         daily_usd: text("daily_usd", "25"),
         ledger: absolute(payload, "ledger")?.unwrap_or_else(|| fleet::default_ledger(&repo)),
         controls: path("controls", "out/control.jsonl")?,
-        rsi_log: path("rsi_log", ".agents/rsi-loop.jsonl")?,
+        rsi_log: path("rsi_log", ".susi/records/rsi-loop.jsonl")?,
         attempts: number(payload, "attempts").map_or(3, |n| n as usize),
         adapter_state: path("adapter_state", "harness-state")?,
         susi,
