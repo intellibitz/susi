@@ -43,7 +43,9 @@ mod tests {
     #[test]
     fn env_port_offset_defaults_to_zero_under_isolated_env() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _guard = susi_paths::test_env::EnvGuard::isolated();
+        let instance = susi_paths::tempfile::TempDir::new().unwrap();
+        let mut guard = susi_paths::test_env::EnvGuard::isolated();
+        guard.set("SUSI_HOME", instance.path());
         assert_eq!(susi_paths::ports::env_port_offset(), 0);
     }
 
