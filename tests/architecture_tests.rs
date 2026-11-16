@@ -1510,7 +1510,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
 
 /// The brain-lanes markdown board was retired: lane ownership is one JSON file
 /// per agent (no shared table to conflict on), its step logs live in the
-/// evidence ledger, and nothing may point at the deleted file.
+/// local history, and nothing may point at the deleted file.
 #[test]
 fn brain_lanes_board_is_retired_into_data() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1541,14 +1541,6 @@ fn brain_lanes_board_is_retired_into_data() {
     }
     agents.sort();
     assert_eq!(agents, ["CLAUDE", "DEVIN"]);
-    // Each lane's history must exist in the ledger it now lives in.
-    let ledger = std::fs::read_to_string(root.join(".agents/evidence.json")).unwrap();
-    for agent in &agents {
-        assert!(
-            ledger.contains(&format!("EV-{agent}-001")),
-            "the ledger must hold {agent}'s history (EV-{agent}-001)"
-        );
-    }
     for rel in ["ARCHITECTURE.md", "AGENTS.md", "README.md"] {
         let text = std::fs::read_to_string(root.join(rel)).unwrap();
         assert!(
@@ -2146,6 +2138,40 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
             "scripts/ must contain zero Python scripts in 100% Rust Susi: found scripts/{name}"
         );
     }
+}
+
+/// Source may retain a release-compatible empty template, never operational facts.
+#[test]
+fn historical_evidence_is_not_shipped_or_generated_back_into_source() {
+    let root = workspace_root();
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
+    let template: serde_json::Value = serde_json::from_str(&read(".agents/evidence.json")).unwrap();
+    assert_eq!(template["schema"], "susi/evidence/v1");
+    assert_eq!(template["entries"], serde_json::json!([]));
+    assert_eq!(
+        template.as_object().unwrap().len(),
+        3,
+        "no historical summary metadata"
+    );
+    let schema: serde_json::Value =
+        serde_json::from_str(&read(".agents/schemas/evidence.schema.json")).unwrap();
+    assert_eq!(schema["properties"]["entries"]["minItems"], 0);
+    for path in [
+        "build.rs",
+        "crates/susi-gawd-agents/build.rs",
+        "crates/susi-gawd-agents/src/self_core.rs",
+    ] {
+        assert!(
+            !read(path).contains(".agents/evidence.json"),
+            "{path}: history became a build input"
+        );
+    }
+    let ingestion = read("crates/susi-gawd/src/compliance.rs");
+    assert!(
+        !ingestion.contains(".agents/evidence.json"),
+        "runtime history returned to source"
+    );
+    assert!(ingestion.contains("susi_paths::workspace_state_dir(workspace)"));
 }
 
 /// Current entry points carry generic requirements. Historical ledgers are

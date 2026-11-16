@@ -2,7 +2,7 @@
 // Build scripts are not production runtime modules: a failed invariant must
 // abort the build loudly, so panic-on-error is the intended failure mode here.
 
-//! Compile `.agents/{identity,roadmap,evidence}.json` into static axiom tables.
+//! Compile current identity/roadmap policy; operational history is not a build input.
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -25,7 +25,6 @@ fn workspace_file(relative: &str) -> PathBuf {
 fn main() {
     let identity_path = workspace_file("../../.agents/identity.json");
     let roadmap_path = workspace_file("../../.agents/roadmap.json");
-    let evidence_path = workspace_file("../../.agents/evidence.json");
     let cargo_toml_path = workspace_file("../../Cargo.toml");
 
     let cargo_toml = fs::read_to_string(&cargo_toml_path).expect("Missing workspace Cargo.toml");
@@ -38,22 +37,19 @@ fn main() {
 
     let identity = load_and_sync_version(&identity_path, "susi/identity/v1", &version);
     let roadmap = load_and_sync_version(&roadmap_path, "susi/roadmap/v1", &version);
-    let evidence = load_and_sync_version(&evidence_path, "susi/evidence/v1", &version);
 
     validate_identity(&identity);
     validate_roadmap(&roadmap);
-    validate_evidence(&evidence);
 
     sync_readme_badge(workspace_file("../../README.md"), &version);
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
-    let generated = emit_axioms(&version, &identity, &roadmap, &evidence);
+    let generated = emit_axioms(&version, &identity, &roadmap);
     fs::write(&dest_path, generated).unwrap();
 
     println!("cargo:rerun-if-changed={}", identity_path.display());
     println!("cargo:rerun-if-changed={}", roadmap_path.display());
-    println!("cargo:rerun-if-changed={}", evidence_path.display());
     println!("cargo:rerun-if-changed={}", cargo_toml_path.display());
 }
 
@@ -153,29 +149,6 @@ fn validate_roadmap(doc: &Value) {
     }
 }
 
-fn validate_evidence(doc: &Value) {
-    let entries = require_array(doc, "/entries");
-    assert!(!entries.is_empty(), "evidence: entries empty");
-    // Multiple agents append entries in parallel; each owns a namespace
-    // (EV-DEVIN-*, EV-CURSOR-*, EV-CLAUDE-* — see AGENTS.md) so IDs never
-    // collide across branches. The uniqueness check below is the tripwire
-    // that keeps a violated namespace a build failure, not a silent merge.
-    let mut seen = std::collections::HashSet::new();
-    for e in entries {
-        let id = e["id"].as_str().unwrap_or("");
-        assert!(id.starts_with("EV-"), "evidence id must start with EV-");
-        assert!(
-            seen.insert(id),
-            "evidence id {id} is duplicated — agents must mint IDs inside their own namespace"
-        );
-        assert!(e.get("proof").and_then(|p| p.as_str()).is_some());
-        assert!(e
-            .pointer("/anchor/label")
-            .and_then(|l| l.as_str())
-            .is_some());
-    }
-}
-
 fn sync_readme_badge(readme_path: PathBuf, version: &str) {
     let Ok(readme_md_raw) = fs::read_to_string(&readme_path) else {
         return;
@@ -208,14 +181,9 @@ fn emit_rule(kind: &str, cite: &str, title: &str, imperative: &str) -> String {
 
 /// Every compiled rule, each under its own canonical citation (identity.json
 /// `canonical_addressing`): DNA mandates as `Mandate N`, engine protocols as
-/// `Pillar IV item N`, roadmap vectors and ledger entries by their own IDs.
-/// No synthetic numbering: ledger IDs span several counters, so any offset
-/// scheme collides (EV-2022920-031 and EV-2022924-031 were both "181").
-fn genome_rules(
-    identity: &Value,
-    roadmap: &Value,
-    evidence: &Value,
-) -> Vec<(&'static str, String)> {
+/// `Pillar IV item N`, and roadmap vectors by their own IDs.
+/// Historical evidence is runtime state, never a compiled rule.
+fn genome_rules(identity: &Value, roadmap: &Value) -> Vec<(&'static str, String)> {
     let mut rules = Vec::new();
     for m in require_array(identity, "/pillars/dna/mandates") {
         let id = m["id"].as_u64().unwrap();
@@ -254,29 +222,6 @@ fn genome_rules(
                 v["id"].as_str().unwrap_or(""),
                 &title,
                 v["progress"].as_str().unwrap_or(""),
-            ),
-        ));
-    }
-    for e in require_array(evidence, "/entries") {
-        let title = format!(
-            "{} [{}]",
-            e["milestone"].as_str().unwrap_or(""),
-            e["type"].as_str().unwrap_or("")
-        );
-        let imperative = format!(
-            "Anchor: {}. Proof: {}",
-            e.pointer("/anchor/label")
-                .and_then(|v| v.as_str())
-                .unwrap_or(""),
-            e["proof"].as_str().unwrap_or("")
-        );
-        rules.push((
-            "Evidence",
-            emit_rule(
-                "Evidence",
-                e["id"].as_str().unwrap_or(""),
-                &title,
-                &imperative,
             ),
         ));
     }
@@ -346,13 +291,18 @@ fn categorize_component(name: &str) -> &'static str {
     }
 }
 
-fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Value) -> String {
+fn emit_axioms(version: &str, identity: &Value, roadmap: &Value) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "pub const GEN_ENGINE_VERSION: &str = {version:?};\n\n"
     ));
 
-    let rules = genome_rules(identity, roadmap, evidence);
+    let empty = serde_json::json!({"schema":"susi/evidence/v1", "version":version, "entries":[]});
+    out.push_str(&format!(
+        "pub const GEN_EVIDENCE_JSON: &str = {:?};\n\n",
+        empty.to_string()
+    ));
+    let rules = genome_rules(identity, roadmap);
     out.push_str(&emit_rule_const("GEN_AGENT_RULES", &rules, &["Mandate"]));
     out.push_str(&emit_rule_const(
         "GEN_ENGINE_AXIOMS",
@@ -364,7 +314,7 @@ fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Valu
         &rules,
         &["EngineProtocol"],
     ));
-    out.push_str(&emit_rule_const("GEN_PULSE_AXIOMS", &rules, &["Evidence"]));
+    out.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[];\n\n");
 
     // Components by category
     let mut aoa = String::from("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -413,7 +363,7 @@ fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Valu
     out.push_str(&emit_rule_const(
         "GEN_RULES",
         &rules,
-        &["Mandate", "EngineProtocol", "RoadmapVector", "Evidence"],
+        &["Mandate", "EngineProtocol", "RoadmapVector"],
     ));
     out
 }

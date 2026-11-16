@@ -200,3 +200,51 @@ fn audit_compliance_flags_real_secret_prefix_outside_cfg_test() {
         .to_string();
     assert!(msg.contains("Potential secret matching 'sk-'"), "{msg}");
 }
+
+#[test]
+fn source_evidence_is_ignored_and_new_runtime_history_starts_empty() {
+    let (_guard, temporary_home, _env) = isolated_home();
+    let ws = temporary_home.path().join("source-ledger-workspace");
+    std::fs::create_dir_all(ws.join(".agents")).unwrap();
+    let source = ws.join(".agents/evidence.json");
+    let historical =
+        r#"{"entries":[{"id":"EV-OLD-001","milestone":"archived assertion","proof":"VERIFIED"}]}"#;
+    std::fs::write(&source, historical).unwrap();
+    SusiAdmin::ingest_natural_intent(&ws, "rotate ghp_historyProbe999 now").unwrap();
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), historical);
+    let local = susi_paths::workspace_state_dir(&ws).join("evidence.json");
+    let raw = std::fs::read_to_string(&local).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["schema"], "susi/evidence/v1");
+    let entries = doc["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "old source assertions are not seeded");
+    assert_eq!(entries[0]["proof"], "STAGED");
+    assert!(!raw.contains("ghp_historyProbe999"));
+    assert!(!raw.contains("archived assertion"));
+    let again = SusiAdmin::ingest_natural_intent(&ws, "ROTATE ghp_historyProbe999 NOW").unwrap();
+    assert!(again.contains("already present"));
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), raw);
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), historical);
+}
+
+#[test]
+fn malformed_local_history_refuses_without_overwriting_or_source_fallback() {
+    let (_guard, temporary_home, _env) = isolated_home();
+    let ws = temporary_home.path().join("invalid-local-history");
+    std::fs::create_dir_all(ws.join(".agents")).unwrap();
+    std::fs::create_dir_all(susi_paths::workspace_state_dir(&ws)).unwrap();
+    let source = ws.join(".agents/evidence.json");
+    std::fs::write(&source, r#"{"entries":[]}"#).unwrap();
+    let local = susi_paths::workspace_state_dir(&ws).join("evidence.json");
+    std::fs::write(&local, "invalid local history").unwrap();
+    let error = SusiAdmin::ingest_natural_intent(&ws, "status").unwrap_err();
+    assert!(error.to_string().contains("invalid JSON"));
+    assert_eq!(
+        std::fs::read_to_string(local).unwrap(),
+        "invalid local history"
+    );
+    assert_eq!(
+        std::fs::read_to_string(source).unwrap(),
+        r#"{"entries":[]}"#
+    );
+}
