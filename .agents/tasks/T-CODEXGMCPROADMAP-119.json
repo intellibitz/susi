@@ -22,5 +22,31 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "implemented",
+  "base_commit": "5b739d7a083110a1dde7b0df895f7e45d7361b93",
+  "limitations": [
+    "Operations and evidence stage (`GMCP-203-017-06`) ships enriched credential-free `McpHost::snapshot()` diagnostics (`persistedTaskCount`, `allowedRootsCount`, `limits`), operator runbook/migration/rollback guidance in `docs/gmcp/contract-203-017.md`, configuration validation, W3C `traceparent` SSE redaction checks, and automated standards/contract drift detection (`gmcp_req_203_017_06_operations`); final `.M` vector mastery sealing (`T-CODEXGMCPROADMAP-120`) follows next.",
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, `.agents/gmcp/evidence/VC-203-017.jsonl` and `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`[GMCP 203.017.M] Mastery`)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-wire-client/src/host.rs",
+      "src/cli/mcp_cli.rs",
+      "docs/gmcp/contract-203-017.md",
+      "docs/gmcp/contract-203-020.md",
+      "tests/gmcp_requirements/vc_203_020_part2.rs"
+    ],
+    "target": "crates/susi-wire-client/src/host.rs",
+    "why": "Extended `McpHost::snapshot()` and `docs/gmcp/contract-203-017.md` directly while reusing `susi mcp` CLI subcommands, `susi_config::validate::validate_dir`, `requirements_ledger::verify_pinned_ledger`, and `PersistedTaskHandleStore::open_or_quarantine` with zero new crates."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "crates/susi-wire-client/src/host.rs",
+    "docs/gmcp/contract-203-017.md",
+    "tests/gmcp_requirements/vc_203_017_part2.rs"
+  ]
 }

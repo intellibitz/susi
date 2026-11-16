@@ -352,3 +352,85 @@ authorities pinned in `.agents/gmcp/sources.json` and vendored under `.agents/gm
 4. **Cancellation routing**: In-flight JSON-RPC requests cancel via
    `notifications/cancelled` (`params.requestId`), whereas durable Official Tasks
    cancel exclusively via `tasks/cancel` (`params.taskId` + HTTP `Mcp-Name`).
+
+## Operations and non-claims
+
+- **Rollout & per-server isolation boundary**: `McpHost` isolates transport sessions, `HostPolicy` client identities/principals, `file://` root allow-lists, MRTR callback handlers, active SSE subscriptions, notification ring buffers, and `PersistedTaskHandleStore` files per server handle. Disconnecting, disabling, or resetting one server never interrupts sibling connected servers or mutates caller transcripts.
+- **Headless Core vs. Commercial UI boundary**: Susi Core ships the complete protocol-level MCP host, session engine, callback broker, headless `ui://` MCP Apps metadata/CSP validator, and `susi mcp` CLI with zero vendor MCP SDK crates (`rmcp`, `schemars`, `axum`, `tower`, `reqwest`, `ureq` absent), while interactive WebView/graphical MCP Apps surfaces live in Susi Commercial Apps (`intellibitz/susi-commercial-apps`).
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `McpHost::snapshot()` emits a deterministic, credential-free JSON inspection document (`serverCount`, `limits.{maxBufferedNotifications,maxInterleavedFrames,maxPaginationPages}`, and `servers[*].{serverId,transport,endpoint,sessionId,protocolVersion,clientIdentity,advertisedCapabilities,allowedRootsCount,persistedTaskCount,serverInfo,serverCapabilities,subscribedResources,bufferedNotifications}`). Neither `McpHost::snapshot()` nor `Debug` formatting ever includes Bearer tokens or URL credentials.
+- `susi mcp status` and `susi mcp list` emit inspectable JSON control-plane status for configured and leading MCP servers (`LeadingMcpManager::status()`), while `susi mcp doctor [<server>]` audits launcher and environment readiness without starting third-party processes.
+- `susi mcp discover <addr> [--legacy] [--token <tok>]`, `susi mcp tools <addr>`, `susi mcp call <addr> <tool> [<args_json>]`, `susi mcp resources <addr> [--templates]`, `susi mcp read <addr> <uri> [--app]`, `susi mcp prompts <addr>`, `susi mcp prompt <addr> <name> [<args_json>]`, `susi mcp complete <addr> <prompt|resource> <target> <arg> <value>`, and `susi mcp task <addr> <get|update|cancel> <task_id> [<responses_json>]` inspect and operate live peer HTTP and configured stdio MCP servers over the exact production `Session` / `McpHost` substrate.
+- `susi mcp ledger` prints the canonical JSON verification report matching the MCP `ledger_verify` tool verbatim, and `GmcpService::ops_snapshot()` exposes embedded/local server catalog and plugin state.
+
+### Configuration validation
+
+- CLI flag validation fails closed when `--refetched <dir>` is passed without `--drift` on `susi mcp ledger` (`clap` `requires = "drift"`).
+- Host startup validation (`susi_config::validate::validate_dir`) audits `~/.susi/config.json` and reports malformed `max_rpc_body_bytes` values with `ConfigIssueKind::TypeMismatch`.
+- `McpServerConfig::http_scope` canonicalizes HTTP/HTTPS server endpoints, strips embedded `user:secret@` userinfo, `?query`, and `#fragment` secrets from policy scope strings, and fails closed on empty hosts, invalid IPv6 literals, or embedded whitespace.
+- `authorize_mcp_transport` and `spawn_authorized_stdio_peer` enforce `MacPolicy` (`process.exec` for stdio child processes, `network.egress` for remote HTTP endpoints) prior to process spawn or socket dial, and `Session` (`ensure_loopback`) refuses plaintext Bearer tokens toward non-loopback IP addresses before opening a TCP connection.
+- `RootEntry::new` rejects non-`file://` schemes and `..` path traversal segments; `parse_app_resource_summary` fails closed on non-`ui://` URIs, non-object `_meta.ui.csp` or `_meta.ui.permissions`, and invalid `_meta.ui.domain` hostnames; `PersistedTaskHandleStore::open_or_quarantine` quarantines corrupt JSON files atomically to `.corrupt` and enforces `0600` file permissions on Unix.
+
+### Bounded metrics, logs and traces
+
+- Transport, framing, pagination, notification, and retry bounds prevent resource exhaustion across every connected server:
+  - HTTP / SSE response ceiling: `MAX_RESPONSE_BYTES = 16_777_216` (`16 MiB`) and stdio duplex line ceiling `16 MiB`.
+  - Cursor pagination ceiling: `MAX_PAGINATION_PAGES = 50` (`MAX_TOOLS_LIST_PAGES = 50`), plus duplicate-cursor loop rejection.
+  - Per-server notification & interleaving ceilings: `MAX_BUFFERED_NOTIFICATIONS = 256` and `MAX_INTERLEAVED_FRAMES = 1024`.
+  - Default request deadline & retry ceilings: `DEFAULT_TIMEOUT = 20s` and `MAX_IDEMPOTENT_RETRIES = 3`.
+- On Streamable HTTP `/mcp`, W3C `traceparent` headers and `_meta["io.modelcontextprotocol/logLevel"]` emit bounded `notifications/message` SSE frames when `logLevel` is requested, strip Bearer tokens so secrets never appear in SSE/log payloads or error strings, and suppress `notifications/message` when `logLevel` is omitted.
+
+### Diagnostics and incident triage
+
+- `WireError` typed host/client diagnostics: `WireError::Io` (socket/EOF/timeout failure), `WireError::Http(status, body)` (HTTP `401`/`403`/`413`/5xx), `WireError::Rpc(code, message)` (JSON-RPC `-32600`, `-32601`, `-32602`, `-32020`, `-32021`, `-32022`, `-32603`), and `WireError::Protocol(reason)` (version mismatch, unrequested `CreateTaskResult`, duplicate callback ID, CSP/root violation, cursor loop, or frame bound breach).
+- `probe_http_auth_challenge` and `parse_www_authenticate` extract structured OAuth 2.1 / `ext-auth` challenge fields (`scheme`, `realm`, `resource_metadata`, `scope`, `error`, `error_description`) on `401`/`403` responses without echoing caller Bearer tokens.
+- `hash_drift` / `unfetchable`: deterministic findings emitted by `susi mcp ledger --drift --refetched <dir>` whenever any of the 22 pinned `VC-203-017` upstream specification, schema, client/server primitive, or extension documents changes or goes missing relative to `.agents/gmcp/sources.json`.
+
+### Examples
+
+```text
+# 1. Inspect host control-plane status, ledger parity, and peer server capabilities
+susi mcp ledger
+susi mcp status
+susi mcp discover 127.0.0.1:9093 --token "$SUSI_API_TOKEN"
+susi mcp tools 127.0.0.1:9093 --token "$SUSI_API_TOKEN"
+susi mcp call 127.0.0.1:9093 summarize_items '{"items":["a","b"],"scope":{"namespace":"ops"}}' --token "$SUSI_API_TOKEN"
+
+# 2. Inspect resources, headless MCP Apps metadata, prompts, completions, and Official Tasks
+susi mcp resources 127.0.0.1:9093 --templates --token "$SUSI_API_TOKEN"
+susi mcp read 127.0.0.1:9093 ui://app/summary --app --token "$SUSI_API_TOKEN"
+susi mcp prompts 127.0.0.1:9093 --token "$SUSI_API_TOKEN"
+susi mcp prompt 127.0.0.1:9093 draft_brief '{"topic":"security"}' --token "$SUSI_API_TOKEN"
+susi mcp complete 127.0.0.1:9093 prompt draft_brief topic se --token "$SUSI_API_TOKEN"
+susi mcp task 127.0.0.1:9093 get "$TASK_ID" --token "$SUSI_API_TOKEN"
+
+# 3. Run deterministic air-gapped standards drift check and VC-203-017 operations gate
+susi mcp ledger --drift --refetched .agents/gmcp/spec
+cargo test --locked --test gmcp_requirements gmcp_req_203_017_06_operations
+```
+
+### Incident triage
+
+Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), cross-server credential or root leak, unrequested `CreateTaskResult` acceptance, unredacted Bearer token in `McpHost::snapshot()` or SSE `notifications/message`, `MacPolicy` bypass on stdio/HTTP egress, or sibling server hang during peer disconnect/flood as a release-blocking incident. Capture `susi mcp ledger --drift` JSON output, `susi mcp status`, `McpHost::snapshot()`, quarantined `.corrupt` task-store artifacts, and the latest `.agents/gmcp/evidence/*.jsonl` records before remediation, then re-verify `gmcp_req_203_017_01_contract` through `gmcp_req_203_017_06_operations`.
+
+### Migration
+
+1. **Migrating `~/.susi/mcp_config.json` entries**: Register HTTP or stdio servers via `GmcpClient::admit_mcp_server` or `susi mcp enable <server>`; `McpConfig` and `McpServerConfig` preserve all unknown vendor fields (`#[serde(flatten)] extra`) per Mandate 35.
+2. **Upgrading stateful `2025-03-26`..`2025-11-25` servers to `2026-07-28`**: Switch peer connections from `McpHost::connect_http_session` (`susi mcp discover --legacy`) to `McpHost::connect_http_2026_07_28` (`susi mcp discover`) while keeping `HostPolicy` callbacks, `RootEntry` sets, and `PersistedTaskHandleStore` paths unchanged.
+3. **Upstream specification re-pinning**: Vendor updated spec files under `.agents/gmcp/spec/`, update SHA-256 digests in `.agents/gmcp/sources.json`, update the 22-row table in `docs/gmcp/contract-203-017.md`, re-run `gmcp_req_203_017_01_contract`..`06_operations`, and refresh two-phase GMCP evidence (`scripts/gmcp-record-evidence.sh` + `--mastery`).
+
+### Rollback
+
+1. **Per-server live disconnect & config rollback**: Invoke `McpHost::disconnect(server_id)` (issuing `DELETE /mcp` for stateful HTTP sessions or terminating stdio child peers) and `susi mcp disable <server>` / `susi mcp reset <server>` to remove a misbehaving peer immediately while sibling connected servers remain online.
+2. **Task handle store recovery**: If a persisted task store is corrupted on disk, `PersistedTaskHandleStore::open_or_quarantine` renames the damaged file to `.corrupt` for forensics and initializes a clean `0600` store without crashing the host.
+3. **Repository/spec rollback**: Revert the offending commit via `git revert <sha>`, verify `susi_config::validate::validate_dir` and `susi mcp ledger --drift --refetched .agents/gmcp/spec` (`verified: true`), re-run `gmcp_req_203_017_06_operations`, and append fresh GMCP evidence records without truncating `.agents/gmcp/evidence/*.jsonl`.
+
+### Production guarantees and non-claims
+
+- Production guarantees cover `crates/susi-wire-client/src/{host,mcp}.rs`, `crates/susi-tools/src/{mcp_budget,client,config,leading_mcp}.rs`, `crates/susi-core/src/mcp_client.rs`, `src/cli/mcp_cli.rs`, and `crates/susi-cli-defs/src/mcp.rs` (`HOST-001`..`HOST-018`).
+- Non-claim: Susi Core validates MCP Apps (`io.modelcontextprotocol/apps`) negotiation, `ui://` resource payloads, CSP, permissions, and domain metadata headlessly; sandboxed browser/WebView rendering surfaces live exclusively in `intellibitz/susi-commercial-apps`.
+- Non-claim: Direct Unix-domain socket host/server transport checks compile under `#[cfg(unix)]`, while TCP loopback Streamable HTTP and stdio child/duplex transports run across both Linux and Windows x86_64 hosts.

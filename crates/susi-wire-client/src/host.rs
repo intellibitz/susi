@@ -763,12 +763,15 @@ impl McpHost {
         let entries: Vec<Value> = self.servers.iter().map(|(id, srv)| {
             let ident = json!({"name":srv.policy.identity.name,"version":srv.policy.identity.version,"principal":srv.policy.identity.principal});
             let caps = srv.policy.advertised_capabilities();
+            let tasks_n = srv.task_store.as_ref().map_or(0, |st| st.list().len());
+            let roots_n = srv.policy.roots.as_ref().map_or(0, Vec::len);
             match &srv.backend {
-                PeerBackend::Http(s, addr) => json!({"serverId":id,"transport":"http","endpoint":addr,"sessionId":s.session_id(),"protocolVersion":s.protocol_version(),"clientIdentity":ident,"advertisedCapabilities":caps,"serverInfo":s.server_info(),"serverCapabilities":s.server_capabilities(),"subscribedResources":s.subscribed_resources(),"bufferedNotifications":srv.notifications.len()}),
-                PeerBackend::Duplex(p) => json!({"serverId":id,"transport":"duplex","sessionId":"","protocolVersion":p.version,"clientIdentity":ident,"advertisedCapabilities":caps,"serverInfo":p.server_info,"serverCapabilities":p.server_capabilities,"subscribedResources":p.subscribed_uris,"bufferedNotifications":srv.notifications.len()}),
+                PeerBackend::Http(s, addr) => json!({"serverId":id,"transport":"http","endpoint":addr,"sessionId":s.session_id(),"protocolVersion":s.protocol_version(),"clientIdentity":ident,"advertisedCapabilities":caps,"allowedRootsCount":roots_n,"persistedTaskCount":tasks_n,"serverInfo":s.server_info(),"serverCapabilities":s.server_capabilities(),"subscribedResources":s.subscribed_resources(),"bufferedNotifications":srv.notifications.len()}),
+                PeerBackend::Duplex(p) => json!({"serverId":id,"transport":"duplex","sessionId":"","protocolVersion":p.version,"clientIdentity":ident,"advertisedCapabilities":caps,"allowedRootsCount":roots_n,"persistedTaskCount":tasks_n,"serverInfo":p.server_info,"serverCapabilities":p.server_capabilities,"subscribedResources":p.subscribed_uris,"bufferedNotifications":srv.notifications.len()}),
             }
         }).collect();
-        json!({ "serverCount": entries.len(), "servers": entries })
+        let limits = json!({"maxBufferedNotifications":MAX_BUFFERED_NOTIFICATIONS,"maxInterleavedFrames":MAX_INTERLEAVED_FRAMES,"maxPaginationPages":MAX_PAGINATION_PAGES});
+        json!({ "serverCount": entries.len(), "limits": limits, "servers": entries })
     }
 
     fn srv_mut(&mut self, server_id: &str) -> Result<&mut HostedServer, WireError> {
