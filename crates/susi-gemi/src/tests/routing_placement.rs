@@ -312,3 +312,24 @@ fn routing_reports_share_evidence_and_preserve_gate_precedence() {
         );
     }
 }
+
+#[test]
+fn routing_vendor_names_preserve_unranked_clouds_and_local_precedence() {
+    for name in [
+        "TOGETHER-llm",
+        "FIREWORKS-chat",
+        "MCP-custom",
+        "Google-model",
+        "Moonshot-chat",
+    ] {
+        assert!(InferenceRouter::is_cloud_provider_name(name), "{name}");
+    }
+    for name in [
+        "custom-mcp-chat",
+        "lmdeploy-openai",
+        "mcp-FAStEmBed",
+        "unlisted",
+    ] {
+        assert!(!InferenceRouter::is_cloud_provider_name(name), "{name}");
+    }
+}

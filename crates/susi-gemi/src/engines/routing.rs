@@ -389,15 +389,19 @@ fn cooldowns_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("provider_cooldowns.json")
 }
 
+fn read_routing_state<T: serde::de::DeserializeOwned + Default>(path: PathBuf) -> T {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
 /// Cooldowns persist across daemon restarts — a vendor whose key is out
 /// of credits does not revive because the process bounced, and without
 /// persistence the first post-restart mission re-probes every dead scope.
 fn load_cooldowns() -> std::collections::HashMap<String, u64> {
     let now = now_unix();
-    std::fs::read_to_string(cooldowns_path())
-        .ok()
-        .and_then(|s| serde_json::from_str::<std::collections::HashMap<String, u64>>(&s).ok())
-        .unwrap_or_default()
+    read_routing_state::<std::collections::HashMap<String, u64>>(cooldowns_path())
         .into_iter()
         .filter(|(_, until)| *until > now)
         .collect()
@@ -605,20 +609,13 @@ impl InferenceRouter {
     }
 
     pub fn load_preference() -> RoutingPreference {
-        let path = Self::preference_path();
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        read_routing_state(Self::preference_path())
     }
 
     /// Atomic: a reader racing an in-place write would see an empty file,
     /// parse it as the default preference, and lose a `local_only` override.
     pub fn save_preference(pref: &RoutingPreference) {
-        if let Ok(body) = serde_json::to_string_pretty(pref) {
-            let _ =
-                crate::susi_config::atomic_write_bytes(&Self::preference_path(), body.as_bytes());
-        }
+        let _ = crate::susi_config::atomic_write_json_pretty(&Self::preference_path(), pref);
     }
 
     /// Make `local_only` the sticky routing policy, keeping the rest of the
@@ -777,11 +774,7 @@ impl InferenceRouter {
     }
 
     pub fn load_stats() -> LocalInferenceStats {
-        let path = Self::stats_path();
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        read_routing_state(Self::stats_path())
     }
 
     /// Stats for `model_id` only. Legacy unscoped files (empty `model_id`)
@@ -819,9 +812,7 @@ impl InferenceRouter {
         stats.samples = stats.samples.saturating_add(1);
         stats.model_id = model_id.to_string();
 
-        if let Ok(body) = serde_json::to_string_pretty(&stats) {
-            let _ = crate::susi_config::atomic_write_bytes(&Self::stats_path(), body.as_bytes());
-        }
+        let _ = crate::susi_config::atomic_write_json_pretty(&Self::stats_path(), &stats);
     }
 
     pub fn is_interactive() -> bool {
@@ -831,44 +822,27 @@ impl InferenceRouter {
             && !susi_paths::console::is_unattended_env()
     }
 
-    /// Name heuristic for local OpenAI-compat engines (never escalate-as-cloud).
-    fn is_local_engine_name(name: &str) -> bool {
-        let lower = name.to_ascii_lowercase();
-        lower.contains("ollama")
-            || lower.contains("vllm")
-            || lower.contains("sglang")
-            || lower.contains("llama.cpp")
-            || lower.contains("llamacpp")
-            || lower.contains("lmstudio")
-            || lower.contains("lmdeploy")
-            || lower.contains("triton")
-            || lower.contains("candle")
-            || lower.contains("fastembed")
-    }
-
     /// True when `name` looks like a cloud / remote vendor (not a local engine).
     /// Prefer [`list_cloud_providers_from_registry`] when a registry is available.
     pub fn is_cloud_provider_name(name: &str) -> bool {
-        if Self::is_local_engine_name(name) {
+        let lower = name.to_ascii_lowercase();
+        let local_engines = [
+            "ollama",
+            "vllm",
+            "sglang",
+            "llama.cpp",
+            "llamacpp",
+            "lmstudio",
+            "lmdeploy",
+            "triton",
+            "candle",
+            "fastembed",
+        ];
+        if local_engines.iter().any(|engine| lower.contains(engine)) {
             return false;
         }
-        let lower = name.to_ascii_lowercase();
-        // MCP-bridged LLM tools (mcp-{server}-{tool})
-        if lower.starts_with("mcp-") {
-            return true;
-        }
-        // Advisory known-vendor names only; runtime decisions use registry metadata.
-        lower.contains("openai")
-            || lower.contains("anthropic")
-            || lower.contains("gemini")
-            || lower.contains("google")
-            || lower.contains("deepseek")
-            || lower.contains("minimax")
-            || lower.contains("kimi")
-            || lower.contains("moonshot")
-            || lower.contains("openrouter")
-            || lower.contains("mistral")
-            || lower.contains("groq")
+        // The two advisory-only vendors have no preferred rank; runtime uses registry metadata.
+        Self::known_cloud_rank(&lower).is_some()
             || lower.contains("together")
             || lower.contains("fireworks")
     }
@@ -884,16 +858,13 @@ impl InferenceRouter {
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
-            if let Some(http) = provider
+            let remote = provider
                 .as_any()
                 .downcast_ref::<crate::engines::http_provider::HttpProvider>()
-            {
-                if crate::engines::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
-                    clouds.push(name);
-                    continue;
-                }
-            }
-            if name.to_ascii_lowercase().starts_with("mcp-") {
+                .is_some_and(|http| {
+                    crate::engines::http_provider::HttpProvider::is_remote_cloud(&http.api_base)
+                });
+            if remote || name.to_ascii_lowercase().starts_with("mcp-") {
                 clouds.push(name);
             }
         }
@@ -918,17 +889,21 @@ impl InferenceRouter {
         registry: &crate::susi_core::registry::CapabilityRegistry,
         class: crate::engines::brain::TaskClass,
     ) -> Vec<String> {
-        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        if Self::cloud_failover_preference().is_none() {
             return Vec::new();
+        }
+        Self::cloud_failover_order_scoped(registry, class, &crate::key_arbitration::quota_headroom)
+    }
+
+    fn cloud_failover_preference() -> Option<RoutingPreference> {
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            return None;
         }
         let cfg = SusiConfig::load_global()
             .unwrap_or_default()
             .inference_routing();
         let pref = Self::load_preference();
-        if Self::effective_policy(&cfg, &pref) == "local_only" {
-            return Vec::new();
-        }
-        Self::cloud_failover_order_scoped(registry, class, &crate::key_arbitration::quota_headroom)
+        (Self::effective_policy(&cfg, &pref) != "local_only").then_some(pref)
     }
 
     /// `cloud_failover_order_for` with an explicit quota-headroom lookup —
@@ -940,18 +915,11 @@ impl InferenceRouter {
         class: crate::engines::brain::TaskClass,
         headroom: &crate::key_arbitration::HeadroomFn,
     ) -> Vec<String> {
-        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        let Some(pref) = Self::cloud_failover_preference() else {
             return Vec::new();
-        }
-        let cfg = SusiConfig::load_global()
-            .unwrap_or_default()
-            .inference_routing();
-        let pref = Self::load_preference();
-        if Self::effective_policy(&cfg, &pref) == "local_only" {
-            return Vec::new();
-        }
+        };
         let mut providers = Self::list_cloud_providers_from_registry(registry);
-        providers.retain(|name| !Self::provider_cooled(name));
+        Self::remove_cooled_providers(&mut providers);
         // Order by the brain's ranking of this task class — its position
         // already folds in the capability floor, quota exhaustion, the
         // scarcity-adjusted marginal cost per verified outcome (or evidence
@@ -1407,31 +1375,29 @@ impl InferenceRouter {
     }
 
     fn cloud_rank(name: &str) -> u8 {
-        let lower = name.to_ascii_lowercase();
-        // OpenRouter is the zero-config mesh: one key unlocks many upstreams.
-        if lower.contains("openrouter") {
-            0
-        } else if lower.contains("openai") {
-            1
-        } else if lower.contains("anthropic") {
-            2
-        } else if lower.contains("gemini") || lower.contains("google") {
-            3
-        } else if lower.contains("deepseek") {
-            4
-        } else if lower.contains("kimi") || lower.contains("moonshot") {
-            5
-        } else if lower.contains("minimax") {
-            6
-        } else if lower.contains("mistral") {
-            7
-        } else if lower.contains("groq") {
-            8
-        } else if lower.starts_with("mcp-") {
-            9
-        } else {
-            10
-        }
+        Self::known_cloud_rank(&name.to_ascii_lowercase()).unwrap_or(10)
+    }
+
+    fn known_cloud_rank(lower: &str) -> Option<u8> {
+        // Order decides names containing several vendors; MCP is a prefix-only fallback.
+        const VENDORS: &[(&str, u8)] = &[
+            ("openrouter", 0),
+            ("openai", 1),
+            ("anthropic", 2),
+            ("gemini", 3),
+            ("google", 3),
+            ("deepseek", 4),
+            ("kimi", 5),
+            ("moonshot", 5),
+            ("minimax", 6),
+            ("mistral", 7),
+            ("groq", 8),
+        ];
+        VENDORS
+            .iter()
+            .find(|(vendor, _)| lower.contains(vendor))
+            .map(|(_, rank)| *rank)
+            .or_else(|| lower.starts_with("mcp-").then_some(9))
     }
 
     fn prompt_cloud_choice(clouds: &[String]) -> Option<String> {
