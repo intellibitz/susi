@@ -21,8 +21,8 @@
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
-  "state": "open",
-  "status": "implemented",
+  "state": "closed",
+  "status": "done",
   "base_commit": "e06cd42c7a1d3c312644406e7286ddb8002379cc",
   "limitations": [
     "Interoperability and quality stage (`GMCP-203-017-05`) proves both-role reference-SDK and official-revision interop (`2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`), stdio (`susi mcp serve` + authorized child peer), Unix-domain socket (`#[cfg(unix)]`), direct-vs-gateway differential parity, concurrent multi-server interleaving invariants, SLO/memory/disk/fairness budgets, and retained regressions `R1..R4`; operations (`119`) and `.M` mastery (`120`) follow.",
@@ -45,5 +45,11 @@
     ".agents/tasks",
     "tests/gmcp_requirements/vc_203_017_part2.rs"
   ],
-  "implementation_commit": "cace84c2e43a2f5ab63ca93ae5f06d95884661f4"
+  "implementation_commit": "cace84c2e43a2f5ab63ca93ae5f06d95884661f4",
+  "verified_commit": "f7110fbefc6000e9a3351c26a5970a54471f1b0e",
+  "closed": {
+    "at_unix": 1794818578,
+    "commit": "f7110fbefc6000e9a3351c26a5970a54471f1b0e",
+    "by": "AG2FEATURES"
+  }
 }
