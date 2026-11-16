@@ -5,8 +5,8 @@
 **[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Forking and contributing](CONTRIBUTING.md)**
 
 Susi is a local-first AI OS socket: one Rust daemon exposes models, agents and
-tools through stable protocols on ports `9090-9094`. Its three Apache-2.0 core
-pillars are **GAWD** (agent coordination, A2A, ACP and parallel harness), **GEMI**
+tools through stable protocols on ports `9090-9094`. Its three core pillars,
+all Apache-2.0, are **GAWD** (agent coordination, A2A, ACP and parallel harness), **GEMI**
 (inference routing), and **GMCP** (MCP and governed tools).
 
 The core is a generic protocol boundary. Concrete model engines, providers,
