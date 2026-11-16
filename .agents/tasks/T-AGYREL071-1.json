@@ -27,7 +27,8 @@
         "crates/susi-gmcp/Cargo.toml",
         "crates/susi-harness/Cargo.toml",
         "crates/susi-server/Cargo.toml",
-        "tests/gmcp_requirements/vc_203_017_part2.rs"
+        "tests/gmcp_requirements/vc_203_017_part2.rs",
+        "tests/harness_mcp_execution_parity.rs"
     ],
     "accept": {
         "cmd": [
