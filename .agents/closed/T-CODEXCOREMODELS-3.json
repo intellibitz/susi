@@ -1,0 +1,15 @@
+{
+  "branch": "codexcoremodels/reuse",
+  "task": "T-CODEXCOREMODELS-3",
+  "agent": "CODEXCOREMODELS",
+  "head": "cbee3f24f600944100675d6ae38a284b104d7692",
+  "closed_unix": 1794858510,
+  "scopes": [
+    "crates/susi-gemi-models/src/hf_discovery.rs",
+    "crates/susi-gemi/src/operator_report.rs",
+    "src/cli/top_cli.rs",
+    "tests/top_cli_tests.rs",
+    "crates/susi-gemi-models/tests/configured_discovery.rs",
+    ".agents/tasks/T-CODEXCOREMODELS-3.json"
+  ]
+}
