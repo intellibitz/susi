@@ -52,6 +52,7 @@ pub mod peer_channel_link;
 pub mod plain_http;
 pub mod process_probe;
 pub mod progress;
+pub mod protocol_json;
 pub mod secret_ref;
 pub mod setting_registry;
 pub mod setup_workflow;
