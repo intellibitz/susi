@@ -49,9 +49,10 @@ struct Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         // Failure cleanup runs only after the ACP process guard is dropped.
-        // On Linux, verify the executable before touching a recorded PID.
+        // Verify the exact executable before touching each recorded PID,
+        // including helpers in a separately owned MCP process group/job.
         // Successful cases assert reaping before this last-resort cleanup.
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         if let Ok(entries) = fs::read_dir(&self.root) {
             for path in entries.flatten().map(|entry| entry.path()) {
                 if path.extension().is_none_or(|ext| ext != "jsonl") {
@@ -70,11 +71,23 @@ impl Drop for Fixture {
                     let Some(pid) = row["data"]["pid"].as_u64() else {
                         continue;
                     };
-                    if fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| exe == self.child)
+                    let Ok(pid) = u32::try_from(pid) else {
+                        continue;
+                    };
+                    if susi_config::process_probe::exe_path(pid)
+                        .is_some_and(|exe| same_executable(&exe, &self.child))
                     {
+                        #[cfg(target_os = "linux")]
                         let _ = Command::new("kill")
                             .env_clear()
                             .args(["-KILL", &pid.to_string()])
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status();
+                        #[cfg(windows)]
+                        let _ = self
+                            .command("taskkill")
+                            .args(["/PID", &pid.to_string(), "/F"])
                             .stdout(Stdio::null())
                             .stderr(Stdio::null())
                             .status();
@@ -304,10 +317,17 @@ impl Fixture {
     fn descriptor(&self, tag: &str, literal: &str, mode: &str) -> Value {
         json!({"name":"fixture", "command":self.child, "args":[self.root.join(format!("{tag}.jsonl")), mode], "env":[{"name":"SUSI_ACP_FIXTURE_LITERAL", "value":literal}]})
     }
+    fn set_config(&self, key: &str, value: Value) {
+        let path = self.home.join(".susi/config.json");
+        let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        config[key] = value;
+        fs::write(path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    }
     fn trace(&self, tag: &str) -> Vec<Value> {
         fs::read_to_string(self.root.join(format!("{tag}.jsonl")))
             .unwrap_or_default()
-            .lines()
+            .split_inclusive('\n')
+            .filter(|line| line.ends_with('\n'))
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
     }
@@ -416,7 +436,10 @@ impl Acp {
         self.input.as_mut().unwrap().flush().unwrap();
     }
     fn response(&mut self, id: u64) -> Value {
-        let deadline = Instant::now() + WAIT;
+        self.response_within(id, WAIT)
+    }
+    fn response_within(&mut self, id: u64, within: Duration) -> Value {
+        let deadline = Instant::now() + within;
         loop {
             let v = self
                 .output
@@ -590,7 +613,11 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
         "alpha:${HOME}:$UNCHANGED\\literal\nsecond line",
         "beta:${HOME}:$UNCHANGED\\literal",
     ];
-    let first = acp.session(&fx, 2, vec![fx.descriptor("alpha", literals[0], "normal")]);
+    let first = acp.session(
+        &fx,
+        2,
+        vec![fx.descriptor("alpha", literals[0], "normal-descendant")],
+    );
     let second = acp.session(&fx, 3, vec![fx.descriptor("beta", literals[1], "normal")]);
     assert_ne!(first, second);
     for (id, sid, tag, literal) in [
@@ -636,6 +663,7 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     acp.eof();
     provider.finish();
     assert_child_gone(&fx, "alpha");
+    assert_descendant_gone(&fx, "alpha");
     assert_child_gone(&fx, "beta");
     let requests = provider.requests.lock().unwrap();
     assert!(
@@ -658,17 +686,92 @@ fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
 }
 
 #[test]
+#[ignore = "real shipped-binary empty MCP session prompt and pure NDJSON stdout"]
+fn empty_mcp_session_prompt_uses_the_real_executor_with_pure_stdout() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("empty-mcp", &provider.url);
+    let mut acp = Acp::start(&fx, "acp");
+    let sid = acp.session(&fx, 2, vec![]);
+    let reply = acp.prompt(3, &sid);
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    assert!(
+        acp.seen.iter().any(|row| row["method"] == "session/update"),
+        "empty session emitted no result update"
+    );
+    acp.eof();
+    provider.finish();
+    let requests = provider.requests.lock().unwrap();
+    assert!(
+        !requests.is_empty(),
+        "empty session never reached the real configured provider"
+    );
+    assert!(
+        requests.iter().all(|request| !has_probe(request)),
+        "empty session received a supplied MCP schema"
+    );
+}
+
+#[test]
 #[ignore = "real shipped-binary MCP ownership cleanup during asynchronous initialization"]
 fn eof_cleans_up_a_pending_mcp_initialization() {
     let mut provider = Provider::start();
     let fx = Fixture::new("pending-init", &provider.url);
     let mut acp = Acp::start(&fx, "acp");
-    acp.send(json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":fx.repo,"mcpServers":[fx.descriptor("pending","literal-pending","pending-init")]}}));
+    acp.send(json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":fx.repo,"mcpServers":[fx.descriptor("pending","literal-pending","pending-init-descendant")]}}));
     fx.wait_trace("pending", "blocked");
+    fx.wait_trace("pending.helper", "started");
     acp.eof();
     provider.finish();
     assert_child_gone(&fx, "pending");
+    assert_descendant_gone(&fx, "pending");
     fx.assert_no_persisted_mcp(&["literal-pending"]);
+}
+
+#[test]
+#[ignore = "real shipped-binary setup deadline closes MCP descendants holding pipes"]
+fn initialization_deadline_stops_an_mcp_child_and_its_descendant() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("init-deadline", &provider.url);
+    fx.set_config("cloud_scout_timeout_secs", json!(1));
+    let mut acp = Acp::start(&fx, "acp");
+    acp.send(json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":fx.repo,"mcpServers":[fx.descriptor("timeout","literal-timeout","pending-init-descendant")]}}));
+    fx.wait_trace("timeout", "blocked");
+    let reply = acp.response_within(2, Duration::from_secs(8));
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("lease expired")),
+        "setup did not report its deadline: {reply}"
+    );
+    assert_child_gone(&fx, "timeout");
+    assert_descendant_gone(&fx, "timeout");
+    // A failed initializer must not destroy the ACP connection or reserve a
+    // phantom session: a fresh empty session is still admitted.
+    acp.session(&fx, 3, vec![]);
+    acp.eof();
+    provider.finish();
+}
+
+#[test]
+#[ignore = "real shipped-binary MCP leader exit with a descendant holding pipes"]
+fn exited_mcp_parent_does_not_leave_a_descendant_holding_its_pipes() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("parent-exit", &provider.url);
+    fx.set_config("cloud_scout_timeout_secs", json!(20));
+    let mut acp = Acp::start(&fx, "acp");
+    acp.send(json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":fx.repo,"mcpServers":[fx.descriptor("exited","literal-exited","parent-exit-descendant")]}}));
+    fx.wait_trace("exited.helper", "started");
+    // This bound is deliberately shorter than the configured setup lease:
+    // observing the leader's exit must itself close the held pipe tree.
+    let reply = acp.response_within(2, Duration::from_secs(5));
+    assert!(
+        reply.get("error").is_some(),
+        "exited MCP leader was admitted: {reply}"
+    );
+    assert_child_gone(&fx, "exited");
+    assert_descendant_gone(&fx, "exited");
+    acp.eof();
+    provider.finish();
 }
 
 #[test]
@@ -724,14 +827,16 @@ fn cancellation_interrupts_a_pending_mcp_tool_call() {
     let sid = acp.session(
         &fx,
         2,
-        vec![fx.descriptor("cancel", "literal-cancel", "pending-call")],
+        vec![fx.descriptor("cancel", "literal-cancel", "pending-call-descendant")],
     );
     acp.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":sid,"prompt":[{"type":"text","text":"Call the ACP bridge fixture session probe tool with marker actual-call."}]}}));
     fx.wait_trace("cancel", "blocked");
+    fx.wait_trace("cancel.helper", "started");
     acp.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":sid}}));
     let reply = acp.response(3);
     assert_eq!(reply["result"]["stopReason"], "cancelled", "{reply}");
     assert_child_gone(&fx, "cancel");
+    assert_descendant_gone(&fx, "cancel");
     acp.eof();
     provider.finish();
 }
@@ -764,43 +869,78 @@ fn contains_literal(value: &Value, literal: &str) -> bool {
 }
 
 fn assert_child_gone(fx: &Fixture, tag: &str) {
-    let rows = fx.trace(tag);
-    let pid = rows.iter().find(|r| r["event"] == "started").unwrap()["data"]["pid"]
-        .as_u64()
-        .unwrap();
-    #[cfg(unix)]
-    {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let live = Command::new("kill")
-                .env_clear()
-                .args(["-0", &pid.to_string()])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .unwrap()
-                .success();
-            if !live {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "owned MCP child {pid} remained alive after ACP EOF"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
+    assert_recorded_process_stopped(fx, tag, false);
+}
+
+fn assert_descendant_gone(fx: &Fixture, tag: &str) {
+    let helper = format!("{tag}.helper");
+    let heartbeat = fx.root.join(format!("{helper}.heartbeat"));
+    assert!(
+        fs::metadata(&heartbeat).is_ok_and(|m| m.len() > 0),
+        "descendant never produced a heartbeat"
+    );
+    assert_recorded_process_stopped(fx, &helper, true);
+    let stopped = fs::metadata(&heartbeat).unwrap().len();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        fs::metadata(heartbeat).unwrap().len(),
+        stopped,
+        "MCP descendant continued running after cleanup"
+    );
+}
+
+fn same_executable(actual: &Path, expected: &Path) -> bool {
+    let (Ok(actual), Ok(expected)) = (actual.canonicalize(), expected.canonicalize()) else {
+        return false;
+    };
     #[cfg(windows)]
     {
-        let out = Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .unwrap();
+        actual
+            .as_os_str()
+            .eq_ignore_ascii_case(expected.as_os_str())
+    }
+    #[cfg(not(windows))]
+    {
+        actual == expected
+    }
+}
+
+fn assert_recorded_process_stopped(fx: &Fixture, tag: &str, descendant: bool) {
+    let rows = fx.trace(tag);
+    let pid = u32::try_from(
+        rows.iter().find(|r| r["event"] == "started").unwrap()["data"]["pid"]
+            .as_u64()
+            .unwrap(),
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let live = susi_config::process_probe::pid_alive(pid)
+            .expect("native process liveness is available");
+        // The host owns/reaps the direct child. An orphaned helper may remain
+        // a dead zombie until the OS/container's init reaps it; no code or
+        // handles survive that state. Do not call a running helper cleaned up.
+        #[cfg(target_os = "linux")]
+        let dead_orphan = descendant
+            && fs::read_to_string(format!("/proc/{pid}/stat"))
+                .ok()
+                .and_then(|stat| {
+                    stat.rsplit_once(") ")
+                        .map(|(_, tail)| tail.starts_with("Z ") || tail.starts_with("X "))
+                })
+                .unwrap_or(false);
+        #[cfg(not(target_os = "linux"))]
+        let dead_orphan = {
+            let _ = descendant;
+            false
+        };
+        if !live || dead_orphan {
+            break;
+        }
         assert!(
-            !String::from_utf8_lossy(&out.stdout)
-                .split_whitespace()
-                .any(|s| s == pid.to_string()),
-            "owned MCP child remains alive"
+            Instant::now() < deadline,
+            "owned MCP process {tag}/{pid} remained alive after cleanup"
         );
+        std::thread::sleep(Duration::from_millis(20));
     }
 }

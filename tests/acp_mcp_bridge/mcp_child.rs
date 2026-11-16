@@ -1,7 +1,8 @@
 //! A real stdio MCP child compiled separately, so libtest never owns its stdout.
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 fn quoted(value: &str) -> String {
@@ -24,7 +25,8 @@ fn trace(path: &Path, event: &str, data: &str) {
         .append(true)
         .open(path)
         .unwrap();
-    writeln!(file, "{{\"event\":{},\"data\":{}}}", quoted(event), data).unwrap();
+    let row = format!("{{\"event\":{},\"data\":{}}}\n", quoted(event), data);
+    file.write_all(row.as_bytes()).unwrap();
     file.flush().unwrap();
 }
 
@@ -41,6 +43,42 @@ fn main() {
         std::process::id()
     );
     trace(path, "started", &probe);
+    if mode == "descendant-helper" {
+        // Ignore stdin and keep all three inherited pipes open even after the
+        // MCP parent exits. Only the host's process containment may stop us.
+        let mut heartbeat = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path.with_extension("heartbeat"))
+            .unwrap();
+        loop {
+            writeln!(heartbeat, "beat").unwrap();
+            heartbeat.flush().unwrap();
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    let mode = if let Some(mode) = mode.strip_suffix("-descendant") {
+        let helper_trace = path.with_extension("helper.jsonl");
+        // Deliberately leave the helper alive. The host must terminate the
+        // whole MCP workload, including when this leader exits normally.
+        let _helper = Command::new(std::env::current_exe().unwrap())
+            .arg(&helper_trace)
+            .arg("descendant-helper")
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        while !fs::metadata(helper_trace.with_extension("heartbeat")).is_ok_and(|m| m.len() > 0) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if mode == "parent-exit" {
+            return;
+        }
+        mode
+    } else {
+        mode
+    };
     for line in std::io::stdin().lock().lines() {
         let line = line.unwrap();
         trace(path, "request", &line);
