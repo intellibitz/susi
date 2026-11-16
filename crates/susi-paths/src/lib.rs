@@ -460,6 +460,7 @@ pub mod hex;
 pub mod http_body;
 pub mod loopback;
 pub mod ports;
+pub mod sha1;
 pub mod shlex;
 pub mod stdio;
 pub mod sync;
