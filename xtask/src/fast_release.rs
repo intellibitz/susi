@@ -68,7 +68,6 @@ const SOAK_SKIP_FILTERS: &[&str] = &[
     "primary_election_tests::",
     "model_catalogue_drift_tests::",
     "provider_contract::tests::provider_contract_opt_in_gate",
-    "git_governor::tests::",
     "keepass_bridge::tests::",
     "extensions::extensions_state_lock_tests::",
     "extensions_tests::",
@@ -86,10 +85,8 @@ const SOAK_SKIP_FILTERS: &[&str] = &[
 ];
 
 const HARNESS_SOAK_SKIP_FILTERS: &[&str] = &[
-    "storage_guard::tests::",
     "scheduler::tests::",
     "workflow_runner::tests::",
-    "operator::tests::a_harness_submission_witnesses_the_remote_and_notes_a_loss",
     "ledger::tests::concurrent_appenders_never_interleave_ledger_rows",
     "tools::tests::a_command_never_inherits_a_withheld_key_variable",
     "tools::tests::a_hung_command_returns_a_timeout_instead_of_blocking",

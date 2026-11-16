@@ -106,6 +106,7 @@ pub mod secrets;
 pub mod smart;
 pub mod storage_guard;
 pub mod supervisor;
+pub(crate) mod tool_backend;
 pub mod tools;
 pub mod usage;
 pub mod validate;

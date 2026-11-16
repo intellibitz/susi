@@ -1,7 +1,9 @@
 //! Opt-in Linux preservation experiment, with a protocol-clean real child.
 //! `cargo test --offline --locked -p susi --test harness_worker_mcp_parity -- --run`
 //! This custom harness reports assertions, not libtest test counts. Ordinary
-//! invocations skip it. Both sides call the existing production tool registry.
+//! invocations skip it. Set `SUSI_HARNESS_MCP_PROVIDER` to an absolute standard
+//! stdio provider executable exposing the worker filesystem tool contracts.
+//! Both sides call the production registry and its installed-provider adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use serde_json::{json, Value};
@@ -23,7 +25,43 @@ const MAX_FRAME: usize = 64 * 1024;
 const PEER_LIMIT: Duration = Duration::from_secs(10);
 
 fn fixture_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/worker-mcp-parity")
+    std::env::temp_dir().join("susi-worker-mcp-parity")
+}
+
+fn provider() -> PathBuf {
+    let path = PathBuf::from(
+        std::env::var_os("SUSI_HARNESS_MCP_PROVIDER")
+            .expect("set SUSI_HARNESS_MCP_PROVIDER to the standard stdio provider executable"),
+    );
+    assert!(path.is_absolute() && path.is_file());
+    path
+}
+
+fn configure_provider(root: &Path) {
+    owned(root);
+    assert_eq!(
+        PathBuf::from(std::env::var_os("SUSI_HOME").unwrap()),
+        root.join("home/.susi")
+    );
+    let executable = provider();
+    let config = susi_config::mcp::mcp_config_path();
+    assert!(config.starts_with(root.join("home")));
+    fs::write(
+        config,
+        serde_json::to_vec(&json!({"mcp_servers":{"fixture-provider":{
+            "command":executable,"args":["--stdio"]
+        }}}))
+        .unwrap(),
+    )
+    .unwrap();
+    susi_config::mac_policy::MacPolicy::global()
+        .grant(
+            "susi",
+            susi_config::mac_policy::actions::PROCESS_EXEC,
+            executable.to_str().unwrap(),
+            None,
+        )
+        .unwrap();
 }
 
 fn owned(root: &Path) {
@@ -57,6 +95,8 @@ fn command(root: &Path, args: &[&str]) -> Command {
         .env("PATH", "/usr/bin:/bin")
         .env("CARGO_NET_OFFLINE", "true")
         .env("RUSTUP_AUTO_INSTALL", "0")
+        .env("SUSI_HARNESS_MCP_PROVIDER", provider())
+        .env("TMPDIR", std::env::temp_dir())
         .stdin(Stdio::null());
     command
 }
@@ -194,6 +234,7 @@ fn call_count(root: &Path) -> usize {
 
 fn server(root: &Path, mode: &str, behavior: &str) {
     owned(root);
+    configure_provider(root);
     // If the suite itself is forcibly stopped, its in-process leases are
     // gone. Bound this fixture server independently as well. The only child
     // it can start is the separately bounded descendant fixture below.
@@ -744,6 +785,7 @@ fn lost_mutation(root: &Path) -> Value {
 
 fn suite(root: &Path) {
     owned(root);
+    configure_provider(root);
     assert_eq!(std::env::var("OPENAI_API_KEY").unwrap(), SYNTHETIC_KEY);
     assert!(std::env::var_os("SUSI_HOST_TOKEN").is_none());
     let mut comparisons = Vec::new();
@@ -752,7 +794,7 @@ fn suite(root: &Path) {
     policies_and_raw(&root.join("policies"), &mut comparisons, &mut raw);
     let invalid = invalid_wire(&root.join("invalid-wire"));
     let lost = lost_mutation(&root.join("lost-mutation"));
-    let evidence = json!({"status":"passed","custom_harness":true,"valid_object_comparisons":comparisons.len(),"transported_comparisons":comparisons.iter().filter(|row| row["transported"] == true).count(),"local_refusal_comparisons":comparisons.iter().filter(|row| row["transported"] == false).count(),"direct_raw_characterizations":raw.len(),"invalid_wire_rejections":invalid.len(),"comparisons":comparisons,"raw_native_cases":raw,"invalid_wire":invalid,"lost_mutation":lost,"platform":"x86_64-linux","production_changes":0,"reduction_credit":0,"scope":"Valid-object transport and native-handler preservation; no production worker backend or migration.","unresolved_raw_contract":[{"input":"malformed JSON","native":"authorize before raw parse; denial wins","MCP":"parse error before tool dispatch","normalization":"none; future client-side preservation required"},{"input":"nonobject JSON","native":"current six handlers behave like empty object, including list_dir root listing","MCP":"invalid params; object required","normalization":"characterized only, not implemented"}],"not_qualified":["Windows/native platforms other than x86_64 Linux","production worker transport integration","large command output, command timeout and existing path-race behavior","full protocol conformance or release qualification","typed MCP isError mapping: native handlers return untyped strings","outer-suite forced termination is bounded by child self-expiry, not a demonstrated immediate nested-group cleanup"]});
+    let evidence = json!({"status":"passed","custom_harness":true,"valid_object_comparisons":comparisons.len(),"transported_comparisons":comparisons.iter().filter(|row| row["transported"] == true).count(),"local_refusal_comparisons":comparisons.iter().filter(|row| row["transported"] == false).count(),"direct_raw_characterizations":raw.len(),"invalid_wire_rejections":invalid.len(),"comparisons":comparisons,"raw_native_cases":raw,"invalid_wire":invalid,"lost_mutation":lost,"platform":"x86_64-linux","scope":"Production Registry authorization, raw arguments, installed filesystem provider and outer MCP transport preservation.","not_qualified":["Windows/native platforms other than x86_64 Linux","full worker loop and CLI integration","large command output, command timeout and existing path-race behavior","full protocol conformance or release qualification","typed MCP isError mapping: native handlers return untyped strings","outer-suite forced termination is bounded by child self-expiry, not a demonstrated immediate nested-group cleanup"]});
     fs::write(
         root.join("evidence.json"),
         serde_json::to_vec_pretty(&evidence).unwrap(),

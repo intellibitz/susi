@@ -11,6 +11,13 @@ async fn multi_turn_worker_executes_tool_call_and_concludes() {
     use crate::http::Json as AxumJson;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    // This tests the loop's local syscall dispatch. Installed filesystem
+    // providers are exercised by the external-provider parity fixture.
+    let command = if cfg!(windows) {
+        "[IO.File]::WriteAllText('output.txt', 'native worker works')"
+    } else {
+        "printf %s 'native worker works' > output.txt"
+    };
     let turn_count = Arc::new(AtomicUsize::new(0));
     let count_clone = Arc::clone(&turn_count);
     let app = crate::http::Router::new().route(
@@ -20,7 +27,7 @@ async fn multi_turn_worker_executes_tool_call_and_concludes() {
                 let cnt = count_clone.fetch_add(1, Ordering::SeqCst);
                 async move {
                     if cnt == 0 {
-                        AxumJson(json!({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_42","type":"function","function":{"name":"write_to_file","arguments":"{\"path\": \"output.txt\", \"content\": \"native worker works\"}"}}]}}]}))
+                        AxumJson(json!({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_42","type":"function","function":{"name":"run_command","arguments":json!({"command":command}).to_string()}}]}}]}))
                     } else {
                         // verify tool call result was passed back in messages
                         let messages = body.get("messages").and_then(Value::as_array).unwrap();
@@ -82,6 +89,11 @@ async fn empty_reply_is_nudged_by_the_worker() {
     use crate::http::Json as AxumJson;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    let command = if cfg!(windows) {
+        "[IO.File]::WriteAllText('nudged.txt', 'nudged')"
+    } else {
+        "printf %s nudged > nudged.txt"
+    };
     let turns = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&turns);
     let app = crate::http::Router::new().route(
@@ -91,7 +103,7 @@ async fn empty_reply_is_nudged_by_the_worker() {
                 async move {
                     match n {
                         0 => AxumJson(json!({"choices":[{"message":{"role":"assistant","content":""}}]})),
-                        1 => AxumJson(json!({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"write_to_file","arguments":"{\"path\": \"nudged.txt\", \"content\": \"nudged\"}"}}]}}]})),
+                        1 => AxumJson(json!({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"run_command","arguments":json!({"command":command}).to_string()}}]}}]})),
                         _ => AxumJson(json!({"choices":[{"message":{"role":"assistant","content":"Wrote nudged.txt"}}]})),
                     }
                 }

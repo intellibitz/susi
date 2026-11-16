@@ -2,6 +2,8 @@
 //! `cargo build --offline --locked -p xtask --bin local-workflow`, then run
 //! `cargo test --offline --locked -p susi --test harness_mcp_execution_parity -- --ignored --nocapture`.
 //! Requires the reviewed compiler and authenticated rust-src used by `susi local`.
+//! `SUSI_HARNESS_MCP_PROVIDER` selects an absolute standard stdio provider
+//! executable exposing the worker filesystem tool contracts.
 //! Every process has a cleared environment, private home and local Git remotes.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -77,6 +79,7 @@ impl Fixture {
             .env("RUSTUP_AUTO_INSTALL", "0")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", self.home.join("gitconfig"))
+            .env("GIT_ALLOW_PROTOCOL", "file")
             .env("GIT_TERMINAL_PROMPT", "0");
         #[cfg(unix)]
         {
@@ -249,6 +252,21 @@ impl Fixture {
 
     fn configure(&self, upstream: &str) {
         assert!(upstream.starts_with("http://127.0.0.1:"));
+        let provider = PathBuf::from(
+            std::env::var_os("SUSI_HARNESS_MCP_PROVIDER")
+                .expect("set SUSI_HARNESS_MCP_PROVIDER to the standard stdio provider executable"),
+        );
+        assert!(provider.is_absolute() && provider.is_file());
+        let config = self.home.join(".susi");
+        fs::create_dir_all(&config).unwrap();
+        fs::write(
+            config.join("mcp_config.json"),
+            serde_json::to_vec(&json!({
+                "mcp_servers":{"fixture-provider":{"command":provider,"args":["--stdio"]}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         fs::write(self.root.join("providers.json"), json!({"providers":[{"id":"fixture-vendor","wire":"openai","endpoint":upstream,"key_env":"FIXTURE_API_KEY","models":[{"id":"fixture-model","backend":"fixture-backend","tools":true,"tier":"worker"}]}]}).to_string()).unwrap();
         fs::write(self.root.join("prices.json"), json!({"schema":"susi/harness/prices/v1","models":{"fixture-model":{"input_hit":1000000,"input_miss":1000000,"output":1000000},"byok:auto":{"input_hit":1000000,"input_miss":1000000,"output":1000000}}}).to_string()).unwrap();
         fs::write(self.root.join("plan.json"), json!({"mission":"parity","tasks":[{"key":"fix","title":"Correct answer without deleting its test","accept":"cargo test --offline --locked -p harness-parity-fixture","scopes":["src"],"deps":[],"prompt":"Change answer() from 41 to 42 in src/lib.rs, preserving every test."}]}).to_string()).unwrap();
@@ -572,6 +590,12 @@ impl Session {
     }
 
     fn request(&mut self, method: &str, params: Value) -> Value {
+        let reply = self.response(method, params, Instant::now() + Duration::from_secs(90));
+        assert!(reply.get("error").is_none(), "JSON-RPC error: {reply}");
+        reply["result"].clone()
+    }
+
+    fn response(&mut self, method: &str, params: Value, deadline: Instant) -> Value {
         self.next += 1;
         writeln!(
             self.stdin,
@@ -581,15 +605,57 @@ impl Session {
         .unwrap();
         self.stdin.flush().unwrap();
         loop {
+            assert!(Instant::now() < deadline, "bounded MCP response");
             let reply = self
                 .replies
-                .recv_timeout(Duration::from_secs(90))
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .expect("bounded MCP response");
             if reply.get("id") == Some(&json!(self.next)) {
-                assert!(reply.get("error").is_none(), "JSON-RPC error: {reply}");
-                return reply["result"].clone();
+                return reply;
             }
         }
+    }
+
+    fn tool_names(&mut self) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(90);
+        let mut names = Vec::new();
+        let mut cursor = None;
+        for _ in 0..50 {
+            assert!(Instant::now() < deadline, "bounded tools/list catalog");
+            let reply = self.response(
+                "tools/list",
+                cursor
+                    .as_ref()
+                    .map_or_else(|| json!({}), |cursor: &Value| json!({"cursor":cursor})),
+                deadline,
+            );
+            // Discovery can change the revision-bound catalog between pages.
+            // Only this read-only rejection permits a fresh listing.
+            if cursor.is_some()
+                && reply["error"]["code"] == -32602
+                && reply["error"]["message"] == "Catalog changed; restart listing without a cursor"
+            {
+                names.clear();
+                cursor = None;
+                continue;
+            }
+            assert!(reply.get("error").is_none(), "JSON-RPC error: {reply}");
+            let page = &reply["result"];
+            names.extend(
+                page["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool["name"].as_str().unwrap().to_string()),
+            );
+            cursor = page.get("nextCursor").cloned();
+            match cursor.as_ref() {
+                None => return names,
+                Some(Value::String(_)) => {}
+                Some(_) => panic!("invalid tools/list cursor: {page}"),
+            }
+        }
+        panic!("tools/list must finish within 50 pages including catalog restarts")
     }
 
     fn call(&mut self, name: &str, arguments: Value) -> Value {
@@ -640,9 +706,7 @@ fn accepted_task_matches_direct_and_mcp_and_is_not_replayed() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join(format!("harness-parity-{}-{stamp}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("harness-parity-{}-{stamp}", std::process::id()));
     let workflow = std::env::var_os("SUSI_PARITY_WORKFLOW_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -688,27 +752,7 @@ fn accepted_task_matches_direct_and_mcp_and_is_not_replayed() {
     let (_mcp_gateway, mcp_url) = mcp.gateway();
     let mcp_before = mcp.git(&["rev-parse", "main"]);
     let mut session = Session::spawn(&mcp);
-    let mut names = Vec::new();
-    let mut cursor = None;
-    loop {
-        let page = session.request(
-            "tools/list",
-            cursor
-                .as_ref()
-                .map_or_else(|| json!({}), |cursor: &Value| json!({"cursor":cursor})),
-        );
-        names.extend(
-            page["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tool| tool["name"].as_str().unwrap().to_string()),
-        );
-        cursor = page.get("nextCursor").cloned();
-        if cursor.is_none() {
-            break;
-        }
-    }
+    let names = session.tool_names();
     for name in ["harness_run", "harness_runs", "harness_status"] {
         assert!(names.iter().any(|n| n == name));
     }

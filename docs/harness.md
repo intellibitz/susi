@@ -394,19 +394,17 @@ rules; it makes them mechanical.
 
 ### The worker's file tools
 
-A worker changes the workspace through six native tools, every path kept
+A worker changes the workspace through six built-in tool contracts, every path kept
 inside the worktree: `view_file`, `list_dir`, `run_command` (never a `susi`
 command: the harness owns claim, close, finish and sync), and three that write.
 `write_to_file` **creates** a file and refuses one that already exists, naming
 the two tools that change an existing file; `append_to_file` adds to the end of
 a file (a newline first when the file does not end in one, the file created
 when missing); `replace_file_content` swaps one exact substring that occurs
-once. The split exists because of a failure seen three times in one day: asked
-to add one test to a 13 000-line requirements file, a worker whose answer could
-carry 8 000 tokens wrote the file back as 200 lines, since overwriting was the
-only way it had to add. The adapter's prompt for `gmcp_req_` and `gmcp_vc_`
-tasks now says to append the test; the rejection of a test-count drop stays as
-the backstop.
+once. The five filesystem implementations resolve an installed MCP provider
+after the registry's existing authorization and argument checks. `run_command`
+retains its local execution policy. Large arguments and results use bounded
+standard tool calls and session-owned resources without replaying mutations.
 
 ### A governed CLI worker
 
@@ -474,9 +472,17 @@ susi harness scorecard --events .susi/records/rsi-loop.jsonl [--task T-…] [--j
   missing in the report until a release actually carries the task, which is
   what the scorecard's first-missing-phase display is for.
 
-`susi harness scorecard` is the production caller for
-`scripts/check-rsi-scorecard.py`, in this baseline. That Python-backed path is a Rust-only migration defect,
-not a permanent exception to the native tooling mandate.
+`susi harness scorecard` calls the installed Rust implementation through the
+`workflow_harness_v1` MCP contract, alongside Git integration and storage audits.
+The existing command options, receipts, typed errors and path semantics remain.
+Installation registers the verified provider through the ordinary MCP registry.
+Native Git context requires both execution permission and an exact executable
+`process.env_inherit` grant with `inherit_parent_env: true` in that entry.
+Other peers retain an isolated environment unless individually admitted;
+HTTP and client-supplied peers cannot inherit the caller's environment.
+Native executable paths that are not Unicode use the lossless `native_command`
+DTO and its canonical ASCII permission identity in `command`; the identity is
+checked against the actual executable before launch.
 
 ## Where the money goes
 

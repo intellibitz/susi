@@ -1,8 +1,8 @@
 //! The tool registry: the syscall surface an agent is allowed to use.
 //!
 //! A tool is a record — name, schema, handler and policy — not a match arm in
-//! the worker. The five native tools are the builtin set; a tool served by an
-//! MCP server is registered with [`Handler::Mcp`] and called through
+//! the worker. The builtin set declares local and installed capabilities. A
+//! tool served by an MCP server is registered with [`Handler::Mcp`] and called through
 //! [`crate::mcp::McpClient`].
 //!
 //! Policy is the authority boundary: [`Policy::Auto`] runs, [`Policy::Ask`]
@@ -11,7 +11,6 @@
 //! refused rather than attempted.
 
 use serde_json::{json, Value};
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -30,7 +29,7 @@ pub enum Policy {
 /// Who executes the tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handler {
-    /// Implemented in this binary.
+    /// A built-in local or installed capability.
     Native,
     /// Served by an MCP server.
     Mcp,
@@ -52,7 +51,7 @@ pub struct ToolSpec {
 }
 
 impl ToolSpec {
-    /// A native tool.
+    /// A built-in tool contract.
     #[must_use]
     pub fn native(name: &str, description: &str, parameters: Value, policy: Policy) -> Self {
         Self {
@@ -95,7 +94,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// The six native tools, all on [`Policy::Auto`].
+    /// The six built-in tool contracts, all on [`Policy::Auto`].
     ///
     /// `run_command` is the sharpest of them and is kept automatic because the
     /// worker is headless: an `Ask` tool in a run with no operator would simply
@@ -234,8 +233,9 @@ impl Registry {
 
     /// Authorize and run a tool with JSON arguments.
     ///
-    /// Native tools are executed here. An MCP tool is refused with a pointer to
-    /// the client, because the registry holds policy, not a live connection.
+    /// Built-in filesystem contracts resolve an installed MCP provider after
+    /// authorization and argument parsing. Explicit MCP registrations require
+    /// the caller's live client; command execution retains its local policy.
     #[must_use]
     pub fn execute(
         &self,
@@ -259,12 +259,23 @@ impl Registry {
             Err(error) => return format!("error parsing tool arguments: {error}"),
         };
         match name {
-            "view_file" => tool_view_file(workspace, &args),
-            "write_to_file" => tool_write_to_file(workspace, &args),
-            "append_to_file" => tool_append_to_file(workspace, &args),
-            "replace_file_content" => tool_replace_file_content(workspace, &args),
+            "view_file"
+            | "write_to_file"
+            | "append_to_file"
+            | "replace_file_content"
+            | "list_dir" => {
+                let workspace = match susi_paths::native_path::encode(workspace) {
+                    Ok(path) => path,
+                    Err(error) => return format!("tool '{name}' workspace: {error}"),
+                };
+                crate::tool_backend::call_text_in(
+                    &format!("worker_{name}"),
+                    &json!({"workspace": workspace, "arguments": args}),
+                    Path::new("."),
+                )
+                .unwrap_or_else(|error| format!("tool '{name}' provider failed: {error}"))
+            }
             "run_command" => tool_run_command(workspace, &args),
-            "list_dir" => tool_list_dir(workspace, &args),
             other => format!("unknown tool '{other}'"),
         }
     }
@@ -289,179 +300,6 @@ pub fn sanitize_path(workspace: &Path, rel: &str) -> Result<PathBuf, String> {
         }
     }
     Ok(workspace.join(clean_rel))
-}
-
-fn tool_view_file(workspace: &Path, args: &Value) -> String {
-    let path_str = match args.get("path").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "missing 'path' argument".to_string(),
-    };
-    let target_path = match sanitize_path(workspace, path_str) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    if !target_path.exists() {
-        return format!("file '{}' does not exist", path_str);
-    }
-    let content = match fs::read_to_string(&target_path) {
-        Ok(c) => c,
-        Err(e) => return format!("failed to read '{}': {e}", path_str),
-    };
-
-    let start_line = args
-        .get("start_line")
-        .and_then(Value::as_u64)
-        .map(|v| v as usize)
-        .unwrap_or(1);
-    let end_line = args
-        .get("end_line")
-        .and_then(Value::as_u64)
-        .map(|v| v as usize);
-
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len();
-    if total_lines == 0 {
-        return "(empty file)".to_string();
-    }
-
-    let start_idx = start_line.saturating_sub(1).min(total_lines);
-    let end_idx = end_line.unwrap_or(total_lines).min(total_lines);
-
-    let mut out = String::new();
-    for (i, line) in lines[start_idx..end_idx].iter().enumerate() {
-        let line_num = start_idx + i + 1;
-        out.push_str(&format!("{line_num:>5}: {line}\n"));
-    }
-    out
-}
-
-fn tool_write_to_file(workspace: &Path, args: &Value) -> String {
-    let path_str = match args.get("path").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "missing 'path' argument".to_string(),
-    };
-    let content = match args.get("content").and_then(Value::as_str) {
-        Some(c) => c,
-        None => return "missing 'content' argument".to_string(),
-    };
-    let target_path = match sanitize_path(workspace, path_str) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    // Observed across three engine runs: a worker asked to add one test to a
-    // 13 000-line file wrote the file back as 200 lines, because overwriting
-    // was its only way to add to a file and its output cap could not carry
-    // the whole file. Creating is still this tool's; adding is append's.
-    if target_path.exists() {
-        return format!(
-            "refused: '{}' already exists, and write_to_file only creates files (overwriting a file \
-this call cannot reproduce in full loses the rest of it). To add to the end of it call \
-append_to_file; to change part of it call replace_file_content with the exact text to replace.",
-            path_str
-        );
-    }
-    if let Some(parent) = target_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            return format!("failed to create parent directories: {e}");
-        }
-    }
-    match fs::write(&target_path, content) {
-        Ok(()) => format!(
-            "successfully wrote {} bytes to '{}'",
-            content.len(),
-            path_str
-        ),
-        Err(e) => format!("failed to write to '{}': {e}", path_str),
-    }
-}
-
-fn tool_append_to_file(workspace: &Path, args: &Value) -> String {
-    let path_str = match args.get("path").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "missing 'path' argument".to_string(),
-    };
-    let content = match args.get("content").and_then(Value::as_str) {
-        Some(c) => c,
-        None => return "missing 'content' argument".to_string(),
-    };
-    let target_path = match sanitize_path(workspace, path_str) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    if let Some(parent) = target_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            return format!("failed to create parent directories: {e}");
-        }
-    }
-    // The existing text, so the addition starts on a line of its own; a
-    // missing file is created, as a fresh file would be.
-    let existing = match fs::read(&target_path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => return format!("failed to read '{}': {e}", path_str),
-    };
-    let mut addition = String::new();
-    if !existing.is_empty() && !existing.ends_with(b"\n") {
-        addition.push('\n');
-    }
-    addition.push_str(content);
-    let result = fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&target_path)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, addition.as_bytes()));
-    match result {
-        Ok(()) => format!(
-            "successfully appended {} bytes to '{}' ({} bytes before)",
-            content.len(),
-            path_str,
-            existing.len()
-        ),
-        Err(e) => format!("failed to append to '{}': {e}", path_str),
-    }
-}
-
-fn tool_replace_file_content(workspace: &Path, args: &Value) -> String {
-    let path_str = match args.get("path").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "missing 'path' argument".to_string(),
-    };
-    let target = match args.get("target").and_then(Value::as_str) {
-        Some(t) => t,
-        None => return "missing 'target' argument".to_string(),
-    };
-    let replacement = match args.get("replacement").and_then(Value::as_str) {
-        Some(r) => r,
-        None => return "missing 'replacement' argument".to_string(),
-    };
-    let target_path = match sanitize_path(workspace, path_str) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    if !target_path.exists() {
-        return format!("file '{}' does not exist", path_str);
-    }
-    let content = match fs::read_to_string(&target_path) {
-        Ok(c) => c,
-        Err(e) => return format!("failed to read '{}': {e}", path_str),
-    };
-
-    let count = content.matches(target).count();
-    if count == 0 {
-        return format!("target substring not found in '{}'", path_str);
-    }
-    if count > 1 {
-        return format!(
-            "target matches {count} occurrences in '{}'; make target more specific to match exactly once",
-            path_str
-        );
-    }
-
-    let updated = content.replace(target, replacement);
-    match fs::write(&target_path, updated) {
-        Ok(()) => format!("successfully replaced target in '{}'", path_str),
-        Err(e) => format!("failed to write '{}': {e}", path_str),
-    }
 }
 
 fn tool_run_command(workspace: &Path, args: &Value) -> String {
@@ -726,42 +564,6 @@ fn runs_susi(command: &str) -> bool {
         })
 }
 
-fn tool_list_dir(workspace: &Path, args: &Value) -> String {
-    let path_str = args
-        .get("path")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
-    let target_dir = match sanitize_path(workspace, path_str) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    if !target_dir.exists() {
-        return format!("directory '{}' does not exist", path_str);
-    }
-    let read_dir = match fs::read_dir(&target_dir) {
-        Ok(rd) => rd,
-        Err(e) => return format!("failed to read directory: {e}"),
-    };
-
-    let mut entries = Vec::new();
-    for entry in read_dir.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        if is_dir {
-            entries.push(format!("{name}/"));
-        } else {
-            entries.push(name);
-        }
-    }
-    entries.sort();
-    if entries.is_empty() {
-        "(empty directory)".to_string()
-    } else {
-        entries.join("\n")
-    }
-}
-
 #[cfg(all(test, windows))]
 #[path = "tests/tools_window.rs"]
 mod tools_window;
@@ -785,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_registry_lists_the_six_native_tools() {
+    fn tool_registry_lists_the_six_builtin_contracts() {
         let registry = Registry::builtin();
         assert_eq!(registry.tools().len(), 6);
         for name in [
@@ -841,118 +643,37 @@ mod tests {
     }
 
     #[test]
-    fn tool_registry_executes_write_view_and_replace() {
-        let temp = std::env::temp_dir().join(format!("susi-tools-{}", std::process::id()));
-        let _ = fs::create_dir_all(&temp);
-        let registry = Registry::builtin();
-
-        let written = registry.execute(
-            &temp,
-            "write_to_file",
-            &json!({"path": "test.txt", "content": "line1\nline2\nline3"}).to_string(),
-            &[],
-        );
-        assert!(written.contains("successfully wrote"), "{written}");
-
-        let viewed = registry.execute(
-            &temp,
+    fn filesystem_authorization_precedes_parsing_and_provider_dispatch() {
+        for name in [
             "view_file",
-            &json!({"path": "test.txt", "start_line": 2, "end_line": 2}).to_string(),
-            &[],
-        );
-        assert!(viewed.contains("line2"));
-        assert!(!viewed.contains("line1"));
-
-        let replaced = registry.execute(
-            &temp,
+            "write_to_file",
+            "append_to_file",
             "replace_file_content",
-            &json!({"path": "test.txt", "target": "line2", "replacement": "line_two"}).to_string(),
-            &[],
-        );
-        assert!(replaced.contains("successfully replaced"), "{replaced}");
-
-        let listed = registry.execute(&temp, "list_dir", "{}", &[]);
-        assert!(listed.contains("test.txt"));
-        let _ = fs::remove_dir_all(&temp);
-    }
-
-    /// A file that does not end in a newline gets one before the addition; one
-    /// that does gets the addition alone; a missing file is created. The
-    /// rest of the file is never touched: the tool exists so a worker can add
-    /// a test to a file far larger than its output can carry.
-    #[test]
-    fn tool_append_to_file_adds_to_the_end_and_creates_a_missing_file() {
-        let temp = std::env::temp_dir().join(format!("susi-tools-append-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&temp);
-        fs::create_dir_all(&temp).unwrap();
-        let registry = Registry::builtin();
-        let append = |path: &str, content: &str| {
-            registry.execute(
-                &temp,
-                "append_to_file",
-                &json!({"path": path, "content": content}).to_string(),
-                &[],
-            )
-        };
-
-        fs::write(temp.join("no-newline.rs"), "fn a() {}").unwrap();
-        let out = append("no-newline.rs", "fn b() {}\n");
-        assert!(out.contains("successfully appended 10 bytes"), "{out}");
-        assert_eq!(
-            fs::read_to_string(temp.join("no-newline.rs")).unwrap(),
-            "fn a() {}\nfn b() {}\n"
-        );
-
-        fs::write(temp.join("newline.rs"), "fn a() {}\n").unwrap();
-        append("newline.rs", "fn b() {}\n");
-        assert_eq!(
-            fs::read_to_string(temp.join("newline.rs")).unwrap(),
-            "fn a() {}\nfn b() {}\n",
-            "no blank line is inserted when the file already ends in a newline"
-        );
-
-        let out = append("new/dir/fresh.rs", "fn c() {}\n");
-        assert!(out.contains("(0 bytes before)"), "{out}");
-        assert_eq!(
-            fs::read_to_string(temp.join("new/dir/fresh.rs")).unwrap(),
-            "fn c() {}\n"
-        );
-
-        let out = append("../outside.rs", "x");
-        assert!(out.contains("traversal"), "{out}");
-        assert!(!temp.parent().unwrap().join("outside.rs").exists());
-        let _ = fs::remove_dir_all(&temp);
-    }
-
-    /// `write_to_file` creates; it never replaces a file that is there, and
-    /// its refusal names the two tools that change an existing file.
-    #[test]
-    fn tool_write_to_file_refuses_to_overwrite_and_names_the_alternatives() {
-        let temp =
-            std::env::temp_dir().join(format!("susi-tools-overwrite-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&temp);
-        fs::create_dir_all(&temp).unwrap();
-        let registry = Registry::builtin();
-        let write = |content: &str| {
-            registry.execute(
-                &temp,
-                "write_to_file",
-                &json!({"path": "big.rs", "content": content}).to_string(),
-                &[],
-            )
-        };
-        let first = write("fn one() {}\nfn two() {}\n");
-        assert!(first.contains("successfully wrote"), "{first}");
-        let second = write("fn two() {}\n");
-        assert!(second.starts_with("refused:"), "{second}");
-        assert!(second.contains("append_to_file"), "{second}");
-        assert!(second.contains("replace_file_content"), "{second}");
-        assert_eq!(
-            fs::read_to_string(temp.join("big.rs")).unwrap(),
-            "fn one() {}\nfn two() {}\n",
-            "the existing file is untouched"
-        );
-        let _ = fs::remove_dir_all(&temp);
+            "list_dir",
+        ] {
+            let mut registry = Registry::builtin();
+            for policy in [Policy::Ask, Policy::Deny] {
+                registry.register(ToolSpec::native(name, "Fixture", json!({}), policy));
+                let output = registry.execute(Path::new(""), name, "{", &[]);
+                assert_eq!(output, registry.authorize(name, &[]).unwrap_err());
+            }
+            registry.register(ToolSpec::native(name, "Fixture", json!({}), Policy::Ask));
+            let expected = format!(
+                "error parsing tool arguments: {}",
+                serde_json::from_str::<Value>("{").unwrap_err()
+            );
+            assert_eq!(
+                registry.execute(Path::new(""), name, "{", &[name.to_owned()]),
+                expected
+            );
+            registry.register(ToolSpec::native(name, "Fixture", json!({}), Policy::Auto));
+            assert_eq!(registry.execute(Path::new(""), name, "{", &[]), expected);
+            registry.register(ToolSpec::mcp(name, "Fixture", json!({}), Policy::Auto));
+            assert_eq!(
+                registry.execute(Path::new(""), name, "{", &[]),
+                format!("tool '{name}' is served by MCP; call it through an McpClient")
+            );
+        }
     }
 
     #[test]
@@ -961,8 +682,6 @@ mod tests {
         assert!(sanitize_path(ws, "../outside").is_err());
         assert!(sanitize_path(ws, "sub/../../outside").is_err());
         assert!(sanitize_path(ws, "safe/nested/file.rs").is_ok());
-        let output = Registry::builtin().execute(ws, "view_file", r#"{"path":"../secret"}"#, &[]);
-        assert!(output.contains("traversal"), "{output}");
     }
 
     #[test]

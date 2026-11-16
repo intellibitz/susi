@@ -253,7 +253,6 @@ fn guarded_worker_invocation(args: &[String]) -> bool {
     }
     let words: Vec<String> = args
         .iter()
-        .skip(1)
         .filter(|arg| !arg.starts_with('-'))
         .map(|arg| arg.to_ascii_lowercase())
         .collect();
@@ -273,12 +272,21 @@ fn main() -> std::process::ExitCode {
     if let Some(status) = cli::install_cli::installed_channel::dispatch() {
         return status;
     }
-    if guarded_worker_invocation(&std::env::args().collect::<Vec<_>>()) {
+    let Ok(args) = env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string())
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        eprintln!("command arguments must be valid UTF-8");
+        return std::process::ExitCode::from(2);
+    };
+    if guarded_worker_invocation(&args) {
         eprintln!(
             "refused: the harness owns susi workflow/tasks commands; leave the changes in the tree"
         );
         return std::process::ExitCode::from(2);
     }
+    drop(args);
     // Rendering one global info flag never needs to build the nested command parsers.
     // Clap still owns argument handling, output, executable naming and the exit code.
     let mut args = env::args_os().skip(1);

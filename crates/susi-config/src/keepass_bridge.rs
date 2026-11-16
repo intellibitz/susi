@@ -3351,7 +3351,7 @@ pub fn run_git_gpg_program(config_dir: &Path, args: &[String]) -> i32 {
 /// Fast-path `argv[0]` multicall dispatch when invoked as `susi-gpg` / `susi-git-gpg`.
 #[must_use]
 pub fn dispatch_gpg_program_multicall() -> Option<std::process::ExitCode> {
-    let mut args = std::env::args();
+    let mut args = std::env::args_os();
     let argv0 = args.next()?;
     let path = Path::new(&argv0);
     let stem_lower = path.file_name().and_then(|n| n.to_str()).map(|s| {
@@ -3364,7 +3364,13 @@ pub fn dispatch_gpg_program_multicall() -> Option<std::process::ExitCode> {
     ) {
         return None;
     }
-    let rest: Vec<String> = args.collect();
+    let Ok(rest) = args
+        .map(|arg| arg.into_string())
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        eprintln!("susi-gpg: command arguments must be valid UTF-8");
+        return Some(std::process::ExitCode::from(2));
+    };
     let cfg_dir = susi_paths::SusiDirs::config_dir();
     let code = run_git_gpg_program(&cfg_dir, &rest);
     let u8_code = u8::try_from(code).unwrap_or(1);

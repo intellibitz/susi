@@ -3,17 +3,12 @@
 //! There is no external agent runtime. [`run`] drives
 //! [`crate::worker::run_agent_loop`], which talks to the metering gateway with a
 //! per-run key (`susi:<mission>:<task>:<attempt>`), so every model call the
-//! worker makes is priced and attributed by the gateway. Nothing is spawned and
-//! nothing is shelled out: the tool calls the model asks for are executed by
-//! [`crate::tools::Registry`] against the run's workspace.
-//!
-//! Two properties follow from that and are worth stating because they are what
-//! the old subprocess path could not guarantee:
+//! worker makes is priced and attributed by the gateway. Model-requested tools
+//! pass through [`crate::tools::Registry`] policy against the run's workspace;
+//! filesystem operations use installed MCP providers.
 //!
 //! - **The verdict is the returned [`RunOutcome`]**, never a process exit code.
-//! - **Bounded work is structural**: the loop has a turn cap and a wall-clock
-//!   deadline, both enforced in process, so a runaway model cannot outlive the
-//!   mission it belongs to.
+//! - The loop checks its turn cap and wall-clock deadline between model turns.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -105,7 +100,7 @@ pub trait Runner: Sync {
 /// The native in-process coding worker.
 ///
 /// Drives turn-by-turn completion through the metering gateway and executes
-/// workspace operations directly in process.
+/// workspace operations through the tool registry.
 pub struct NativeWorker;
 
 impl Runner for NativeWorker {

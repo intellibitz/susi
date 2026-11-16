@@ -15,6 +15,7 @@ struct NativeState {
     dropped_tests: bool,
     rewritten: bool,
     snapshot: Vec<u8>,
+    replace_legacy: Option<PathBuf>,
 }
 struct NativeRunner {
     directory: PathBuf,
@@ -160,6 +161,9 @@ impl CommandRunner for NativeRunner {
         }
         if program == Path::new("cargo") {
             if args.first().map(String::as_str) == Some("test") {
+                if let Some(path) = state.replace_legacy.take() {
+                    std::fs::write(path, b"{}").unwrap();
+                }
                 if state.acceptance_failure {
                     return Ok(RunOutput {
                         status: 1,
@@ -430,7 +434,13 @@ fn finish_batch_integrates_every_claim_in_one_call() {
         .iter()
         .any(|call| call.contains("workflow release")));
     for (dir, id) in [(one.path(), &first), (two.path(), &second)] {
-        assert!(dir.join(format!(".agents/tasks/done/{id}.json")).is_file());
+        assert!(!dir.join(format!(".agents/tasks/done/{id}.json")).exists());
+        let record: Value = serde_json::from_slice(
+            &std::fs::read(dir.join(format!(".agents/tasks/{id}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record["status"], "verified");
+        assert_eq!(record["integration"], "pending_native_receipt");
     }
 }
 #[test]
@@ -457,7 +467,7 @@ fn a_failed_batch_integration_releases_nothing() {
     assert!(target.finish_batch(&[]).is_err());
 }
 #[test]
-fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
+fn private_candidate_pending_record_preserves_real_queue_dependency_contract() {
     let candidate = susi_paths::tempfile::tempdir().unwrap();
     let primary = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(candidate.path());
@@ -496,7 +506,7 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
     let done = candidate
         .path()
         .join(format!(".agents/tasks/done/{id}.json"));
-    assert_eq!(source, std::fs::read(&done).unwrap());
+    assert!(!done.exists());
     let proof: Value = serde_json::from_slice(&source).unwrap();
     assert_eq!(proof["native_worker"], "demo");
     assert_eq!(
@@ -504,11 +514,7 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
         serde_json::json!(local_claim(candidate.path()).unwrap().scopes)
     );
     assert_eq!(proof["accept"]["cmd"], serde_json::json!(["cargo", "test"]));
-    assert!(candidate
-        .path()
-        .join(format!(".agents/tasks/done/{id}.json"))
-        .is_file());
-    // A second close validates the same artifact and does not overwrite it.
+    // A second close validates the same active artifact without a done copy.
     target.close(candidate.path(), &id).unwrap();
     let candidate_plan = plan(candidate.path());
     assert_eq!(candidate_plan.tasks.len(), 1);
@@ -516,6 +522,40 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
         candidate_plan.tasks[0].task.as_deref(),
         Some("T-DEPENDENT-1")
     );
+    // A status label cannot replace the exact live reservation and acceptance.
+    for delta in [
+        serde_json::json!({"status":"implemented_pending_integration"}),
+        serde_json::json!({"integration":"accepted"}),
+        serde_json::json!({"owner":"other"}),
+        serde_json::json!({"native_worker":"other"}),
+        serde_json::json!({"scopes":["elsewhere"]}),
+        serde_json::json!({"base":null}),
+        serde_json::json!({"accept":{"cmd":[]}}),
+    ] {
+        let mut invalid = proof.clone();
+        invalid
+            .as_object_mut()
+            .unwrap()
+            .extend(delta.as_object().unwrap().clone());
+        std::fs::write(&open, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(crate::queue::plan_batch(candidate.path(), "contract", 2, &[], None, &[]).is_err());
+    }
+    std::fs::write(&open, &source).unwrap();
+    // Copying the proof into a checkout without its live reservation does not
+    // establish acceptance there, and missing history does not close a dependency.
+    std::fs::write(
+        primary.path().join(format!(".agents/tasks/{id}.json")),
+        &source,
+    )
+    .unwrap();
+    assert!(crate::queue::plan_batch(primary.path(), "contract", 2, &[], None, &[]).is_err());
+    std::fs::remove_file(primary.path().join(format!(".agents/tasks/{id}.json"))).unwrap();
+    assert!(crate::queue::plan_batch(primary.path(), "contract", 2, &[], None, &[]).is_err());
+    std::fs::write(
+        primary.path().join(format!(".agents/tasks/{id}.json")),
+        &original,
+    )
+    .unwrap();
     // Failed native integration has never published that artifact to the
     // primary queue, so its dependency remains blocked there.
     let primary_plan = plan(primary.path());
@@ -545,7 +585,7 @@ fn a_legacy_verified_candidate_is_recovered_under_its_live_claim() {
     std::fs::write(&done, serde_json::to_vec(&legacy).unwrap()).unwrap();
     target.close(dir.path(), id).unwrap();
     let source = std::fs::read(&task).unwrap();
-    assert_eq!(source, std::fs::read(&done).unwrap());
+    assert!(!done.exists());
     let record: Value = serde_json::from_slice(&source).unwrap();
     assert_eq!(record["native_worker"], "demo");
     assert_eq!(
@@ -556,6 +596,14 @@ fn a_legacy_verified_candidate_is_recovered_under_its_live_claim() {
         record["scopes"],
         serde_json::json!(local_claim(dir.path()).unwrap().scopes)
     );
+    // A legacy source changed while acceptance runs must not be removed.
+    std::fs::remove_file(&task).unwrap();
+    std::fs::write(&done, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    target.runner.state.lock().unwrap().replace_legacy = Some(done.clone());
+    assert!(target.close(dir.path(), id).is_err());
+    assert_eq!(std::fs::read(&done).unwrap(), b"{}");
+    assert!(!task.exists());
+    std::fs::write(&task, &source).unwrap();
     // An independent completion must survive an attempted second close.
     std::fs::write(&done, b"{}").unwrap();
     assert!(target.close(dir.path(), id).is_err());

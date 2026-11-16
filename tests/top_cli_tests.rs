@@ -34,10 +34,20 @@ fn run_susi_in_dir(args: &[&str], custom_cwd: Option<&std::path::Path>) -> (i32,
         }
     };
 
-    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+    let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
+    command.env_clear();
+    for key in ["PATH", "SystemRoot", "WINDIR", "PATHEXT"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let out = isolate_home(&mut command, &home)
         .args(args)
         .current_dir(&cwd)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", home.join("gitconfig"))
+        .env("GIT_ALLOW_PROTOCOL", "file")
         .output()
         .unwrap();
 
@@ -75,7 +85,10 @@ fn test_top_json_emits_valid_unified_state() {
     assert!(parsed.resources.is_some());
     assert!(parsed.config.is_some());
     assert!(parsed.federation.is_some());
-    assert!(parsed.evidence.is_some());
+    assert!(
+        parsed.evidence.is_none(),
+        "an isolated home without an authorized record provider has no acceptance evidence"
+    );
     assert!(!parsed.snapshot.providers.is_empty());
 }
 

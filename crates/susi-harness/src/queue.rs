@@ -94,8 +94,25 @@ pub fn plan_batch(
 ) -> EaiResult<Plan> {
     let limit = limit.max(1);
     let tasks_dir = repo.join(".agents").join("tasks");
-    let done = read_ids(&tasks_dir.join("done"))?;
+    let mut done = read_ids(&tasks_dir.join("done"))?;
     let records = read_records(&tasks_dir)?;
+    let target = crate::adapter::SusiTarget::new(repo, "susi");
+    done.extend(
+        records
+            .iter()
+            .filter(|task| {
+                task.status.as_deref() == Some("verified")
+                    && target.pending_native_task(repo, &task.id)
+            })
+            .map(|task| task.id.clone()),
+    );
+    let unresolved = records
+        .iter()
+        .flat_map(|task| &task.deps)
+        .filter(|id| !done.contains(*id))
+        .cloned()
+        .collect();
+    done.extend(retained_completion_ids(repo, &unresolved));
     let priorities = roadmap_priorities(repo);
     let total = records.len();
     let crates = crate_names(repo);
@@ -227,6 +244,73 @@ pub fn plan_batch(
     plan.validate()?;
     Ok(plan)
 }
+
+// Local proof storage belongs to the registered workflow tool. The queue
+// accepts only requested IDs bound to this checkout's immutable consumer head.
+fn retained_completion_ids(repo: &Path, requested: &BTreeSet<String>) -> BTreeSet<String> {
+    let query = || -> Option<BTreeSet<String>> {
+        if requested.is_empty() {
+            return None;
+        }
+        let repo = repo.canonicalize().ok()?;
+        let mut command = std::process::Command::new("git");
+        command
+            .current_dir(&repo)
+            .args([
+                "--no-replace-objects",
+                "rev-parse",
+                "--verify",
+                "HEAD^{commit}",
+            ])
+            .env("GIT_NO_LAZY_FETCH", "1")
+            .stdin(std::process::Stdio::null());
+        for name in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_GRAFT_FILE",
+        ] {
+            command.env_remove(name);
+        }
+        let output = susi_core::bounded_cmd::output_within(
+            &mut command,
+            std::time::Duration::from_secs(120),
+        )
+        .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let head = String::from_utf8(output.stdout).ok()?;
+        let head = head.trim();
+        let reply = crate::tool_backend::call_json(
+            "workflow_tasks_completed",
+            &serde_json::json!({
+                "repo":susi_paths::native_path::encode(&repo).ok()?,"ids":requested,"accepted_in":head
+            }),
+        )
+        .ok()?;
+        completed_response(&reply, requested, head)
+    };
+    query().unwrap_or_default()
+}
+
+fn completed_response(
+    reply: &serde_json::Value,
+    requested: &BTreeSet<String>,
+    head: &str,
+) -> Option<BTreeSet<String>> {
+    if reply["schema"] != "susi-completed-dependencies-v1" || reply["accepted_in"] != head {
+        return None;
+    }
+    let ids: BTreeSet<String> = serde_json::from_value(reply["ids"].clone()).ok()?;
+    ids.is_subset(requested).then_some(ids)
+}
+
+#[cfg(test)]
+#[path = "tests/queue_completion.rs"]
+mod completion_tests;
 
 fn prompt_for(task: &TaskRecord) -> String {
     let goal = if task.goal.trim().is_empty() {
