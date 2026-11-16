@@ -1,0 +1,15 @@
+{
+  "branch": "codexcoremodels/reuse",
+  "task": "T-CODEXCOREMODELS-8",
+  "agent": "CODEXCOREMODELS",
+  "head": "f5e0a267891aebdac4bec16144536ca3937d55e7",
+  "closed_unix": 1794865803,
+  "scopes": [
+    ".agents/tasks/T-CODEXCOREMODELS-8.json",
+    "crates/susi-gemi/src/engines/alpha_pure.rs",
+    "crates/susi-gemi/src/engines/alpha.rs",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "tests/lean_core_ceilings.rs",
+    "crates/susi-gemi/tests/reflex_vectors.rs"
+  ]
+}
