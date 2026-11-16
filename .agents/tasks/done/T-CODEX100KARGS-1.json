@@ -1,7 +1,7 @@
 {
   "id": "T-CODEX100KARGS-1",
   "base": "6a262d346",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "reuse": {
     "decision": "existing",
     "searched": "Existing input_schema! macro in crates/susi-gmcp/src/mcp/schema.rs; all 123 args marker structs and core_tool_definitions; existing GMCP schema tests and actual registry helper in root socket_parity.",
@@ -116,5 +116,16 @@
   "integrated_verification": {
     "default": "4 GMCP schema +6 socket parity tests passed",
     "tools-rich": "4 GMCP schema +6 socket parity tests passed"
+  },
+  "closed": {
+    "at_unix": 1794822597,
+    "commit": "b51ad0df246d524bc03f9871610999a09b09dedd",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "ccc19a9b675c20068f8d19fa847bf1ce5e913328",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json"
   }
 }

@@ -2,7 +2,7 @@
   "id": "T-CODEX100KFORWARD-1",
   "title": "Share forwarded GMCP tool declarations and task-control dispatch",
   "goal": "Vision: V-6. Reduce repeated wrapper code while preserving every public handler and attribute function, exact metadata/schema, argument semantics, policy checks, topic routing, result formatting and errors.",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "size": "m",
   "created_by": "CODEXCORE100KFORWARD",
   "created_unix": 1794821386,
@@ -140,5 +140,16 @@
     "workspace_check": "all targets passed",
     "format": "passed",
     "live_host": "27 pass, 2 explicit optional skips"
+  },
+  "closed": {
+    "at_unix": 1794822597,
+    "commit": "4aa63e15889161fbc55c3d3184406789f0ccefbb",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "ccc19a9b675c20068f8d19fa847bf1ce5e913328",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json"
   }
 }

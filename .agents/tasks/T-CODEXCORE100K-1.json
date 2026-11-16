@@ -16,7 +16,10 @@
     "T-CODEX100KBOOTSTRAP-1",
     "T-CODEX100KHOSTFS-1",
     "T-CODEX100KARGS-1",
-    "T-CODEX100KFORWARD-1"
+    "T-CODEX100KFORWARD-1",
+    "T-CODEX100KMCP-1",
+    "T-CODEX100KFRONTEND-1",
+    "T-CODEX100KGEMI-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -55,17 +58,18 @@
   "evidence": [
     ".agents/evidence/core-under-100k/2026-11-16-initial.json",
     ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json",
-    ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json"
+    ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json",
+    ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json"
   ],
   "progress": {
-    "runtime_rust": 298992,
+    "runtime_rust": 298847,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 305446,
-    "genuine_runtime_lines_removed": 1748,
-    "remaining_to_remove": 205447,
+    "complete_socket_rust": 305301,
+    "genuine_runtime_lines_removed": 1893,
+    "remaining_to_remove": 205302,
     "upstream_runtime_lines_added": 3,
     "correctness_lines_added": 60,
-    "net_runtime_lines_removed": 1688
+    "net_runtime_lines_removed": 1833
   },
   "publication_cadence": {
     "during_active_work": true,
