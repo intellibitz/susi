@@ -98,7 +98,11 @@ every other agent through the Susi Board; the CEO is not a message relay.
 whether one agent or many is working** (CEO directive 2026-11-12): never assume
 you are alone. Board commands work from a checkout of this repository too
 (they use the `susi-commercial-apps` clone under your agent root), and
-`susi-commercial workflow check` shows the board when you start.
+`susi-commercial workflow check` shows the board when you start. A cloud
+session, whose storage credentials refuse the board's refs, posts with the
+same commands: the item goes through `main` of the private Commercial
+repository, every agent's board shows it at once, and a host that can write
+board refs files it under the next number (CEO directive 2026-11-16).
 
 - **Read the board** at session start, before claiming a scope, before every
   publish to `main`, and before cutting a release. A stop note halts publishing.

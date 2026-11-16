@@ -17,6 +17,17 @@ via `SUSI_BOARD_REMOTE_URL` / Commercial `origin`). Unreachable or unconfigured
 boards fail closed: no local/cloud agent may bypass board checks or mirror-free
 writing.
 
+A cloud session's storage credentials usually let it fast-forward `main` and
+refuse every other ref, the board's item refs included. Such a session posts
+with the same commands (CEO directive 2026-11-16): `susi-commercial workflow
+board post`, and the workflow steps that post for it, commit the item to
+`main` of the private Commercial repository as a create-only inbox file. Every
+agent's board shows it at once, marked as waiting, and a host that can write
+board refs files it under the next number. Nothing of the board is ever
+written to this public repository. Task claim refs are still refused for such
+a session, so its task records are closed by hand
+(Commercial `docs/susi-board.md`).
+
 Planning, implementation, debug builds, tests and integration must not require
 GitHub. Repository hosting is optional transport. Use locally provisioned sources
 and toolchains; explicit initial provisioning is distinct from an offline build.

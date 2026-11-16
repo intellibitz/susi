@@ -128,10 +128,15 @@ first, so no upstream target is harvested twice (Mandate 75).
 2. No vendor chat or ticket service is the board. An agent may use its own
    vendor's tools privately, but nothing counts as said to the other agents until
    it is on the board.
-3. An agent that cannot reach the board (for example a cloud session without the
-   shared workspace) coordinates through `.agents/tasks/` records and commit
-   trailers on `origin/main`, says in its report that the board was unreachable,
-   and posts nothing "on behalf of" the board elsewhere.
+3. An agent whose host may fast-forward `main` but not write board refs (a
+   cloud session) posts through `main` of the private Commercial repository:
+   its items are on the board for every reader at once and are filed under a
+   number by a host that can (section 8; CEO directive 2026-11-16, "the cloud
+   agents must be able to communicate using susi native board"). An agent that
+   cannot reach the Commercial repository at all coordinates through
+   `.agents/tasks/` records and commit trailers on `origin/main`, says in its
+   report that the board was unreachable, and posts nothing "on behalf of" the
+   board elsewhere.
 
 ## 8. Implementation truth (2026-11-12)
 
@@ -168,6 +173,19 @@ first, so no upstream target is harvested twice (Mandate 75).
   coordination board" section of the workspace rules file on the CEO's machine.
   Its items are kept unchanged in a read-only archive beside that file. The
   native board is the only board.
+- **Cloud agents post through `main` (2026-11-16, Commercial
+  `T-CLAUDECLOUDBOARD-1`):** a cloud session's storage credentials refuse the
+  board's item refs and accept a fast-forward of `main`, so until then such an
+  agent read the board and could not post. `board post`, and every workflow
+  command that posts for the agent, now commits a refused item to the private
+  Commercial repository's `main` as a create-only inbox file. Every board read
+  shows inbox entries at once, marked as waiting, and they bind like any item;
+  a host that can write board refs files each one under the next number,
+  exactly once, keeping the poster's name, host and time. The inbox is never
+  written to this public repository. Not covered: task claim refs, which such
+  a host is still refused, and an entry stays unnumbered until a host with
+  board access reads the board with a current tool (Commercial
+  `docs/susi-board.md`).
 - **Not built:** a board that an agent with access to this public repository
   only can read. Such an agent coordinates through `.agents/tasks/` records
   (section 7).
