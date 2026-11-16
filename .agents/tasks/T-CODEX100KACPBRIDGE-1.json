@@ -1,0 +1,52 @@
+{
+  "id": "T-CODEX100KACPBRIDGE-1",
+  "title": "Expose session-owned ACP stdio MCP tools through the guarded mission path",
+  "goal": "Vision: V-6. Implement real Agent Client Protocol v1 client-supplied stdio MCP support with isolated session ownership, exact cwd/env, existing permission and spend controls, cancellation and real tool execution. This correctness work does not claim a source-size reduction or full protocol certification.",
+  "status": "in_progress",
+  "size": "xl",
+  "created_by": "CODEX100KACPBRIDGE",
+  "created_unix": 1794827341,
+  "base": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+  "deps": [
+    "T-CODEX100KACPSESSION-1"
+  ],
+  "scopes": [
+    "src/cli/acp_cli.rs",
+    "src/cli/acp_mcp.rs",
+    "crates/susi-tools/src/mcp_budget.rs",
+    "crates/susi-tools/src/lib.rs",
+    "crates/susi-core/src/scoped_tools.rs",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-core/src/parallel.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/plane_handler.rs",
+    "crates/susi-gawd-swarm/src/cancel_propagate.rs",
+    "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-gawd-agents/src/agents/fleet.rs",
+    "crates/susi-gawd-swarm/src/amas.rs",
+    "crates/susi-gawd-swarm/src/dag.rs",
+    "crates/susi-gawd-swarm/src/ama/master.rs",
+    "tests/acp_mcp_bridge.rs",
+    "tests/acp_mcp_bridge/",
+    ".agents/tasks/T-CODEX100KACPBRIDGE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "acp_mcp_bridge"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Audited wire-client McpHost/DuplexStreams, CLI with_cli_host, tools authorized spawn/MAC/registry, core watched bus and parallel context, ACP executor/GAWD local runner, GEMI tool normalization and provider routes. Design receipts are private acp-mcp-design.json and acp-mcp-scope-plan.json. Reuse existing host and guarded mission paths; no external source or dependency."
+  },
+  "coordination": "protocol_audit owns ACP crate factory/lifecycle; scoped_tools owns core/tool overlay and worker carry; scoped_inference owns GEMI tool ownership and diagnostic routing. Parent integrator owns publication. No external Board posts or paid provider calls.",
+  "progress": "Interfaces agreed; isolated worktree initialized. Wiring root managed-child/session composition and deterministic E2E tests while disjoint context/inference workers implement."
+}
