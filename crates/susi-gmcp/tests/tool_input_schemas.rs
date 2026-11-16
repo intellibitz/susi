@@ -42,7 +42,15 @@ fn shape(schema: &Value) -> Shape {
 #[test]
 fn every_core_tool_declares_typed_or_no_argument_schema() {
     let definitions = core_tool_definitions();
-    assert!(definitions.len() >= 80, "{} core tools", definitions.len());
+    assert_eq!(
+        definitions.len(),
+        if cfg!(feature = "tools-rich") {
+            204
+        } else {
+            199
+        },
+        "complete core tool catalog"
+    );
     let mut names = std::collections::BTreeSet::new();
     for tool in &definitions {
         assert!(
@@ -142,50 +150,9 @@ fn typed_schemas_match_handler_arguments() {
     }
 }
 
-/// Every tool the daemon bootstrap registers is served over MCP with its
-/// handler's typed `inputSchema` (or an explicit no-argument schema), never
-/// the passthrough shape reserved for dynamic proxies. Read from source so
-/// the check spawns none of the registry's background work.
-#[test]
-fn every_registered_tool_has_a_typed_input_schema() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../susi-daemon/src/gmcp_bootstrap.rs");
-    let source = std::fs::read_to_string(&path).unwrap();
-    let body = source.split("#[cfg(test)]").next().unwrap_or(&source);
-    let mut registered = Vec::new();
-    let calls: Vec<&str> = body.split("ToolRegistry::register_meta_tool(").collect();
-    for (before, call) in calls.iter().zip(calls.iter().skip(1)) {
-        // A registration behind `tools-rich` exists only when that feature is
-        // on; its typed schema is gated the same way in tools/args.rs.
-        if before
-            .trim_end()
-            .ends_with("#[cfg(feature = \"tools-rich\")]")
-            && !cfg!(feature = "tools-rich")
-        {
-            continue;
-        }
-        let name = call.split('"').nth(1).unwrap();
-        let handler = call
-            .split("adapt(CoreTools::")
-            .nth(1)
-            .and_then(|rest| rest.split(')').next())
-            .unwrap();
-        assert_eq!(
-            name, handler,
-            "tool {name} dispatches to CoreTools::{handler}"
-        );
-        registered.push(name.to_string());
-    }
-    assert!(registered.len() >= 80, "{} registrations", registered.len());
-    for name in &registered {
-        let schema =
-            core_input_schema(name).unwrap_or_else(|| panic!("{name} has no typed inputSchema"));
-        assert!(
-            !schema.contains_key(PASSTHROUGH_KEY),
-            "{name} is declared passthrough"
-        );
-    }
-}
+// The daemon registration-to-schema check lives in tests/socket_parity.rs,
+// where it executes the actual registry. The old source parser here broke when
+// bootstrap registration changed to a descriptor loop at 7a00adb5c.
 
 async fn call(wire: &mut BufReader<tokio::io::DuplexStream>, message: Value) -> Value {
     wire.get_mut()

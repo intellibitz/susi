@@ -721,6 +721,42 @@ fn registered_mcp_tools() -> &'static BTreeSet<String> {
     })
 }
 
+/// The GMCP source parser for this invariant broke when bootstrap moved to a
+/// descriptor loop. Execute the real registry here, where daemon dependencies
+/// already exist, and keep every registration covered (including tools-rich).
+/// The daemon's bootstrap fixture separately pins name-to-handler identity.
+#[test]
+fn every_registered_tool_has_a_typed_input_schema() {
+    use susi_gmcp::tools::args::{core_input_schema, core_tool_definitions, PASSTHROUGH_KEY};
+
+    let registered = registered_mcp_tools();
+    assert_eq!(
+        registered.len(),
+        if cfg!(feature = "tools-rich") {
+            204
+        } else {
+            199
+        },
+        "complete daemon tool registry"
+    );
+    let declared: BTreeSet<_> = core_tool_definitions()
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert_eq!(
+        registered, &declared,
+        "registry and schema catalogs must match"
+    );
+    for name in registered {
+        let schema =
+            core_input_schema(name).unwrap_or_else(|| panic!("{name} has no typed inputSchema"));
+        assert!(
+            !schema.contains_key(PASSTHROUGH_KEY),
+            "{name} is declared passthrough"
+        );
+    }
+}
+
 /// A 9091 route is served when its quoted path sits in a `(&Method::<M>, ..)`
 /// match arm (the arm line or up to three lines below it).
 fn route_served(server: &str, method: &str, path: &str) -> bool {
