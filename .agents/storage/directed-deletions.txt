@@ -127,3 +127,10 @@ e3c3e0feabf2e30d517e46a6ba39eef95a543137 refs/tags/susi-snapshot/v0-21-63-toolca
 60ee8257798474e32847deb71ea69b491eb07eb9 refs/tags/susi-snapshot/v0-21-67-rc2 2026-11-15 T-CLAUDECLOUDREL-7
 54ad49482922a8cc13a40635c8f5f7617bf556aa refs/tags/susi-snapshot/v0-21-68-rc1 2026-11-15 T-CLAUDECLOUDREL-7
 54505612dbea18020ab45b8da505a1e4947210bb refs/tags/target-seed 2026-11-15 T-CLAUDECLOUDREL-7
+#
+# 2026-11-16, T-AGENTCLAUDEDIRECTEDDELETION-1 (.agents/tasks/T-AGENTCLAUDEDIRECTEDDELETION-1.json):
+# CEO direction "delete the superseded candidates": the two candidate lines
+# superseded by v0.21.65 and v0.21.62, deleted at these objects from
+# FURY16G10-OT54R by one atomic --force-with-lease push (2026-11-17).
+90daead4568eff5e471ddc2bf664b120a2570ed7 refs/candidates/release/v0-21-65-distilled-rc1 2026-11-16 T-AGENTCLAUDEDIRECTEDDELETION-1
+5436c616c740086cf18190d0cbff188319b1791e refs/candidates/release/v0.21.62 2026-11-16 T-AGENTCLAUDEDIRECTEDDELETION-1
