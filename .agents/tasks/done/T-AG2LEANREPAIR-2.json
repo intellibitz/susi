@@ -4,8 +4,8 @@
   "title": "Lossless lean-core headroom pass across non-GMCP runtime and test Rust budgets",
   "goal": "Compact vertical json! macro literals and redundant blank lines across unclaimed non-GMCP runtime and test Rust files to restore ~1,000+ lines of FIRST_PARTY_RUNTIME_RUST_CEILING and TEST_RUST_CEILING headroom ahead of VC-203-017 stages 04..M without modifying tests/lean_core_ceilings.rs or touching GMCP-digested paths.",
   "size": "s",
-  "state": "open",
-  "status": "in_progress",
+  "state": "closed",
+  "status": "done",
   "deps": [],
   "accept": {
     "cmd": [
@@ -37,6 +37,7 @@
   },
   "scopes": [
     ".agents/tasks/T-AG2LEANREPAIR-2.json",
+    ".agents/tasks/done/T-AG2LEANREPAIR-2.json",
     "crates/susi-adapters-llm/src/inference_wire.rs",
     "crates/susi-config/src/mac_policy.rs",
     "crates/susi-config/src/peer_channel_link.rs",
@@ -62,5 +63,12 @@
     "tests/peer_channel_hub.rs",
     "tests/pure_apache2_cloud_harvest.rs",
     "tests/unified_surface_status.rs"
-  ]
+  ],
+  "implementation_commit": "2e2ddec475c926b56869fb38f8dca0c2b05d7c91",
+  "verified_commit": "5cf866edf1bac3d06df7c00c89c51828cca7d985",
+  "closed": {
+    "at_unix": 1794817121,
+    "commit": "5cf866edf1bac3d06df7c00c89c51828cca7d985",
+    "by": "AG2FEATURES"
+  }
 }
