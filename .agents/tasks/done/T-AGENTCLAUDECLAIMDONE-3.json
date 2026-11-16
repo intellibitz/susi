@@ -17,6 +17,15 @@
   },
   "created_by": "AGENTCLAUDECLAIMDONE",
   "created_unix": 1794839980,
+  "closed": {
+    "at_unix": 1794840115,
+    "commit": "a0d9093e896db306a27f1d634e52b23a2354a26d",
+    "by": "AGENTCLAUDECLAIMDONE"
+  },
+  "limitations": [
+    "Core carries the rule, its documents, the self-build clause and the governance tests; the cleanup itself is the commercial workflow tool's.",
+    "The self-build clause was added with no net line in core (Mandate 84): 'in the task record' was dropped from the reuse clause to make room."
+  ],
   "reuse": {
     "decision": "existing",
     "searched": "Mandates 77, 83 and 85 and their records, the self-build contract, the governance guards, and the workflow tool's worktree prune and its new idle reclaim in intellibitz/susi-commercial-apps (T-AGENTCLAUDECLAIMDONE-2 there). Documentation and governance tests only in core."
@@ -32,9 +41,5 @@
     "docs/ceo-mandate-86.md",
     "tests/agent_bootstrap.rs",
     "tests/architecture_tests.rs"
-  ],
-  "limitations": [
-    "Core carries the rule, its documents, the self-build clause and the governance tests; the cleanup itself is the commercial workflow tool's.",
-    "The self-build clause was added with no net line in core (Mandate 84): 'in the task record' was dropped from the reuse clause to make room."
   ]
 }
