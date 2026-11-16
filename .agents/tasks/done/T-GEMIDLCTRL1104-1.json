@@ -1,23 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GEMIDLCTRL1104-1",
-  "title": "feat(gemi-models): download controller helpers and contract tests",
-  "status": "done",
-  "completed_at": "2026-11-04T03:13:00Z",
-  "created_at": "2026-11-04T03:07:00Z",
-  "owner": "GEMIDLCTRL1104",
-  "touch": [
-    "crates/susi-gemi-models/src/lifecycle/download_controller.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gemi-models",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GEMIDLCTRL1104-1",
+    "title":  "feat(gemi-models): download controller helpers and contract tests",
+    "goal":  "Add model download controller lifecycle helpers and contract unit tests in crates/susi-gemi-models/src/lifecycle/download_controller.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gemi-models",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GEMIDLCTRL1104",
+    "created_unix":  1793761620,
+    "authored":  true,
+    "base_commit":  "ac46bf8f1dbb34ebacea051fcf2108701b4d54dd",
+    "implementation_commit":  "573f43de6e3fb37003c54dd982c30b022c5e3fb6",
+    "verified_commit":  "573f43de6e3fb37003c54dd982c30b022c5e3fb6",
+    "notes":  "Landed and closed in squash merge 573f43de6e3fb37003c54dd982c30b022c5e3fb6 (#1410) in crates/susi-gemi-models/src/lifecycle/download_controller.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
+                  "target":  "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
+                  "why":  "Added download lifecycle helpers and contract tests directly atop ModelDownloadProgress and ModelDownloadController in susi-gemi-models.",
+                  "reused_symbols":  [
+                                         "susi_gemi_models::lifecycle::download_controller::ModelDownloadProgress",
+                                         "susi_gemi_models::lifecycle::download_controller::ModelDownloadController"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GEMIDLCTRL1104-1.json",
+                   "crates/susi-gemi-models/src/lifecycle/download_controller.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793762545,
+                   "commit":  "573f43de6e3fb37003c54dd982c30b022c5e3fb6",
+                   "by":  "GEMIDLCTRL1104"
+               }
 }

@@ -1,24 +1,50 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GAWDSUITESB4T1104-1",
-  "title": "Expand susi-gawd test suites (vc_201_093, vc_201_100, vc_201_003, vc_201_009, vc_201_014) to 4 unit tests each",
-  "touch": [
-    "crates/susi-gawd/src/tests/vc_201_093.rs",
-    "crates/susi-gawd/src/tests/vc_201_100.rs",
-    "crates/susi-gawd/src/tests/vc_201_003.rs",
-    "crates/susi-gawd/src/tests/vc_201_009.rs",
-    "crates/susi-gawd/src/tests/vc_201_014.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gawd",
-      "--lib",
-      "vc_201_093_tests"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GAWDSUITESB4T1104-1",
+    "title":  "Expand susi-gawd test suites (vc_201_093, vc_201_100, vc_201_003, vc_201_009, vc_201_014) to 4 unit tests each",
+    "goal":  "Expand VC-201 inline test suites across vc_201_093, vc_201_100, vc_201_003, vc_201_009, and vc_201_014 in crates/susi-gawd to at least 4 tests each.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd",
+                               "--lib",
+                               "vc_201_003"
+                           ]
+               },
+    "created_by":  "GAWDSUITESB4T1104",
+    "created_unix":  1793791203,
+    "authored":  true,
+    "base_commit":  "b105ca789d8eee085fa00dc3a3c2e1c4ec6ac311",
+    "implementation_commit":  "8ca04c92e1489c9cb41ebd177946c2e56a51aa67",
+    "verified_commit":  "8ca04c92e1489c9cb41ebd177946c2e56a51aa67",
+    "notes":  "Landed and closed in squash merge 8ca04c92e1489c9cb41ebd177946c2e56a51aa67 (#1519); vc_201_093.rs, vc_201_100.rs, vc_201_009.rs, and vc_201_014.rs were later retired during Lean Core consolidation while vc_201_003.rs remains active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gawd/src/tests/vc_201_003.rs, crates/susi-gawd/src/scorecard.rs",
+                  "target":  "crates/susi-gawd/src/tests/vc_201_003.rs",
+                  "why":  "Expanded VC-201 scorecard test coverage directly atop ImprovementScorecard and ScorecardSpec in crates/susi-gawd.",
+                  "reused_symbols":  [
+                                         "susi_gawd::scorecard::ImprovementScorecard",
+                                         "susi_gawd::scorecard::ScorecardSpec"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GAWDSUITESB4T1104-1.json",
+                   "crates/susi-gawd/src/tests/vc_201_003.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793791203,
+                   "commit":  "8ca04c92e1489c9cb41ebd177946c2e56a51aa67",
+                   "by":  "GAWDSUITESB4T1104"
+               }
 }

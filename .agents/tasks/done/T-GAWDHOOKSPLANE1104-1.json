@@ -1,17 +1,52 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GAWDHOOKSPLANE1104-1",
-  "title": "Add inline unit tests for susi-gawd-agents test_plane, admin_hooks, brain, and axiom",
-  "touch": [
-    "crates/susi-gawd-agents/src/test_plane.rs",
-    "crates/susi-gawd-agents/src/admin_hooks.rs",
-    "crates/susi-gawd-agents/src/brain.rs",
-    "crates/susi-gawd-agents/src/axiom.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo test --offline --locked -p susi-gawd-agents --lib",
-      "cargo clippy --offline --locked -p susi-gawd-agents --all-targets -- -D warnings"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GAWDHOOKSPLANE1104-1",
+    "title":  "Add inline unit tests for susi-gawd-agents test_plane, admin_hooks, brain, and axiom",
+    "goal":  "Add inline unit tests covering test_plane, admin_hooks, brain, and axiom in crates/susi-gawd-agents.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-agents",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCCFGVAL1104",
+    "created_unix":  1793772877,
+    "authored":  true,
+    "base_commit":  "b5452a95abf58dc19883ad4707ff323ada9ad1e2",
+    "implementation_commit":  "613f7409740294decdec7e86831b5caf131c6f0c",
+    "verified_commit":  "613f7409740294decdec7e86831b5caf131c6f0c",
+    "notes":  "Landed and closed in squash merge 613f7409740294decdec7e86831b5caf131c6f0c (#1439) across crates/susi-gawd-agents/src/{admin_hooks,axiom,brain,test_plane}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gawd-agents/src/test_plane.rs, crates/susi-gawd-agents/src/admin_hooks.rs, crates/susi-gawd-agents/src/brain.rs, crates/susi-gawd-agents/src/axiom.rs",
+                  "target":  "crates/susi-gawd-agents/src/test_plane.rs",
+                  "why":  "Added inline #[cfg(test)] suites directly atop admin_hooks::hooks and AxiomSubstrate in susi-gawd-agents.",
+                  "reused_symbols":  [
+                                         "susi_gawd_agents::admin_hooks::hooks",
+                                         "susi_gawd_agents::axiom::AxiomSubstrate"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GAWDHOOKSPLANE1104-1.json",
+                   "crates/susi-gawd-agents/src/admin_hooks.rs",
+                   "crates/susi-gawd-agents/src/axiom.rs",
+                   "crates/susi-gawd-agents/src/brain.rs",
+                   "crates/susi-gawd-agents/src/test_plane.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793772877,
+                   "commit":  "613f7409740294decdec7e86831b5caf131c6f0c",
+                   "by":  "ZCCFGVAL1104"
+               }
 }

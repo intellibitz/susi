@@ -1,17 +1,54 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GAWDMODS1104-1",
-  "agent": "GAWDMODS1104",
-  "branch": "gawd-mods-1104",
-  "goal": "Expand inline unit tests for susi-gawd-agents accountability, goal_shape, pkb and susi-gawd-a2a zc_peer_discovery, a2a_conformance: every failure marker and word-boundary rule, meta-command and question classification, multi-entry JSONL staging, peer admission reasons and conformance combinations (D-OS-8)",
-  "touch": [
-    "crates/susi-gawd-agents/src/accountability.rs",
-    "crates/susi-gawd-agents/src/goal_shape.rs",
-    "crates/susi-gawd-agents/src/pkb.rs",
-    "crates/susi-gawd-a2a/src/zc_peer_discovery.rs",
-    "crates/susi-gawd-a2a/src/a2a_conformance.rs"
-  ],
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gawd-agents", "-p", "susi-gawd-a2a", "--lib"]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GAWDMODS1104-1",
+    "title":  "test(gawd): expand accountability, goal_shape, pkb, peer discovery and a2a conformance suites (D-OS-8)",
+    "goal":  "Expand inline unit tests for susi-gawd-agents accountability, goal_shape, pkb and susi-gawd-a2a zc_peer_discovery, a2a_conformance: every failure marker and word-boundary rule, meta-command and question classification, multi-entry JSONL staging, peer admission reasons and conformance combinations (D-OS-8)",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-agents",
+                               "-p",
+                               "susi-gawd-a2a",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GAWDMODS1104",
+    "created_unix":  1793768762,
+    "authored":  true,
+    "base_commit":  "5baeb872cb1cb81b24dd2e6e60fbbd7d1a32361a",
+    "implementation_commit":  "cbdd8fcd2129f83a5282961c0ce510b1510fe2a4",
+    "verified_commit":  "a45a3051e3dae599eb4f38f5c72bffb2f08c811e",
+    "notes":  "Implemented in cbdd8fcd2129f83a5282961c0ce510b1510fe2a4 and closed in a45a3051e3dae599eb4f38f5c72bffb2f08c811e; zc_peer_discovery.rs and a2a_conformance.rs were later retired during Lean Core consolidation while accountability.rs, goal_shape.rs, and pkb.rs remain active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gawd-agents/src/accountability.rs, crates/susi-gawd-agents/src/goal_shape.rs, crates/susi-gawd-agents/src/pkb.rs",
+                  "target":  "crates/susi-gawd-agents/src/accountability.rs",
+                  "why":  "Expanded inline #[cfg(test)] suites directly atop accountability::is_failure, goal_shape::is_meta_command, and ProtocolKnowledgeBase.",
+                  "reused_symbols":  [
+                                         "susi_gawd_agents::accountability::is_failure",
+                                         "susi_gawd_agents::goal_shape::is_meta_command",
+                                         "susi_gawd_agents::pkb::ProtocolKnowledgeBase"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GAWDMODS1104-1.json",
+                   "crates/susi-gawd-agents/src/accountability.rs",
+                   "crates/susi-gawd-agents/src/goal_shape.rs",
+                   "crates/susi-gawd-agents/src/pkb.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793768775,
+                   "commit":  "a45a3051e3dae599eb4f38f5c72bffb2f08c811e",
+                   "by":  "GAWDMODS1104"
+               }
 }

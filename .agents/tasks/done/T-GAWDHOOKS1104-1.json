@@ -1,25 +1,52 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-GAWDHOOKS1104-1",
-  "agent": "GAWDHOOKS1104",
-  "branch": "gawd-agents-hooks-1104",
-  "Started": "2026-11-04T03:40:30Z",
-  "goal": "Prevent unwired admin_hooks::hooks() from locking out init(), extract initialize_with_config_dir and run_with seams, and add inline unit test suites to admin_hooks, axiom, brain, and dag_hooks in susi-gawd-agents (D-OS-8)",
-  "touch": [
-    "crates/susi-gawd-agents/src/admin_hooks.rs",
-    "crates/susi-gawd-agents/src/axiom.rs",
-    "crates/susi-gawd-agents/src/brain.rs",
-    "crates/susi-gawd-agents/src/dag_hooks.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-gawd-agents",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-GAWDHOOKS1104-1",
+    "title":  "test(gawd-agents): add admin_hooks, axiom, brain, and dag_hooks unit tests (D-OS-8)",
+    "goal":  "Prevent unwired admin_hooks::hooks() from locking out init(), extract initialize_with_config_dir and run_with seams, and add inline unit test suites to admin_hooks, axiom, brain, and dag_hooks in susi-gawd-agents (D-OS-8)",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-agents",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "GAWDHOOKS1104",
+    "created_unix":  1793763630,
+    "authored":  true,
+    "base_commit":  "453421d63d881f4703d7d03128520863663820d1",
+    "implementation_commit":  "58a3789916d0d49da2f1d6e353515c90108c755a",
+    "verified_commit":  "58a3789916d0d49da2f1d6e353515c90108c755a",
+    "notes":  "Landed and closed in squash merge 58a3789916d0d49da2f1d6e353515c90108c755a (#1419) across crates/susi-gawd-agents/src/{admin_hooks,axiom,brain,dag_hooks}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-gawd-agents/src/admin_hooks.rs, crates/susi-gawd-agents/src/axiom.rs, crates/susi-gawd-agents/src/brain.rs, crates/susi-gawd-agents/src/dag_hooks.rs",
+                  "target":  "crates/susi-gawd-agents/src/admin_hooks.rs",
+                  "why":  "Added test seams and inline unit tests directly atop AdminHooks and AlphaBrainContext in susi-gawd-agents.",
+                  "reused_symbols":  [
+                                         "susi_gawd_agents::admin_hooks::AdminHooks",
+                                         "susi_gawd_agents::brain::AlphaBrainContext"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-GAWDHOOKS1104-1.json",
+                   "crates/susi-gawd-agents/src/admin_hooks.rs",
+                   "crates/susi-gawd-agents/src/axiom.rs",
+                   "crates/susi-gawd-agents/src/brain.rs",
+                   "crates/susi-gawd-agents/src/dag_hooks.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793764705,
+                   "commit":  "58a3789916d0d49da2f1d6e353515c90108c755a",
+                   "by":  "GAWDHOOKS1104"
+               }
 }
