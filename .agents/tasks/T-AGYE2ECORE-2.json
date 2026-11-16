@@ -1,0 +1,33 @@
+{
+  "schema": "susi.task_record/v1",
+  "id": "T-AGYE2ECORE-2",
+  "native_worker": "antigravity",
+  "owner": "antigravity",
+  "title": "Fix susi-release-sync host_target uname fallback, SUSI_HOME isolation, systemd unit guard, and qualified tag default",
+  "goal": "Honor explicit SUSI_HOME in susi-release-sync.sh, pin SUSI_HOME during installed_version probes, fall back to uname -s/-m in host_target when rustc is missing or fails under swapped HOME, guard systemctl --user restart to matching ExecStart unit targets (checking susi.service), and select qualified_tag before latest_tag in unattended sync mode with regression coverage in tests/installer_contract.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "installer_contract"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794790800,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses existing qualified_tag, host_asset, and unit-file matching in scripts/susi-release-sync.sh and fake_tools_with_record/run_bash helpers in tests/installer_contract.rs.",
+    "searched": "Checked scripts/susi-release-sync.sh, tests/installer_contract.rs, and tests/architecture_tests.rs."
+  },
+  "scopes": [
+    ".agents/tasks/T-AGYE2ECORE-2.json",
+    "scripts/susi-release-sync.sh",
+    "tests/installer_contract.rs"
+  ],
+  "status": "in_progress"
+}

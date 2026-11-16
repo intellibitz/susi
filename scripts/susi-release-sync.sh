@@ -56,7 +56,7 @@ if ! command -v dirname >/dev/null 2>&1 && [ -d /usr/bin ]; then
 fi
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
-SUSI_HOME="${HOME}/.susi"
+SUSI_HOME="${SUSI_HOME:-${HOME}/.susi}"
 case "$SUSI_HOME" in /* | [A-Za-z]:[\\/]*) ;; *) echo 'SUSI_HOME must be absolute' >&2; exit 1 ;; esac
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) SUSI_HOME="$(cygpath -aw "$SUSI_HOME")" ;; esac
 export SUSI_HOME
@@ -162,7 +162,7 @@ qualified_tag() {
 
 installed_version() {
     [ -x "$BIN" ] || return 0
-    "$BIN" --version 2>/dev/null | awk '{print $2}' | head -n 1
+    SUSI_HOME="$SUSI_HOME" "$BIN" --version 2>/dev/null | awk '{print $2}' | head -n 1
 }
 
 installed_channel() {
@@ -237,10 +237,26 @@ record_field() {
 # `missing_targets` can make a release unavailable; asset targets and prose
 # elsewhere in the record do not count.
 host_target() {
-    command -v rustc >/dev/null 2>&1 || die "rustc was not found; cannot determine the native host target"
-    local target
-    target="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' | head -n 1 || true)"
-    [ -n "$target" ] || die "rustc did not report a native host target"
+    local target=""
+    if command -v rustc >/dev/null 2>&1; then
+        target="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' | head -n 1 || true)"
+    fi
+    if [ -z "$target" ]; then
+        local os arch
+        os="$(uname -s 2>/dev/null || true)"
+        arch="$(uname -m 2>/dev/null || true)"
+        case "${os}:${arch}" in
+            Linux:x86_64 | Linux:amd64) target="x86_64-unknown-linux-gnu" ;;
+            Linux:aarch64 | Linux:arm64) target="aarch64-unknown-linux-gnu" ;;
+            Darwin:x86_64) target="x86_64-apple-darwin" ;;
+            Darwin:arm64 | Darwin:aarch64) target="aarch64-apple-darwin" ;;
+            MINGW*:x86_64 | MSYS*:x86_64 | CYGWIN*:x86_64 | MINGW*:amd64 | MSYS*:amd64 | CYGWIN*:amd64)
+                target="x86_64-pc-windows-msvc" ;;
+            MINGW*:aarch64 | MSYS*:aarch64 | CYGWIN*:aarch64 | MINGW*:arm64 | MSYS*:arm64 | CYGWIN*:arm64)
+                target="aarch64-pc-windows-msvc" ;;
+        esac
+    fi
+    [ -n "$target" ] || die "cannot determine native host target"
     printf '%s' "$target"
 }
 
@@ -391,8 +407,23 @@ health_url() {
     printf 'http://127.0.0.1:%s/health' "$((9091 + ${offset:-0}))"
 }
 
+unit_targets_bin() {
+    local unit_file="${UNIT_DIR}/susi.service"
+    [ -f "$unit_file" ] || return 1
+    awk -v bin="$BIN" -v home_bin="${HOME}/.susi/bin/susi" '
+        function matches(line, target) {
+            return line == "ExecStart=" target || index(line, "ExecStart=" target " ") == 1 || index(line, "ExecStart=" target "\t") == 1
+        }
+        matches($0, bin) || (bin == home_bin && matches($0, "%h/.susi/bin/susi")) {
+            found = 1
+            exit 0
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$unit_file"
+}
+
 restart_service() {
-    if systemctl --user is-active --quiet susi.service 2>/dev/null; then
+    if unit_targets_bin && systemctl --user is-active --quiet susi.service 2>/dev/null; then
         log "restarting always-on susi.service"
         systemctl --user restart susi.service
     elif [ -n "$WINDOWS_DAEMON_WAS_RUNNING" ] || daemon_running; then
@@ -673,7 +704,10 @@ main() {
             need_remote
             if [ -z "$tag" ]; then
                 explicit=0
-                tag="$(latest_tag)" || die "cannot reach ${REMOTE}"
+                tag="$(qualified_tag || true)"
+                if [ -z "$tag" ]; then
+                    tag="$(latest_tag)" || die "cannot reach ${REMOTE}"
+                fi
                 [ -n "$tag" ] || die "no vX.Y.Z tags on ${REMOTE}"
             fi
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "not a release tag: ${tag}"

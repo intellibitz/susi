@@ -612,3 +612,116 @@ printf '%s\n' "$check_out" | grep -q '^latest:    v0\.21\.52'
 "#,
     );
 }
+
+#[test]
+fn release_sync_check_uname_fallback_isolated_systemd_guard_and_qualified_sync() {
+    let qualified_record = include_str!("../releases/v0.21.52.json").replace(
+        "{ \"target\": \"x86_64-unknown-linux-gnu\", \"reason\": \"no Linux host was available when the release was cut; the Linux reference build is owed\" }",
+        "",
+    );
+    let unqualified_record = qualified_record
+        .replace("0.21.52", "0.21.53")
+        .replace(
+            "\"missing_targets\": [",
+            "\"missing_targets\": [\n    { \"target\": \"x86_64-unknown-linux-gnu\", \"reason\": \"fixture\" },",
+        );
+    let script = format!(
+        r#"set -e
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" XDG_CONFIG_HOME="$scratch/xdg" SUSI_RELEASE_REMOTE="$scratch/origin.git" SUSI_RELEASE_SRC="$scratch/src" SUSI_RELEASE_TARGET="$scratch/target" SUSI_RELEASE_IDLE_WAIT=0
+mkdir -p "$HOME" "$XDG_CONFIG_HOME/systemd/user"
+{tools}
+cat >"$scratch/fixture/unqualified.json" <<'UNQ_EOF'
+{unqualified_record}
+UNQ_EOF
+cat >"$scratch/bin/uname" <<'UNAME_EOF'
+#!/usr/bin/env bash
+if [ "${{1:-}}" = '-s' ]; then echo Linux; else echo x86_64; fi
+UNAME_EOF
+chmod +x "$scratch/bin/uname"
+cat >"$scratch/bin/git" <<'GIT_EOF'
+#!/usr/bin/env bash
+printf 'git %s\n' "$*" >>"$CALLS"
+if [ "$1" = -C ]; then dir="$2"; shift 2; fi
+if [ "$1" = -c ]; then shift 2; fi
+case "$1" in
+    ls-remote) printf '%s\trefs/tags/v0.21.52\n%s\trefs/tags/v0.21.53\n' "$TAG_COMMIT" "$TAG_COMMIT" ;;
+    clone) mkdir -p "${{!#}}/.git" ;;
+    show)
+        case "$2" in
+            *releases/v0.21.53.json) cat "$scratch/fixture/unqualified.json" ;;
+            *) cat "$RECORD_FIXTURE" ;;
+        esac
+        ;;
+    rev-parse) echo "$TAG_COMMIT" ;;
+    checkout) printf '[toolchain]\nchannel = "1.99.0"\n' >"$dir/rust-toolchain.toml" ;;
+    remote | fetch | clean) ;;
+    *) exit 64 ;;
+esac
+GIT_EOF
+chmod +x "$scratch/bin/git"
+cat >"$scratch/bin/systemctl" <<'SYS_EOF'
+#!/usr/bin/env bash
+printf 'systemctl %s\n' "$*" >>"$CALLS"
+exit 0
+SYS_EOF
+chmod +x "$scratch/bin/systemctl"
+cat >"$scratch/posix-compat.sh" <<'COMPAT_EOF'
+{compat}
+COMPAT_EOF
+cat >"$scratch/release-sync.sh" <<'SYNC_EOF'
+{RELEASE_SYNC}
+SYNC_EOF
+chmod +x "$scratch/release-sync.sh"
+rustc() {{ return 1; }}
+readlink() {{ case "${{1:-}}" in /proc/[0-9]*/exe) return 1 ;; *) command readlink "$@" ;; esac; }}
+export -f rustc readlink
+export scratch
+
+# 1. --check works when rustc fails (e.g. swapped HOME without RUSTUP_HOME) via uname fallback
+check_out=$("$scratch/release-sync.sh" --check)
+printf '%s\n' "$check_out"
+printf '%s\n' "$check_out" | grep -q '^qualified: v0\.21\.52'
+printf '%s\n' "$check_out" | grep -q '^latest:    v0\.21\.53'
+
+# 2. Isolated SUSI_HOME + non-matching susi.service never calls systemctl restart
+cat >"$XDG_CONFIG_HOME/systemd/user/susi.service" <<UNIT_EOF
+[Service]
+ExecStart=/other/host/.susi/bin/susi daemon-start
+UNIT_EOF
+export SUSI_HOME="$scratch/custom-susi-home"
+"$scratch/release-sync.sh" 2>&1
+test -x "$SUSI_HOME/bin/susi"
+test ! -e "$HOME/.susi/bin/susi"
+! grep -q '^systemctl --user restart ' "$CALLS"
+
+# 3. Reset binary & configure matching susi.service -> systemctl restart IS called
+rm -rf "$SUSI_HOME"
+cat >"$scratch/bin/curl" <<'CURL_EOF'
+#!/usr/bin/env bash
+printf 'curl %s\n' "$*" >>"$CALLS"
+exit 0
+CURL_EOF
+chmod +x "$scratch/bin/curl"
+cat >"$XDG_CONFIG_HOME/systemd/user/susi.service" <<UNIT_EOF
+[Service]
+ExecStart=$SUSI_HOME/bin/susi daemon-start --workspace $scratch
+UNIT_EOF
+"$scratch/release-sync.sh" 2>&1
+test -x "$SUSI_HOME/bin/susi"
+grep -q '^systemctl --user restart susi.service$' "$CALLS"
+"#,
+        tools = fake_tools_with_record(&qualified_record),
+        unqualified_record = unqualified_record,
+        compat = include_str!("../scripts/posix-compat.sh"),
+        RELEASE_SYNC = RELEASE_SYNC,
+    );
+    let output = run_bash(&script);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
