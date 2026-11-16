@@ -1,8 +1,7 @@
 //! The native in-process autonomous coding worker.
 //!
-//! A pure Rust multi-turn agentic loop: it executes surgical file edits,
-//! workspace inspection, and hermetic verification directly against the metered
-//! gateway, in process.
+//! A Rust multi-turn loop that talks to the metered gateway and dispatches
+//! workspace operations through the tool registry and its installed providers.
 //!
 //! The tool surface is the registry in [`crate::tools`], not a match arm here:
 //! the worker declares what the registry holds and runs it through the same

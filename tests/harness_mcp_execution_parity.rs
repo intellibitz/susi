@@ -2,6 +2,8 @@
 //! `cargo build --offline --locked -p xtask --bin local-workflow`, then run
 //! `cargo test --offline --locked -p susi --test harness_mcp_execution_parity -- --ignored --nocapture`.
 //! Requires the reviewed compiler and authenticated rust-src used by `susi local`.
+//! `SUSI_HARNESS_MCP_PROVIDER` selects an absolute standard stdio provider
+//! executable exposing the worker filesystem tool contracts.
 //! Every process has a cleared environment, private home and local Git remotes.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -77,6 +79,7 @@ impl Fixture {
             .env("RUSTUP_AUTO_INSTALL", "0")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", self.home.join("gitconfig"))
+            .env("GIT_ALLOW_PROTOCOL", "file")
             .env("GIT_TERMINAL_PROMPT", "0");
         #[cfg(unix)]
         {
@@ -249,6 +252,21 @@ impl Fixture {
 
     fn configure(&self, upstream: &str) {
         assert!(upstream.starts_with("http://127.0.0.1:"));
+        let provider = PathBuf::from(
+            std::env::var_os("SUSI_HARNESS_MCP_PROVIDER")
+                .expect("set SUSI_HARNESS_MCP_PROVIDER to the standard stdio provider executable"),
+        );
+        assert!(provider.is_absolute() && provider.is_file());
+        let config = self.home.join(".susi");
+        fs::create_dir_all(&config).unwrap();
+        fs::write(
+            config.join("mcp_config.json"),
+            serde_json::to_vec(&json!({
+                "mcp_servers":{"fixture-provider":{"command":provider,"args":["--stdio"]}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         fs::write(self.root.join("providers.json"), json!({"providers":[{"id":"fixture-vendor","wire":"openai","endpoint":upstream,"key_env":"FIXTURE_API_KEY","models":[{"id":"fixture-model","backend":"fixture-backend","tools":true,"tier":"worker"}]}]}).to_string()).unwrap();
         fs::write(self.root.join("prices.json"), json!({"schema":"susi/harness/prices/v1","models":{"fixture-model":{"input_hit":1000000,"input_miss":1000000,"output":1000000},"byok:auto":{"input_hit":1000000,"input_miss":1000000,"output":1000000}}}).to_string()).unwrap();
         fs::write(self.root.join("plan.json"), json!({"mission":"parity","tasks":[{"key":"fix","title":"Correct answer without deleting its test","accept":"cargo test --offline --locked -p harness-parity-fixture","scopes":["src"],"deps":[],"prompt":"Change answer() from 41 to 42 in src/lib.rs, preserving every test."}]}).to_string()).unwrap();
@@ -640,9 +658,7 @@ fn accepted_task_matches_direct_and_mcp_and_is_not_replayed() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join(format!("harness-parity-{}-{stamp}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("harness-parity-{}-{stamp}", std::process::id()));
     let workflow = std::env::var_os("SUSI_PARITY_WORKFLOW_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
