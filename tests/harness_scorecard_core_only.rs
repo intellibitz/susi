@@ -46,6 +46,15 @@ fn standalone_scorecard_preserves_empty_and_recorded_results() {
             "tasks": [], "problems": []
         })
     );
+    for flags in [
+        vec!["--require-complete"],
+        vec!["--task", "T-MISSING", "--require-complete"],
+    ] {
+        let missing = scorecard(&repo, &home, &flags);
+        assert!(!missing.status.success());
+        assert!(String::from_utf8_lossy(&missing.stderr)
+            .contains("scorecard requires all tasks complete"));
+    }
 
     let records = repo.join(".agents/tasks");
     fs::create_dir_all(&records).unwrap();

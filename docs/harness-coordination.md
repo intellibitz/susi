@@ -77,8 +77,9 @@ availability of another authorized publication path does not bypass a refusal.
 Main has no universal mandatory pre-push qualification gate, while a native
 integration or release command still enforces its own checks.
 
-Workflow reconciliation and storage auditing require the admitted
-`workflow_harness_v1` MCP provider. Confirm the accepted remote head and receipt;
+Workflow reconciliation requires an admitted `workflow_harness_v1` MCP provider;
+storage auditing retains a standalone fallback after definitive provider absence.
+Confirm the accepted remote head and receipt;
 a pushed candidate, local merge or retained historical record is insufficient.
 If another publisher advances main, reconcile from the observed source through
 the normal workflow. After an uncertain mutation response, inspect the remote

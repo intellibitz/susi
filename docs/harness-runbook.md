@@ -15,10 +15,10 @@ tracked source. Follow the [active contract](../AGENTS.md) and
 - Select priced model IDs from `susi harness models` and the chosen price
   catalogue. Supply only the credentials those endpoints require to the gateway.
   A model that cannot be priced is refused before spending.
-- Install and admit the implementation providers required by the mission. The
-  five harness filesystem tools and workflow/storage/scorecard operations use
-  registered MCP providers; the worker's `run_command` keeps its local policy.
-  A built core binary alone does not supply these implementations. See the
+- Install and admit the providers required for workflow reconciliation. The five
+  filesystem tools, scorecards and storage audits prefer registered providers,
+  retaining standalone behavior after healthy discovery proves provider absence.
+  The worker's `run_command` keeps its local policy. See the
   [implementation-service contract](architecture.md#implementation-services-and-protocol-adapters).
 - Use an owned agent identity and authorized private board target, configured
   through `SUSI_BOARD_REMOTE_URL`, `susi.board.remote-url` or a `board` remote.

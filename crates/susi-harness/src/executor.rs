@@ -5,7 +5,7 @@
 //! per-run key (`susi:<mission>:<task>:<attempt>`), so every model call the
 //! worker makes is priced and attributed by the gateway. Model-requested tools
 //! pass through [`crate::tools::Registry`] policy against the run's workspace;
-//! filesystem operations use installed MCP providers.
+//! filesystem operations prefer MCP, with standalone fallback on definitive absence.
 //!
 //! - **The verdict is the returned [`RunOutcome`]**, never a process exit code.
 //! - The loop checks its turn cap and wall-clock deadline between model turns.
