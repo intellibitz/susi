@@ -21,7 +21,7 @@
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256247,
   "state": "open",
-  "status": "in_progress",
+  "status": "implemented",
   "base_commit": "7a533a0a42787171d667acb2e2c91cd5c9168990",
   "limitations": [
     "Integration stage (`GMCP-203-017-03`) wires `susi mcp` CLI host commands through registered `mcp_config.json` HTTP and stdio servers under `MacPolicy` (`authorize_mcp_transport` + `spawn_authorized_stdio_peer`), adds Mandate 35 unknown-field retention and `McpHost::resume_persisted_task` / `update_task` crash-restart migration, and verifies parity across direct, SDK, daemon HTTP, gateway, and CLI entry points; adversarial, interop, operations, and `.M` mastery ship across `T-CODEXGMCPROADMAP-117..120`.",
@@ -46,5 +46,6 @@
     "crates/susi-wire-client/src",
     "src/cli/mcp_cli.rs",
     "tests/gmcp_requirements"
-  ]
+  ],
+  "implementation_commit": "bdfc647a809961e2b0ad1c0ac23448f78dbe6d20"
 }
