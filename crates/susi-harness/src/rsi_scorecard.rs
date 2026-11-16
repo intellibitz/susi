@@ -1,5 +1,5 @@
 //! Pure-Rust RSI loop scorecard over `.agents/tasks`, git history,
-//! merge attestations (`refs/merged/<id>`), and `.agents/rsi-loop.jsonl`.
+//! merge attestations (`refs/merged/<id>`), and `.susi/records/rsi-loop.jsonl`.
 
 use crate::git_governor::{cat_file_batch_json, run_git};
 use crate::lifecycle::DEFAULT_LIFECYCLE_PATH;

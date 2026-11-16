@@ -458,11 +458,11 @@ engineering work to the requester or weakening acceptance.
 ## Self-build scorecard
 
 The RSI scorecard reads phases git can prove and lifecycle facts git cannot.
-The harness writes the second kind to `.agents/rsi-loop.jsonl`:
+The harness writes the second kind to `.susi/records/rsi-loop.jsonl`:
 
 ```sh
-susi harness run plan.json ... --rsi-log .agents/rsi-loop.jsonl
-susi harness scorecard --events .agents/rsi-loop.jsonl [--task T-…] [--json]
+susi harness run plan.json ... --rsi-log .susi/records/rsi-loop.jsonl
+susi harness scorecard --events .susi/records/rsi-loop.jsonl [--task T-…] [--json]
 ```
 
 - `implemented` when the worker's change is committed, `gated` when the

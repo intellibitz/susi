@@ -967,7 +967,7 @@ Options:
       --daily-usd <DAILY_USD>          Daily spend ceiling in dollars, checked against the ledger before a run [default: 25]
       --ledger <LEDGER>                Ledger the gateway writes (spend authority) (default: `SUSI_HARNESS_LEDGER` if set, else `out/ledger.jsonl` in a susi workspace, else `harness/ledger.jsonl` in the data home, `~/.susi` unless `SUSI_HOME` is set; the same default standalone `susi-harness` uses)
       --controls <CONTROLS>            Control log the harness API writes pause/resume/abort to [default: out/control.jsonl]
-      --rsi-log <RSI_LOG>              Self-build lifecycle ledger the RSI scorecard reads [default: .agents/rsi-loop.jsonl]
+      --rsi-log <RSI_LOG>              Self-build lifecycle ledger the RSI scorecard reads [default: .susi/records/rsi-loop.jsonl]
       --attempts <ATTEMPTS>            Hard cap on attempts per task [default: 3]
       --adapter-state <ADAPTER_STATE>  Where the adapter keeps prompts and results [default: harness-state]
       --susi <SUSI>                    The susi binary the adapter drives (default: this one)
@@ -980,7 +980,7 @@ Print the self-build (RSI) scorecard for the mission lifecycle ledger
 Usage: susi harness scorecard [OPTIONS]
 
 Options:
-      --events <EVENTS>   Lifecycle ledger the supervisor writes [default: .agents/rsi-loop.jsonl]
+      --events <EVENTS>   Lifecycle ledger the supervisor writes [default: .susi/records/rsi-loop.jsonl]
       --task <TASK>       Limit the report to one task (repeatable)
       --json              Machine-readable report
       --require-complete  Fail unless every task reached every phase

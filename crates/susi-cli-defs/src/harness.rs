@@ -121,7 +121,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value = "out/control.jsonl")]
         controls: PathBuf,
         /// Self-build lifecycle ledger the RSI scorecard reads
-        #[arg(long, default_value = ".agents/rsi-loop.jsonl")]
+        #[arg(long, default_value = ".susi/records/rsi-loop.jsonl")]
         rsi_log: PathBuf,
         /// Hard cap on attempts per task
         #[arg(long, default_value_t = 3)]
@@ -139,7 +139,7 @@ pub enum HarnessCommands {
     /// Print the self-build (RSI) scorecard for the mission lifecycle ledger
     Scorecard {
         /// Lifecycle ledger the supervisor writes
-        #[arg(long, default_value = ".agents/rsi-loop.jsonl")]
+        #[arg(long, default_value = ".susi/records/rsi-loop.jsonl")]
         events: PathBuf,
         /// Limit the report to one task (repeatable)
         #[arg(long)]
