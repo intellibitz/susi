@@ -213,6 +213,29 @@ pub fn require_accounts_off_loopback(host: &str, ingress: Option<&Ingress>) -> E
     }
 }
 
+/// Read the optional operator accounts and apply the shared host admission rule.
+///
+/// # Errors
+/// Reports an unreadable file, invalid account configuration or inadmissible host.
+pub fn load_for_host(
+    host: &str,
+    accounts_path: Option<&Path>,
+    read_context: &str,
+) -> Result<Option<Arc<Ingress>>, String> {
+    let ingress = match accounts_path {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|error| format!("{read_context} {}: {error}", path.display()))?;
+            Some(Arc::new(
+                Ingress::parse(&text).map_err(|error| error.to_string())?,
+            ))
+        }
+        None => None,
+    };
+    require_accounts_off_loopback(host, ingress.as_deref()).map_err(|error| error.to_string())?;
+    Ok(ingress)
+}
+
 /// The accounts and their admission state.
 #[derive(Debug)]
 pub struct Ingress {

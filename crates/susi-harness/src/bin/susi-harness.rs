@@ -592,19 +592,7 @@ fn gateway_command(options: &Options) -> Result<(), String> {
 /// The `--accounts` file, if any, once the serving rule allows `--host`
 /// with it: an address other machines can reach needs at least one account.
 fn load_ingress(options: &Options) -> Result<Option<Arc<Ingress>>, String> {
-    let ingress = match &options.accounts {
-        Some(path) => {
-            let text = std::fs::read_to_string(path)
-                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
-            Some(Arc::new(
-                Ingress::parse(&text).map_err(|error| error.to_string())?,
-            ))
-        }
-        None => None,
-    };
-    susi_harness::ingress::require_accounts_off_loopback(&options.host, ingress.as_deref())
-        .map_err(|error| error.to_string())?;
-    Ok(ingress)
+    susi_harness::ingress::load_for_host(&options.host, options.accounts.as_deref(), "accounts")
 }
 
 fn serve_gateway(options: &Options, ingress: Option<Arc<Ingress>>) -> Result<(), String> {
@@ -617,21 +605,15 @@ fn serve_gateway(options: &Options, ingress: Option<Arc<Ingress>>) -> Result<(),
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
     }
-    let cache_dir = ledger.parent().map(Path::to_path_buf);
-    let state = Arc::new(GatewayState {
+    let mut state = GatewayState::cached(
         catalogue,
-        ledger_path: ledger.clone(),
-        upstream_chat_url: "direct".to_string(),
-        provider: "susi-harness".to_string(),
-        api_key: None,
-        timeout_secs: options.timeout,
-        max_output_tokens: options.max_output_tokens,
-        cache: Some(Arc::new(susi_harness::cache::ResponseCache::new(cache_dir))),
-    });
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| format!("runtime: {error}"))?;
+        ledger.clone(),
+        "direct".into(),
+        "susi-harness",
+        options.timeout,
+    );
+    state.max_output_tokens = options.max_output_tokens;
+    let runtime = tokio::runtime::Runtime::new().map_err(|error| format!("runtime: {error}"))?;
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind((options.host.as_str(), options.port))
             .await
@@ -643,11 +625,9 @@ fn serve_gateway(options: &Options, ingress: Option<Arc<Ingress>>) -> Result<(),
             "susi-harness gateway listening on http://{address}/v1 (ledger {})",
             ledger.display()
         );
-        match ingress {
-            Some(ingress) => susi_harness::ingress::serve(listener, state, ingress).await,
-            None => susi_harness::gateway::serve(listener, state).await,
-        }
-        .map_err(|error| format!("serve: {error}"))
+        susi_harness::gateway::serve_admitted(listener, state, ingress)
+            .await
+            .map_err(|error| format!("serve: {error}"))
     })
 }
 

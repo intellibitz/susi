@@ -394,10 +394,7 @@ fn serve_api(
         budget,
         mission,
     });
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("build the harness API runtime")?;
+    let runtime = tokio::runtime::Runtime::new().context("build the harness API runtime")?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind((host, port))
             .await
@@ -456,38 +453,24 @@ fn serve_gateway(
     // this entry point bound any --host as given, so `--host 0.0.0.0` served
     // an open gateway that spent the operator's keys for anyone.
     let ingress = gateway_ingress(host, accounts_path, cwd)?;
-    let resolved_cat = if catalogue_path.is_absolute() {
-        catalogue_path
-    } else {
-        cwd.join(catalogue_path)
-    };
-    let resolved_ledger = if ledger_path.is_absolute() {
-        ledger_path
-    } else {
-        cwd.join(ledger_path)
-    };
+    let resolved_cat = operator::resolve(cwd, &catalogue_path);
+    let resolved_ledger = operator::resolve(cwd, &ledger_path);
     if let Some(parent) = resolved_ledger.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let catalogue = PriceCatalogue::load_or_builtin(&resolved_cat)
         .with_context(|| format!("load price catalogue {}", resolved_cat.display()))?;
 
-    let cache_dir = resolved_ledger.parent().map(Path::to_path_buf);
-    let state = Arc::new(susi_harness::gateway::GatewayState {
+    let state = susi_harness::gateway::GatewayState::cached(
         catalogue,
-        ledger_path: resolved_ledger,
-        upstream_chat_url: upstream,
-        provider: "susi".into(),
-        api_key: None,
-        timeout_secs: timeout,
-        max_output_tokens: None,
-        cache: Some(Arc::new(susi_harness::cache::ResponseCache::new(cache_dir))),
-    });
+        resolved_ledger,
+        upstream,
+        "susi",
+        timeout,
+    );
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("build tokio runtime for harness gateway")?;
+    let runtime =
+        tokio::runtime::Runtime::new().context("build tokio runtime for harness gateway")?;
 
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind((host, port))
@@ -496,15 +479,9 @@ fn serve_gateway(
         let addr = listener.local_addr()?;
         eprintln!("susi harness gateway listening on http://{addr}/v1 (full cache on)");
 
-        if let Some(ingress) = ingress {
-            susi_harness::ingress::serve(listener, state, ingress)
-                .await
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))
-        } else {
-            susi_harness::gateway::serve(listener, state)
-                .await
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))
-        }
+        susi_harness::gateway::serve_admitted(listener, state, ingress)
+            .await
+            .map_err(crate::anyhow::Error::msg)
     })
 }
 
@@ -517,24 +494,9 @@ fn gateway_ingress(
     accounts_path: Option<PathBuf>,
     cwd: &Path,
 ) -> Result<Option<Arc<susi_harness::ingress::Ingress>>> {
-    let ingress = match accounts_path {
-        Some(accounts_file) => {
-            let resolved = if accounts_file.is_absolute() {
-                accounts_file
-            } else {
-                cwd.join(accounts_file)
-            };
-            let text = std::fs::read_to_string(&resolved)
-                .with_context(|| format!("read accounts file {}", resolved.display()))?;
-            let ingress = susi_harness::ingress::Ingress::parse(&text)
-                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-            Some(Arc::new(ingress))
-        }
-        None => None,
-    };
-    susi_harness::ingress::require_accounts_off_loopback(host, ingress.as_deref())
-        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
-    Ok(ingress)
+    let path = accounts_path.map(|path| operator::resolve(cwd, &path));
+    susi_harness::ingress::load_for_host(host, path.as_deref(), "read accounts file")
+        .map_err(crate::anyhow::Error::msg)
 }
 
 #[cfg(test)]

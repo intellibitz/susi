@@ -94,6 +94,31 @@ pub struct GatewayState {
 static FALLBACK_CACHE: std::sync::OnceLock<Arc<ResponseCache>> = std::sync::OnceLock::new();
 
 impl GatewayState {
+    /// Start an operator gateway with its own cache alongside the ledger.
+    #[must_use]
+    pub fn cached(
+        catalogue: PriceCatalogue,
+        ledger_path: PathBuf,
+        upstream_chat_url: String,
+        provider: impl Into<String>,
+        timeout_secs: u64,
+    ) -> Self {
+        Self {
+            cache: Some(Self::ledger_cache(&ledger_path)),
+            catalogue,
+            ledger_path,
+            upstream_chat_url,
+            provider: provider.into(),
+            timeout_secs,
+            api_key: None,
+            max_output_tokens: None,
+        }
+    }
+
+    fn ledger_cache(path: &Path) -> Arc<ResponseCache> {
+        Arc::new(ResponseCache::new(path.parent().map(Path::to_path_buf)))
+    }
+
     fn route(&self, model: &str) -> susi_error::EaiResult<crate::router::UpstreamRoute> {
         let key = self
             .api_key
@@ -123,10 +148,7 @@ impl GatewayState {
         if let Some(ref c) = self.cache {
             return Arc::clone(c);
         }
-        Arc::clone(FALLBACK_CACHE.get_or_init(|| {
-            let cache_dir = self.ledger_path.parent().map(std::path::Path::to_path_buf);
-            Arc::new(ResponseCache::new(cache_dir))
-        }))
+        Arc::clone(FALLBACK_CACHE.get_or_init(|| Self::ledger_cache(&self.ledger_path)))
     }
 }
 
@@ -169,6 +191,22 @@ pub async fn serve(
     state: Arc<GatewayState>,
 ) -> std::io::Result<()> {
     crate::http::serve(listener, router(state), Peer::Withhold, shutdown_signal()).await
+}
+
+/// Serve an admitted listener with the optional per-account policy.
+///
+/// # Errors
+/// Returns the listener's I/O error when serving stops.
+pub async fn serve_admitted(
+    listener: tokio::net::TcpListener,
+    state: GatewayState,
+    ingress: Option<Arc<crate::ingress::Ingress>>,
+) -> std::io::Result<()> {
+    let state = Arc::new(state);
+    match ingress {
+        Some(ingress) => crate::ingress::serve(listener, state, ingress).await,
+        None => serve(listener, state).await,
+    }
 }
 
 /// Resolves when the process is asked to stop (Ctrl-C, or `SIGTERM` on
