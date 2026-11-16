@@ -32,6 +32,15 @@ The CEO's current goal, verbatim:
 > susi core must be less than 100k lines. no functionalities must be dropped.
 > susi core is a pure standards protocol compliant ai os socket.
 
+**Mandate 84 (2026-11-16) makes this a standing rule**
+([`docs/ceo-mandate-84.md`](ceo-mandate-84.md)): "susi core should always be
+under 100k lines." Until the complete socket is below 100,000 it never grows:
+`COMPLETE_SOCKET_CEILING` in `tests/lean_core_ceilings.rs` pins the measured
+size (307,737 on 2026-11-16) and the ordinary suite fails above it. A change
+that adds runtime lines to core removes as many in the same change; a change
+that shrinks core lowers the ceiling to the new measure. Below the limit the
+ceiling stays at 99,999. Only a CEO decision recorded in the mandate raises it.
+
 At `694a728da`, the previous category measure reports 300,308 first-party
 runtime Rust lines and 6,454 in-repository facade lines. Its test-name rule
 misses the unconditionally public `susi-paths/src/test_env.rs` (369 lines).
@@ -40,7 +49,7 @@ Counting that production module gives the corrected baseline: **307,131 total**
 The goal is **not met**. Its explicit acceptance command is `cargo core-size`;
 it returns nonzero until the complete total is at most 99,999. The ordinary
 `lean_core_ceilings` suite continues reporting sizes without imposing the old
-individual budgets. The acceptance test is ignored by default because this is
+individual budgets; it holds only the Mandate 84 ceiling on the complete socket. The acceptance test is ignored by default because this is
 an unfinished reduction program, and is selected explicitly by that command.
 Acceptance evidence must show one executed test and its size result, not just
 a zero exit code from an empty or skipped test selection.

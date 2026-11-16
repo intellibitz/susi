@@ -8,6 +8,8 @@
 //! under-100k socket goal (Vision V-6) has a separate acceptance check, run by
 //! `cargo core-size`. It is intentionally not a claim that today's tree meets
 //! the goal, nor does a size check establish functional/protocol parity.
+//! Mandate 84 makes that goal a standing rule: the complete socket never grows
+//! past `COMPLETE_SOCKET_CEILING`, which only goes down until it is 99,999.
 //!
 //! The reach is measured from `cargo metadata` (normal and build edges, the
 //! way the linked product is built; dev edges excluded), so the numbers are
@@ -180,6 +182,16 @@ const PILLAR_CRATES: [&str; 8] = [
 /// Unsafe-exposure baselines under `.agents/baseline/` may not multiply. A file
 /// count, not a line count.
 const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
+
+/// Mandate 84 (`docs/ceo-mandate-84.md`): Susi core stays strictly below
+/// 100,000 lines. The complete socket (first-party runtime Rust plus the
+/// in-repository vendor facades, counted by `repository_size`) may never exceed
+/// this pinned ceiling. A change that shrinks core lowers it to the new measure,
+/// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
+/// recorded in `docs/ceo-mandate-84.md` raises it.
+const COMPLETE_SOCKET_CEILING: usize = 307_737;
+/// The CEO's limit: strictly below 100,000 physical lines.
+const COMPLETE_SOCKET_LIMIT: usize = 99_999;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -407,11 +419,33 @@ fn is_test_or_bench_rust(rel: &str) -> bool {
 /// for the record: runtime Rust, vendor facades, tests, tooling, vendored sources
 /// and audit trails, with the largest file of each watched kind. Includes
 /// untracked, non-ignored files so a new unstaged source file is not invisible.
-/// This report does not enforce the separate under-100k goal.
+/// It also holds Mandate 84: core never grows past its pinned ceiling.
 #[test]
 fn repository_size_is_reported_and_unsafe_baselines_do_not_multiply() {
-    repository_size();
+    complete_socket_never_grows(repository_size());
 }
+
+/// Mandate 84: while core is above 100,000 lines it never grows, and once it is
+/// below it never reaches 100,000 again.
+fn complete_socket_never_grows(lines: usize) {
+    assert!(
+        lines <= COMPLETE_SOCKET_CEILING,
+        "Mandate 84: Susi core's complete socket is {lines} physical Rust lines, above its \
+         pinned ceiling {COMPLETE_SOCKET_CEILING}. Core never grows: remove as many runtime \
+         lines from core in the same change, or ship an add-on as a plug in \
+         susi-commercial-apps (docs/ceo-mandate-84.md)"
+    );
+    let won = lines.max(COMPLETE_SOCKET_LIMIT);
+    if won < COMPLETE_SOCKET_CEILING {
+        eprintln!(
+            "Mandate 84: core is {lines} lines; lower COMPLETE_SOCKET_CEILING in \
+             tests/lean_core_ceilings.rs from {COMPLETE_SOCKET_CEILING} to {won} so the cut stays won"
+        );
+    }
+}
+
+// The ceiling stops at the limit: below 100,000, core may use the room the CEO gave it.
+const _: () = assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT);
 
 /// Goal acceptance is explicit while the reduction remains in progress. All
 /// first-party runtime and facade code counts, not just the pillar crates.
