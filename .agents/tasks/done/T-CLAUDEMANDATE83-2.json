@@ -17,6 +17,11 @@
   },
   "created_by": "CLAUDEMANDATE83",
   "created_unix": 1794825885,
+  "closed": {
+    "at_unix": 1794825885,
+    "commit": "57655a1f786a518e79b97b31540ed3b4280141e3",
+    "by": "CLAUDEMANDATE83"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "crates/susi-core/src/native_board.rs (resolve_board_target: address by environment or setting, a board remote, a non-public origin; is_public_susi_remote_url) and the same rule already in the workflow tool of intellibitz/susi-commercial-apps (board::home: the board's clone under the agent root). The existing resolver gains that one last place to look; nothing new is built."
