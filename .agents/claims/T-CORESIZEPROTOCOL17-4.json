@@ -4,10 +4,12 @@
     "crates/susi-harness/src/git_governor.rs",
     "crates/susi-harness/src/git_governor",
     "crates/susi-harness/src/tests/git_governor.rs",
-    "crates/susi-harness/tests/standalone_git_workflows.rs"
+    "crates/susi-harness/tests/standalone_git_workflows.rs",
+    "crates/susi-wire-client/src/host.rs",
+    "crates/susi-wire-client/src/mcp.rs"
   ],
   "task": "T-CORESIZEPROTOCOL17-4",
   "agent": "CORESIZEPROTOCOL17",
   "claimed_unix": 1794860405,
-  "lease_until_unix": 1794867605
+  "lease_until_unix": 1794868390
 }
