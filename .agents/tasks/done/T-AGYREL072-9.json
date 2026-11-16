@@ -24,5 +24,10 @@
     ]
   },
   "created_by": "AGYREL071",
-  "created_unix": 1794855104
+  "created_unix": 1794855104,
+  "closed": {
+    "at_unix": 1794855131,
+    "commit": "04b2ed373a987e65a66506275aaf762b7be650f5",
+    "by": "AGYREL071"
+  }
 }
