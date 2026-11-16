@@ -359,10 +359,22 @@ fn gmcp_req_203_017_05_interop() {
     let allow_mac = MacPolicy::new([3u8; 32], PrivacyMode::LocalOnly, false);
     let susi_exe = env!("CARGO_BIN_EXE_susi").to_string();
     allow_mac.grant("susi", actions::PROCESS_EXEC, &susi_exe, None).expect("grant susi");
+    let mut isolated_env = Command::new(&susi_exe);
+    isolate_home(&mut isolated_env, &home).env("SUSI_HOME", &cfg_dir);
     let susi_stdio_cfg = McpServerConfig {
         command: susi_exe,
         args: vec!["mcp".into(), "serve".into()],
-        env: Some(HashMap::from([("HOME".into(), home.to_string_lossy().into_owned()), ("SUSI_HOME".into(), cfg_dir.to_string_lossy().into_owned())])),
+        env: Some(
+            isolated_env
+                .get_envs()
+                .filter_map(|(k, v)| {
+                    Some((
+                        k.to_string_lossy().into_owned(),
+                        v?.to_string_lossy().into_owned(),
+                    ))
+                })
+                .collect(),
+        ),
         extra: HashMap::new(),
     };
     let mut susi_child = spawn_authorized_stdio_peer(&susi_stdio_cfg, &allow_mac).expect("spawn susi serve");
