@@ -1,0 +1,12 @@
+{
+  "branch": "claude-releases-tidy",
+  "task": "T-AGENTCLAUDERELEASESTIDY-1",
+  "agent": "AGENTCLAUDERELEASESTIDY",
+  "head": "93baa50312e1d2ec0a59858efdd13ccca162820e",
+  "closed_unix": 1794853271,
+  "scopes": [
+    "AGENTS.md",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs"
+  ]
+}
