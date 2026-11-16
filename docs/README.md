@@ -30,8 +30,6 @@ for a new one in the same change. The rules agents work by are in
 - [Harness runbook](harness-runbook.md)
 - [Harness FAQ](harness-faq.md)
 - [Recursive driver/engine delegation: first slice](recursive-delegation.md)
-- [DeepSeek worker](workers-deepseek.md)
-- [Gemini worker](workers-gemini.md)
 - [Isolated cloud agent sessions](cloud-sessions.md)
 - [Agent refs: `refs/agents/<agent>`](agent-refs.md)
 
