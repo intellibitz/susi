@@ -207,7 +207,8 @@ pub fn host_name() -> String {
         .unwrap_or_default()
 }
 
-/// One mounted filesystem backed by a real device.
+/// One mounted filesystem and its capacity. [`filesystems`] lists device-backed
+/// mounts; [`filesystem_of`] also reports Linux virtual mounts with capacity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filesystem {
     /// Where it is mounted (`/`, `/home`, `C:\`).
@@ -227,11 +228,20 @@ pub fn filesystems() -> Vec<Filesystem> {
 }
 
 /// The filesystem holding `path`: the longest mount point that prefixes it.
+/// On Linux this includes non-device mounts such as container overlay roots;
+/// the device-only [`filesystems`] inventory is not a path-resolution table.
 pub fn filesystem_of(path: &std::path::Path) -> Option<Filesystem> {
-    filesystems()
-        .into_iter()
-        .filter(|fs| path.starts_with(&fs.mount_point))
-        .max_by_key(|fs| fs.mount_point.as_os_str().len())
+    #[cfg(target_os = "linux")]
+    {
+        platform::filesystem_of(path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        filesystems()
+            .into_iter()
+            .filter(|fs| path.starts_with(&fs.mount_point))
+            .max_by_key(|fs| fs.mount_point.as_os_str().len())
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -416,42 +426,92 @@ mod platform {
             .replace("\\134", "\\")
     }
 
+    fn mounts(text: &str) -> impl Iterator<Item = (&str, String, &str)> {
+        text.lines().filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            Some((
+                fields.next()?,
+                unescape_mount(fields.next()?),
+                fields.next()?,
+            ))
+        })
+    }
+
+    fn filesystem(mount: String, fstype: &str) -> Option<Filesystem> {
+        let (total_bytes, available_bytes) = statvfs_bytes(&mount)?;
+        (total_bytes > 0).then(|| Filesystem {
+            mount_point: PathBuf::from(mount),
+            file_system: fstype.to_string(),
+            total_bytes,
+            available_bytes,
+        })
+    }
+
+    fn mount_of<'a>(text: &'a str, path: &std::path::Path) -> Option<(String, &'a str)> {
+        mounts(text)
+            .filter(|(_, mount, _)| path.starts_with(mount))
+            .max_by_key(|(_, mount, _)| mount.len())
+            .map(|(_, mount, fstype)| (mount, fstype))
+    }
+
+    pub(super) fn filesystem_of(path: &std::path::Path) -> Option<Filesystem> {
+        let text = read("/proc/mounts")?;
+        let (mount, fstype) = mount_of(&text, path)?;
+        filesystem(mount, fstype)
+    }
+
     pub(super) fn filesystems() -> Vec<Filesystem> {
         let Some(text) = read("/proc/mounts") else {
             return Vec::new();
         };
         let mut seen = std::collections::BTreeSet::new();
         let mut out = Vec::new();
-        for line in text.lines() {
-            let mut fields = line.split_whitespace();
-            let (Some(device), Some(mount), Some(fstype)) =
-                (fields.next(), fields.next(), fields.next())
-            else {
-                continue;
-            };
-            if !device.starts_with("/dev/") || !seen.insert(mount.to_string()) {
-                continue;
+        for (device, mount, fstype) in mounts(&text) {
+            if device.starts_with("/dev/") && seen.insert(mount.clone()) {
+                out.extend(filesystem(mount, fstype));
             }
-            let mount = unescape_mount(mount);
-            let Some((total_bytes, available_bytes)) = statvfs_bytes(&mount) else {
-                continue;
-            };
-            if total_bytes == 0 {
-                continue;
-            }
-            out.push(Filesystem {
-                mount_point: PathBuf::from(mount),
-                file_system: fstype.to_string(),
-                total_bytes,
-                available_bytes,
-            });
         }
         out
     }
 
     #[cfg(test)]
     mod tests {
-        use super::bytes_from_blocks;
+        use super::{bytes_from_blocks, mount_of};
+        use std::path::Path;
+
+        #[test]
+        fn path_lookup_resolves_container_root_and_non_device_child_mounts() {
+            let container = "overlay / overlay rw 0 0\n/dev/sda /etc/hosts ext4 rw 0 0\n";
+            assert_eq!(
+                mount_of(container, Path::new("/workspace/project")),
+                Some(("/".into(), "overlay"))
+            );
+            assert_eq!(
+                mount_of(container, Path::new("/etc/hosts")),
+                Some(("/etc/hosts".into(), "ext4"))
+            );
+            let nested = "/dev/sda / ext4 rw 0 0\noverlay /workspace overlay rw 0 0\ntmpfs /workspace/tmp tmpfs rw 0 0\n";
+            for (path, mount, fstype) in [
+                ("/workspace/project", "/workspace", "overlay"),
+                ("/workspace/tmp/file", "/workspace/tmp", "tmpfs"),
+                ("/workspace-old", "/", "ext4"),
+            ] {
+                assert_eq!(
+                    mount_of(nested, Path::new(path)),
+                    Some((mount.into(), fstype))
+                );
+            }
+        }
+
+        #[test]
+        fn path_lookup_decodes_mounts_and_ignores_incomplete_records() {
+            let text = "incomplete\noverlay / overlay rw 0 0\ntmpfs /space\\040name tmpfs rw 0 0\n";
+            assert_eq!(
+                mount_of(text, Path::new("/space name/file")),
+                Some(("/space name".into(), "tmpfs"))
+            );
+            assert!(mount_of(text, Path::new("relative/path")).is_none());
+        }
 
         #[test]
         fn filesystem_bytes_widen_before_multiplication() {
