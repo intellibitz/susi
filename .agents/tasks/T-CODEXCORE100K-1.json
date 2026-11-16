@@ -20,7 +20,9 @@
     "T-CODEX100KMCP-1",
     "T-CODEX100KFRONTEND-1",
     "T-CODEX100KGEMI-1",
-    "T-CODEX100KJSON-1"
+    "T-CODEX100KJSON-1",
+    "T-CODEX100KACP-1",
+    "T-CODEX100KHARNESSPARITY-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -63,17 +65,19 @@
     ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json",
     ".agents/evidence/core-under-100k/2026-11-16-shared-clients.json",
     ".agents/evidence/core-under-100k/2026-11-16-acp-standards-audit.json",
-    ".agents/evidence/core-under-100k/2026-11-16-json-readers.json"
+    ".agents/evidence/core-under-100k/2026-11-16-json-readers.json",
+    ".agents/evidence/core-under-100k/2026-11-16-acp-and-harness.json"
   ],
   "progress": {
-    "runtime_rust": 298650,
+    "runtime_rust": 299142,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 305104,
+    "complete_socket_rust": 305596,
     "genuine_runtime_lines_removed": 2094,
-    "remaining_to_remove": 205105,
+    "remaining_to_remove": 205597,
     "upstream_runtime_lines_added": 7,
     "correctness_lines_added": 60,
-    "net_runtime_lines_removed": 2034
+    "net_runtime_lines_removed": 1542,
+    "standards_compatibility_lines_added": 492
   },
   "publication_cadence": {
     "during_active_work": true,
@@ -84,7 +88,7 @@
     "protocol": "Agent Client Protocol",
     "official_revision": 1,
     "reference_commit": "13b765828f961812f0c78ae577220e994209fa2f",
-    "status": "legacy Susi ACP tests are insufficient; compatible v1 transport work in progress, mandatory client-supplied stdio MCP bridge still required",
+    "status": "staged numeric-v1 stdio adapter implemented and verified; legacy compatible; mandatory client-supplied stdio MCP bridge still required",
     "implementation_task": "T-CODEX100KACP-1"
   }
 }
