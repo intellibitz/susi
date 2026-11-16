@@ -229,7 +229,7 @@ fn gmcp_req_203_017_04_adversarial() {
     assert_eq!(host.call_tool_resolving_tasks("good", "approval_workflow", &json!({"ticket":"T-AFTER-RACE"}), Some(Duration::from_secs(10))).expect("healthy task after cancel")["structuredContent"]["decision"], json!("isolated-ok"));
     host.disconnect("bad_http").expect("disc bad");
     host.disconnect("good").expect("disc good");
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-05: interoperability and quality — reference-server interop in both
 /// roles across Streamable HTTP (`2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`),
@@ -578,7 +578,7 @@ fn main() {
     }
     #[cfg(unix)]
     host.disconnect("delta_uds").expect("disconnect uds");
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-06: inspectable `McpHost::snapshot()` & `susi mcp` CLI state,
 /// fail-closed configuration validation, bounded W3C `traceparent` SSE redaction,
@@ -823,6 +823,438 @@ fn gmcp_req_203_017_06_operations() {
         }
     }
     assert!(ev_count >= 16);
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
+/// GMCP-203-017-M: Vector mastery gate for VC-203-017 (Complete MCP client and host).
+#[test]
+fn gmcp_vc_203_017_mastery() {
+    use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::{BTreeSet, HashMap};
+    use std::io::BufReader;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use susi_core::mac_policy::{actions, MacPolicy, PrivacyMode};
+    use susi_gmcp::{
+        direct_call::call_tool_direct,
+        extensions::ExtensionStatus,
+        mcp::{
+            model::{CallToolResult, ReadResourceResult, Resource, Tool},
+            task_manager::TaskExit,
+        },
+        protocol::GmcpService,
+        sdk::{
+            examples::production_reference_server, mrtr_elicitation, mrtr_roots_list,
+            mrtr_sampling,
+        },
+        server::GmcpServer,
+    };
+    use susi_tools::{spawn_authorized_stdio_peer, McpServerConfig};
+    use susi_wire_client::{
+        host::{
+            probe_http_auth_challenge, CompletionQuery, DuplexStreams, HostPolicy, HttpEndpoint,
+            McpHost, RootEntry,
+        },
+        mcp::{
+            parse_www_authenticate, PersistedTaskHandleStore, Session, TaskStatus, WireError,
+            APPS_EXTENSION_ID,
+        },
+    };
+
+    struct EvidenceCtx<'a> {
+        root: &'a Path,
+        ledger_hash: &'a str,
+        test_src: &'a str,
+        head_digest: &'a str,
+        now: u64,
+    }
+
+    fn verify_vc_203_017_evidence(
+        ctx: &EvidenceCtx<'_>,
+        evidence_text: &str,
+        committed_artifacts: Option<&[String]>,
+    ) -> Result<BTreeSet<String>, String> {
+        const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
+        let names = |r: &Value, t: &Value| LINK.iter().all(|f| r["supersedes"][*f] == t[*f]);
+        let mut order: Vec<String> = Vec::new();
+        let mut chains: HashMap<String, Vec<Value>> = HashMap::new();
+        for line in evidence_text.lines().filter(|l| !l.trim().is_empty()) {
+            let rec: Value = serde_json::from_str(line).map_err(|e| format!("bad JSON: {e}"))?;
+            let req = rec["requirement"].as_str().unwrap_or_default().to_string();
+            match chains.get_mut(&req) {
+                Some(ch) => {
+                    if !ch.iter().any(|old| names(&rec, old)) {
+                        return Err(format!("{req}: missing supersedes link"));
+                    }
+                    ch.push(rec);
+                }
+                None => {
+                    order.push(req.clone());
+                    chains.insert(req, vec![rec]);
+                }
+            }
+        }
+        let newest: Vec<Value> = order
+            .into_iter()
+            .filter_map(|req| {
+                let ch = chains.remove(&req)?;
+                ch.iter()
+                    .filter(|r| !ch.iter().any(|later| names(later, r)))
+                    .max_by_key(|r| r["recorded_unix"].as_u64().unwrap_or(0))
+                    .cloned()
+            })
+            .collect();
+        let mut covered = BTreeSet::new();
+        let req_fields = "requirement|check|exit|detail|recorded_unix|artifact_sha256|identity";
+        for rec in newest {
+            let req = rec["requirement"].as_str().unwrap_or_default();
+            if req.ends_with("-M") {
+                continue;
+            }
+            if rec.get("waived").is_some() || rec.get("mock").is_some() {
+                return Err(format!("{req}: waived or mock evidence rejected"));
+            }
+            if req_fields.split('|').any(|f| rec[f].is_null()) {
+                return Err(format!("{req}: missing required field"));
+            }
+            if rec["exit"] != 0
+                || rec["identity"].as_str().unwrap_or_default().is_empty()
+                || rec["detail"].as_str().unwrap_or_default().is_empty()
+                || rec["artifact_sha256"].as_str().unwrap_or_default() != ctx.ledger_hash
+            {
+                return Err(format!("{req}: invalid exit/identity/detail/ledger_hash"));
+            }
+            let ts = rec["recorded_unix"].as_u64().unwrap_or(0);
+            if ts <= 1_792_256_000 || ts > ctx.now + 60 {
+                return Err(format!("{req}: stale or future recorded_unix {ts}"));
+            }
+            let check = rec["check"].as_str().unwrap_or_default();
+            let Some(fn_name) =
+                check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+            else {
+                return Err(format!("{req}: unsupported check command"));
+            };
+            if !fn_name.starts_with("gmcp_")
+                || fn_name.contains(char::is_whitespace)
+                || !is_test_fn(ctx.test_src, fn_name)
+            {
+                return Err(format!("{req}: zero-test missing fn {fn_name}"));
+            }
+            if let Some(artifacts) = committed_artifacts {
+                assert_bound_to_tested_commit(ctx.root, &rec, artifacts, ctx.head_digest);
+            } else {
+                let c = rec["tested_commit"].as_str().unwrap_or_default();
+                if c.len() != 40
+                    || !c.chars().all(|x| x.is_ascii_hexdigit())
+                    || rec["tested_artifacts"].as_str() != Some(ctx.head_digest)
+                {
+                    return Err(format!("{req}: invalid commit/artifact binding"));
+                }
+            }
+            covered.insert(req.to_string());
+        }
+        for n in 1..=6 {
+            let req = format!("GMCP-203-017-0{n}");
+            if !covered.contains(&req) {
+                return Err(format!("missing evidence for {req}"));
+            }
+        }
+        Ok(covered)
+    }
+
+    let (_lock, _env, home) = gmcp_http_home_guard("017-mastery");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&cfg_dir).expect("cfg_dir");
+
+    // 1. Contract, pinned ledger parity, and zero-vendor SDK manifest boundary.
+    let report = ledger_report(root);
+    assert!(report["verified"] == true && susi_json(root, &home, &["mcp", "ledger"]) == report);
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-017.md")).expect("contract");
+    for tok in "Status: **delivered**|GMCP-203-017-01..06 + GMCP-203-017-M|CLAIM-04|HOST-001|HOST-018|## Operations and incident runbook".split('|') {
+        assert!(contract.contains(tok), "missing `{tok}`");
+    }
+    assert!(!root.join("crates/susi-vendor-mcp").exists());
+    for manifest_rel in ["crates/susi-wire-client/Cargo.toml", "crates/susi-tools/Cargo.toml", "crates/susi-gmcp/Cargo.toml", "crates/susi-abi/Cargo.toml"] {
+        let toml = std::fs::read_to_string(root.join(manifest_rel)).expect("Cargo.toml");
+        for v in ["rmcp", "schemars", "axum", "tower", "reqwest", "ureq"] {
+            assert!(!toml.contains(v), "{manifest_rel} must not depend on `{v}`");
+        }
+    }
+
+    // 2. Concurrent isolated multi-server host + CLI + gateway + direct + stdio + UDS mastery run.
+    let obj_schema = serde_json::Map::from_iter([("type".into(), json!("object"))]);
+    let spawn_ref = |sub: &str, tok: &str| -> (GmcpService, String) {
+        std::fs::write(cfg_dir.join("api_token"), format!("{tok}\n")).expect("token");
+        let base = home.join(sub);
+        std::fs::create_dir_all(base.join("ws")).expect("ws");
+        let (svc, _) = production_reference_server(base.join("ws"), base.join("tasks")).expect("svc");
+        svc.extensions().write().register(APPS_EXTENSION_ID, ExtensionStatus::Official, 1, serde_json::Map::new()).expect("apps");
+        svc.register_resource(
+            Resource::new("ui://app/mastery", "MasteryApp").with_mime_type("text/html;profile=mcp-app"),
+            Arc::new(|req, _| Box::pin(async move {
+                let r: ReadResourceResult = serde_json::from_value(json!({"contents":[{"uri":req.uri,"mimeType":"text/html;profile=mcp-app","text":"<main>mastery</main>","_meta":{"ui":{"domain":"mastery.susi.local","csp":{"connectDomains":["https://api.susi.local"]},"permissions":{"clipboardWrite":false}}}}]})).expect("app");
+                Ok(r.into())
+            })),
+        );
+        svc.register_task_tool(
+            Tool::new_with_raw("mrtr_triad", Some("3-callback task".into()), obj_schema.clone()),
+            Arc::new(|_, tc| Box::pin(async move {
+                let s = tc.request_input("s", mrtr_sampling("check", 32).map_err(TaskExit::Error)?).await?;
+                let e = tc.request_input("e", mrtr_elicitation("go?", json!({"type":"object","properties":{"go":{"type":"boolean"}},"required":["go"]})).map_err(TaskExit::Error)?).await?;
+                let r = tc.request_input("r", mrtr_roots_list().map_err(TaskExit::Error)?).await?;
+                Ok(CallToolResult::structured(json!({"sampled":s["content"]["text"],"go":e["go"],"firstRoot":r["roots"][0]["uri"]})))
+            })),
+        ).expect("triad");
+        let lis = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = format!("127.0.0.1:{}", lis.local_addr().expect("addr").port());
+        let h_svc = svc.clone();
+        let _bg = std::thread::spawn(move || GmcpServer::serve_http_service(h_svc, vec![lis], None, false));
+        for _ in 0..50 {
+            if TcpStream::connect(&addr).is_ok() { break; }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        (svc, addr)
+    };
+    let tok_a = "tok-mastery-alpha-017";
+    let (svc_a, addr_a) = spawn_ref("srv-a", tok_a);
+    svc_a.bind_direct_server("mastery_017_direct").expect("bind direct");
+    let mut host = McpHost::new();
+    let mk_pol_a = || {
+        HostPolicy::strict("susi-m-alpha", "1.0.0")
+            .with_principal("alice")
+            .with_roots(vec![RootEntry::new("file:///workspace/m-alpha", Some("ma".into())).expect("root")])
+            .with_sampling(|_| Ok(json!({"role":"assistant","model":"susi-m","content":{"type":"text","text":"sampled-m"}})))
+            .with_elicitation(|_| Ok(json!({"action":"accept","content":{"go":true,"approved":true,"decision":"mastery-ok"}})))
+            .with_tasks(true)
+            .with_apps(true)
+    };
+    host.connect_http_2026_07_28("alpha", HttpEndpoint { addr: &addr_a, bearer: Some(tok_a), timeout: Duration::from_secs(15) }, mk_pol_a()).expect("connect alpha");
+    let store_path = home.join("mastery-tasks.json");
+    host.attach_task_store("alpha", PersistedTaskHandleStore::open(&store_path).expect("store")).expect("attach store");
+
+    let tok_b = "tok-mastery-beta-017";
+    let (_svc_b, addr_b) = spawn_ref("srv-b", tok_b);
+    assert!(matches!(Session::open(&addr_b, Some(tok_a), Duration::from_secs(5)), Err(WireError::Http(401, _))));
+    assert!(probe_http_auth_challenge(&addr_b, Some(tok_a), Duration::from_secs(5)).is_ok());
+    let ch = parse_www_authenticate(401, r#"Bearer realm="susi", resource_metadata="https://mcp.example/.well-known/oauth-protected-resource", scope="mcp:tools", error="invalid_token""#).expect("www");
+    assert!(ch.scheme == "Bearer" && ch.scope.as_deref() == Some("mcp:tools"));
+    host.connect_http_session("beta", HttpEndpoint { addr: &addr_b, bearer: Some(tok_b), timeout: Duration::from_secs(15) }, HostPolicy::strict("susi-m-beta", "1.0.0").with_principal("bob").with_roots(vec![RootEntry::new("file:///workspace/m-beta", None).expect("rb")])).expect("connect beta");
+    // Restore `tok_a` in `api_token` for subsequent `alpha` HTTP requests!
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_a}\n")).expect("restore tok_a");
+
+    let stdio_src = home.join("mastery_stdio_peer.rs");
+    let stdio_exe = home.join(format!("mastery_stdio_peer{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&stdio_src, r#"
+use std::io::{self, BufRead, Write};
+fn main() {
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    let mut rc = 0u32;
+    while let Some(Ok(line)) = lines.next() {
+        if line.contains("\"notifications/roots/list_changed\"") { rc += 1; continue; }
+        if line.contains("\"notifications/cancelled\"") { continue; }
+        if !line.contains("\"id\"") { continue; }
+        let id: String = line.split("\"id\":").nth(1).unwrap().chars().take_while(|c| c.is_ascii_digit()).collect();
+        if line.contains("\"initialize\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{\"tools\":{{}},\"resources\":{{\"subscribe\":true}},\"prompts\":{{}},\"completions\":{{}}}},\"serverInfo\":{{\"name\":\"gamma-mastery\",\"version\":\"1.0\"}}}}}}");
+        } else if line.contains("\"tools/call\"") {
+            println!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progressToken\":\"stale\",\"progress\":1}}}}");
+            println!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progressToken\":\"p-m\",\"progress\":100,\"total\":100}}}}");
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":801,\"method\":\"roots/list\",\"params\":{{}}}}");
+            io::stdout().flush().unwrap();
+            let r1 = lines.next().unwrap().unwrap();
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":802,\"method\":\"sampling/createMessage\",\"params\":{{\"messages\":[],\"maxTokens\":16}}}}");
+            io::stdout().flush().unwrap();
+            let r2 = lines.next().unwrap().unwrap();
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":803,\"method\":\"elicitation/create\",\"params\":{{\"message\":\"ok?\",\"requestedSchema\":{{\"type\":\"object\"}}}}}}");
+            io::stdout().flush().unwrap();
+            let r3 = lines.next().unwrap().unwrap();
+            let ok = r1.contains("file:///workspace/m-gamma") && r2.contains("gamma-sampled") && r3.contains("gamma-elicited");
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":\"ok={ok};rc={rc}\"}}],\"isError\":false}}}}");
+        } else {
+            println!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{}}}}");
+        }
+        io::stdout().flush().unwrap();
+    }
+}
+"#).expect("stdio_src");
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    assert!(Command::new(rustc).args(["--edition", "2021"]).arg(&stdio_src).arg("-o").arg(&stdio_exe).status().expect("rustc").success());
+    let stdio_cfg = McpServerConfig { command: stdio_exe.to_string_lossy().into_owned(), args: vec![], env: Some(HashMap::new()), extra: HashMap::new() };
+    let deny_mac = MacPolicy::new([4u8; 32], PrivacyMode::LocalOnly, false);
+    assert!(spawn_authorized_stdio_peer(&stdio_cfg, &deny_mac).is_err());
+    let allow_mac = MacPolicy::new([4u8; 32], PrivacyMode::LocalOnly, false);
+    allow_mac.grant("susi", actions::PROCESS_EXEC, &stdio_cfg.command, None).expect("grant");
+    let mut child = spawn_authorized_stdio_peer(&stdio_cfg, &allow_mac).expect("spawn");
+    let c_out = BufReader::new(child.stdout.take().expect("out"));
+    let c_in = child.stdin.take().expect("in");
+    host.connect_duplex("gamma", DuplexStreams { reader: Box::new(c_out), writer: Box::new(c_in), on_close: Some(Box::new(move || { let _ = child.kill(); let _ = child.wait(); })) }, HostPolicy::strict("susi-m-gamma", "1.0.0").with_principal("carol").with_roots(vec![RootEntry::new("file:///workspace/m-gamma", Some("mg".into())).expect("rg")]).with_sampling(|_| Ok(json!({"role":"assistant","model":"m","content":{"type":"text","text":"gamma-sampled"}}))).with_elicitation(|_| Ok(json!({"action":"accept","content":{"tag":"gamma-elicited"}})))).expect("connect gamma");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use susi_gmcp::mcp::ServiceExt;
+        let uds_path = home.join("m017.sock");
+        let uds_lis = UnixListener::bind(&uds_path).expect("bind uds");
+        let uds_svc = svc_a.clone();
+        let _uds_bg = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("rt");
+            rt.block_on(async move {
+                uds_lis.set_nonblocking(true).expect("nb");
+                let lis = tokio::net::UnixListener::from_std(uds_lis).expect("tokio uds");
+                if let Ok((stream, _)) = lis.accept().await {
+                    let (r, w) = tokio::io::split(stream);
+                    let gate = susi_gmcp::jsonrpc_gate::StdioGate::new(susi_gmcp::stdio::BoundedLines::new(r, 16 * 1024 * 1024), w);
+                    if let Ok(run) = uds_svc.session().serve(gate).await {
+                        let _ = run.waiting().await;
+                    }
+                }
+            });
+        });
+        let u_cli = UnixStream::connect(&uds_path).expect("connect uds");
+        let u_r = BufReader::new(u_cli.try_clone().expect("clone"));
+        host.connect_duplex("delta_uds", DuplexStreams { reader: Box::new(u_r), writer: Box::new(u_cli), on_close: None }, HostPolicy::strict("susi-m-uds", "1.0.0").with_principal("dave")).expect("connect uds");
+    }
+
+    assert!(host.discover("alpha").expect("disc")["supportedVersions"].as_array().expect("sv").contains(&json!("2026-07-28")));
+    assert!(host.list_tools("alpha").expect("tools").iter().any(|t| t["name"] == "summarize_items"));
+    let sum_args = json!({"items":["m1","m2"],"scope":{"namespace":"mastery"}});
+    let host_sum = host.call_tool("alpha", "summarize_items", &sum_args, None).expect("call");
+    assert_eq!(host_sum["structuredContent"], susi_core::mcp_client::call_tool(&addr_a, "summarize_items", &sum_args, Some(tok_a)).expect("gw")["structuredContent"]);
+    let direct_parsed: Value = serde_json::from_str(call_tool_direct("mastery_017_direct", "summarize_items", &sum_args, &home).expect("direct")["content"][0]["text"].as_str().expect("txt")).expect("json");
+    assert_eq!(direct_parsed, host_sum["structuredContent"]);
+    #[cfg(unix)]
+    assert_eq!(host.call_tool("delta_uds", "summarize_items", &sum_args, None).expect("uds")["structuredContent"], host_sum["structuredContent"]);
+
+    assert!(host.list_resources("alpha").expect("res").iter().any(|r| r["uri"] == "memo://welcome"));
+    assert!(host.list_resource_templates("alpha").expect("rt").iter().any(|t| t["uriTemplate"] == "memo://items/{id}"));
+    assert!(host.read_resource("alpha", "memo://items/9").expect("read")["contents"][0]["text"].as_str().expect("txt").contains("\"9\""));
+    let mut sub = host.open_subscription_stream("alpha", &json!({"resourceSubscriptions":["memo://welcome"]})).expect("sub");
+    assert!(sub.is_acknowledged());
+    svc_a.resource_updated("memo://welcome".to_string());
+    assert_eq!(sub.next_frame().expect("frame").expect("ok")["method"], json!("notifications/resources/updated"));
+    drop(sub);
+    assert!(host.list_prompts("alpha").expect("prompts").iter().any(|p| p["name"] == "draft_brief"));
+    assert!(host.get_prompt("alpha", "draft_brief", Some(&json!({"topic":"mastery"}))).expect("prompt")["messages"][0]["content"]["text"].as_str().expect("pt").contains("mastery"));
+    assert!(host.complete("alpha", CompletionQuery { is_resource: false, target: "draft_brief", arg_name: "topic", arg_value: "se", context_args: None }).expect("cp")["completion"]["values"].as_array().expect("v").contains(&json!("security")));
+    assert!(!host.complete("alpha", CompletionQuery { is_resource: true, target: "memo://items/{id}", arg_name: "id", arg_value: "1", context_args: None }).expect("cr")["completion"]["values"].as_array().expect("v").is_empty());
+    assert_eq!(host.call_tool_mrtr("alpha", "confirm_action", &json!({"operation":"seal-017"})).expect("mrtr")["structuredContent"]["status"], json!("confirmed"));
+    let triad = host.call_tool_resolving_tasks("alpha", "mrtr_triad", &json!({}), Some(Duration::from_secs(10))).expect("triad");
+    assert_eq!(triad["structuredContent"], json!({"sampled":"sampled-m","go":true,"firstRoot":"file:///workspace/m-alpha"}));
+    let app = host.inspect_app("alpha", "ui://app/mastery").expect("app");
+    assert_eq!(app.domain.as_deref(), Some("mastery.susi.local"));
+
+    host.update_roots("gamma", vec![RootEntry::new("file:///workspace/m-gamma", Some("mg-v2".into())).expect("r")]).expect("update roots");
+    assert_eq!(host.call_tool("gamma", "full_callbacks", &json!({}), Some(&json!("p-m"))).expect("gamma")["content"][0]["text"], json!("ok=true;rc=1"));
+    let g_notes = host.drain_notifications("gamma").expect("drain");
+    assert!(g_notes.iter().any(|n| n["params"]["progressToken"] == "p-m") && !g_notes.iter().any(|n| n["params"]["progressToken"] == "stale"));
+    host.cancel_request("gamma", json!(777), Some("mastery-cancel")).expect("cancel req");
+
+    let cancel_h = host.start_task_tool("alpha", "approval_workflow", &json!({"ticket":"T-M-CANCEL"})).expect("start cancel");
+    host.cancel_task("alpha", &cancel_h.task_id).expect("cancel task");
+    assert_eq!(host.get_task("alpha", &cancel_h.task_id).expect("get cancelled").handle.status, TaskStatus::Cancelled);
+
+    // Crash-restart task handle persistence + CLI surface parity.
+    let resume_h = host.start_task_tool("alpha", "approval_workflow", &json!({"ticket":"T-M-RESUME"})).expect("start resume");
+    let snap_host = host.snapshot();
+    assert!(!snap_host.to_string().contains(tok_a) && !snap_host.to_string().contains(tok_b));
+    let run_cli = |args: &[&str]| -> Value {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+        let out = isolate_home(&mut cmd, &home).env("SUSI_HOME", &cfg_dir).current_dir(root).args(args).output().expect("cli");
+        assert!(out.status.success(), "cli {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).expect("json")
+    };
+    assert_eq!(run_cli(&["mcp", "discover", &addr_a, "--token", tok_a])["serverInfo"]["name"], json!("sdk-production-ref"));
+    assert_eq!(run_cli(&["mcp", "call", &addr_a, "summarize_items", &sum_args.to_string(), "--token", tok_a])["structuredContent"], host_sum["structuredContent"]);
+    assert_eq!(run_cli(&["mcp", "read", &addr_a, "ui://app/mastery", "--app", "--token", tok_a])["domain"], json!("mastery.susi.local"));
+
+    // Verify `beta` with `tok_b` remains isolated and refuses unrequested CreateTaskResult.
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_b}\n")).expect("tok_b");
+    assert!(host.call_tool("beta", "approval_workflow", &json!({"ticket":"T-NO-OPT"}), None).is_err());
+    host.disconnect("beta").expect("disc beta");
+    host.disconnect("gamma").expect("disc gamma");
+    #[cfg(unix)]
+    host.disconnect("delta_uds").expect("disc uds");
+    host.disconnect("alpha").expect("disc alpha");
+    drop(host);
+    GmcpService::unbind_direct_server("mastery_017_direct");
+
+    std::fs::write(cfg_dir.join("api_token"), format!("{tok_a}\n")).expect("tok_a");
+    let mut host_resumed = McpHost::new();
+    host_resumed.connect_http_2026_07_28("alpha", HttpEndpoint { addr: &addr_a, bearer: Some(tok_a), timeout: Duration::from_secs(15) }, mk_pol_a()).expect("reconnect alpha");
+    host_resumed.attach_task_store("alpha", PersistedTaskHandleStore::open(&store_path).expect("reopen store")).expect("reattach");
+    assert_eq!(host_resumed.resume_persisted_task("alpha", &resume_h.task_id, Some(Duration::from_secs(10))).expect("resume")["structuredContent"]["decision"], json!("mastery-ok"));
+    assert_eq!(run_cli(&["mcp", "task", &addr_a, "get", &resume_h.task_id, "--token", tok_a])["status"], json!("completed"));
+    host_resumed.disconnect("alpha").expect("disc resumed");
+
+    // 3. Strict 01..06 evidence verification & 11-case negative tamper rejection matrix.
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).expect("ledger")));
+    let test_src = read_all_gmcp_requirements_sources(root);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let artifacts = evidence_artifacts(root, "VC-203-017");
+    let head_digest = artifacts_digest(root, "HEAD", &artifacts).expect("HEAD artifacts digest");
+    let valid_tests = [
+        ("GMCP-203-017-01", "gmcp_req_203_017_01_contract"),
+        ("GMCP-203-017-02", "gmcp_req_203_017_02_production"),
+        ("GMCP-203-017-03", "gmcp_req_203_017_03_integration"),
+        ("GMCP-203-017-04", "gmcp_req_203_017_04_adversarial"),
+        ("GMCP-203-017-05", "gmcp_req_203_017_05_interop"),
+        ("GMCP-203-017-06", "gmcp_req_203_017_06_operations"),
+    ];
+    let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| json!({"requirement":r,"check":format!("cargo test --locked --test gmcp_requirements {t}"),"exit":0,"detail":"ok","recorded_unix":now,"artifact_sha256":ledger_hash,"identity":"AG2FEATURES","tested_commit":"0".repeat(40),"tested_artifacts":head_digest})).collect();
+    let good_text = good_lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+    let ev_ctx = EvidenceCtx { root, ledger_hash: &ledger_hash, test_src: &test_src, head_digest: &head_digest, now };
+    let check_ev = |txt: &str, committed: bool| verify_vc_203_017_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()));
+    assert!(check_ev(&good_text, false).is_ok());
+    assert!(check_ev(&good_lines[..5].iter().map(Value::to_string).collect::<Vec<_>>().join("\n"), false).is_err());
+
+    type Mutate<'a> = Box<dyn Fn(&mut Value) + 'a>;
+    let mutators: [Mutate<'_>; 9] = [
+        Box::new(|v| v["recorded_unix"] = json!(1_700_000_000_u64)),
+        Box::new(|v| v["recorded_unix"] = json!(now + 120)),
+        Box::new(|v| v["artifact_sha256"] = json!("deadbeef")),
+        Box::new(|v| v["tested_artifacts"] = json!("stale-digest")),
+        Box::new(|v| v["identity"] = json!("")),
+        Box::new(|v| v["exit"] = json!(1)),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("waived".into(), json!(true)); }),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("mock".into(), json!(true)); }),
+        Box::new(|v| v["check"] = json!("cargo test --locked --test gmcp_requirements gmcp_req_203_017_99_missing")),
+    ];
+    for mutate in mutators {
+        let mut bad = good_lines[0].clone();
+        mutate(&mut bad);
+        let txt = std::iter::once(&bad).chain(&good_lines[1..]).map(Value::to_string).collect::<Vec<_>>().join("\n");
+        assert!(check_ev(&txt, false).is_err());
+    }
+    assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-017.jsonl")).expect("VC-203-017.jsonl");
+    assert_eq!(check_ev(&evidence, true).expect("VC-203-017.jsonl valid").len(), 6);
+
+    // 4. Roadmap, verdict, closed prerequisite tasks, and clean working tree checks.
+    let roadmap_json: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap.json")).expect("roadmap")).expect("json");
+    let vc_entry = roadmap_json["vectors"].as_array().expect("vecs").iter().find(|e| e["id"] == "VC-203-017").expect("VC-203-017");
+    assert!(vc_entry["progress"].as_str().unwrap_or_default().starts_with("DELIVERED"));
+
+    let verdict: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-017.json")).expect("verdict")).expect("json");
+    assert!(verdict["vector"] == "VC-203-017" && verdict["verdict"] == "delivered");
+    let tracked = verdict["tracked_by"].as_array().expect("tracked");
+    assert_eq!(tracked.len(), 7);
+    for n in 114..=120 {
+        assert!(tracked.contains(&json!(format!("T-CODEXGMCPROADMAP-{n}"))));
+    }
+    for n in 114..=119 {
+        assert!(root.join(format!(".agents/tasks/done/T-CODEXGMCPROADMAP-{n}.json")).is_file());
+    }
+
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "--", ".agents/gmcp", "docs/gmcp", "tests/gmcp_requirements.rs", "tests/gmcp_requirements", "crates/susi-gmcp", ".agents/roadmap.json", ".agents/roadmap-verdicts"])
+        .current_dir(root)
+        .output()
+        .expect("git status");
+    assert!(status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
+}
+
 

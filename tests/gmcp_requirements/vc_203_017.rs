@@ -113,7 +113,7 @@ fn gmcp_req_203_017_01_contract() {
             assert!(!cargo_toml.contains(v), "{manifest_rel} must not depend on `{v}`");
         }
     }
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-02: canonical multi-server `McpHost`, `Session`, `MacPolicy`-gated
 /// stdio spawn (`CLAIM-04`), and unified `susi mcp` CLI execute end-to-end across
@@ -330,7 +330,7 @@ fn main() {
     for id in ["beta", "gamma", "alpha"] {
         host.disconnect(id).expect("disconnect");
     }
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }
 /// GMCP-203-017-03: direct, SDK, daemon HTTP, gateway peer client, `GmcpClient`
 /// configuration/migration, `MacPolicy` supervisor, `PersistedTaskHandleStore`
@@ -489,5 +489,5 @@ fn main() {
     let saved = final_store.get(&th.task_id).expect("saved handle");
     assert_eq!(saved.status, TaskStatus::Completed);
     assert_eq!(saved.extra.get("x_operator_trace"), Some(&json!("trace-116")));
-    assert!(!root.join(".agents/gmcp/evidence/VC-203-017.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-017.json").exists());
+    assert!(root.join(".agents/gmcp/evidence/VC-203-017.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-017.json").is_file());
 }

@@ -23,5 +23,33 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "implemented",
+  "base_commit": "6028ce8f3e85798726f677ece348c5a95caeef6f",
+  "limitations": [
+    "Per `docs/gmcp/contract-203-017.md` and zero-UI plan A9, Susi Core ships the complete headless MCP protocol host, session/transport engine, MRTR callback broker, Official Tasks handle store, headless `ui://` MCP Apps CSP/permissions/domain validator, and `susi mcp` CLI with zero vendor MCP SDK crates, while interactive WebView/graphical MCP Apps viewports live exclusively in `intellibitz/susi-commercial-apps`.",
+    "Direct Unix-domain socket host/server checks compile under `#[cfg(unix)]`, while Streamable HTTP (`2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`) and stdio child/duplex transports run natively across Linux and Windows x86_64."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-wire-client/src/host.rs",
+      "crates/susi-wire-client/src/mcp.rs",
+      "src/cli/mcp_cli.rs",
+      "tests/gmcp_requirements/vc_203_017.rs",
+      "tests/gmcp_requirements/vc_203_020_part2.rs"
+    ],
+    "target": "tests/gmcp_requirements/vc_203_017_part2.rs",
+    "why": "Reused `McpHost`, `Session`, `GmcpService`, `spawn_authorized_stdio_peer`, `susi mcp` CLI, and `xtask/src/gmcp_evidence.rs` commit-bound artifact digest helpers directly to prove full `VC-203-017` mastery and 11-case negative tamper rejection."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/roadmap-verdicts",
+    ".agents/roadmap.json",
+    ".agents/tasks",
+    "docs/gmcp/contract-203-017.md",
+    "tests/gmcp_requirements/vc_203_017.rs",
+    "tests/gmcp_requirements/vc_203_017_part2.rs"
+  ]
 }
