@@ -29,7 +29,7 @@
     "focused_tests": "6 passed (5 new GEMI tests plus existing mission-budget test) against exact coherent core dependency",
     "integration_dependency": "Exact 46faaff55 core dependency imported; no temporary source copies remain",
     "coverage": [
-      "reason_internal with deterministic local provider receives complete schema and executes standard tool reply through local tools bus",
+      "Actual GEMI plane-bus facade -> handler -> reason_internal -> deterministic local provider receives complete schema and executes standard tool reply through local tools bus",
       "Two same-cwd scoped owners remain separate and leave no current binding outside turn",
       "Genuine caller tools remain unchanged and unexecuted even inside a scope",
       "Local markup and structured provider replies normalize identically; malformed marker remains evidence",
@@ -41,7 +41,8 @@
     "legacy_tool_call_tests": "cargo test --offline --locked -j2 -p susi-gemi --lib local_tool_calls: 21 passed",
     "fleet_sink_test": "cargo test --offline --locked -j2 -p susi-gawd-agents --lib watched_fleet_diagnostics: 1 passed",
     "clippy": "cargo clippy --offline --locked -j2 -p susi-gemi -p susi-gawd-agents --all-targets -- -D warnings: passed",
-    "format": "cargo fmt --all --check and git diff --check passed"
+    "format": "cargo fmt --all --check and git diff --check passed",
+    "null_chat_regression": "Actual root E2E exposed facade absent chat encoded as Some(Value::Null). Normalize null to absent for scoped ownership; fixture now uses real streaming GEMI facade and all six scoped tests pass. No unscoped behavior change or extra inference."
   },
   "dependencies": [
     "46faaff55: core owned session API, explicit worker handoffs and local routing (locally cherry-picked as 692bde93d)"
@@ -60,9 +61,9 @@
     ]
   },
   "source_delta": {
-    "runtime_containing_files_physical_lines_net": 210,
-    "new_test_files_physical_lines": 326,
-    "all_rust_physical_lines_net": 536,
+    "runtime_containing_files_physical_lines_net": 212,
+    "new_test_files_physical_lines": 328,
+    "all_rust_physical_lines_net": 540,
     "note": "Positive functionality addition. Runtime-containing-file upper bound includes inline fleet test and test module declarations; no reduction claimed. No existing tests removed, dependencies added, provider retry loops or new budgets."
   },
   "handoff": {

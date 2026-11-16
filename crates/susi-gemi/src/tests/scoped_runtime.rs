@@ -151,6 +151,7 @@ fn scoped_provider_executes_local_bus_calls_and_preserves_caller_ownership() {
             .as_os_str()
     );
     PlaneBus::global().register_prefix("tools.", Arc::new(ToolBus));
+    crate::plane_handler::register();
     crate::susi_core::registry::CapabilityRegistry::global().register_provider(LocalProvider);
     let workspace = std::env::current_dir().unwrap();
     for label in ["session A", "session B"] {
@@ -169,14 +170,11 @@ fn scoped_provider_executes_local_bus_calls_and_preserves_caller_ownership() {
         with_scope(Some(scope), || {
             let streamed = std::cell::RefCell::new(String::new());
             let reason = |chat| {
-                GemiEngine::reason_internal(
+                crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream_deep_meta_chat(
                     "weather in Paris",
                     &workspace,
-                    false,
                     &|text| streamed.borrow_mut().push_str(&text),
-                    None,
                     Some("ollama-scoped-fixture"),
-                    None,
                     &|_| {},
                     chat,
                 )

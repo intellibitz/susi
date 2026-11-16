@@ -14,6 +14,10 @@ fn scoped_catalog_keeps_schema_and_conversation_without_owning_caller_tools() {
     let (injected, owned) = scoped_chat_request(Some(chat.clone()), &catalog(), &[], "weather");
     assert!(owned);
     let injected = injected.unwrap();
+    assert_eq!(
+        scoped_chat_request(Some(Value::Null), &catalog(), &[], "weather"),
+        scoped_chat_request(None, &catalog(), &[], "weather")
+    );
     assert_eq!(injected["messages"], chat["messages"]);
     assert_eq!(injected["max_tokens"], 19);
     assert_eq!(

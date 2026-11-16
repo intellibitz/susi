@@ -204,6 +204,8 @@ pub(crate) fn scoped_chat_request(
     session_tools: &[crate::susi_core::scoped_tools::ScopedTool],
     prompt: &str,
 ) -> (Option<Value>, bool) {
+    // Plane-bus facades serialize an absent optional conversation as null.
+    let chat = chat.filter(|request| !request.is_null());
     if chat.as_ref().is_some_and(|request| {
         !request.is_object()
             || request
