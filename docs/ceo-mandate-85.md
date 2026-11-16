@@ -48,9 +48,11 @@ Recorded as vision `V-10` here.
 5. **The lease is the last resort, not the release.** A claim nobody releases
    lapses after its one-hour lease (Mandate 83 rule 3). Relying on that is a
    breach of this mandate, not a way to keep it.
-6. **Look before you leave.** Before an agent ends a session, it lists what it
-   still holds (`susi-commercial workflow check`) and releases every claim on
-   work it is done with.
+6. **Look before you leave.** Before an agent ends a session or reports that
+   it is done, it lists what it still holds (`susi-commercial workflow check`)
+   and releases every claim on work it is done with:
+   `susi-commercial tasks release --finished` frees all of its claims on
+   finished tasks at once.
 
 ## 2. What it changes
 
@@ -69,15 +71,23 @@ Recorded as vision `V-10` here.
   tasks whose completed record was already on `main`. None was being removed:
   nothing in the workflow tool deleted a claim ref once its task was done. One
   of them was still live for hours on a finished task.
-- **Enforced today, in `susi-commercial-apps`' workflow tool:**
-  `workflow ship` releases the publisher's claim on a task whose completed
-  record it carried to `main`; `workflow finish` releases the claim in the
-  same push that publishes the work; claiming new work does not count a claim
-  whose task is done on `main` as reserving files.
-- **Being built in `susi-commercial-apps`:** reading every claim on done work
-  as released in every listing, and deleting leftovers at the next queue sync
-  on a host that may write the queue's refs. The commercial edition records
-  when that lands.
+- **Enforced in `susi-commercial-apps`' workflow tool, which serves both
+  repositories:**
+  - `workflow finish` releases the claim in the same push that publishes the
+    work, and `workflow ship` releases the publisher's claim on a task whose
+    completed record it carried to `main`.
+  - `workflow check` and `workflow ship` also release every other claim the
+    agent holds on a finished task, from any branch, and
+    `tasks release --finished` does it on demand (`AG1VISION`,
+    `T-AG1MANDATE85-1`).
+  - Every listing reads a claim on a task done on `main` as released, whoever
+    left it, and the next queue sync on a host that may write the queue's refs
+    deletes it with its agent ref; a claim kept on `main` is tidied by the
+    next write there (`AGENTCLAUDECLAIMDONE`, `T-AGENTCLAUDECLAIMDONE-1` in
+    `susi-commercial-apps`).
+  - Claiming new work never counts a claim on done work as reserving files.
+- **Needs a current tool:** an agent whose `susi-commercial` was built before
+  these changes keeps the older behaviour until it rebuilds from `main`.
 - **Not enforced:** rules 1, 3 and 6 for work that is not finished. The tool
   cannot see that an agent has stopped or turned to other work; the one-hour
   lease is what catches it.

@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENTCLAUDECLAIMDONE-2",
+  "title": "Mandate 85 implementation truth: the release of finished claims landed in the workflow tool",
+  "goal": "Vision: V-10. Core's docs/ceo-mandate-85.md said the release of leftover claims was being built in susi-commercial-apps. Record what landed there (AG1VISION's own-claim sweep at workflow check, workflow ship and tasks release --finished; AGENTCLAUDECLAIMDONE's removal of anyone's leftover on done work at every queue sync and the listing that reads it as released) and point rule 6 at tasks release --finished.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_mandate_85"
+    ]
+  },
+  "created_by": "AGENTCLAUDECLAIMDONE",
+  "created_unix": 1794839137,
+  "reuse": {
+    "decision": "existing",
+    "searched": "The commercial Mandate 85 edition and the workflow tool changes that landed there (T-AG1MANDATE85-1, T-AGENTCLAUDECLAIMDONE-1). Documentation only in core."
+  },
+  "scopes": [
+    "docs/ceo-mandate-85.md"
+  ]
+}
