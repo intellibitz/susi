@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::RwLock;
+use susi_config::JsonFields as _;
 
 fn tool_topic(name: &str) -> String {
     format!("capability.tool.{name}")
@@ -124,11 +125,7 @@ struct ToolDispatch {
 impl PlaneHandler for ToolDispatch {
     fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
         let args = payload.get("args").cloned().unwrap_or(Value::Null);
-        let ws = payload
-            .get("workspace")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".")
-            .to_string();
+        let ws = payload.field_str("workspace").unwrap_or(".").to_string();
         self.tool
             .execute(&args, Path::new(&ws))
             .map(|out| json!({ "output": out }))
@@ -166,15 +163,12 @@ impl Tool for RemoteTool {
             .map_err(|e| {
                 EaiError::network(format!("capability tool `{}` unreachable: {e}", self.name))
             })?;
-        resp.get("output")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| {
-                EaiError::process(format!(
-                    "capability tool `{}`: malformed dispatch response",
-                    self.name
-                ))
-            })
+        resp.field_str("output").map(str::to_string).ok_or_else(|| {
+            EaiError::process(format!(
+                "capability tool `{}`: malformed dispatch response",
+                self.name
+            ))
+        })
     }
 }
 
@@ -187,24 +181,16 @@ struct ProviderDispatch {
 
 impl PlaneHandler for ProviderDispatch {
     fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-        let op = payload.get("op").and_then(|v| v.as_str()).unwrap_or("");
+        let op = payload.field_str("op").unwrap_or("");
         match op {
             "generate" => {
-                let prompt = payload
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let prompt = payload.field_str("prompt").unwrap_or("").to_string();
                 block_on(self.provider.generate(&prompt))
                     .map(|out| json!({ "output": out }))
                     .map_err(|e| e.to_string())
             }
             "embed" => {
-                let text = payload
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let text = payload.field_str("text").unwrap_or("").to_string();
                 block_on(self.provider.embed(&text))
                     .map(|v| json!({ "embedding": v }))
                     .map_err(|e| e.to_string())
@@ -237,10 +223,7 @@ impl Provider for RemoteProvider {
             let resp = bus
                 .request(&provider_topic(&name), json!({ "op": "health" }))
                 .map_err(|e| EaiError::network(format!("provider `{name}` unreachable: {e}")))?;
-            Ok(resp
-                .get("healthy")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false))
+            Ok(resp.field_bool("healthy").unwrap_or(false))
         })
     }
 
@@ -255,8 +238,7 @@ impl Provider for RemoteProvider {
                     json!({ "op": "generate", "prompt": prompt }),
                 )
                 .map_err(|e| EaiError::network(format!("provider `{name}` unreachable: {e}")))?;
-            resp.get("output")
-                .and_then(|v| v.as_str())
+            resp.field_str("output")
                 .map(str::to_string)
                 .ok_or_else(|| EaiError::process(format!("provider `{name}`: malformed response")))
         })
@@ -455,10 +437,7 @@ impl IpcCapabilityRegistry {
                 if let Some(found) = manifest
                     .get(kind)
                     .and_then(Value::as_array)
-                    .and_then(|arr| {
-                        arr.iter()
-                            .find(|m| m.get("name").and_then(Value::as_str) == Some(name))
-                    })
+                    .and_then(|arr| arr.iter().find(|m| m.field_str("name") == Some(name)))
                 {
                     return Some(found.clone());
                 }
@@ -492,7 +471,7 @@ impl IpcCapabilityRegistry {
         }
         let ours = self.bus.endpoint().map(|e| e.to_string());
         if let Some(meta) = read_cap(&self.caps_dir(kind), name) {
-            let owner = meta.get("endpoint").and_then(|v| v.as_str());
+            let owner = meta.field_str("endpoint");
             if owner.is_some() && owner.map(str::to_string) != ours {
                 return;
             }
@@ -579,7 +558,7 @@ impl IpcCapabilityRegistry {
             .cloned()
             .collect();
         for meta in self.scan_kind_caps("tool") {
-            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+            if let Some(n) = meta.field_str("name") {
                 if !names.iter().any(|x| x == n) {
                     names.push(n.to_string());
                 }
@@ -645,7 +624,7 @@ impl IpcCapabilityRegistry {
             .cloned()
             .collect();
         for meta in self.scan_kind_caps("provider") {
-            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+            if let Some(n) = meta.field_str("name") {
                 if !names.iter().any(|x| x == n) {
                     names.push(n.to_string());
                 }
@@ -678,14 +657,10 @@ impl IpcCapabilityRegistry {
         Some(AgentCapability {
             name: meta.get("name")?.as_str()?.to_string(),
             description: meta
-                .get("description")
-                .and_then(|v| v.as_str())
+                .field_str("description")
                 .unwrap_or_default()
                 .to_string(),
-            is_core: meta
-                .get("is_core")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            is_core: meta.field_bool("is_core").unwrap_or(false),
         })
     }
 
@@ -698,19 +673,15 @@ impl IpcCapabilityRegistry {
             .cloned()
             .collect();
         for meta in self.scan_kind_caps("agent") {
-            let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let name = meta.field_str("name").unwrap_or("");
             if !out.iter().any(|c| c.name == name) {
                 out.push(AgentCapability {
                     name: name.to_string(),
                     description: meta
-                        .get("description")
-                        .and_then(|v| v.as_str())
+                        .field_str("description")
                         .unwrap_or_default()
                         .to_string(),
-                    is_core: meta
-                        .get("is_core")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
+                    is_core: meta.field_bool("is_core").unwrap_or(false),
                 });
             }
         }

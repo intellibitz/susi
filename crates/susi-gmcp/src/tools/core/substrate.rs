@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use susi_config::JsonFields as _;
 
 use super::{remote_result_is_error, CoreTools};
 use crate::susi_core::context_graph::ContextGraph;
@@ -30,25 +31,19 @@ impl CoreTools {
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if progress.get("status").and_then(|v| v.as_str()) == Some("IN_PROGRESS") {
+                    if progress.field_str("status") == Some("IN_PROGRESS") {
                         out.push_str("\n[SUBSTRATE PROVISIONING ACTIVE]\n");
-                        if let Some(name) = progress.get("model_name").and_then(|v| v.as_str()) {
+                        if let Some(name) = progress.field_str("model_name") {
                             out.push_str(&format!("- Target: {name}\n"));
                         }
                         let pct = progress
                             .get("percentage")
                             .and_then(|v| v.as_f64())
                             .unwrap_or(0.0);
-                        let downloaded = progress
-                            .get("bytes_downloaded")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as f32
-                            / 1e9;
-                        let expected = progress
-                            .get("expected_bytes")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as f32
-                            / 1e9;
+                        let downloaded =
+                            progress.field_u64("bytes_downloaded").unwrap_or(0) as f32 / 1e9;
+                        let expected =
+                            progress.field_u64("expected_bytes").unwrap_or(0) as f32 / 1e9;
                         out.push_str(&format!(
                             "- Progress: {pct:.2}% ({downloaded:.2}GB / {expected:.2}GB)\n"
                         ));
@@ -71,8 +66,8 @@ impl CoreTools {
         // takes an optional, MAC-policy-admitted `workspace`.
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, false)?;
-        let report = if arg.get("drift").and_then(|v| v.as_bool()) == Some(true) {
-            let refetched = match arg.get("refetched").and_then(|v| v.as_str()) {
+        let report = if arg.field_bool("drift") == Some(true) {
+            let refetched = match arg.field_str("refetched") {
                 Some(dir) if Path::new(dir).is_absolute() => Some(Path::new(dir)),
                 Some(_) => {
                     return Err(EaiError::config(
@@ -276,18 +271,15 @@ impl CoreTools {
     pub fn mission_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, true)?;
-        let goal = arg
-            .as_str()
-            .or_else(|| arg.get("goal").and_then(|v| v.as_str()))
-            .unwrap_or("");
+        let goal = arg.as_str().or_else(|| arg.field_str("goal")).unwrap_or("");
         if goal.trim().is_empty() {
             return Err(EaiError::protocol(
                 "Usage: mission_run {goal, workspace?, model?}",
             ));
         }
-        let model = arg.get("model").and_then(|v| v.as_str());
+        let model = arg.field_str("model");
         let outcome = gawd::run_mission(goal, workspace, env!("CARGO_PKG_VERSION"), model);
-        if let Some(error) = outcome.get("error").and_then(|v| v.as_str()) {
+        if let Some(error) = outcome.field_str("error") {
             return Err(EaiError::protocol(format!("mission_run: {error}")));
         }
         serde_json::to_string(&outcome).map_err(|e| EaiError::protocol(format!("mission_run: {e}")))
@@ -382,11 +374,8 @@ impl CoreTools {
         input_schema: args::typed::<args::PrivacyConsentEgress>(),
     });
     pub fn privacy_consent_egress(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let subject = arg
-            .get("subject")
-            .and_then(|v| v.as_str())
-            .unwrap_or("susi");
-        let ttl = arg.get("ttl_secs").and_then(|v| v.as_u64()).unwrap_or(3600);
+        let subject = arg.field_str("subject").unwrap_or("susi");
+        let ttl = arg.field_u64("ttl_secs").unwrap_or(3600);
         let tokens =
             crate::susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
@@ -402,10 +391,9 @@ impl CoreTools {
         input_schema: args::typed::<args::IntentAdvertise>(),
     });
     pub fn intent_advertise(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let from = arg.get("from").and_then(|v| v.as_str()).unwrap_or("agent");
+        let from = arg.field_str("from").unwrap_or("agent");
         let intent = arg
-            .get("intent")
-            .and_then(|v| v.as_str())
+            .field_str("intent")
             .ok_or_else(|| EaiError::governance("intent_advertise requires intent"))?;
         let payload = arg
             .get("payload")
@@ -423,16 +411,12 @@ impl CoreTools {
         input_schema: args::typed::<args::IntentNeed>(),
     });
     pub fn intent_need(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let from = arg
-            .get("from")
-            .and_then(|v| v.as_str())
-            .unwrap_or("planner");
+        let from = arg.field_str("from").unwrap_or("planner");
         let intent = arg
-            .get("intent")
-            .and_then(|v| v.as_str())
+            .field_str("intent")
             .ok_or_else(|| EaiError::governance("intent_need requires intent"))?;
         let min_score = arg.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.2) as f32;
-        let limit = arg.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+        let limit = arg.field_u64("limit").unwrap_or(5) as usize;
         let (need, matches) = crate::susi_core::intent_bus::IntentBus::global().need(
             from,
             intent,
@@ -486,10 +470,7 @@ impl CoreTools {
         // takes an optional, MAC-policy-admitted `workspace`.
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, true)?;
-        let description = arg
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("agent tx");
+        let description = arg.field_str("description").unwrap_or("agent tx");
         let files: Vec<String> = arg
             .get("files")
             .and_then(|v| v.as_array())
@@ -515,8 +496,7 @@ impl CoreTools {
     });
     pub fn tx_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = arg
-            .get("id")
-            .and_then(|v| v.as_str())
+            .field_str("id")
             .ok_or_else(|| EaiError::governance("tx_commit requires id"))?;
         let txm = crate::susi_core::agent_tx::TxManager::global();
         // A transaction begun by another process (e.g. `susi tx begin`)
@@ -533,8 +513,7 @@ impl CoreTools {
     });
     pub fn tx_abort(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = arg
-            .get("id")
-            .and_then(|v| v.as_str())
+            .field_str("id")
             .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
         let txm = crate::susi_core::agent_tx::TxManager::global();
         txm.hydrate(workspace);
@@ -549,10 +528,9 @@ impl CoreTools {
     });
     pub fn delegate_to_ide(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let goal = arg
-            .get("goal")
-            .and_then(|v| v.as_str())
+            .field_str("goal")
             .ok_or_else(|| EaiError::protocol("goal is required"))?;
-        let context = arg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+        let context = arg.field_str("context").unwrap_or("");
 
         let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
         std::fs::create_dir_all(&delegations_dir)
@@ -581,8 +559,7 @@ impl CoreTools {
     });
     pub fn brain_pareto(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let class = arg
-            .get("class")
-            .and_then(|v| v.as_str())
+            .field_str("class")
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("code");

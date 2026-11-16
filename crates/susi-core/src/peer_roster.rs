@@ -5,6 +5,7 @@
 
 use crate::commit_log;
 use serde_json::{json, Value};
+use susi_config::JsonFields as _;
 
 /// A persisted peer is only "live" if it ponged within the swarm's staleness
 /// window — the on-disk `is_active` flag is last-sweep state and can be hours
@@ -34,10 +35,7 @@ pub fn load_banned() -> Result<Vec<Value>, String> {
 
 /// `yes` when the member was seen within [`PEER_STALE_SECS`], else `stale`.
 pub fn liveness(n: &Value) -> &'static str {
-    let last_seen = n
-        .get("last_seen_secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let last_seen = n.field_u64("last_seen_secs").unwrap_or(0);
     if last_seen != 0 && now_secs().saturating_sub(last_seen) <= PEER_STALE_SECS {
         "yes"
     } else {
@@ -68,8 +66,8 @@ pub fn list_report() -> Result<Value, String> {
             "trust_score": n.get("trust_score"),
             "admission": n.get("admission"),
             "live": liveness(n) == "yes",
-            "key_bound": n.get("pubkey").and_then(|v| v.as_str()).is_some_and(|p| !p.is_empty()),
-            "key_attested": n.get("bind_sig").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()),
+            "key_bound": n.field_str("pubkey").is_some_and(|p| !p.is_empty()),
+            "key_attested": n.field_str("bind_sig").is_some_and(|s| !s.is_empty()),
         })).collect::<Vec<_>>(),
         "banned": banned,
     }))
@@ -83,12 +81,7 @@ pub fn local_cluster_status() -> Value {
     let roster = load_registry().unwrap_or_default();
     let bound = roster
         .iter()
-        .filter(|p| {
-            !p.get("pubkey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .is_empty()
-        })
+        .filter(|p| !p.field_str("pubkey").unwrap_or("").is_empty())
         .count();
     let key_epoch = susi_config::cluster_key::cluster_key()
         .map(|k| susi_config::cluster_key::key_fingerprint(&k))
@@ -117,21 +110,13 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
     let local = local_cluster_status();
     let targets: Vec<(String, String, bool, String, String)> = roster
         .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter(|n| n.field_str("admission") == Some("explicit"))
         .filter_map(|n| {
-            let nid = n.get("node_id").and_then(|v| v.as_str())?.to_string();
-            let addr = n.get("address").and_then(|v| v.as_str())?.to_string();
+            let nid = n.field_str("node_id")?.to_string();
+            let addr = n.field_str("address")?.to_string();
             let live = liveness(n) == "yes";
-            let pubkey = n
-                .get("pubkey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let bind_sig = n
-                .get("bind_sig")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let pubkey = n.field_str("pubkey").unwrap_or("").to_string();
+            let bind_sig = n.field_str("bind_sig").unwrap_or("").to_string();
             Some((nid, addr, live, pubkey, bind_sig))
         })
         .collect();
@@ -183,12 +168,7 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
     });
     let mut rows = results.into_inner().unwrap_or_else(|e| e.into_inner());
     rows.push(local);
-    rows.sort_by_key(|r| {
-        r.get("node")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
-    });
+    rows.sort_by_key(|r| r.field_str("node").unwrap_or("").to_string());
     Ok(rows)
 }
 
@@ -196,22 +176,17 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
 /// epochs across reachable members.
 pub fn divergence_warnings(rows: &[Value]) -> Vec<String> {
     let reachable = || rows.iter().filter(|r| r.get("error").is_none());
-    let terms: std::collections::BTreeSet<u64> = reachable()
-        .filter_map(|r| r.get("term").and_then(|v| v.as_u64()))
-        .collect();
+    let terms: std::collections::BTreeSet<u64> =
+        reachable().filter_map(|r| r.field_u64("term")).collect();
     let epochs: std::collections::BTreeSet<String> = reachable()
-        .filter_map(|r| {
-            r.get("key_epoch")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        })
+        .filter_map(|r| r.field_str("key_epoch").map(str::to_string))
         .collect();
     // The split-brain signal: same term but different claimed leaders
     // means two nodes both believe they lead — term divergence alone
     // can't see it when the partition predates the next election.
     let leader_claims: std::collections::BTreeSet<String> = reachable()
         .filter_map(|r| {
-            let l = r.get("leader").and_then(|v| v.as_str())?;
+            let l = r.field_str("leader")?;
             (!l.is_empty()).then(|| l.to_string())
         })
         .collect();

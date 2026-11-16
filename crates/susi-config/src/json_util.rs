@@ -15,6 +15,41 @@ pub type DynamicValue = serde_json::Value;
 pub type DynamicRegistry = HashMap<String, DynamicValue>;
 pub type StringRegistry = HashMap<String, String>;
 
+/// Raw typed field reads for JSON values and object maps, without coercion,
+/// trimming, defaults or errors. Missing fields and mismatched types return
+/// `None`; callers retain their own validation and fallback policy.
+pub trait JsonFields {
+    /// Borrow a named object field; non-object values have no named fields.
+    fn field_value(&self, key: &str) -> Option<&DynamicValue>;
+
+    /// Borrow a string exactly as stored, including empty strings/whitespace.
+    fn field_str(&self, key: &str) -> Option<&str> {
+        self.field_value(key)?.as_str()
+    }
+
+    /// Read an integer representable by `u64`, without numeric coercion.
+    fn field_u64(&self, key: &str) -> Option<u64> {
+        self.field_value(key)?.as_u64()
+    }
+
+    /// Read a JSON boolean, without interpreting strings or numbers as flags.
+    fn field_bool(&self, key: &str) -> Option<bool> {
+        self.field_value(key)?.as_bool()
+    }
+}
+
+impl JsonFields for DynamicValue {
+    fn field_value(&self, key: &str) -> Option<&DynamicValue> {
+        self.get(key)
+    }
+}
+
+impl JsonFields for serde_json::Map<String, DynamicValue> {
+    fn field_value(&self, key: &str) -> Option<&DynamicValue> {
+        self.get(key)
+    }
+}
+
 // ModelTier and ProviderType are now dynamic strings, not hardcoded enums
 pub type ModelTier = String;
 pub type ProviderType = String;
@@ -463,6 +498,48 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn raw_fields_preserve_types_text_bounds_and_absence() {
+        for (value, expected) in [
+            (json!(" \tλ\n"), (Some(" \tλ\n"), None, None)),
+            (json!(""), (Some(""), None, None)),
+            (json!(0), (None, Some(0), None)),
+            (json!(u64::MAX), (None, Some(u64::MAX), None)),
+            (json!(true), (None, None, Some(true))),
+            (json!(false), (None, None, Some(false))),
+            (json!(null), (None, None, None)),
+            (json!(-1), (None, None, None)),
+            (json!(1.0), (None, None, None)),
+            (json!(1.5), (None, None, None)),
+            (json!(18446744073709551616.0), (None, None, None)),
+            (json!([]), (None, None, None)),
+            (json!({}), (None, None, None)),
+        ] {
+            let object = json!({"key": value});
+            for fields in [&object as &dyn JsonFields, object.as_object().unwrap()] {
+                assert_eq!(
+                    (
+                        fields.field_str("key"),
+                        fields.field_u64("key"),
+                        fields.field_bool("key")
+                    ),
+                    expected,
+                );
+                assert!(fields.field_value("missing").is_none());
+            }
+        }
+        for non_object in [json!(null), json!([]), json!("key"), json!(1), json!(false)] {
+            assert_eq!(
+                (
+                    non_object.field_str("key"),
+                    non_object.field_u64("key"),
+                    non_object.field_bool("key")
+                ),
+                (None, None, None),
+            );
+        }
+    }
 
     fn scratch(tag: &str) -> PathBuf {
         static NEXT: AtomicUsize = AtomicUsize::new(0);

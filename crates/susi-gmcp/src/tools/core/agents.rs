@@ -1,6 +1,7 @@
 //! CoreTools handlers for A2A delegation, managed agents/frameworks/tasks, and MCP server configuration.
 
 use std::path::Path;
+use susi_config::JsonFields as _;
 
 use super::CoreTools;
 use crate::susi_core::plane_bus::{agents, gawd_hooks, tools as plane_tools};
@@ -19,8 +20,7 @@ fn task_control(
     completed: &str,
 ) -> EaiResult<String> {
     let id = arg
-        .get("task_id")
-        .and_then(|v| v.as_str())
+        .field_str("task_id")
         .or_else(|| arg.as_str())
         .unwrap_or("")
         .trim();
@@ -114,20 +114,18 @@ impl CoreTools {
         // contract's fixed shape under any port offset). The bearer token
         // goes to that port only, not to any port the caller names.
         let member_a2a_port = |n: &serde_json::Value| {
-            n.get("address")
-                .and_then(|v| v.as_str())
+            n.field_str("address")
                 .and_then(|a| a.rsplit_once(':'))
                 .and_then(|(_, p)| p.parse::<u16>().ok())
                 .map(|p| p.saturating_add(1))
         };
         let member = cluster_key::config_json_rows("peers.json").iter().any(|n| {
-            (n.get("node_id").and_then(|v| v.as_str()) == Some(peer)
-                || n.get("address")
-                    .and_then(|v| v.as_str())
+            (n.field_str("node_id") == Some(peer)
+                || n.field_str("address")
                     .and_then(|a| a.split(':').next())
                     .and_then(|h| h.parse::<IpAddr>().ok())
                     .is_some_and(|pip| pip == ip))
-                && n.get("admission").and_then(|v| v.as_str()) == Some("explicit")
+                && n.field_str("admission") == Some("explicit")
                 && (port == a2a_port || member_a2a_port(n) == Some(port))
         });
         if !member {
@@ -139,9 +137,8 @@ impl CoreTools {
         let resolved_ip = cluster_key::config_json_rows("peers.json")
             .iter()
             .find_map(|n| {
-                if n.get("node_id").and_then(|v| v.as_str()) == Some(peer) {
-                    n.get("address")
-                        .and_then(|v| v.as_str())
+                if n.field_str("node_id") == Some(peer) {
+                    n.field_str("address")
                         .and_then(|a| a.split(':').next())
                         .map(str::to_string)
                 } else {
@@ -160,12 +157,10 @@ impl CoreTools {
     pub fn a2a_delegate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)?;
         let peer = arg
-            .get("peer")
-            .and_then(|v| v.as_str())
+            .field_str("peer")
             .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'peer'".to_string()))?;
         let message = arg
-            .get("message")
-            .and_then(|v| v.as_str())
+            .field_str("message")
             .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'message'".to_string()))?;
         let message = crate::susi_core::untrusted_content::enforce_action(
             &crate::susi_core::untrusted_content::wrap_tool_output("a2a:delegate-request", message),
@@ -277,12 +272,10 @@ impl CoreTools {
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let agent = arg
-            .get("agent")
-            .and_then(|v| v.as_str())
+            .field_str("agent")
             .ok_or_else(|| EaiError::protocol("agent is required"))?;
         let prompt = arg
-            .get("prompt")
-            .and_then(|v| v.as_str())
+            .field_str("prompt")
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let audit = format!("{agent}: {prompt}");
         gawd_hooks::audit_action("agents_run", &audit, workspace)?;
@@ -344,12 +337,10 @@ impl CoreTools {
         let workspace =
             &crate::tools::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let engine = arg
-            .get("engine")
-            .and_then(|v| v.as_str())
+            .field_str("engine")
             .ok_or_else(|| EaiError::protocol("engine is required"))?;
         let prompt = arg
-            .get("prompt")
-            .and_then(|v| v.as_str())
+            .field_str("prompt")
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let run = agents::external_run(workspace, "framework", engine, prompt)
             .map_err(EaiError::process)?;
@@ -429,12 +420,10 @@ impl CoreTools {
     });
     pub fn mcp_configure(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let name = arg
-            .get("name")
-            .and_then(|v| v.as_str())
+            .field_str("name")
             .or_else(|| arg.as_str().and_then(|s| s.split_whitespace().next()));
         let package = arg
-            .get("package")
-            .and_then(|v| v.as_str())
+            .field_str("package")
             .or_else(|| arg.as_str().and_then(|s| s.split_whitespace().nth(1)));
 
         if let Some(n) = name {
@@ -465,8 +454,7 @@ impl CoreTools {
     });
     pub fn leading_mcp_enable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let server = arg
-            .get("server")
-            .and_then(|v| v.as_str())
+            .field_str("server")
             .ok_or_else(|| EaiError::protocol("server is required"))?;
         let cfg = plane_tools::leading_mcp_enable(workspace, server).map_err(EaiError::process)?;
         serde_json::to_string(&cfg).map_err(|e| EaiError::protocol(e.to_string()))
@@ -479,8 +467,7 @@ impl CoreTools {
     });
     pub fn leading_mcp_disable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let server = arg
-            .get("server")
-            .and_then(|v| v.as_str())
+            .field_str("server")
             .ok_or_else(|| EaiError::protocol("server is required"))?;
         let removed = plane_tools::leading_mcp_disable(workspace, server)
             .map_err(EaiError::process)?
@@ -496,9 +483,9 @@ impl CoreTools {
         input_schema: args::typed::<args::AgentRegister>(),
     });
     pub fn agent_register(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let name = arg.get("name").and_then(|v| v.as_str());
-        let desc = arg.get("description").and_then(|v| v.as_str());
-        let cats = arg.get("categories").and_then(|v| v.as_str());
+        let name = arg.field_str("name");
+        let desc = arg.field_str("description");
+        let cats = arg.field_str("categories");
 
         if let (Some(n), Some(d), Some(c)) = (name, desc, cats) {
             let profile = crate::susi_core::AgentProfile {
