@@ -280,3 +280,11 @@ when a newer release is already qualified for this host, its remote is reachable
 and no client is mid-mission; verify its artifact and retain rollback. Source
 publication, a model claim
 or an immutable tag alone does not establish production qualification.
+
+Keep releases tidy. Cut each version once and never move, re-cut or delete its
+tag; follow a broken release with a new version. Publish the tag, its record and
+its qualification record together, agreeing on the commit. Each release says what
+it ships, from its commits' task trailers. Open a candidate line only when none
+serves the version; never move or delete one, and leave superseded lines for an
+authorized decision. Remove local build outputs and test-release directories once
+the release is published.

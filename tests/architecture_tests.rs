@@ -2287,6 +2287,14 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Commit only source",
         "rotate a committed secret at once",
         "Never rewrite published history; correct a published mistake with a new commit",
+        "Keep releases tidy",
+        "Cut each version once and never move, re-cut or delete its tag",
+        "follow a broken release with a new version",
+        "Publish the tag, its record and its qualification record together",
+        "Each release says what it ships, from its commits' task trailers",
+        "Open a candidate line only when none serves the version",
+        "leave superseded lines for an authorized decision",
+        "Remove local build outputs and test-release directories",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2343,6 +2351,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     assert!(flat("crates/susi-core/src/self_build.rs")
         .contains("keep contract, docs, tests, code tidy"));
     assert!(flat("crates/susi-core/src/self_build.rs").contains("Keep commits tidy."));
+    assert!(flat("crates/susi-core/src/self_build.rs").contains("Keep releases tidy."));
     for lint in [
         "ignore_without_reason = \"deny\"",
         "should_panic_without_expect = \"deny\"",
