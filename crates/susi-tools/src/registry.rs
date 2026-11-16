@@ -10,6 +10,10 @@ use crate::susi_core::egress::{EgressGate, EgressPolicy, EgressRefusal};
 use crate::susi_core::mac_policy::{actions, MacPolicy};
 use crate::types::{McpTool, MetaCategory, MetaTool, SusiTool};
 
+#[cfg(test)]
+#[path = "tests/scoped_tools.rs"]
+mod scoped_tools_tests;
+
 pub struct ToolRegistry {
     pub tools: ToolMap<HashMap<String, Arc<dyn SusiTool>>>,
 }
@@ -77,6 +81,10 @@ impl ToolRegistry {
     }
 
     pub fn list_tools() -> Vec<McpTool> {
+        let scope = crate::susi_core::scoped_tools::current();
+        if scope.as_ref().is_some_and(|scope| scope.check().is_err()) {
+            return Vec::new();
+        }
         let registry = Self::global();
         let mut tools: Vec<McpTool> = registry
             .tools
@@ -119,12 +127,31 @@ impl ToolRegistry {
             }
         }
 
+        if let Some(scope) = scope {
+            // A live owner replaces an identically named global row, just
+            // as dispatch below prefers the owner. Never pair one schema
+            // with a different implementation after a global hot-plug.
+            tools.retain(|tool| scope.resolve(&tool.name).is_none());
+            tools.extend(scope.tools().iter().map(|tool| McpTool {
+                name: tool.name.clone(),
+                description: tool.description.clone(),
+                input_schema: Some(tool.input_schema.clone()),
+            }));
+        }
         tools.sort_by(|a, b| a.name.cmp(&b.name));
         tools.dedup_by(|a, b| a.name == b.name);
         tools
     }
 
     pub fn exists(name: &str) -> bool {
+        if let Some(scope) = crate::susi_core::scoped_tools::current() {
+            if scope.check().is_err() {
+                return false;
+            }
+            if scope.resolve(name).is_some() {
+                return true;
+            }
+        }
         let registry = Self::global();
         if registry.tools.read().contains_key(name) {
             return true;
@@ -158,7 +185,35 @@ impl ToolRegistry {
         // sessions are bound per mission; worker threads resolve by
         // workspace). Its id is the dispatch subject: agent tokens are
         // checked per mission and refusals are recorded against it.
-        let mission = Self::current_mission(workspace);
+        let scope = crate::susi_core::scoped_tools::current();
+        if let Some(scope) = &scope {
+            if let Err(error) = scope.check() {
+                return crate::susi_error::EaiError::protocol(error).to_string();
+            }
+        }
+        let mission = if scope
+            .as_ref()
+            .is_some_and(|scope| scope.resolve(name).is_some())
+        {
+            // Owner-local calls must use an explicitly handed-off ledger.
+            // Workspace lookup may otherwise select another concurrent
+            // session's mission authority and receipts.
+            let Some(session) = crate::susi_core::capture::EvidenceSession::current() else {
+                return crate::susi_error::EaiError::protocol(
+                    "session tool dispatch requires its bound mission evidence",
+                )
+                .to_string();
+            };
+            if workspace.canonicalize().ok().as_deref() != Some(session.workspace()) {
+                return crate::susi_error::EaiError::protocol(
+                    "session tool workspace differs from its bound mission evidence",
+                )
+                .to_string();
+            }
+            Some(session.id().to_string())
+        } else {
+            Self::current_mission(workspace)
+        };
 
         // Process posture first — a mission's tokens can only ever narrow
         // what the host itself is allowed to do, never widen it, so a
@@ -188,6 +243,45 @@ impl ToolRegistry {
             // egress-class dispatch; refusals are recorded by the gate.
             if let Some(denied) = Self::check_mission_egress(mission, name, arg) {
                 return denied;
+            }
+        }
+
+        if let Some(scope) = scope {
+            if let Some(tool) = scope.resolve(name) {
+                let mac = MacPolicy::global();
+                for (action, resource) in &tool.required_actions {
+                    for subject in std::iter::once("susi").chain(mission.as_deref()) {
+                        if !mac.is_permitted(subject, action, resource) {
+                            let error = format!("MAC DENY: subject `{subject}` lacks {action} on {resource} for session tool `{name}`");
+                            Self::record_authority_refusal(subject, name, &error);
+                            return crate::susi_error::EaiError::governance(error).to_string();
+                        }
+                    }
+                }
+                if tool
+                    .required_actions
+                    .iter()
+                    .any(|(action, _)| action == actions::NETWORK_EGRESS)
+                {
+                    if let Some(mission) = mission.as_deref() {
+                        if let Some(denied) =
+                            Self::check_mission_egress_class(mission, name, arg, true)
+                        {
+                            return denied;
+                        }
+                    }
+                }
+                return crate::susi_core::capture::EvidenceSession::capture_call(
+                    name,
+                    arg,
+                    workspace,
+                    || {
+                        scope
+                            .call(name, arg, workspace, mission.as_deref())
+                            .map_err(crate::susi_error::EaiError::protocol)
+                    },
+                )
+                .unwrap_or_else(|error| error.to_string());
             }
         }
 
@@ -432,6 +526,15 @@ impl ToolRegistry {
         let needs_egress = MacPolicy::requirements_for_tool(tool)
             .iter()
             .any(|(action, _)| *action == actions::NETWORK_EGRESS);
+        Self::check_mission_egress_class(mission, tool, arg, needs_egress)
+    }
+
+    fn check_mission_egress_class(
+        mission: &str,
+        tool: &str,
+        arg: &serde_json::Value,
+        needs_egress: bool,
+    ) -> Option<String> {
         if !needs_egress {
             return None;
         }

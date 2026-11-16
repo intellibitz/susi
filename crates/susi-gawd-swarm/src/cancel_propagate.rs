@@ -257,16 +257,50 @@ where
         });
     };
     let (sender, receiver) = sync_channel(1);
+    let tools = crate::susi_core::scoped_tools::current();
+    let evidence = tools
+        .as_ref()
+        .and_then(|_| crate::susi_core::capture::EvidenceSession::current());
+    let inherited_cancel = tools
+        .as_ref()
+        .and_then(|_| crate::susi_core::progress::current_cancel());
+    // A detached session worker must lose tool authority when this wait
+    // ends, even while the enclosing ACP turn continues on other work.
+    struct ScopedCancel(Option<crate::susi_core::progress::Cancel>);
+    impl Drop for ScopedCancel {
+        fn drop(&mut self) {
+            if let Some(cancel) = &self.0 {
+                cancel.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+    let operation_cancel = ScopedCancel(
+        tools
+            .as_ref()
+            .map(|_| Arc::new(std::sync::atomic::AtomicBool::new(false))),
+    );
+    let worker_cancel = operation_cancel.0.clone();
     std::thread::Builder::new()
         .name("susi-swarm-cancellable".to_string())
         .spawn(move || {
             let _guard = guard;
-            let value = operation();
+            let value = crate::susi_core::scoped_tools::with_scope(tools.clone(), || {
+                let _evidence = tools
+                    .as_ref()
+                    .map(|_| crate::susi_core::capture::EvidenceSession::enter(evidence));
+                crate::susi_core::progress::with_cancel(worker_cancel, operation)
+            });
             let _ = sender.send(value);
         })
         .map_err(|e| EaiError::process(format!("spawn cancellable operation: {e}")))?;
 
     loop {
+        if inherited_cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Ok(CancellableResult::Cancelled);
+        }
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(value) => {
                 if handle.is_cancelled() {
@@ -605,6 +639,71 @@ impl CancelBus {
 mod inline_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn scoped_tools_cancellable_worker_keeps_the_explicit_owner_and_turn_cancel() {
+        use crate::susi_core::scoped_tools::{self, ScopedTool, ScopedToolProvider, ToolScope};
+        struct Owner;
+        impl ScopedToolProvider for Owner {
+            fn tools(&self) -> &[ScopedTool] {
+                &[]
+            }
+            fn check(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn call(
+                &self,
+                _: &str,
+                _: &serde_json::Value,
+                _: &Path,
+                _: Option<&str>,
+                _: Option<crate::susi_core::progress::Cancel>,
+                _: crate::susi_core::progress::Cancel,
+            ) -> Result<String, String> {
+                unreachable!()
+            }
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let scope = ToolScope::new(Arc::new(Owner), cancel.clone());
+        let expected = scope.clone();
+        let result = scoped_tools::with_scope(Some(scope), || {
+            run_cancellable(&CancellationHandle::new(), move || {
+                let inherited = scoped_tools::current().expect("explicit worker handoff");
+                assert!(Arc::ptr_eq(&inherited, &expected));
+                cancel.store(true, Ordering::Release);
+                assert!(inherited.check().is_err());
+                42
+            })
+            .unwrap()
+        });
+        assert_eq!(result, CancellableResult::Completed(42));
+        assert!(scoped_tools::current().is_none());
+
+        // A DAG deadline revokes only this detached worker, without
+        // cancelling the still-live enclosing session turn.
+        let parent = Arc::new(AtomicBool::new(false));
+        let scope = ToolScope::new(Arc::new(Owner), parent.clone());
+        let (sent, observed) = std::sync::mpsc::channel();
+        let result = scoped_tools::with_scope(Some(scope), || {
+            run_cancellable(
+                &CancellationHandle::with_deadline_after(Duration::from_millis(30)),
+                move || {
+                    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                    while !crate::susi_core::progress::is_cancelled()
+                        && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    sent.send(crate::susi_core::progress::is_cancelled())
+                        .unwrap();
+                },
+            )
+            .unwrap()
+        });
+        assert_eq!(result, CancellableResult::DeadlineExceeded);
+        assert!(observed.recv_timeout(Duration::from_secs(2)).unwrap());
+        assert!(!parent.load(Ordering::Acquire));
+    }
 
     #[test]
     fn cancellation_handle_tracks_cancel_deadline_and_unresolved_remotes() {

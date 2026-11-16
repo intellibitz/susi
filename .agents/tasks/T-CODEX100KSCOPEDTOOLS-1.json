@@ -1,0 +1,54 @@
+{
+  "id": "T-CODEX100KSCOPEDTOOLS-1",
+  "title": "Carry session-owned tool authority through local mission workers",
+  "goal": "Vision: V-6. Wire a non-serializable session tool scope through local mission workers and normal gated tool dispatch, preserving legacy routing and avoiding persistent or cross-session registration. Part of T-CODEX100KACPBRIDGE-1; requires integrated root ACP wiring before publication.",
+  "size": "l",
+  "status": "in_progress",
+  "created_by": "CODEX100KSCOPEDTOOLS",
+  "created_unix": 1794827460,
+  "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+  "scopes": [
+    "crates/susi-core/src/scoped_tools.rs",
+    "crates/susi-core/src/tests/scoped_tools.rs",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-core/src/parallel.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/plane_handler.rs",
+    "crates/susi-tools/src/tests/scoped_tools.rs",
+    "crates/susi-gawd-swarm/src/cancel_propagate.rs",
+    "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    ".agents/tasks/T-CODEX100KSCOPEDTOOLS-1.json"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-tools",
+      "scoped_tools"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing progress::with_cancel/current, EvidenceSession scoped dispatch, ToolRegistry MAC and per-mission authorization, local PlaneBus prefixes, std scoped parallel workers and cancellable runner. Parent audited existing MCP host and no existing per-session scoped registry exists.",
+    "reason": "Reuse current catalog/dispatch/authority paths with an opaque Arc context; no dependency, protocol credential serialization or globally registered session tool."
+  },
+  "coordination": "Scoped child implementation; parent integrates root ACP factory and GEMI wiring before main publication. No push or external Board messages. Board read item1708 had no stops or requests.",
+  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim.",
+  "validation": {
+    "scoped_core_tests": 5,
+    "scoped_tools_tests": 4,
+    "plane_tests": 37,
+    "registry_tests": 13,
+    "cancel_propagate_tests": 12,
+    "cloud_recovery_tests": 17,
+    "clippy": "cargo clippy --offline --locked -p susi-core -p susi-tools -p susi-gawd-swarm --lib -- -D warnings passed",
+    "format": "cargo fmt --all --check passed",
+    "fixtures": "Tools tests use env-cleared child processes in private temporary roots; no paid/external calls or Board posts."
+  },
+  "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim."
+}

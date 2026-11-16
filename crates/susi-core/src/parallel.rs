@@ -30,18 +30,29 @@ where
     }
     let queue: Mutex<VecDeque<(usize, T)>> = Mutex::new(items.into_iter().enumerate().collect());
     let results: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::with_capacity(count));
+    let tools = crate::scoped_tools::current();
+    let evidence = tools
+        .as_ref()
+        .and_then(|_| crate::capture::EvidenceSession::current());
     std::thread::scope(|scope| {
         for _ in 0..workers {
-            scope.spawn(|| loop {
-                let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
-                let Some((index, item)) = next else {
-                    break;
-                };
-                let result = f(item);
-                results
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .push((index, result));
+            scope.spawn(|| {
+                crate::scoped_tools::with_scope(tools.clone(), || {
+                    let _evidence = tools
+                        .as_ref()
+                        .map(|_| crate::capture::EvidenceSession::enter(evidence.clone()));
+                    loop {
+                        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+                        let Some((index, item)) = next else {
+                            break;
+                        };
+                        let result = f(item);
+                        results
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push((index, result));
+                    }
+                })
             });
         }
     });
