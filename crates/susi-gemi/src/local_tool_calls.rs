@@ -26,6 +26,29 @@ pub fn extract_tool_calls(text: &str) -> (String, Vec<NormalizedToolCall>) {
     (prose, calls)
 }
 
+/// Provider adapters normalize standard tool calls behind the caller marker.
+/// Only an internally owned request may consume that marker; external callers
+/// still receive it verbatim. Preserve malformed output as evidence.
+pub(crate) fn extract_owned_tool_calls(text: &str) -> (String, Vec<NormalizedToolCall>) {
+    let Some(json) = text.strip_prefix(crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS) else {
+        return extract_tool_calls(text);
+    };
+    let parsed = serde_json::from_str::<Value>(json).ok().and_then(|reply| {
+        let calls = reply.get("tool_calls")?.as_array()?;
+        let calls: Vec<_> = calls
+            .iter()
+            .map(normalize_tool_call)
+            .collect::<Option<_>>()?;
+        let prose = match reply.get("content") {
+            Some(Value::String(text)) => text.clone(),
+            None | Some(Value::Null) => String::new(),
+            _ => return None,
+        };
+        Some((prose, calls))
+    });
+    parsed.unwrap_or_else(|| (text.to_string(), vec![]))
+}
+
 /// Most tools offered to a local model at once: each costs prompt tokens a
 /// small model reads slowly, and a long list makes it pick badly.
 const MAX_OFFERED_TOOLS: usize = 8;
@@ -110,6 +133,19 @@ pub fn prompt_with_tool_schemas(prompt: &str) -> String {
     }
 }
 
+const TOOL_CALL_INSTRUCTION: &str = "You may call any of these tools by replying with exactly\n\
+    <tool_call>{\"name\": \"<tool_name>\", \"arguments\": {...}}</tool_call>\n\
+    and nothing else inside the tag.";
+
+/// Prompt-only engines receive the same complete owned declarations as chat
+/// engines, including schemas for session tools with no lexical overlap.
+pub(crate) fn prompt_with_owned_tools(prompt: &str, chat: Option<&Value>) -> String {
+    match chat.and_then(|chat| chat.get("tools")) {
+        Some(tools) => format!("{TOOL_CALL_INSTRUCTION}\nTool declarations:\n{tools}\n\n{prompt}"),
+        None => prompt.to_string(),
+    }
+}
+
 /// The tools preamble itself — `None` when the catalog is empty.
 fn tools_block(catalog: &[(&str, &str)]) -> Option<String> {
     if catalog.is_empty() {
@@ -120,9 +156,7 @@ fn tools_block(catalog: &[(&str, &str)]) -> Option<String> {
         .map(|(name, description)| format!("- {name} — {description}"))
         .collect();
     Some(format!(
-        "You may call any of these tools by replying with exactly\n\
-         <tool_call>{{\"name\": \"<tool_name>\", \"arguments\": {{...}}}}</tool_call>\n\
-         and nothing else inside the tag. Registered tools:\n{}",
+        "{TOOL_CALL_INSTRUCTION} Registered tools:\n{}",
         lines.join("\n")
     ))
 }
@@ -160,6 +194,59 @@ pub(crate) fn chat_request_from(listed: &Value, user_prompt: &str) -> Option<Val
             "tools": tools,
         })
     })
+}
+
+/// Add an ephemeral catalog without taking ownership of caller declarations
+/// or replacing the caller's conversation and generation options.
+pub(crate) fn scoped_chat_request(
+    chat: Option<Value>,
+    listed: &Value,
+    session_tools: &[crate::susi_core::scoped_tools::ScopedTool],
+    prompt: &str,
+) -> (Option<Value>, bool) {
+    if chat.as_ref().is_some_and(|request| {
+        !request.is_object()
+            || request
+                .get("tools")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| !tools.is_empty())
+    }) {
+        return (chat, false);
+    }
+    let host_tools = Value::Array(
+        listed
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|entry| !session_tools.iter().any(|tool| entry["name"] == tool.name))
+            .cloned()
+            .collect(),
+    );
+    let mut offered = chat_request_from(&host_tools, prompt);
+    // The small-local-model relevance heuristic applies to the host catalog,
+    // not to the tools this client explicitly admitted for its session.
+    for tool in session_tools {
+        let request = offered.get_or_insert_with(|| {
+            serde_json::json!({
+                "messages": [{"role": "user", "content": prompt}], "tools": []
+            })
+        });
+        if let Some(declarations) = request["tools"].as_array_mut() {
+            declarations.push(serde_json::json!({"type": "function", "function": {
+                "name": tool.name, "description": tool.description,
+                "parameters": tool.input_schema,
+            }}));
+        }
+    }
+    let chat = match (chat, offered) {
+        (Some(mut request), Some(offered)) => {
+            request["tools"] = offered["tools"].clone();
+            Some(request)
+        }
+        (request, None) => request,
+        (None, offered) => offered,
+    };
+    (chat, true)
 }
 
 /// The reply to a request that supplied its own tools: the calls the model
@@ -259,6 +346,7 @@ fn extract_mistral_calls(text: &str, calls: &mut Vec<NormalizedToolCall>) -> Str
 #[derive(Default)]
 pub struct ToolCallStreamFilter {
     pending: String,
+    owned: bool,
 }
 
 const OPEN_TAG: &str = "<tool_call>";
@@ -282,6 +370,13 @@ enum Scan {
 }
 
 impl ToolCallStreamFilter {
+    pub(crate) fn with_owned_calls(owned: bool) -> Self {
+        Self {
+            owned,
+            ..Self::default()
+        }
+    }
+
     pub fn feed(&mut self, delta: &str) -> String {
         self.pending.push_str(delta);
         let mut out = String::new();
@@ -313,7 +408,11 @@ impl ToolCallStreamFilter {
     /// buffered so a held span resolves exactly like the full-text path.
     pub fn finish(&mut self) -> String {
         let pending = std::mem::take(&mut self.pending);
-        let (prose, calls) = extract_tool_calls(&pending);
+        let (prose, calls) = if self.owned {
+            extract_owned_tool_calls(&pending)
+        } else {
+            extract_tool_calls(&pending)
+        };
         if calls.is_empty() {
             pending
         } else {
@@ -323,6 +422,14 @@ impl ToolCallStreamFilter {
 
     fn scan(&self) -> Scan {
         let p = &self.pending;
+        let marker = crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS;
+        if self.owned && (marker.starts_with(p) || p.starts_with(marker)) {
+            return if p.len() <= PENDING_CAP {
+                Scan::Hold
+            } else {
+                Scan::Flush
+            };
+        }
         for (idx, byte) in p.bytes().enumerate() {
             match byte {
                 b'<' => {
@@ -372,6 +479,10 @@ impl ToolCallStreamFilter {
         Scan::Flush
     }
 }
+
+#[cfg(test)]
+#[path = "tests/scoped_tool_calls.rs"]
+mod scoped_tests;
 
 /// `s` starts with `tag`, ASCII-case-insensitively.
 fn starts_ci(s: &str, tag: &str) -> bool {

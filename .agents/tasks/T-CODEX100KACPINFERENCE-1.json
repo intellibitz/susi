@@ -1,0 +1,76 @@
+{
+  "id": "T-CODEX100KACPINFERENCE-1",
+  "title": "Preserve tool ownership while exposing scoped ACP tools to inference",
+  "goal": "Vision: V-6. Supply session-owned tool schemas to GEMI and fulfill their calls through the existing tool bus without changing genuinely caller-owned tools or leaking fleet diagnostics onto ACP stdout. Parent T-CODEX100KACPBRIDGE-1 owns actual root wiring and integration.",
+  "size": "m",
+  "status": "in_progress",
+  "created_by": "CODEX100KACPINFERENCE",
+  "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+  "scopes": [
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-gemi/src/tests/scoped_tool_calls.rs",
+    "crates/susi-gemi/src/tests/scoped_runtime.rs",
+    "crates/susi-gawd-agents/src/agents/fleet.rs",
+    ".agents/tasks/T-CODEX100KACPINFERENCE-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "GEMI relevant schema catalog, local tool normalization and fulfillment, provider CALLER_TOOL_CALLS normalization, plane_bus tools facade and existing MAC/evidence dispatch, sibling session scope contract.",
+    "reason": "Reuse existing inference and tool dispatch without a new provider loop, tool registry, dependency or credential serialization. This closes a standards functionality gap and is not a size reduction."
+  },
+  "limitations": [
+    "Parent owns integration, executable end-to-end validation and publication. No external posts or pushes.",
+    "Focused GEMI tests use deterministic local fixtures; no paid or external inference.",
+    "GEMI bus fixture is not the production tools MAC implementation; parent root E2E and sibling tools tests validate actual MAC/evidence controls."
+  ],
+  "phase": "verified_pending_parent_integration",
+  "validation": {
+    "focused_tests": "6 passed (5 new GEMI tests plus existing mission-budget test) against exact coherent core dependency",
+    "integration_dependency": "Exact 46faaff55 core dependency imported; no temporary source copies remain",
+    "coverage": [
+      "reason_internal with deterministic local provider receives complete schema and executes standard tool reply through local tools bus",
+      "Two same-cwd scoped owners remain separate and leave no current binding outside turn",
+      "Genuine caller tools remain unchanged and unexecuted even inside a scope",
+      "Local markup and structured provider replies normalize identically; malformed marker remains evidence",
+      "Fragmented owned markers withheld from stream; ordinary text retained",
+      "Cancellation refuses inference and tool fulfillment",
+      "Every admitted session tool appears regardless of lexical overlap or top-8 host heuristic, including all schemas in prompt-only fallback",
+      "Caller progress sink receives fleet diagnostics when no MCP scope exists; parent owns actual empty-MCP and legacy ACP stdio proof"
+    ],
+    "legacy_tool_call_tests": "cargo test --offline --locked -j2 -p susi-gemi --lib local_tool_calls: 21 passed",
+    "fleet_sink_test": "cargo test --offline --locked -j2 -p susi-gawd-agents --lib watched_fleet_diagnostics: 1 passed",
+    "clippy": "cargo clippy --offline --locked -j2 -p susi-gemi -p susi-gawd-agents --all-targets -- -D warnings: passed",
+    "format": "cargo fmt --all --check and git diff --check passed"
+  },
+  "dependencies": [
+    "46faaff55: core owned session API, explicit worker handoffs and local routing (locally cherry-picked as 692bde93d)"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j2",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "scoped_"
+    ]
+  },
+  "source_delta": {
+    "runtime_containing_files_physical_lines_net": 210,
+    "new_test_files_physical_lines": 326,
+    "all_rust_physical_lines_net": 536,
+    "note": "Positive functionality addition. Runtime-containing-file upper bound includes inline fleet test and test module declarations; no reduction claimed. No existing tests removed, dependencies added, provider retry loops or new budgets."
+  },
+  "handoff": {
+    "root_e2e_required": [
+      "actual susi acp serve prompt with client MCP child and local provider",
+      "same-cwd concurrent session isolation, permission revocation, cancellation/EOF/pending-init cleanup",
+      "actual empty-MCP and legacy ACP prompts preserve NDJSON stdout with progress sink propagated across workers"
+    ],
+    "owner": "parent /root/acp_mcp_design; no source publication by this agent"
+  }
+}
