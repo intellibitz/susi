@@ -3,7 +3,7 @@
   "title": "Preserve tool ownership while exposing scoped ACP tools to inference",
   "goal": "Vision: V-6. Supply session-owned tool schemas to GEMI and fulfill their calls through the existing tool bus without changing genuinely caller-owned tools or leaking fleet diagnostics onto ACP stdout. Parent T-CODEX100KACPBRIDGE-1 owns actual root wiring and integration.",
   "size": "m",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KACPINFERENCE",
   "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
   "scopes": [
@@ -24,7 +24,7 @@
     "Focused GEMI tests use deterministic local fixtures; no paid or external inference.",
     "GEMI bus fixture is not the production tools MAC implementation; parent root E2E and sibling tools tests validate actual MAC/evidence controls."
   ],
-  "phase": "verified_pending_parent_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "focused_tests": "6 passed (5 new GEMI tests plus existing mission-budget test) against exact coherent core dependency",
     "integration_dependency": "Exact 46faaff55 core dependency imported; no temporary source copies remain",
@@ -75,5 +75,17 @@
     "owner": "parent /root/acp_mcp_design; no source publication by this agent"
   },
   "created_unix": 1794828739,
-  "creation_provenance": "Missing creation field reconstructed from first recorded task commit c487aa1f82d9306742bbed1a880ed3d84c13c53a author timestamp; exact pre-commit creation time was not recorded."
+  "creation_provenance": "Missing creation field reconstructed from first recorded task commit c487aa1f82d9306742bbed1a880ed3d84c13c53a author timestamp; exact pre-commit creation time was not recorded.",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open."
 }

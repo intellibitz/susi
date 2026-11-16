@@ -3,7 +3,7 @@
   "title": "Carry session-owned tool authority through local mission workers",
   "goal": "Vision: V-6. Wire a non-serializable session tool scope through local mission workers and normal gated tool dispatch, preserving legacy routing and avoiding persistent or cross-session registration. Part of T-CODEX100KACPBRIDGE-1; requires integrated root ACP wiring before publication.",
   "size": "l",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KSCOPEDTOOLS",
   "created_unix": 1794827460,
   "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
@@ -54,5 +54,24 @@
     "sink_followup": "Scoped core 8, cancellation 12 and recovery 17 tests pass; core/swarm clippy -D warnings and fmt pass. Parallel and cancellable tests verify sink handoff with and without scoped tools, plus restoration/unwatched behavior.",
     "bound_ledger_followup": "Tools registry 14 and core capture-related 19 tests pass; core/tools library clippy -D warnings and fmt pass. Different-worker-workspace regression proves actual provider workspace, original mission id/grant revocation, root egress restriction despite permissive worker declaration, and owned MCP receipt only in root ledger. Builtin receipt behavior and receipt wire shape remain unchanged."
   },
-  "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim."
+  "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim.",
+  "phase": "integrated_verified_published",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open.",
+  "parent_acceptance": {
+    "command": "cargo test --offline --locked -p susi-tools scoped_tools",
+    "passed": 5,
+    "seconds": 0.02,
+    "log": "/workspace/codex/core-100k-state/logs/acp-scoped-tools-accept.log"
+  }
 }

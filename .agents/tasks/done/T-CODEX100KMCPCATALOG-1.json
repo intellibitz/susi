@@ -3,7 +3,7 @@
   "title": "Bound duplex MCP catalog accumulation for ACP session setup",
   "goal": "Vision: V-6. Preserve existing MCP host APIs while providing an additive bounded tool catalog operation for the coordinated ACP supplied-server bridge.",
   "size": "s",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KMCPCATALOG",
   "created_unix": 1794829404,
   "base_commit": "e4961ad436313742b35c7792c44e00b1c05369c0",
@@ -39,7 +39,7 @@
     "The existing per-frame16MiB acquisition cap remains independent; this addition bounds retained catalog data, not total process memory or I/O deadlines.",
     "Parent owns coordinated publication with the ACP bridge; no push or external board post."
   ],
-  "phase": "verified_pending_coordinated_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "crate_tests": {
       "command": "cargo test --offline --locked -j2 -p susi-wire-client --lib",
@@ -77,5 +77,17 @@
   "handoff": {
     "owner": "parent /root and bridge owner /root/acp_mcp_design",
     "status": "Verified API awaits coherent ACP caller integration; parent owns publication."
-  }
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open."
 }

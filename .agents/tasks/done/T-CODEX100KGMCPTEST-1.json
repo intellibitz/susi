@@ -2,7 +2,7 @@
   "id": "T-CODEX100KGMCPTEST-1",
   "title": "Restore the Unix-only MCP service extension import after upstream merge",
   "goal": "Vision: V-6. Preserve the upstream interop fixture and Windows lint fix while restoring Unix compilation; no production behavior or assertion changes.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "s",
   "created_by": "CODEXCORE100KIMPLEMENTATION",
   "created_unix": 1794831068,
@@ -53,5 +53,18 @@
     "native_windows_executed": false,
     "runtime_delta": 0
   },
-  "progress": "Unix interop assertion suite, strict integration-target Clippy and final workspace all-target check pass. Existing Windows cfg behavior retained; publication pending."
+  "progress": "Unix interop assertion suite, strict integration-target Clippy and final workspace all-target check pass. Existing Windows cfg behavior retained; publication pending.",
+  "phase": "integrated_verified_published",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open."
 }

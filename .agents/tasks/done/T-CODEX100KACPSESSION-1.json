@@ -3,7 +3,7 @@
   "title": "Add owned ACP session executor lifecycle and asynchronous bounded v1 setup",
   "goal": "Vision: V-6. Provide session-isolated lifecycle and asynchronous setup for the coordinated actual ACP-supplied MCP bridge, preserving all legacy public executor implementations and wire behavior. This patch is integrated only with the concrete bridge, not published alone as a disconnected API.",
   "size": "m",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KACPSESSION",
   "created_unix": 1794827490,
   "base_commit": "48fa3b7af4d529203d0e52ca4e45b93f7df8f8b3",
@@ -37,7 +37,7 @@
     "No complete ACP certification claim; concrete bridge implementation and integrated tests remain owned by parent and bridge worker.",
     "Parent owns all pushes/external coordination; scoped local WIP commits only."
   ],
-  "phase": "verified_pending_coordinated_bridge_integration",
+  "phase": "integrated_verified_published",
   "api_contract": {
     "agreed_with": "acp_mcp_design",
     "types": "AcpSessionSpec { cwd, mcp_servers, admission }; AcpMcpStdioServer { name, command, args, env }; AcpMcpEnvVar { name, value }",
@@ -77,5 +77,17 @@
     "target": "/workspace/codex/susi-core-100k-acpsession-target",
     "susi_home": "/workspace/codex/susi-core-100k-acpsession-state/home",
     "cargo_jobs": 2
-  }
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open."
 }
