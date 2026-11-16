@@ -10,10 +10,11 @@
     "crates/susi-gemi/src/engines/local_plug.rs",
     "crates/susi-gemi/src/engines/alpha.rs",
     "crates/susi-gemi/src/engines/reflex_llm.rs",
-    "crates/susi-gemi/src/tests/runtime.rs"
+    "crates/susi-gemi/src/tests/runtime.rs",
+    "tests/acp_mcp_bridge.rs"
   ],
   "task": "T-CODEXCOREMODELS-7",
   "agent": "CODEXCOREMODELS",
   "claimed_unix": 1794861533,
-  "lease_until_unix": 1794865133
+  "lease_until_unix": 1794865579
 }
