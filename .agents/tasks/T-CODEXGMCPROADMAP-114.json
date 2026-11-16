@@ -24,5 +24,34 @@
   },
   "roadmap": "VC-203-017",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "in_progress",
+  "base_commit": "668c224542d0c3ceb24cf03d211a25e2e6c72c8f",
+  "limitations": [
+    "Contract stage (`GMCP-203-017-01`) pins `docs/gmcp/contract-203-017.md` (`HOST-001..HOST-018`), `CLAIM-04` ledger binding, 22 upstream spec digests, and positive/negative concurrent multi-server host fixtures (`gmcp_req_203_017_01_contract`); unified production multi-server host, MRTR callback brokerage, Apps/Auth surfaces, adversarial/interop/ops suites, and `.M` mastery ship across `T-CODEXGMCPROADMAP-115..120`.",
+    "Per `docs/gmcp-roadmap.md`, `docs/gmcp/contract-203-017.md`, and zero-UI plan A9, Core ships the complete headless MCP protocol host and CLI while interactive Apps UI rendering lives in Susi Commercial Apps, and `.agents/gmcp/evidence/VC-203-017.jsonl` plus `.agents/roadmap-verdicts/VC-203-017.json` remain strictly absent until `T-CODEXGMCPROADMAP-120` (`.M` Mastery)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-wire-client/src/mcp.rs",
+      "crates/susi-tools/src/mcp_budget.rs",
+      "crates/susi-tools/src/config.rs",
+      "crates/susi-core/src/mcp_client.rs",
+      "src/cli/mcp_cli.rs",
+      "docs/gmcp/contract-203-020.md"
+    ],
+    "target": "tests/gmcp_requirements.rs",
+    "why": "Pinned `docs/gmcp/contract-203-017.md` and `tests/gmcp_requirements/vc_203_017.rs` directly against existing `susi_wire_client::mcp::Session`, `susi_tools::{McpConfig, McpServerConfig}`, `susi_gmcp::requirements_ledger`, and `production_reference_server` without duplicating client/server test harnesses."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks",
+    "docs/gmcp/contract-203-017.md",
+    "tests/gmcp_requirements.rs",
+    "tests/gmcp_requirements/vc_203_012_part1.rs",
+    "tests/gmcp_requirements/vc_203_012_part4.rs",
+    "tests/gmcp_requirements/vc_203_017.rs"
+  ]
 }

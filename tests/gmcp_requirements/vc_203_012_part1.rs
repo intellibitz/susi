@@ -173,12 +173,7 @@ fn gmcp_req_203_012_02_production() {
             Some(meta) => ("server/discover", serde_json::json!({"_meta": meta})),
             None => ("ping", serde_json::json!({})),
         };
-        session.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": barrier,
-            "method": method,
-            "params": params
-        }));
+        session.send(&serde_json::json!({ "jsonrpc": "2.0", "id": barrier, "method": method, "params": params}));
         let answer = session
             .response_for(
                 &serde_json::json!(barrier),
@@ -222,12 +217,7 @@ fn gmcp_req_203_012_02_production() {
     }
 
     let modern_meta = |extra: serde_json::Value| -> serde_json::Value {
-        let mut meta = serde_json::json!({
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": {"io.modelcontextprotocol/tasks": {}}
-            }
-        });
+        let mut meta = serde_json::json!({ "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": { "extensions": {"io.modelcontextprotocol/tasks": {}}}});
         if let (Some(base), Some(add)) = (meta.as_object_mut(), extra.as_object()) {
             for (k, v) in add {
                 base.insert(k.clone(), v.clone());
@@ -244,34 +234,20 @@ fn gmcp_req_203_012_02_production() {
         (
             "neg-set-level",
             "logging/setLevel",
-            serde_json::json!({
-                "level": "info",
-                "_meta": modern_meta(serde_json::json!({}))
-            }),
+            serde_json::json!({ "level": "info", "_meta": modern_meta(serde_json::json!({}))}),
         ),
         (
             "neg-res-sub",
             "resources/subscribe",
-            serde_json::json!({
-                "uri": "susi://tools",
-                "_meta": modern_meta(serde_json::json!({}))
-            }),
+            serde_json::json!({ "uri": "susi://tools", "_meta": modern_meta(serde_json::json!({}))}),
         ),
         (
             "neg-res-unsub",
             "resources/unsubscribe",
-            serde_json::json!({
-                "uri": "susi://tools",
-                "_meta": modern_meta(serde_json::json!({}))
-            }),
+            serde_json::json!({ "uri": "susi://tools", "_meta": modern_meta(serde_json::json!({}))}),
         ),
     ] {
-        modern.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "method": method,
-            "params": params
-        }));
+        modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": req_id, "method": method, "params": params}));
         let resp = modern
             .response_for(
                 &serde_json::json!(req_id),
@@ -294,18 +270,7 @@ fn gmcp_req_203_012_02_production() {
     .enumerate()
     {
         let id = format!("bad-log-{idx}");
-        modern.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": modern_meta(serde_json::json!({
-                    "io.modelcontextprotocol/logLevel": bad_level
-                }))
-            }
-        }));
+        modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({ "io.modelcontextprotocol/logLevel": bad_level}))}}));
         let resp = modern
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
             .expect("bad logLevel must reply");
@@ -319,16 +284,7 @@ fn gmcp_req_203_012_02_production() {
     // with `logLevel: "info"`, emits `notifications/message`; with `notice`, suppresses `info`.
     let warmup_meta = modern_meta(serde_json::json!({}));
     let _ = drain_stdio_notifications(&mut modern, "warmup", Some(&warmup_meta));
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "call-no-log",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "call-no-log", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({}))}}));
     let resp = modern
         .response_for(
             &serde_json::json!("call-no-log"),
@@ -344,18 +300,7 @@ fn gmcp_req_203_012_02_production() {
         "omitted logLevel must emit zero notifications/message: {silent:?}"
     );
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "call-info-log",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta(serde_json::json!({
-                "io.modelcontextprotocol/logLevel": "info"
-            }))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "call-info-log", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({ "io.modelcontextprotocol/logLevel": "info"}))}}));
     let resp = modern
         .response_for(
             &serde_json::json!("call-info-log"),
@@ -371,18 +316,7 @@ fn gmcp_req_203_012_02_production() {
         "info threshold must emit notifications/message(info): {info_notes:?}"
     );
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "call-notice-log",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta(serde_json::json!({
-                "io.modelcontextprotocol/logLevel": "notice"
-            }))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "call-notice-log", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({ "io.modelcontextprotocol/logLevel": "notice"}))}}));
     let resp = modern
         .response_for(
             &serde_json::json!("call-notice-log"),
@@ -408,18 +342,7 @@ fn gmcp_req_203_012_02_production() {
     .enumerate()
     {
         let id = format!("bad-prog-{idx}");
-        modern.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": modern_meta(serde_json::json!({
-                    "progressToken": bad_tok
-                }))
-            }
-        }));
+        modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({ "progressToken": bad_tok}))}}));
         let resp = modern
             .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
             .expect("bad progressToken must answer");
@@ -429,18 +352,7 @@ fn gmcp_req_203_012_02_production() {
         );
     }
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "call-prog-ok",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": modern_meta(serde_json::json!({
-                "progressToken": "live-prog-1"
-            }))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "call-prog-ok", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": modern_meta(serde_json::json!({ "progressToken": "live-prog-1"}))}}));
     let resp = modern
         .response_for(
             &serde_json::json!("call-prog-ok"),
@@ -476,17 +388,7 @@ fn gmcp_req_203_012_02_production() {
     // F-NEG-012-01 (>256 URIs) & F-POS-012-01 (dedup + auth omission before ack)
     // & F-NEG-012-05 (subscriptions/listen must NOT emit notifications/message).
     let too_many_uris: Vec<String> = (0..257).map(|i| format!("susi://extra-{i}")).collect();
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "sub-too-many",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": too_many_uris
-            },
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "sub-too-many", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": too_many_uris}, "_meta": modern_meta(serde_json::json!({}))}}));
     let too_many_resp = modern
         .response_for(
             &serde_json::json!("sub-too-many"),
@@ -506,25 +408,7 @@ fn gmcp_req_203_012_02_production() {
         "rejected subscription must never emit acknowledged before error: {post_reject:?}"
     );
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "sub-filtered",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "toolsListChanged": true,
-                "resourceSubscriptions": [
-                    "susi://tools",
-                    "file:///srv/data/../../etc/shadow",
-                    "rel/path",
-                    "susi://tools"
-                ]
-            },
-            "_meta": modern_meta(serde_json::json!({
-                "io.modelcontextprotocol/logLevel": "debug"
-            }))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "sub-filtered", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "resourceSubscriptions": [ "susi://tools", "file:///srv/data/../../etc/shadow", "rel/path", "susi://tools"]}, "_meta": modern_meta(serde_json::json!({ "io.modelcontextprotocol/logLevel": "debug"}))}}));
     let ack = take_stdio_until(&mut modern, "sub-filtered ack", |msg| {
         msg["method"] == "notifications/subscriptions/acknowledged"
             && msg["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "sub-filtered"
@@ -536,11 +420,7 @@ fn gmcp_req_203_012_02_production() {
     );
     assert_eq!(ack["params"]["notifications"]["toolsListChanged"], true);
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "sub-filtered", "reason": "done"}
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "sub-filtered", "reason": "done"}}));
     let sub_drained = drain_stdio_notifications(&mut modern, "sub-no-logs", Some(&warmup_meta));
     assert!(
         !sub_drained
@@ -553,29 +433,13 @@ fn gmcp_req_203_012_02_production() {
     // cancelling one frees a slot.
     for slot in 0..16 {
         let id = format!("cap-sub-{slot}");
-        modern.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"toolsListChanged": true},
-                "_meta": modern_meta(serde_json::json!({}))
-            }
-        }));
+        modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta(serde_json::json!({}))}}));
         let _ = take_stdio_until(&mut modern, &id, |msg| {
             msg["method"] == "notifications/subscriptions/acknowledged"
                 && msg["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == id
         });
     }
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "cap-sub-16",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"toolsListChanged": true},
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "cap-sub-16", "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta(serde_json::json!({}))}}));
     let seventeenth = modern
         .response_for(
             &serde_json::json!("cap-sub-16"),
@@ -594,40 +458,20 @@ fn gmcp_req_203_012_02_production() {
         }),
         "17th subscription must not emit ack before error: {no_17th_ack:?}"
     );
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "cap-sub-0"}
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "cap-sub-0"}}));
     let _ = drain_stdio_notifications(&mut modern, "slot-0-freed", Some(&warmup_meta));
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "cap-sub-reacquired",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"toolsListChanged": true},
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "cap-sub-reacquired", "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta(serde_json::json!({}))}}));
     let _ = take_stdio_until(&mut modern, "reacquired ack", |msg| {
         msg["method"] == "notifications/subscriptions/acknowledged"
             && msg["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"]
                 == "cap-sub-reacquired"
     });
     for slot in 1..16 {
-        modern.send(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": format!("cap-sub-{slot}")}
-        }));
+        modern.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": format!("cap-sub-{slot}")}}));
     }
-    modern.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "cap-sub-reacquired"}
-    }));
+    modern.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "cap-sub-reacquired"}}));
     drop(modern);
 
     // ── 2. Legacy 2025-11-25 Stdio adapter parity (`F-POS-012-06`) ────────
@@ -683,9 +527,7 @@ fn gmcp_req_203_012_02_production() {
         Resource::new("dyn://secret", "dynamic secret"),
         Arc::new(|_, _| {
             Box::pin(async move {
-                let result: ReadResourceResult = serde_json::from_value(serde_json::json!({
-                    "contents": [{"uri": "dyn://secret", "mimeType": "text/plain", "text": "ok"}]
-                }))
+                let result: ReadResourceResult = serde_json::from_value(serde_json::json!({ "contents": [{"uri": "dyn://secret", "mimeType": "text/plain", "text": "ok"}]}))
                 .expect("valid resource result");
                 Ok(result.into())
             })
@@ -695,9 +537,7 @@ fn gmcp_req_203_012_02_production() {
         Resource::new("open://ok", "open resource"),
         Arc::new(|_, _| {
             Box::pin(async move {
-                let result: ReadResourceResult = serde_json::from_value(serde_json::json!({
-                    "contents": [{"uri": "open://ok", "mimeType": "text/plain", "text": "ok"}]
-                }))
+                let result: ReadResourceResult = serde_json::from_value(serde_json::json!({ "contents": [{"uri": "open://ok", "mimeType": "text/plain", "text": "ok"}]}))
                 .expect("valid resource result");
                 Ok(result.into())
             })
@@ -716,10 +556,7 @@ fn gmcp_req_203_012_02_production() {
     let task_gate = Arc::new(tokio::sync::Notify::new());
     let task_gate_clone = task_gate.clone();
     let cancel_flag = cancel_observed.clone();
-    let slow_task_tool: Tool = serde_json::from_value(serde_json::json!({
-        "name": "slow_task_012",
-        "inputSchema": {"type": "object"}
-    }))
+    let slow_task_tool: Tool = serde_json::from_value(serde_json::json!({ "name": "slow_task_012", "inputSchema": {"type": "object"}}))
     .expect("slow task tool schema");
     service
         .register_task_tool(
@@ -744,10 +581,7 @@ fn gmcp_req_203_012_02_production() {
         .expect("register slow task tool");
 
     // Redacting/RFC5424/cap tool returning sensitive oversized error OR emitting >64 logs.
-    let log_storm_tool: Tool = serde_json::from_value(serde_json::json!({
-        "name": "log_storm_012",
-        "inputSchema": {"type": "object"}
-    }))
+    let log_storm_tool: Tool = serde_json::from_value(serde_json::json!({ "name": "log_storm_012", "inputSchema": {"type": "object"}}))
     .expect("log storm tool schema");
     service
         .register_tool(
@@ -814,10 +648,7 @@ fn gmcp_req_203_012_02_production() {
     let sync_gate_clone = sync_gate.clone();
     let sync_cancel_observed = Arc::new(AtomicBool::new(false));
     let sync_cancel_flag = sync_cancel_observed.clone();
-    let sync_slow_tool: Tool = serde_json::from_value(serde_json::json!({
-        "name": "sync_slow_012",
-        "inputSchema": {"type": "object"}
-    }))
+    let sync_slow_tool: Tool = serde_json::from_value(serde_json::json!({ "name": "sync_slow_012", "inputSchema": {"type": "object"}}))
     .expect("sync slow tool schema");
     service
         .register_tool(
@@ -927,17 +758,7 @@ fn gmcp_req_203_012_02_production() {
     }
 
     // Dynamic guard revocation (`T2`): admit at ack, deny on update.
-    wire_client.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "dyn-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "resourceSubscriptions": ["sealed://denied", "dyn://secret", "open://ok", "open://ok"]
-            },
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    wire_client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "dyn-sub", "method": "subscriptions/listen", "params": { "notifications": { "resourceSubscriptions": ["sealed://denied", "dyn://secret", "open://ok", "open://ok"]}, "_meta": modern_meta(serde_json::json!({}))}}));
     let dyn_ack = wire_client.take("dyn ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "dyn-sub"
@@ -964,23 +785,11 @@ fn gmcp_req_203_012_02_production() {
                 && m["params"]["uri"] == "dyn://secret"),
         "revoked resource must NEVER deliver notification after guard denial: {dyn_extra:?}"
     );
-    wire_client.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "dyn-sub"}
-    }));
+    wire_client.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "dyn-sub"}}));
     let _ = drain_adapter_notifications(&mut wire_client, "dyn-closed", &warmup_meta);
 
     // Slow-consumer lag fail-closed teardown (`F-NEG-012-02`).
-    wire_client.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "lag-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"resourceSubscriptions": ["open://ok"]},
-            "_meta": modern_meta(serde_json::json!({}))
-        }
-    }));
+    wire_client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "lag-sub", "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["open://ok"]}, "_meta": modern_meta(serde_json::json!({}))}}));
     let _ = wire_client.take("lag ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "lag-sub"
@@ -1004,12 +813,7 @@ fn gmcp_req_203_012_02_production() {
     let task_start = wire_client.call(
         "task-prog-1",
         "tools/call",
-        serde_json::json!({
-            "name": "slow_task_012",
-            "arguments": {},
-            "task": {},
-            "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))
-        }),
+        serde_json::json!({ "name": "slow_task_012", "arguments": {}, "task": {}, "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))}),
     );
     assert_eq!(task_start["result"]["resultType"], "task", "{task_start}");
     let task_id_1 = task_start["result"]["taskId"]
@@ -1021,9 +825,7 @@ fn gmcp_req_203_012_02_production() {
     let dup = wire_client.call(
         "task-prog-dup",
         "server/discover",
-        serde_json::json!({
-            "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))
-        }),
+        serde_json::json!({ "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))}),
     );
     assert_eq!(
         dup["error"]["code"], -32602,
@@ -1042,10 +844,7 @@ fn gmcp_req_203_012_02_production() {
         let status = wire_client.call(
             &format!("poll-1-{poll}"),
             "tasks/get",
-            serde_json::json!({
-                "taskId": task_id_1,
-                "_meta": modern_meta(serde_json::json!({}))
-            }),
+            serde_json::json!({ "taskId": task_id_1, "_meta": modern_meta(serde_json::json!({}))}),
         );
         if status["result"]["status"] == "completed" {
             break;
@@ -1055,9 +854,7 @@ fn gmcp_req_203_012_02_production() {
     let reuse = wire_client.call(
         "task-prog-reuse",
         "server/discover",
-        serde_json::json!({
-            "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))
-        }),
+        serde_json::json!({ "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-1"}))}),
     );
     assert!(
         reuse["error"].is_null(),
@@ -1069,12 +866,7 @@ fn gmcp_req_203_012_02_production() {
     let task_start_2 = wire_client.call(
         "task-prog-2",
         "tools/call",
-        serde_json::json!({
-            "name": "slow_task_012",
-            "arguments": {},
-            "task": {},
-            "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-2"}))
-        }),
+        serde_json::json!({ "name": "slow_task_012", "arguments": {}, "task": {}, "_meta": modern_meta(serde_json::json!({"progressToken": "task-tok-2"}))}),
     );
     let task_id_2 = task_start_2["result"]["taskId"]
         .as_str()
@@ -1083,10 +875,7 @@ fn gmcp_req_203_012_02_production() {
     let cancel_resp = wire_client.call(
         "task-cancel-2",
         "tasks/cancel",
-        serde_json::json!({
-            "taskId": task_id_2,
-            "_meta": modern_meta(serde_json::json!({}))
-        }),
+        serde_json::json!({ "taskId": task_id_2, "_meta": modern_meta(serde_json::json!({}))}),
     );
     assert!(cancel_resp["error"].is_null(), "{cancel_resp}");
     let deadline_cancel = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -1105,25 +894,12 @@ fn gmcp_req_203_012_02_production() {
     );
 
     // Sync cancellation halts progress (`F-NEG-012-04`) and releases token.
-    wire_client.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "sync-cancel-req",
-        "method": "tools/call",
-        "params": {
-            "name": "sync_slow_012",
-            "arguments": {},
-            "_meta": modern_meta(serde_json::json!({"progressToken": "sync-cancel-tok"}))
-        }
-    }));
+    wire_client.send(&serde_json::json!({ "jsonrpc": "2.0", "id": "sync-cancel-req", "method": "tools/call", "params": { "name": "sync_slow_012", "arguments": {}, "_meta": modern_meta(serde_json::json!({"progressToken": "sync-cancel-tok"}))}}));
     let first_sync_prog = wire_client.take("sync initial progress", |m| {
         m["method"] == "notifications/progress" && m["params"]["progressToken"] == "sync-cancel-tok"
     });
     assert_eq!(first_sync_prog["params"]["progress"], 0.25);
-    wire_client.send(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "sync-cancel-req"}
-    }));
+    wire_client.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "sync-cancel-req"}}));
     let sync_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     while !sync_cancel_observed.load(Ordering::SeqCst) && std::time::Instant::now() < sync_deadline
     {
@@ -1148,13 +924,7 @@ fn gmcp_req_203_012_02_production() {
     let storm = wire_client.call(
         "storm-warning",
         "tools/call",
-        serde_json::json!({
-            "name": "log_storm_012",
-            "arguments": {"burst": 100, "secret_err": true},
-            "_meta": modern_meta(serde_json::json!({
-                "io.modelcontextprotocol/logLevel": "notice"
-            }))
-        }),
+        serde_json::json!({ "name": "log_storm_012", "arguments": {"burst": 100, "secret_err": true}, "_meta": modern_meta(serde_json::json!({ "io.modelcontextprotocol/logLevel": "notice"}))}),
     );
     assert!(storm["error"].is_null(), "{storm}");
     let storm_notes = drain_adapter_notifications(&mut wire_client, "storm-warning", &warmup_meta);
@@ -1222,21 +992,7 @@ fn gmcp_req_203_012_02_production() {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(30)))
         .expect("set read timeout");
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "http-012-1",
-        "method": "tools/call",
-        "params": {
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {},
-                "io.modelcontextprotocol/logLevel": "info",
-                "progressToken": "http-tok-1"
-            }
-        }
-    })
+    let body = serde_json::json!({ "jsonrpc": "2.0", "id": "http-012-1", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/logLevel": "info", "progressToken": "http-tok-1"}}})
     .to_string();
     let http_req = format!(
         "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/call\r\nMcp-Name: ledger_verify\r\nContent-Length: {}\r\n\r\n{body}",

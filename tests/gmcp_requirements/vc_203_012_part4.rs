@@ -126,44 +126,10 @@ fn gmcp_req_203_012_05_interop() {
 
     // ── 1. Reference Wire Codec (Client Role) & Positive/Negative Fixtures ──
     let canonical_client_frames = [
-        json!({
-            "jsonrpc": "2.0",
-            "id": "fx-sub-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "toolsListChanged": true,
-                    "resourceSubscriptions": ["susi://tools"]
-                },
-                "_meta": modern_meta("fx-sub-1")
-            }
-        }),
-        json!({
-            "jsonrpc": "2.0",
-            "id": 99,
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities": {},
-                    "io.modelcontextprotocol/logLevel": "notice",
-                    "progressToken": "tok-client-1"
-                }
-            }
-        }),
-        json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": "fx-sub-1", "reason": "interop cancel"}
-        }),
-        json!({
-            "jsonrpc": "2.0",
-            "id": 100,
-            "method": "logging/setLevel",
-            "params": {"level": "warning"}
-        }),
+        json!({ "jsonrpc": "2.0", "id": "fx-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta("fx-sub-1")}}),
+        json!({ "jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/logLevel": "notice", "progressToken": "tok-client-1"}}}),
+        json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "fx-sub-1", "reason": "interop cancel"}}),
+        json!({ "jsonrpc": "2.0", "id": 100, "method": "logging/setLevel", "params": {"level": "warning"}}),
     ];
     for frame in &canonical_client_frames {
         let raw = serde_json::to_vec(frame).unwrap();
@@ -178,9 +144,7 @@ fn gmcp_req_203_012_05_interop() {
     // Typed subscription/progress/logging server notifications serialize losslessly.
     let mut ack_meta = NotificationMetaObject::new();
     ack_meta.set_subscription_id(RequestId::String("fx-sub-1".into()));
-    let parsed_ack_filter: SubscriptionsListenRequestParams = serde_json::from_value(json!({
-        "notifications": {"toolsListChanged": true, "resourceSubscriptions": ["susi://tools"]}
-    }))
+    let parsed_ack_filter: SubscriptionsListenRequestParams = serde_json::from_value(json!({ "notifications": {"toolsListChanged": true, "resourceSubscriptions": ["susi://tools"]}}))
     .unwrap();
     assert_eq!(
         parsed_ack_filter.notifications.tools_list_changed,
@@ -192,10 +156,7 @@ fn gmcp_req_203_012_05_interop() {
     );
     let ack_msg = ServerJsonRpcMessage::Notification(ServerNotification::new(
         "notifications/subscriptions/acknowledged",
-        json!({
-            "notifications": parsed_ack_filter.notifications,
-            "_meta": ack_meta
-        }),
+        json!({ "notifications": parsed_ack_filter.notifications, "_meta": ack_meta}),
     ));
     let ack_json = serde_json::to_value(&ack_msg).unwrap();
     assert_eq!(
@@ -231,10 +192,7 @@ fn gmcp_req_203_012_05_interop() {
 
     // Typed client-role parsers fail closed on malformed negative fixtures.
     assert!(serde_json::from_value::<SetLevelRequestParams>(json!({"level": "verbose"})).is_err());
-    assert!(serde_json::from_value::<ProgressNotificationParam>(json!({
-        "progressToken": "",
-        "progress": 0.5
-    }))
+    assert!(serde_json::from_value::<ProgressNotificationParam>(json!({ "progressToken": "", "progress": 0.5}))
     .is_ok()); // wire struct allows empty; RequestMetaObject::parse_progress_token rejects it!
     let empty_tok_meta: susi_gmcp::mcp::model::RequestMetaObject =
         serde_json::from_value(json!({"progressToken": ""})).unwrap();
@@ -301,19 +259,7 @@ fn gmcp_req_203_012_05_interop() {
                 continue;
             }
             if method == "initialize" {
-                let reply = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "protocolVersion": "2025-11-25",
-                        "capabilities": {
-                            "logging": {},
-                            "resources": {"subscribe": true, "listChanged": true},
-                            "tools": {}
-                        },
-                        "serverInfo": {"name": "mock-ref-sdk", "version": "1.0.0"}
-                    }
-                })
+                let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": "2025-11-25", "capabilities": { "logging": {}, "resources": {"subscribe": true, "listChanged": true}, "tools": {}}, "serverInfo": {"name": "mock-ref-sdk", "version": "1.0.0"}}})
                 .to_string();
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nMcp-Session-Id: ref-sess-1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
@@ -323,11 +269,7 @@ fn gmcp_req_203_012_05_interop() {
                 continue;
             }
             if method == "tools/call" && msg["params"]["name"] == "ref_fail" {
-                let reply = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {"code": -32602, "message": "invalid mock tool param"}
-                })
+                let reply = json!({ "jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "invalid mock tool param"}})
                 .to_string();
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
@@ -346,26 +288,10 @@ fn gmcp_req_203_012_05_interop() {
                      data: {}\n\n\
                      data: {}\n\n\
                      data: {}\n\n",
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": "notifications/progress",
-                        "params": {"progressToken": tok, "progress": 0.5, "total": 1.0, "message": "step"}
-                    }),
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": "notifications/resources/updated",
-                        "params": {"uri": "susi://tools"}
-                    }),
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": "notifications/message",
-                        "params": {"level": "notice", "logger": "ref-sdk", "data": {"ok": true}}
-                    }),
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {"content": [{"type": "text", "text": "ref-sdk-ok"}], "isError": false}
-                    })
+                    json!({ "jsonrpc": "2.0", "method": "notifications/progress", "params": {"progressToken": tok, "progress": 0.5, "total": 1.0, "message": "step"}}),
+                    json!({ "jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": "susi://tools"}}),
+                    json!({ "jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "notice", "logger": "ref-sdk", "data": {"ok": true}}}),
+                    json!({ "jsonrpc": "2.0", "id": id, "result": {"content": [{"type": "text", "text": "ref-sdk-ok"}], "isError": false}})
                 );
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse}",
@@ -560,12 +486,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Method", "tools/list"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "conf-list",
-                "method": "tools/list",
-                "params": {"_meta": modern_meta("conf-list")}
-            })
+            &json!({ "jsonrpc": "2.0", "id": "conf-list", "method": "tools/list", "params": {"_meta": modern_meta("conf-list")}})
             .to_string(),
         ),
     );
@@ -585,12 +506,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Method", "susi/conformance-unknown-method"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "conf-unk",
-                "method": "susi/conformance-unknown-method",
-                "params": {"_meta": modern_meta("conf-unk")}
-            })
+            &json!({ "jsonrpc": "2.0", "id": "conf-unk", "method": "susi/conformance-unknown-method", "params": {"_meta": modern_meta("conf-unk")}})
             .to_string(),
         ),
     );
@@ -619,31 +535,14 @@ fn gmcp_req_203_012_05_interop() {
 
     let collect_adapter_parity = |label: &str, client: &mut AdapterClient| -> ParityTranscript {
         adapter_modern_open(client);
-        client.send(&json!({
-            "jsonrpc": "2.0",
-            "id": "diff-sub-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "toolsListChanged": true,
-                    "promptsListChanged": true,
-                    "resourcesListChanged": true,
-                    "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]
-                },
-                "_meta": modern_meta("diff-sub-1")
-            }
-        }));
+        client.send(&json!({ "jsonrpc": "2.0", "id": "diff-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "promptsListChanged": true, "resourcesListChanged": true, "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]}, "_meta": modern_meta("diff-sub-1")}}));
         let ack = client.take(&format!("{label}: sub ack"), |m| {
             m["method"] == "notifications/subscriptions/acknowledged"
                 && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "diff-sub-1"
         });
         let ack_filter = ack["params"]["notifications"].clone();
         let ack_sub_id = ack["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"].clone();
-        client.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": "diff-sub-1", "reason": "parity cancel"}
-        }));
+        client.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "diff-sub-1", "reason": "parity cancel"}}));
 
         // Tool call with omitted logLevel -> zero notifications/message.
         client.pending.clear();
@@ -770,20 +669,7 @@ fn gmcp_req_203_012_05_interop() {
     let mut stdio_mod = StdioSession::spawn_modern(root, &home);
     within("startup_ms", t_stdio_start.elapsed().as_millis());
     let stdio_client = {
-        stdio_mod.send(&json!({
-            "jsonrpc": "2.0",
-            "id": "stdio-sub-1",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {
-                    "toolsListChanged": true,
-                    "promptsListChanged": true,
-                    "resourcesListChanged": true,
-                    "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]
-                },
-                "_meta": modern_meta("stdio-sub-1")
-            }
-        }));
+        stdio_mod.send(&json!({ "jsonrpc": "2.0", "id": "stdio-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "promptsListChanged": true, "resourcesListChanged": true, "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]}, "_meta": modern_meta("stdio-sub-1")}}));
         let ack_deadline = Instant::now() + Duration::from_secs(10);
         let mut stdio_ack = None;
         while Instant::now() < ack_deadline && stdio_ack.is_none() {
@@ -799,11 +685,7 @@ fn gmcp_req_203_012_05_interop() {
             }
         }
         let stdio_ack = stdio_ack.expect("stdio subscriptions/listen ack");
-        stdio_mod.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/cancelled",
-            "params": {"requestId": "stdio-sub-1"}
-        }));
+        stdio_mod.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "stdio-sub-1"}}));
         stdio_mod.pending.clear();
         let req_t0 = Instant::now();
         let silent = stdio_mod.request(
@@ -830,46 +712,26 @@ fn gmcp_req_203_012_05_interop() {
         bad_m["io.modelcontextprotocol/logLevel"] = json!("verbose");
         let bad_resp = stdio_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "stdio-bad-lvl",
-                    "method": "tools/call",
-                    "params": {"name": "ledger_verify", "arguments": {}, "_meta": bad_m}
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "stdio-bad-lvl", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": bad_m}}),
                 Duration::from_secs(15),
             )
             .unwrap();
         let leg_set = stdio_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "stdio-leg-set",
-                    "method": "logging/setLevel",
-                    "params": with_modern_meta("stdio-leg-set", json!({"level": "info"}))
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "stdio-leg-set", "method": "logging/setLevel", "params": with_modern_meta("stdio-leg-set", json!({"level": "info"}))}),
                 Duration::from_secs(15),
             )
             .unwrap();
         let leg_sub = stdio_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "stdio-leg-sub",
-                    "method": "resources/subscribe",
-                    "params": with_modern_meta("stdio-leg-sub", json!({"uri": "susi://tools"}))
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "stdio-leg-sub", "method": "resources/subscribe", "params": with_modern_meta("stdio-leg-sub", json!({"uri": "susi://tools"}))}),
                 Duration::from_secs(15),
             )
             .unwrap();
         // Platform CRLF framing test over shipped stdio pipe (`BoundedLines` handles `\r\n`).
         let crlf_req = format!(
             "{}\r\n",
-            json!({
-                "jsonrpc": "2.0",
-                "id": "stdio-crlf",
-                "method": "server/discover",
-                "params": {"_meta": modern_meta("stdio-crlf")}
-            })
+            json!({ "jsonrpc": "2.0", "id": "stdio-crlf", "method": "server/discover", "params": {"_meta": modern_meta("stdio-crlf")}})
         );
         stdio_mod.send_raw(crlf_req.as_bytes());
         let crlf_ans = stdio_mod
@@ -881,12 +743,7 @@ fn gmcp_req_203_012_05_interop() {
         let mut stdio_leg = StdioSession::spawn(root, &home);
         let leg_listen = stdio_leg
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "stdio-leg-listen",
-                    "method": "subscriptions/listen",
-                    "params": {"notifications": {"toolsListChanged": true}}
-                }),
+                &json!({ "jsonrpc": "2.0", "id": "stdio-leg-listen", "method": "subscriptions/listen", "params": {"notifications": {"toolsListChanged": true}}}),
                 Duration::from_secs(15),
             )
             .unwrap();
@@ -914,20 +771,7 @@ fn gmcp_req_203_012_05_interop() {
     sub_stream
         .set_read_timeout(Some(Duration::from_secs(15)))
         .unwrap();
-    let http_sub_body = json!({
-        "jsonrpc": "2.0",
-        "id": "diff-sub-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "toolsListChanged": true,
-                "promptsListChanged": true,
-                "resourcesListChanged": true,
-                "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]
-            },
-            "_meta": modern_meta("diff-sub-1")
-        }
-    })
+    let http_sub_body = json!({ "jsonrpc": "2.0", "id": "diff-sub-1", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "promptsListChanged": true, "resourcesListChanged": true, "resourceSubscriptions": ["susi://tools", "susi://tools", "sealed://denied"]}, "_meta": modern_meta("diff-sub-1")}})
     .to_string();
     let sub_req = format!(
         "POST /mcp HTTP/1.1\r\nHost: {http_addr}\r\nAuthorization: {auth_header}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: subscriptions/listen\r\nContent-Length: {}\r\n\r\n{http_sub_body}",
@@ -965,12 +809,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Name", "ledger_verify"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "http-silent",
-                "method": "tools/call",
-                "params": with_modern_meta("http-silent", json!({"name": "ledger_verify", "arguments": {}}))
-            })
+            &json!({ "jsonrpc": "2.0", "id": "http-silent", "method": "tools/call", "params": with_modern_meta("http-silent", json!({"name": "ledger_verify", "arguments": {}}))})
             .to_string(),
         ),
     );
@@ -990,12 +829,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Name", "susi_restricted_probe"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "http-restr",
-                "method": "tools/call",
-                "params": with_modern_meta("http-restr", json!({"name": "susi_restricted_probe", "arguments": {}}))
-            })
+            &json!({ "jsonrpc": "2.0", "id": "http-restr", "method": "tools/call", "params": with_modern_meta("http-restr", json!({"name": "susi_restricted_probe", "arguments": {}}))})
             .to_string(),
         ),
     );
@@ -1013,12 +847,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Name", "ledger_verify"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "http-bad",
-                "method": "tools/call",
-                "params": {"name": "ledger_verify", "arguments": {}, "_meta": http_bad_m}
-            })
+            &json!({ "jsonrpc": "2.0", "id": "http-bad", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": http_bad_m}})
             .to_string(),
         ),
     );
@@ -1033,12 +862,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Method", "logging/setLevel"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "http-leg-set",
-                "method": "logging/setLevel",
-                "params": with_modern_meta("http-leg-set", json!({"level": "info"}))
-            })
+            &json!({ "jsonrpc": "2.0", "id": "http-leg-set", "method": "logging/setLevel", "params": with_modern_meta("http-leg-set", json!({"level": "info"}))})
             .to_string(),
         ),
     );
@@ -1054,12 +878,7 @@ fn gmcp_req_203_012_05_interop() {
             ("Mcp-Name", "susi://tools"),
         ],
         Some(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "http-leg-sub",
-                "method": "resources/subscribe",
-                "params": with_modern_meta("http-leg-sub", json!({"uri": "susi://tools"}))
-            })
+            &json!({ "jsonrpc": "2.0", "id": "http-leg-sub", "method": "resources/subscribe", "params": with_modern_meta("http-leg-sub", json!({"uri": "susi://tools"}))})
             .to_string(),
         ),
     );
@@ -1253,11 +1072,7 @@ fn gmcp_req_203_012_05_interop() {
                                     threshold,
                                     lvl,
                                     Some("prop-8".into()),
-                                    json!({
-                                        "level": format!("{lvl:?}"),
-                                        "secret": "API_KEY=sk-proj-secret1234567890",
-                                        "safe": "preserved-field"
-                                    }),
+                                    json!({ "level": format!("{lvl:?}"), "secret": "API_KEY=sk-proj-secret1234567890", "safe": "preserved-field"}),
                                 )
                                 .await;
                         }
@@ -1376,12 +1191,7 @@ fn gmcp_req_203_012_05_interop() {
     let mut slow_meta = modern_meta("prop-slow-1");
     slow_meta["progressToken"] = json!("shared-tok");
     pclient.pending.clear();
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "prop-slow-1",
-        "method": "tools/call",
-        "params": {"name": "prop_slow_prog", "arguments": {}, "_meta": slow_meta}
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "id": "prop-slow-1", "method": "tools/call", "params": {"name": "prop_slow_prog", "arguments": {}, "_meta": slow_meta}}));
     runtime
         .block_on(async {
             tokio::time::timeout(Duration::from_secs(10), slow_entered.notified()).await
@@ -1395,11 +1205,7 @@ fn gmcp_req_203_012_05_interop() {
         json!({"name": "ledger_verify", "arguments": {}, "_meta": dup_meta}),
     );
     assert_eq!(dup_err["error"]["code"], -32602);
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "prop-slow-1"}
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "prop-slow-1"}}));
     let _ = pclient.call(
         "prop-barrier-cancel",
         "server/discover",
@@ -1419,12 +1225,7 @@ fn gmcp_req_203_012_05_interop() {
     // Token is reusable immediately after cancellation.
     let mut reuse_meta = modern_meta("prop-slow-reuse");
     reuse_meta["progressToken"] = json!("shared-tok");
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "prop-slow-reuse",
-        "method": "tools/call",
-        "params": {"name": "prop_slow_prog", "arguments": {}, "_meta": reuse_meta}
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "id": "prop-slow-reuse", "method": "tools/call", "params": {"name": "prop_slow_prog", "arguments": {}, "_meta": reuse_meta}}));
     runtime
         .block_on(async {
             tokio::time::timeout(Duration::from_secs(10), slow_entered.notified()).await
@@ -1436,18 +1237,7 @@ fn gmcp_req_203_012_05_interop() {
 
     // Runtime ResourceGuard revocation stops resource_updated on live stream + 16-stream & 256-URI caps.
     pclient.pending.clear();
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "acl-sub-0",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {
-                "toolsListChanged": true,
-                "resourceSubscriptions": ["susi://tools", "susi://acl-revoked"]
-            },
-            "_meta": modern_meta("acl-sub-0")
-        }
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "id": "acl-sub-0", "method": "subscriptions/listen", "params": { "notifications": { "toolsListChanged": true, "resourceSubscriptions": ["susi://tools", "susi://acl-revoked"]}, "_meta": modern_meta("acl-sub-0")}}));
     let _ = pclient.take("acl-sub-0 ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "acl-sub-0"
@@ -1481,25 +1271,14 @@ fn gmcp_req_203_012_05_interop() {
     let over_uri_err = pclient.call(
         "over-uris",
         "subscriptions/listen",
-        json!({
-            "notifications": {"resourceSubscriptions": over_uris},
-            "_meta": modern_meta("over-uris")
-        }),
+        json!({ "notifications": {"resourceSubscriptions": over_uris}, "_meta": modern_meta("over-uris")}),
     );
     assert_eq!(over_uri_err["error"]["code"], -32602);
 
     // Fill remaining 1..16 subscription slots; 17th fails; cancel one slot & verify replacement succeeds.
     for i in 1..MAX_ACTIVE_SUBSCRIPTIONS_PER_SESSION {
         let sid = format!("cap-sub-{i}");
-        pclient.send(&json!({
-            "jsonrpc": "2.0",
-            "id": sid,
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"toolsListChanged": true},
-                "_meta": modern_meta(&sid)
-            }
-        }));
+        pclient.send(&json!({ "jsonrpc": "2.0", "id": sid, "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta(&sid)}}));
         let _ = pclient.take(&sid, |m| {
             m["method"] == "notifications/subscriptions/acknowledged"
                 && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == sid
@@ -1508,31 +1287,16 @@ fn gmcp_req_203_012_05_interop() {
     let cap_overflow = pclient.call(
         "cap-over-17",
         "subscriptions/listen",
-        json!({
-            "notifications": {"toolsListChanged": true},
-            "_meta": modern_meta("cap-over-17")
-        }),
+        json!({ "notifications": {"toolsListChanged": true}, "_meta": modern_meta("cap-over-17")}),
     );
     assert_eq!(cap_overflow["error"]["code"], -32602);
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "cap-sub-1"}
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "cap-sub-1"}}));
     let _ = pclient.call(
         "cap-barrier",
         "server/discover",
         json!({"_meta": modern_meta("cap-barrier")}),
     );
-    pclient.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "cap-replace",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"toolsListChanged": true},
-            "_meta": modern_meta("cap-replace")
-        }
-    }));
+    pclient.send(&json!({ "jsonrpc": "2.0", "id": "cap-replace", "method": "subscriptions/listen", "params": { "notifications": {"toolsListChanged": true}, "_meta": modern_meta("cap-replace")}}));
     let _ = pclient.take("cap-replace ack", |m| {
         m["method"] == "notifications/subscriptions/acknowledged"
             && m["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] == "cap-replace"
@@ -1680,22 +1444,10 @@ fn gmcp_req_203_012_05_interop() {
             b
         };
         for (w, id) in [(&mut sc_w, "lag-init-s"), (&mut hc_w, "lag-init-h")] {
-            w.write_all(&send_line(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2026-07-28",
-                    "capabilities": {},
-                    "clientInfo": {"name": id, "version": "1"}
-                }
-            })))
+            w.write_all(&send_line(json!({ "jsonrpc": "2.0", "id": id, "method": "initialize", "params": { "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": id, "version": "1"}}})))
             .await
             .unwrap();
-            w.write_all(&send_line(json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized"
-            })))
+            w.write_all(&send_line(json!({ "jsonrpc": "2.0", "method": "notifications/initialized"})))
             .await
             .unwrap();
         }
@@ -1710,15 +1462,7 @@ fn gmcp_req_203_012_05_interop() {
             .unwrap();
 
         for (w, id) in [(&mut sc_w, "lag-s"), (&mut hc_w, "lag-h")] {
-            w.write_all(&send_line(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "subscriptions/listen",
-                "params": {
-                    "notifications": {"resourceSubscriptions": ["susi://tools"]},
-                    "_meta": modern_meta(id)
-                }
-            })))
+            w.write_all(&send_line(json!({ "jsonrpc": "2.0", "id": id, "method": "subscriptions/listen", "params": { "notifications": {"resourceSubscriptions": ["susi://tools"]}, "_meta": modern_meta(id)}})))
             .await
             .unwrap();
         }
@@ -1774,12 +1518,7 @@ fn gmcp_req_203_012_05_interop() {
             }
         }
         while hrx.try_recv().is_ok() {}
-        hc_w.write_all(&send_line(json!({
-            "jsonrpc": "2.0",
-            "id": "h-disc",
-            "method": "server/discover",
-            "params": {"_meta": modern_meta("h-disc")}
-        })))
+        hc_w.write_all(&send_line(json!({ "jsonrpc": "2.0", "id": "h-disc", "method": "server/discover", "params": {"_meta": modern_meta("h-disc")}})))
         .await
         .unwrap();
         let mut got_h = false;
