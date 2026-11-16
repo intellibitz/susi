@@ -46,5 +46,6 @@
                    ".agents/tasks/done/T-GAWDSUITESE4T1104-1.json",
                    ".agents/tasks/done/T-GEMIDLCTRL1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "13f6e780a3d49f0ce2244dd126ad3411b2a1ef2f"
 }
