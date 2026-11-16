@@ -5,8 +5,8 @@
 //! Integer initialization selects staged official v1; legacy Susi ACP callers
 //! keep their existing dialect. V1 MCP peers belong to their individual session.
 //! Agent Communication Protocol is a separate protocol. Lazy substrate composition
-//! runs on the first `session/prompt` turn so the
-//! initial protocol handshake completes in a few milliseconds.
+//! runs during supplied MCP setup or the first prompt;
+//! the initialize handshake completes before that composition.
 
 use crate::anyhow::Result;
 use std::io;
