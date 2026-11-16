@@ -2233,6 +2233,10 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "review an open task nobody has claimed or touched for 14 days",
         "history, completed tasks, growing facts, evidence and audit records belong outside",
         "historical records may be absent",
+        "Keep goals tidy",
+        "record each one once, in the words it was given, and never edit it",
+        "never strip the link when rewriting the task",
+        "create-only carried note, which never claims the goal met",
         "Missing history never proves acceptance",
         "artifact provenance with the artifact",
         "current contract in place",
@@ -2286,6 +2290,9 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     }
     assert!(flat("crates/susi-core/src/self_build.rs")
         .contains("Keep active coordination and task records minimal, true and"));
+    assert!(
+        flat("crates/susi-core/src/self_build.rs").contains("Link and revisit unfulfilled goals")
+    );
     for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
         let text = flat(path);
         assert!(text.contains("AGENTS.md") || path == "AGENTS.md");

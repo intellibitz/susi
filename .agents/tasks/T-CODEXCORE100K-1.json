@@ -11,7 +11,7 @@
       "core-size"
     ]
   },
-  "goal": "Keep the complete generic standards socket below 100,000 physical runtime Rust lines. Concrete implementations belong in separately hosted implementation packages; retain capabilities through verified standard-protocol connections. Runtime and current documentation are identity-neutral. Operational history and evidence belong outside source.",
+  "goal": "Vision: V-6. Keep the complete generic standards socket below 100,000 physical runtime Rust lines. Concrete implementations belong in separately hosted implementation packages; retain capabilities through verified standard-protocol connections. Runtime and current documentation are identity-neutral. Operational history and evidence belong outside source.",
   "deps": [],
   "scopes": [
     ".agents/tasks/T-CODEXCORE100K-1.json",
