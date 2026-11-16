@@ -1,0 +1,13 @@
+{
+  "branch": "claude-code-tidy",
+  "task": "T-AGENTCLAUDECODETIDY-1",
+  "agent": "AGENTCLAUDECODETIDY",
+  "head": "5bb0f8fb67e3c7c7db07e0d99530ef776951bed6",
+  "closed_unix": 1794849930,
+  "scopes": [
+    "AGENTS.md",
+    "Cargo.toml",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs"
+  ]
+}
