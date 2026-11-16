@@ -46,5 +46,6 @@
                    ".agents/tasks/done/T-UNSAFERATCHET1104-1.json",
                    ".agents/tasks/done/T-VENDORMODELS4T1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "1d940748189e5f5df1dc211821eaea8dc3399f7e"
 }
