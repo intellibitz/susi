@@ -38,9 +38,9 @@
     "reason": "Reuse current catalog/dispatch/authority paths with an opaque Arc context; no dependency, protocol credential serialization or globally registered session tool."
   },
   "coordination": "Scoped child implementation; parent integrates root ACP factory and GEMI wiring before main publication. No push or external Board messages. Board read item1708 had no stops or requests.",
-  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim. Follow-up: carry narrower current cancellation through scoped parallel-map and both recovery worker boundaries; preserve unscoped worker behavior.",
+  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim. Follow-up: carry narrower current cancellation through scoped parallel-map and both recovery worker boundaries; preserve unscoped worker behavior. Follow-up: explicitly carry the existing watched progress sink through parallel, cancellable and recovery workers for scoped and unscoped requests, keeping protocol diagnostics off stdout.",
   "validation": {
-    "scoped_core_tests": 7,
+    "scoped_core_tests": 8,
     "scoped_tools_tests": 4,
     "plane_tests": 37,
     "registry_tests": 13,
@@ -49,7 +49,8 @@
     "clippy": "cargo clippy --offline --locked -p susi-core -p susi-tools -p susi-gawd-swarm --lib -- -D warnings passed",
     "format": "cargo fmt --all --check passed",
     "fixtures": "Tools tests use env-cleared child processes in private temporary roots; no paid/external calls or Board posts.",
-    "handoff_followup": "Scoped core 7 and cloud recovery 17 pass; affected core/swarm library clippy -D warnings passed. Regression observes exact child-token identity on parallel workers, child cancellation without parent cancellation, parent refusal while child remains live, and unscoped workers retaining prior behavior."
+    "handoff_followup": "Scoped core 7 and cloud recovery 17 pass; affected core/swarm library clippy -D warnings passed. Regression observes exact child-token identity on parallel workers, child cancellation without parent cancellation, parent refusal while child remains live, and unscoped workers retaining prior behavior.",
+    "sink_followup": "Scoped core 8, cancellation 12 and recovery 17 tests pass; core/swarm clippy -D warnings and fmt pass. Parallel and cancellable tests verify sink handoff with and without scoped tools, plus restoration/unwatched behavior."
   },
   "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim."
 }

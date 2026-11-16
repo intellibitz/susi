@@ -258,6 +258,7 @@ where
     };
     let (sender, receiver) = sync_channel(1);
     let tools = crate::susi_core::scoped_tools::current();
+    let sink = crate::susi_core::progress::current();
     let evidence = tools
         .as_ref()
         .and_then(|_| crate::susi_core::capture::EvidenceSession::current());
@@ -288,7 +289,9 @@ where
                 let _evidence = tools
                     .as_ref()
                     .map(|_| crate::susi_core::capture::EvidenceSession::enter(evidence));
-                crate::susi_core::progress::with_cancel(worker_cancel, operation)
+                crate::susi_core::progress::with_sink(sink, || {
+                    crate::susi_core::progress::with_cancel(worker_cancel, operation)
+                })
             });
             let _ = sender.send(value);
         })
@@ -703,6 +706,25 @@ mod inline_tests {
         assert_eq!(result, CancellableResult::DeadlineExceeded);
         assert!(observed.recv_timeout(Duration::from_secs(2)).unwrap());
         assert!(!parent.load(Ordering::Acquire));
+
+        // Protocol diagnostics use the existing watched sink even when
+        // the request owns no MCP tools (legacy and empty-MCP ACP turns).
+        for owner in [None, Some(ToolScope::new(Arc::new(Owner), parent.clone()))] {
+            let lines = Arc::new(Mutex::new(Vec::new()));
+            let output = lines.clone();
+            let sink: crate::susi_core::progress::Sink =
+                Arc::new(move |line| output.lock().unwrap().push(line.to_owned()));
+            scoped_tools::with_scope(owner, || {
+                crate::susi_core::progress::with_sink(Some(sink), || {
+                    run_cancellable(&CancellationHandle::new(), || {
+                        crate::susi_core::progress::report("worker diagnostic")
+                    })
+                    .unwrap();
+                })
+            });
+            assert_eq!(*lines.lock().unwrap(), vec!["worker diagnostic"]);
+            assert!(crate::susi_core::progress::current().is_none());
+        }
     }
 
     #[test]

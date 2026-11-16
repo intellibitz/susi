@@ -198,3 +198,31 @@ fn scoped_tools_parallel_handoff_leaves_unscoped_worker_behavior_unchanged() {
         assert!(crate::progress::is_cancelled());
     });
 }
+
+#[test]
+fn scoped_tools_parallel_workers_handoff_watched_progress_with_or_without_tools() {
+    let (_, scope, _) = probe("ok");
+    for owner in [None, Some(scope)] {
+        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let output = lines.clone();
+        let sink: crate::progress::Sink =
+            Arc::new(move |line| output.lock().unwrap().push(line.to_owned()));
+        with_scope(owner, || {
+            crate::progress::with_sink(Some(sink), || {
+                crate::parallel::map((0..16).collect(), |item| {
+                    crate::progress::report(&item.to_string())
+                });
+            })
+        });
+        let mut lines = lines.lock().unwrap().clone();
+        lines.sort();
+        let mut expected: Vec<_> = (0..16).map(|item| item.to_string()).collect();
+        expected.sort();
+        assert_eq!(lines, expected);
+        assert!(crate::progress::current().is_none());
+    }
+    assert_eq!(
+        crate::parallel::map((0..16).collect(), |_| crate::progress::current().is_some()),
+        vec![false; 16]
+    );
+}

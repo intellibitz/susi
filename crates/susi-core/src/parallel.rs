@@ -31,6 +31,7 @@ where
     let queue: Mutex<VecDeque<(usize, T)>> = Mutex::new(items.into_iter().enumerate().collect());
     let results: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::with_capacity(count));
     let tools = crate::scoped_tools::current();
+    let sink = crate::progress::current();
     let evidence = tools
         .as_ref()
         .and_then(|_| crate::capture::EvidenceSession::current());
@@ -44,16 +45,18 @@ where
                     let _evidence = tools
                         .as_ref()
                         .map(|_| crate::capture::EvidenceSession::enter(evidence.clone()));
-                    crate::progress::with_cancel(cancel.clone(), || loop {
-                        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
-                        let Some((index, item)) = next else {
-                            break;
-                        };
-                        let result = f(item);
-                        results
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .push((index, result));
+                    crate::progress::with_sink(sink.clone(), || {
+                        crate::progress::with_cancel(cancel.clone(), || loop {
+                            let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+                            let Some((index, item)) = next else {
+                                break;
+                            };
+                            let result = f(item);
+                            results
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push((index, result));
+                        })
                     })
                 })
             });
