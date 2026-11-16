@@ -1,0 +1,56 @@
+{
+  "schema": "susi.task_record/v1",
+  "id": "T-AG3LANDEDOPEN-3",
+  "title": "Audit and archive 9 verified schema-debt landed task records and prune schema debt",
+  "goal": "Prove git commit ancestry on origin/main, run each task's acceptance command on current HEAD, archive 9 verified legacy landed task records (T-GRANTSTORAGE-1, T-JOURNEYLOCK-1..5, T-STEP1B-1, T-STEP1C-1, T-STEP1D-1) into .agents/tasks/done/ with normalized creation provenance, and remove their 9 resolved entries from tests/task_record_schema_debt.json.",
+  "size": "m",
+  "state": "open",
+  "status": "in_progress",
+  "deps": [
+    "T-AG3LANDEDOPEN-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "AG3HOUSEKEEP",
+  "created_unix": 1794818675,
+  "authored": true,
+  "base_commit": "5b739d7a083110a1dde7b0df895f7e45d7361b93",
+  "notes": "Archives 9 legacy landed tasks from v0.21.39-v0.21.43 whose implementation commits are ancestors of origin/main and whose accept.cmd passed on current Linux x86_64 HEAD, reducing tests/task_record_schema_debt.json from 24 to 15 entries. Leaves failing/pending-receipt/Windows-only debt records untouched.",
+  "reuse": {
+    "decision": "existing",
+    "searched": "tests/task_records.rs, tests/task_record_schema_debt.json, tests/architecture_tests.rs, .agents/tasks/done/T-AG3DONEDEBT-6.json in Susi Core",
+    "target": "tests/task_records.rs",
+    "reason": "Reuses the existing susi.task_record/v1 closed-task schema and task_record_schema_debt ratchet without adding code or dependencies."
+  },
+  "scopes": [
+    ".agents/tasks/T-AG3LANDEDOPEN-3.json",
+    ".agents/tasks/done/T-AG3LANDEDOPEN-3.json",
+    "tests/task_record_schema_debt.json",
+    ".agents/tasks/T-GRANTSTORAGE-1.json",
+    ".agents/tasks/done/T-GRANTSTORAGE-1.json",
+    ".agents/tasks/T-JOURNEYLOCK-1.json",
+    ".agents/tasks/done/T-JOURNEYLOCK-1.json",
+    ".agents/tasks/T-JOURNEYLOCK-2.json",
+    ".agents/tasks/done/T-JOURNEYLOCK-2.json",
+    ".agents/tasks/T-JOURNEYLOCK-3.json",
+    ".agents/tasks/done/T-JOURNEYLOCK-3.json",
+    ".agents/tasks/T-JOURNEYLOCK-4.json",
+    ".agents/tasks/done/T-JOURNEYLOCK-4.json",
+    ".agents/tasks/T-JOURNEYLOCK-5.json",
+    ".agents/tasks/done/T-JOURNEYLOCK-5.json",
+    ".agents/tasks/T-STEP1B-1.json",
+    ".agents/tasks/done/T-STEP1B-1.json",
+    ".agents/tasks/T-STEP1C-1.json",
+    ".agents/tasks/done/T-STEP1C-1.json",
+    ".agents/tasks/T-STEP1D-1.json",
+    ".agents/tasks/done/T-STEP1D-1.json"
+  ]
+}
