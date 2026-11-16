@@ -36,3 +36,18 @@ This change adds a three-value core taxonomy and normalizes legacy
 ACP/harness harvest-routing inputs to GAWD, retaining protocol compatibility and
 commercial refusal precedence. Test outcomes are recorded separately.
 This document does not establish Step 1 completion or waive ownership checks.
+
+## Implementation truth
+
+- **Held by code and tests:** `crates/susi-core/src/pillars.rs` defines exactly
+  three pillars (`CorePillar::ALL`) and maps the legacy `a2a`, `acp`,
+  `harness` and `swarm` capability names to GAWD
+  (`exactly_three_canonical_pillars`,
+  `gawd_owns_a2a_acp_and_parallel_harness_capabilities`). `tests/three_pillars_governance.rs` keeps
+  the current guidance (`AGENTS.md`, `README.md` and Mandates 74, 75, 79 and
+  81) naming three core pillars with no stale five-pillar wording, and keeps
+  this document's capability, cadence and release boundaries.
+- **Not enforced:** the ten-minute integration review is a cadence agents keep;
+  no timer runs it and nothing refuses work when it is missed. The acceptance
+  targets (fast, zero-configuration, self-correcting, self-improving) are goals
+  to measure, not checks a tool runs. Step 1 is not declared complete.

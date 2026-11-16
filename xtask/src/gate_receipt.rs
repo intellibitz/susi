@@ -1,20 +1,18 @@
-//! Gate receipts: the machine-checkable, third-party re-runnable record of a
-//! gated landing, kept in the repository.
+//! Gate receipts: exact-head verification records retained in local Git metadata.
 //!
-//! `cargo local-workflow ship` verifies a merge commit `H` (the integration
-//! head) and, before anything is published, writes
-//! `.agents/receipts/<H>.json` into a receipt-only commit `R` whose parent is
-//! `H`. `R` is what reaches `origin/main`; `H` stays the commit the receipt
-//! describes, so the receipt can name the exact tree the gate ran on without
-//! the file having to contain its own hash. The receipt carries the exact
-//! `cargo` commands the gate ran (with the slot's `--target-dir` removed so no
-//! operator path is recorded), their exit codes and durations, the test
-//! binaries with their pass/fail/ignored counts, the toolchain (`rustc -vV`
-//! text and its SHA-256, the host triple), the `origin/main` the landing
-//! merged onto, the SHA-256 of `Cargo.lock` at `H`, and a SHA-256 digest of
-//! the body. `cargo xtask verify-receipt <commit>` re-runs the recorded
-//! commands against `H` in a scratch worktree and reports which results match
-//! ([`verify`]).
+//! `cargo local-workflow ship` verifies integration head `H` and retains a
+//! receipt-only child `R` under `refs/susi/receipts/<H>`. Only `H` reaches
+//! `origin/main`; neither the worktree nor the published tree gains a history
+//! file. The private child contains `.agents/receipts/<H>.json`, preserving
+//! the existing receipt schema and exact parent/tree binding. An ordinary
+//! clone does not fetch this local record; `--receipt <file>` accepts an
+//! explicitly supplied copy, and old committed receipts remain readable.
+//! Missing records never prove a passing gate or qualify a release.
+//!
+//! Receipts carry the observed commands, results, toolchain and lockfile digest.
+//! `cargo xtask verify-receipt <commit>` re-runs recorded commands against the
+//! identified tree in an isolated worktree ([`verify`]). Required release
+//! provenance remains with the released artifact independently of this history.
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
@@ -1625,8 +1623,8 @@ fn receipt_from_bytes(bytes: &[u8]) -> Result<Value> {
     Ok(serde_json::from_slice(bytes)?)
 }
 
-/// Locate the receipt for `commit`: `options.receipt_path`, else the
-/// working tree's `.agents/receipts/<commit>.json`, else `HEAD`'s copy. When
+/// Locate the receipt for `commit`: `options.receipt_path`, then the verified
+/// local receipt ref, then a legacy working-tree or `HEAD` copy. When
 /// `commit` is itself a receipt-only commit (`R`), its parent `H` is the
 /// verified head and the receipt is read from `R`'s tree. Returns
 /// `(verified head, receipt, where it came from)`.
@@ -1640,6 +1638,15 @@ pub fn locate(root: &Path, commit: &str, options: &Options) -> Result<(String, V
         return Ok((resolved, receipt, path.display().to_string()));
     }
     let own = path_for(&resolved);
+    if let Some(retained) = receipt_commit(root, &resolved)? {
+        let bytes = tree_blob(root, &retained, &own)?
+            .ok_or("retained receipt file missing from receipt commit")?;
+        return Ok((
+            resolved.clone(),
+            receipt_from_bytes(&bytes)?,
+            format!("{}:{own}", ref_for(&resolved)),
+        ));
+    }
     let in_tree = root.join(&own);
     if in_tree.is_file() {
         let receipt = receipt_from_bytes(&fs::read(&in_tree)?)?;
@@ -1661,7 +1668,7 @@ pub fn locate(root: &Path, commit: &str, options: &Options) -> Result<(String, V
         }
     }
     Err(format!(
-        "no receipt for {resolved}: expected {own} in the working tree or at HEAD (pass --receipt <file> to supply one)"
+        "no receipt for {resolved}: no retained local receipt or legacy {own} (pass --receipt <file> to supply one)"
     )
     .into())
 }
@@ -1787,25 +1794,28 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
     ));
     // The receipt commit: `H`'s child adding exactly this file.
     let own = path_for(&head);
-    let adding = git(
-        root,
-        &[
-            "log",
-            "--format=%H",
-            "--diff-filter=A",
-            "-n",
-            "1",
-            "HEAD",
-            "--",
-            &own,
-        ],
-    )
-    .unwrap_or_default();
+    let adding = match receipt_commit(root, &head)? {
+        Some(retained) => retained,
+        None => git(
+            root,
+            &[
+                "log",
+                "--format=%H",
+                "--diff-filter=A",
+                "-n",
+                "1",
+                "HEAD",
+                "--",
+                &own,
+            ],
+        )
+        .unwrap_or_default(),
+    };
     if adding.is_empty() {
         report.checks.push(Check::skipped(
             "receipt commit",
             "receipt-only child of the verified head",
-            "no commit in HEAD's history adds this receipt",
+            "no retained receipt commit or legacy addition in HEAD history",
         ));
     } else {
         match check_receipt_only(root, &head, &adding) {

@@ -2247,6 +2247,13 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Missing history never proves acceptance",
         "artifact provenance with the artifact",
         "current contract in place",
+        "Keep the contract tidy",
+        "State each rule once",
+        "point to it elsewhere instead of copying it",
+        "no two current texts disagree",
+        "Keep every link and named command resolving",
+        "every implementation-truth note true",
+        "Agent rule files stay identical pointers that restate nothing",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2300,6 +2307,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     assert!(
         flat("crates/susi-core/src/self_build.rs").contains("Link and revisit unfulfilled goals")
     );
+    assert!(flat("crates/susi-core/src/self_build.rs").contains("keep the contract tidy, in place"));
     for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
         let text = flat(path);
         assert!(text.contains("AGENTS.md") || path == "AGENTS.md");

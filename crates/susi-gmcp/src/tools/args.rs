@@ -1328,7 +1328,7 @@ pub struct HarnessRun {
     pub ledger: Option<String>,
     /// Absolute control log path (default: out/control.jsonl in the repository).
     pub controls: Option<String>,
-    /// Absolute lifecycle ledger path (default: .agents/rsi-loop.jsonl in the repository).
+    /// Absolute lifecycle ledger path (default: .susi/records/rsi-loop.jsonl in the repository).
     pub rsi_log: Option<String>,
     /// Absolute adapter state directory (default: harness-state in the repository).
     pub adapter_state: Option<String>,

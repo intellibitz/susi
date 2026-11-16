@@ -12,8 +12,8 @@ pub(in crate::local_workflow) fn require_ship_ref(git_ref: &str) -> Result<()> {
 }
 
 /// The git remote a ship fetches `main` from and fast-forwards. Plain git
-/// only: GitHub is storage (CEO mandate 2026-11-09), so a landing posts
-/// nothing to the host; its receipt commit is the record.
+/// only: a landing sends no hosted messages; its gate receipt stays in the
+/// clone's local Git metadata.
 pub(in crate::local_workflow) trait Remote {
     fn fetch_main(&mut self, root: &Path) -> Result<String>;
     fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()>;
@@ -111,9 +111,8 @@ impl Remote for GitRemote {
     }
 }
 
-/// What a ship published: `head` is the commit now on origin/main (the
-/// receipt commit), `merge` the verified integration head it sits on and
-/// whose receipt it carries.
+/// What a ship published: `head` and `merge` name the verified integration
+/// head now on origin/main. The gate receipt remains a separate local record.
 #[derive(Debug)]
 pub(in crate::local_workflow) struct ShipReport {
     pub(in crate::local_workflow) head: String,
@@ -585,10 +584,9 @@ pub(in crate::local_workflow) fn record_acceptance(
             transaction.push_str(&format!("create {native_ref} {native_oid}\n"));
         }
     }
-    // The public gate receipt: `.agents/receipts/<head>.json` in a
-    // receipt-only commit on top of the verified head, recorded in the same
-    // ref transaction. `publish_head` pushes that commit; without it nothing
-    // is published.
+    // Retain the gate receipt as a private child commit in the same local
+    // ref transaction. Publication sends only the verified head; without
+    // the retained exact-head receipt nothing is published.
     let sources: Vec<serde_json::Value> = inputs
         .iter()
         .map(|input| {
@@ -997,9 +995,9 @@ pub(in crate::local_workflow) fn publish_head(
     evidence: &[String],
     remote: &mut dyn Remote,
 ) -> Result<ShipReport> {
-    // What reaches origin/main is the receipt commit: the verified head plus
-    // `.agents/receipts/<head>.json`. No receipt, no publication.
-    let published = gate_receipt::receipt_commit(root, head)
+    // Require the retained exact-head proof, but publish only the verified
+    // source tree. Operational history never adds a file to origin/main.
+    gate_receipt::receipt_commit(root, head)
         .map_err(|error| format!("gate receipt for {head}: {error}; nothing published"))?
         .ok_or_else(|| {
             format!(
@@ -1010,19 +1008,19 @@ pub(in crate::local_workflow) fn publish_head(
     // Every gate passed on the head being published (checked again here, before
     // the push, where the status posts used to read the same evidence after it).
     require_ship_evidence(evidence)?;
-    remote.push_ref(root, &published, "refs/heads/main")?;
+    remote.push_ref(root, head, "refs/heads/main")?;
     Ok(ShipReport {
-        head: published,
+        head: head.to_owned(),
         merge: head.to_owned(),
     })
 }
 
 pub(in crate::local_workflow) fn print_ship(report: &ShipReport) {
     println!(
-        "Shipped {} directly to origin/main: verified merge {}, gate receipt {} (verify with `cargo xtask verify-receipt {}`).",
+        "Shipped {} directly to origin/main: verified merge {}, local gate receipt {} (verify with `cargo xtask verify-receipt {}`).",
         report.head,
         report.merge,
-        gate_receipt::path_for(&report.merge),
+        gate_receipt::ref_for(&report.merge),
         report.merge
     );
 }

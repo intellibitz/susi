@@ -1,6 +1,6 @@
 //! The self-build lifecycle ledger.
 //!
-//! `scripts/check-rsi-scorecard.py` reads `.agents/rsi-loop.jsonl` for the
+//! The native RSI scorecard reads `.susi/records/rsi-loop.jsonl` for the
 //! facts git cannot supply: what a task cost and what went wrong. The harness
 //! is the component that knows both — the gateway prices every call and the
 //! supervisor sees every failed attempt — so it writes the events.
@@ -26,7 +26,7 @@ use std::path::Path;
 use susi_error::{EaiError, EaiResult};
 
 /// Where the scorecard looks for lifecycle events by default.
-pub const DEFAULT_LIFECYCLE_PATH: &str = ".agents/rsi-loop.jsonl";
+pub const DEFAULT_LIFECYCLE_PATH: &str = ".susi/records/rsi-loop.jsonl";
 
 /// One lifecycle event, in the scorecard's schema.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
