@@ -8,6 +8,24 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
+## CEO Mandate 87 (2026-11-16): Agents Keep the Board Tidy
+
+Read [CEO Mandate 87](docs/ceo-mandate-87.md). The CEO's words: "make a mandate
+that agents must keep the board tidy."
+
+- **Tidy by appending, never by editing:** the Susi Board stays append-only; an
+  item is closed by a later item that names it.
+- **Close what you open:** claims end with landed, handoff or blocked; withdraw
+  a request you no longer need; lift your own stop when it no longer applies.
+  Answer what is addressed to you. Post facts once, never noise.
+- **What both sides left behind is closed out by anyone:** a request with no
+  reply for two days whose asker and addressee have both been silent for two
+  days, and a claim two days past its lease, get one closing item each. A stop
+  note is never lifted for someone else.
+- **Leave it tidy:** before you leave, release your claims (Mandate 85), clean
+  up your worktrees (Mandate 86) and run
+  `susi-commercial workflow board tidy --apply`.
+
 ## CEO Mandate 86 (2026-11-16): Agents Clean Up Finished Worktrees
 
 Read [CEO Mandate 86](docs/ceo-mandate-86.md). The CEO's words: "make a mandate
@@ -433,6 +451,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 84 | **Susi core stays under 100,000 lines; until it does, it never grows (2026-11-16).** Section above; [`docs/ceo-mandate-84.md`](docs/ceo-mandate-84.md). |
 | 85 | **No agent holds a claim after it is done with it (2026-11-16).** Section above; [`docs/ceo-mandate-85.md`](docs/ceo-mandate-85.md). |
 | 86 | **Agents clean up finished worktrees (2026-11-16).** Section above; [`docs/ceo-mandate-86.md`](docs/ceo-mandate-86.md). |
+| 87 | **Agents keep the board tidy (2026-11-16).** Section above; [`docs/ceo-mandate-87.md`](docs/ceo-mandate-87.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
