@@ -2226,6 +2226,11 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Never remove the primary checkout",
         "unpublished commits or shared build caches",
         "entire acceptance check passes on the actual combined tree",
+        "Keep task records tidy",
+        "an active record's place is its state",
+        "retire one that will not be done with its reason instead of marking it",
+        "add no duplicate",
+        "review an open task nobody has claimed or touched for 14 days",
         "history, completed tasks, growing facts, evidence and audit records belong outside",
         "historical records may be absent",
         "Missing history never proves acceptance",
@@ -2279,6 +2284,8 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
             "active contract lost: {requirement}"
         );
     }
+    assert!(flat("crates/susi-core/src/self_build.rs")
+        .contains("Keep active coordination and task records minimal, true and"));
     for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
         let text = flat(path);
         assert!(text.contains("AGENTS.md") || path == "AGENTS.md");
