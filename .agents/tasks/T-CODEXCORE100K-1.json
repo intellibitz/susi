@@ -11,7 +11,9 @@
     "T-CODEX100KCATALOG-1",
     "T-CODEX100KCLI-1",
     "T-CODEX100KHTTP-1",
-    "T-CODEX100KTELEMETRY-1"
+    "T-CODEX100KTELEMETRY-1",
+    "T-CODEX100KRICH-1",
+    "T-CODEX100KBOOTSTRAP-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -48,14 +50,15 @@
     "Acceptance command checks source size only. This task remains open until behavioral parity and relevant live protocol conformance are also verified."
   ],
   "evidence": [
-    ".agents/evidence/core-under-100k/2026-11-16-initial.json"
+    ".agents/evidence/core-under-100k/2026-11-16-initial.json",
+    ".agents/evidence/core-under-100k/2026-11-16-bootstrap.json"
   ],
   "progress": {
-    "runtime_rust": 300509,
+    "runtime_rust": 299426,
     "vendor_facade_rust": 6454,
-    "complete_socket_rust": 306963,
-    "genuine_runtime_lines_removed": 171,
-    "remaining_to_remove": 206964,
+    "complete_socket_rust": 305880,
+    "genuine_runtime_lines_removed": 1254,
+    "remaining_to_remove": 205881,
     "upstream_runtime_lines_added": 3
   },
   "publication_cadence": {

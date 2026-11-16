@@ -1,0 +1,159 @@
+{
+  "schema": "susi.core-size-progress/v1",
+  "recorded_unix": 1794820809,
+  "integration_base": "949327a49ba5639dd6ab3c44c27a8492bb622521",
+  "baseline_commit": "694a728dab8391402e3d46ddf6076705f67d4d75",
+  "baseline_complete_socket_rust": 307131,
+  "before_batch": 306963,
+  "after_batch": 305880,
+  "batch_runtime_lines_removed": 1083,
+  "cumulative_runtime_lines_removed": 1254,
+  "upstream_runtime_lines_added": 3,
+  "remaining_to_remove": 205881,
+  "strict_limit": 100000,
+  "goal_met": false,
+  "subtasks": [
+    "T-CODEX100KRICH-1",
+    "T-CODEX100KBOOTSTRAP-1"
+  ],
+  "checks": [
+    {
+      "name": "bootstrap-default",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-daemon",
+        "gmcp_bootstrap"
+      ],
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 212 filtered out; finished in 0.51s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "name": "bootstrap-rich",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-daemon",
+        "--features",
+        "tools-rich",
+        "gmcp_bootstrap"
+      ],
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 212 filtered out; finished in 0.46s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "name": "gmcp-rich",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gmcp",
+        "--features",
+        "tools-rich",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 238 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.73s"
+      ]
+    },
+    {
+      "name": "socket-default",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "socket_parity",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "task_records"
+      ],
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s"
+      ]
+    },
+    {
+      "name": "socket-rich",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--features",
+        "tools-rich",
+        "--test",
+        "socket_parity"
+      ],
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s"
+      ]
+    },
+    {
+      "name": "second-goal-check",
+      "cmd": [
+        "cargo",
+        "core-size"
+      ],
+      "exit_code": 101,
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.39s"
+      ],
+      "expected_failure": "One acceptance test executed; 305880 >= 100000, so goal remains unmet."
+    },
+    {
+      "name": "second-format",
+      "cmd": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "test_results": []
+    }
+  ],
+  "compatibility": {
+    "default_tools": 199,
+    "tools_rich": 204,
+    "catalog": "Frozen pristine catalog preserves exact names, descriptions, categories, handler targets, feature gates and registration order.",
+    "behavior": "Success and eight safe error cases agree with existing direct handlers. Five pre-existing unresolved tools-rich references repaired using the original helpers.",
+    "test_coverage": "No existing tests removed. All five old bootstrap tests retained; two executable contract tests added. Source-only socket scan replaced with actual registration checks for both feature sets."
+  },
+  "source_sha256": {
+    "crates/susi-daemon/src/gmcp_bootstrap.rs": "3746f1dc81815ad3027bcf0636274234f6bdfcfd56298005cef06a6029675fd7",
+    "crates/susi-daemon/tests/fixtures/gmcp_bootstrap_catalog.rs": "a965fc0d170539d55eb8dad46662bfb2b351be86a6033fed845b8292d7976fee",
+    "crates/susi-gmcp/src/tools/core/knowledge.rs": "3fb394af6735b0a67aa08362f14d35c26eb0cfef5a864ce34134662847733631",
+    "crates/susi-gmcp/src/tools/core/substrate.rs": "971b1dcd9ca18699437903527efb55f9596eaf0a5511d72ac1fc23f323045129",
+    "tests/socket_parity.rs": "bc4826f9bc0fa1582761bb30073ca8f2906c34f2f16145b9b4ec81790b98b007"
+  },
+  "limitations": [
+    "Linux x86_64 development checks, not a release or full protocol-conformance certification.",
+    "ambient_pulse remains tools-rich-only on MCP; this pre-existing feature condition is now explicit in socket parity.",
+    "Overall under-100k goal remains open."
+  ]
+}
