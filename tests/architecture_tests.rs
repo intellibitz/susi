@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=86).collect::<Vec<_>>(),
+        (1..=87).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2216,6 +2216,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (84, "Susi core stays under 100,000 lines"),
         (85, "No agent holds a claim after it is done with it"),
         (86, "Agents clean up finished worktrees"),
+        (87, "Agents keep the board tidy"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3333,6 +3334,61 @@ fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
     ] {
         assert!(said.contains(words), "V-8 lost the CEO's words: {words}");
     }
+}
+
+/// Mandate 87 (CEO 2026-11-16): agents keep the board tidy.
+#[test]
+fn ceo_mandate_87_keeps_the_board_tidy() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("ceo-mandate-87.md") || text.contains("Mandate 87"),
+            "{path}: Mandate 87 must be discoverable"
+        );
+    }
+    let doc = flat("docs/ceo-mandate-87.md");
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "1. **Tidy by appending, never by editing.**",
+        "2. **Close what you open.**",
+        "3. **Answer what is addressed to you**",
+        "4. **Facts once, never noise.**",
+        "5. **What both sides left behind is closed out by anyone.**",
+        "6. **Leave it tidy.**",
+        "A stop note is never lifted for someone else",
+        "susi-commercial workflow board tidy --apply",
+        "Implementation truth",
+        "**Not enforced:**",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 87 lost requirement: {phrase}"
+        );
+    }
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-12.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        vision["statement"].as_str(),
+        Some("make a mandate that agents must keep the board tidy"),
+        "the CEO's words are recorded as they were given"
+    );
 }
 
 /// Mandate 86 (CEO 2026-11-16): agents clean up finished worktrees.
