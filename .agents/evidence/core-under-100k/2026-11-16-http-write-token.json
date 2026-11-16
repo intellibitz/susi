@@ -1,0 +1,83 @@
+{
+  "base": "c92012b8d81a55989920d46d216904c7ce4585b2",
+  "three_write_method_bodies_identical_ignoring_indentation": true,
+  "methods_per_impl": 5,
+  "generic_bound": "AsyncWrite + Unpin; PrefixedIo generic I renamed T only",
+  "shared_token_body_identical_to_old_server": true,
+  "existing_test_tails_byte_identical": true,
+  "files": {
+    "crates/susi-http-transport/src/http_conn.rs": {
+      "old_lines": 545,
+      "new_lines": 496,
+      "removed": 49,
+      "base_sha256": "99d11209d302ab7039b87ba263a09703348cdfdace0e2c64a1d5bdc2eac54a0f",
+      "source_sha256": "c16345b4483dc75117b321ff634f8546024661d6c41923f147a8f7fb3832852a"
+    },
+    "crates/susi-http-transport/src/lib.rs": {
+      "old_lines": 93,
+      "new_lines": 101,
+      "removed": -8,
+      "base_sha256": "a2015cc0dd84bac186f8d4ce97e7728da5b1b84c9f1c8fb817f206580d66e451",
+      "source_sha256": "69466fd05c4c74339ccc3017c32cea2994adca321d6cc9977baef86b8d1077d8"
+    },
+    "crates/susi-http-transport/src/server.rs": {
+      "old_lines": 2343,
+      "new_lines": 2337,
+      "removed": 6,
+      "base_sha256": "8b3f9c25823d2f9fccbf93c7b93c912ec0471fb9bdb4759ccecfa653d991b462",
+      "source_sha256": "02db94f66d7423f51205679528f53888cd9dfa3a36b2407b1df0755943d2e130"
+    },
+    "crates/susi-http-transport/src/wire.rs": {
+      "old_lines": 579,
+      "new_lines": 554,
+      "removed": 25,
+      "base_sha256": "a14bb52801d1d5a2be241567760ba583b7df8e12a45466e44ff4ad7a08054ec5",
+      "source_sha256": "c4ef7f4a1843e3c819e9b5dec9f0b7dd346b26a182d692c07ca6d75bddbe4240"
+    }
+  },
+  "runtime_lines_removed": 72,
+  "task": "T-CODEX100KHTTPWRITE-1",
+  "platform": "x86_64-unknown-linux-gnu",
+  "validation": {
+    "tests": {
+      "command": "cargo test --offline --locked -p susi-http-transport",
+      "executed": 48,
+      "passed": 48,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.13,
+      "doctests_executed": 0
+    },
+    "clippy": "cargo clippy --offline --locked -p susi-http-transport --all-targets -- -D warnings: passed",
+    "format": "cargo fmt --all --check and git diff --check: passed",
+    "token_differential": {
+      "comparisons": 1194242,
+      "status": "passed"
+    },
+    "token_corpus": "Empty values; all256single bytes and65536byte pairs for server predicate; all1112064Unicode scalar values and16384ASCII pairs for old wire string predicate. Actual old/new Rust bodies extracted and compiled.",
+    "review": "Independent read-only source review found no findings; generated implementations retain bounds, signatures, Pin/context forwarding and direct return values."
+  },
+  "limits": [
+    "Native Linux verification only; no native Windows execution or production release qualification.",
+    "No full-server Hyper replacement or400-800line reduction claim.",
+    "No dependency, public API, protocol engine or test changes."
+  ],
+  "broad_replacement_blockers": [
+    {
+      "location": "crates/susi-http-transport/src/server.rs:read_chunked",
+      "reason": "Current parser accepts LF-only chunk delimiters and leading whitespace before chunk sizes, while locked Hyper1.12 rejects these inputs. An equivalence-preserving rewrite needs parsing adapters."
+    },
+    {
+      "location": "crates/susi-http-transport/src/server.rs:HeaderMap/write_response",
+      "reason": "Current response serialization preserves insertion order including interleaved duplicate names; Hyper groups names. Existing wire goldens compare header order and chunk boundaries."
+    },
+    {
+      "location": "crates/susi-http-transport/src/server.rs:Negotiate/Io",
+      "reason": "Public negotiation returns blocking native TLS, while the existing shared Hyper builder accepts asynchronous streams."
+    },
+    {
+      "location": "crates/susi-http-transport/src/http_conn.rs:connection_builder",
+      "reason": "Existing shared builder admits HTTP2 and imposes30second head timeout; std server intentionally serves HTTP1 with no read timeout. No substitution was made."
+    }
+  ]
+}

@@ -61,6 +61,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::is_token;
 use tokio_rustls::native_tls;
 
 /// Most a request body may hold for a route that sets no limit of its own
@@ -1958,13 +1959,6 @@ fn read_head(reader: &mut Reader) -> Result<Head, HeadError> {
         }
     }
     parse_head(&lines).ok_or(HeadError::Refused(StatusCode::BAD_REQUEST))
-}
-
-fn is_token(text: &[u8]) -> bool {
-    !text.is_empty()
-        && text
-            .iter()
-            .all(|&b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
 fn parse_head(lines: &[Vec<u8>]) -> Option<Head> {
