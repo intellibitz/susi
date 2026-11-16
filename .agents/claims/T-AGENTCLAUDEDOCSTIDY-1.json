@@ -1,0 +1,15 @@
+{
+  "branch": "claude-docs-tidy",
+  "scopes": [
+    "AGENTS.md",
+    "README.md",
+    "docs/README.md",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs",
+    ".agents/visions"
+  ],
+  "task": "T-AGENTCLAUDEDOCSTIDY-1",
+  "agent": "AGENTCLAUDEDOCSTIDY",
+  "claimed_unix": 1794847222,
+  "lease_until_unix": 1794850822
+}
