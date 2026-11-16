@@ -3,7 +3,7 @@
   "title": "Prove native six-tool contracts across a real MCP child",
   "goal": "Vision: V-6. Establish test-only valid-object worker tool preservation over standard MCP before any production backend or removal; zero reduction credit.",
   "size": "m",
-  "status": "ready_for_integration",
+  "status": "completed",
   "created_by": "CODEX100KWORKERTOOLS",
   "scopes": [
     "Cargo.toml",
@@ -58,5 +58,18 @@
     ],
     "tested_head": "79275ad60a2acea507689546e65d979d932c8656",
     "optional_arguments": "MCP omission defaults to {}; positive case passed. Null/nonobjects rejected without normalization."
-  }
+  },
+  "phase": "integrated_verified_published",
+  "closed": {
+    "at_unix": 1794836093,
+    "commit": "bfdc0fe651de6452694b2a0c968f42f6172e563a",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "bfdc0fe651de6452694b2a0c968f42f6172e563a"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json",
+  "integration_result": "Scoped test-only proof accepted on integrated Linux development tree and remote-verified.40transported/17local refusals/40raw characterizations/10wire rejections;optional arguments/no replay/descendant cleanup verified. No production backend or runtime reduction. Complete307809-line and full-standards goal remain open."
 }
