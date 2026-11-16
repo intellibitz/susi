@@ -2,6 +2,8 @@ use super::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::mpsc;
 
+include!("session_factory.rs");
+
 struct Client {
     input: TcpStream,
     output: BufReader<TcpStream>,
@@ -747,15 +749,9 @@ fn output_failure_cancels_idle_turns_and_refuses_queued_prompts() {
         "closed output must prevent queued C execution"
     );
     let state = engine.state.lock().unwrap();
-    let summary = &state.sessions[&c].summary;
-    assert_eq!(
-        (
-            summary.turns_completed,
-            summary.turns_cancelled,
-            summary.message_count
-        ),
-        (0, 0, 0),
-        "closed output must prevent C admission, including pre-cancelled turns"
+    assert!(
+        !state.sessions.contains_key(&c),
+        "closed output removes connection-owned sessions; queued C still never executes"
     );
     assert!(
         cancelled_with_input_open,

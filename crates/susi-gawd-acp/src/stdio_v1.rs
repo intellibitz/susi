@@ -1,5 +1,5 @@
 //! Staged ACP v1 stdio adapter. Legacy engine/HTTP serialization is unchanged.
-//! Nonempty MCP configurations are refused until the required bridge is available.
+//! Supplied MCP configurations use an embedding executor's owned session factory.
 use super::*;
 use std::path::Path;
 use std::sync::mpsc;
@@ -32,7 +32,13 @@ impl<W: Write> Output<W> {
     }
 }
 
-type ActiveTurns = Mutex<BTreeMap<String, String>>;
+#[derive(Default)]
+struct ConnectionState {
+    turns: BTreeMap<String, String>,
+    pending: BTreeMap<String, Arc<AtomicBool>>,
+    sessions: std::collections::BTreeSet<String>,
+}
+type ActiveTurns = Mutex<ConnectionState>;
 
 // Bound acquisition itself, including input without a newline. On overflow the
 // connection is rejected; its remaining tail is never interpreted as a request.
@@ -64,8 +70,18 @@ fn cancel(engine: &AcpEngine, session: &str, turn: &str) {
     let _ = engine.dispatch_cancel(&json!({"session_id": session, "turn_id": turn}));
 }
 fn cancel_all(engine: &AcpEngine, active: &ActiveTurns) {
-    for (session, turn) in active.lock().unwrap_or_else(|e| e.into_inner()).iter() {
-        cancel(engine, session, turn);
+    let (turns, sessions) = {
+        let mut state = active.lock().unwrap_or_else(|e| e.into_inner());
+        for flag in state.pending.values() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        (state.turns.clone(), std::mem::take(&mut state.sessions))
+    };
+    for (session, turn) in turns {
+        cancel(engine, &session, &turn);
+    }
+    for session in sessions {
+        let _ = engine.dispatch_session_close(&json!({"session_id": session}));
     }
 }
 
@@ -79,9 +95,10 @@ impl AcpStdioTransport {
     /// Serve legacy Susi ACP or staged official ACP v1 on one stdio connection.
     /// An integer `initialize.protocolVersion` selects v1; legacy callers keep
     /// their existing wire shapes. Only this new entrypoint requires `Send`.
-    /// Prompt workers allow cancellation while reading continues. EOF closes
-    /// output, signals active turns and joins them; an executor that ignores its
-    /// cancellation token, or an already-blocked reader/writer, can delay shutdown.
+    /// Prompt and session-setup workers allow cancellation while reading continues.
+    /// EOF closes output, cancels setup/turns and closes connection-owned sessions.
+    /// A factory/executor ignoring cancellation, or a blocked reader/writer, can
+    /// delay scoped worker joining; lifecycle hooks run outside engine locks.
     /// Closing input prevents new output frames; an in-flight write cannot be revoked.
     /// The return count includes notifications.
     /// Frames are bounded before parsing; an oversized frame rejects the connection,
@@ -185,7 +202,7 @@ impl AcpStdioTransport {
                                 request["params"].get("sessionId").and_then(Value::as_str)
                             {
                                 let turns = active.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Some(turn) = turns.get(session) {
+                                if let Some(turn) = turns.turns.get(session) {
                                     cancel(engine, session, turn);
                                 }
                             }
@@ -203,8 +220,28 @@ impl AcpStdioTransport {
                         "initialize" => initialize(engine, &params).inspect(|_| {
                             initialized = true;
                         }),
-                        "session/new" if initialized => new_session(engine, &params),
-                        "session/prompt" if initialized => match prompt(engine, &params) {
+                        "session/new" if initialized => {
+                            let mut connection = active.lock().unwrap_or_else(|e| e.into_inner());
+                            if output.closed.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            match prepare_session(engine, &params) {
+                                Ok(setup) => {
+                                    connection.pending.insert(
+                                        setup.entry.summary.session_id.clone(),
+                                        Arc::clone(&setup.cancelled),
+                                    );
+                                    drop(connection);
+                                    let (output, active) = (&output, &active);
+                                    workers.push(scope.spawn(move || {
+                                        run_setup(engine, output, active, id, setup)
+                                    }));
+                                    continue;
+                                }
+                                Err(error) => Err(error),
+                            }
+                        }
+                        "session/prompt" if initialized => match prompt(engine, &params, &active) {
                             Ok(params) => {
                                 let session =
                                     params["session_id"].as_str().unwrap_or_default().to_owned();
@@ -216,12 +253,12 @@ impl AcpStdioTransport {
                                 if output.closed.load(Ordering::SeqCst) {
                                     break;
                                 }
-                                if turns.contains_key(&session)
-                                    || turns.len() >= engine.admission.max_sessions
+                                if turns.turns.contains_key(&session)
+                                    || turns.turns.len() >= engine.admission.max_sessions
                                 {
                                     Err((ACP_ERR_CAPABILITY_REFUSED, "ACP session already has an active turn or the connection is at capacity".into()))
                                 } else {
-                                    turns.insert(session.clone(), turn.clone());
+                                    turns.turns.insert(session.clone(), turn.clone());
                                     drop(turns);
                                     let output = &output;
                                     let active = &active;
@@ -243,7 +280,7 @@ impl AcpStdioTransport {
                                                 .unwrap_or_else(|e| e.into_inner())
                                                 .turn_cancellations
                                                 .remove(&(session.clone(), turn));
-                                            turns.remove(&session);
+                                            turns.turns.remove(&session);
                                         };
                                         // Acquire output order first, then release admission before
                                         // starting the terminal frame. No active lock spans I/O.
@@ -315,7 +352,14 @@ fn initialize(engine: &AcpEngine, params: &Value) -> Result<Value, RpcErr> {
     }))
 }
 
-fn new_session(engine: &AcpEngine, params: &Value) -> Result<Value, RpcErr> {
+struct SessionSetup<'a> {
+    reservation: PendingSession<'a>,
+    spec: AcpSessionSpec,
+    entry: SessionEntry,
+    cancelled: Arc<AtomicBool>,
+}
+
+fn prepare_session<'a>(engine: &'a AcpEngine, params: &Value) -> Result<SessionSetup<'a>, RpcErr> {
     let cwd = params
         .get("cwd")
         .and_then(Value::as_str)
@@ -328,28 +372,138 @@ fn new_session(engine: &AcpEngine, params: &Value) -> Result<Value, RpcErr> {
         .get("mcpServers")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("mcpServers must be an array"))?;
-    if !servers.is_empty() {
-        return Err((
-            ACP_ERR_CAPABILITY_REFUSED,
-            "This staged ACP v1 adapter does not yet support supplied MCP servers".into(),
-        ));
+    let mut names = std::collections::BTreeSet::new();
+    let mut mcp_servers = Vec::with_capacity(servers.len());
+    for server in servers {
+        if server.get("type").is_some() {
+            return Err(invalid(
+                "Only stdio MCP server descriptors without a transport type are supported",
+            ));
+        }
+        let server: AcpMcpStdioServer = serde_json::from_value(server.clone())
+            .map_err(|_| invalid("MCP stdio descriptor requires string name/command, string-array args and name/value environment entries"))?;
+        if !Path::new(&server.command).is_absolute()
+            || server.command.contains('\0')
+            || server.args.iter().any(|arg| arg.contains('\0'))
+            || !names.insert(server.name.clone())
+        {
+            return Err(invalid(
+                "MCP commands must be absolute, names unique, and arguments free of NUL",
+            ));
+        }
+        let mut env_names = std::collections::BTreeSet::new();
+        for env in &server.env {
+            if env.name.is_empty()
+                || env.name.contains(['\0', '='])
+                || env.value.contains('\0')
+                || !env_names.insert(env.name.clone())
+            {
+                return Err(invalid("MCP environment names must be unique/nonempty without NUL or '=', and values free of NUL"));
+            }
+        }
+        mcp_servers.push(server);
     }
-    let session = engine.create_session(&json!({}), Some(cwd.to_owned()))?;
-    Ok(json!({"sessionId": session["session_id"]}))
+    let reservation = engine.reserve_session()?;
+    let mut entry = engine.session_entry(&json!({}), Some(cwd.to_owned()))?;
+    entry.pending_publication = true;
+    Ok(SessionSetup {
+        reservation,
+        spec: AcpSessionSpec {
+            cwd: cwd.to_owned(),
+            mcp_servers,
+            admission: engine.admission.clone(),
+        },
+        entry,
+        cancelled: Arc::new(AtomicBool::new(false)),
+    })
 }
 
-fn prompt(engine: &AcpEngine, params: &Value) -> Result<Value, RpcErr> {
+fn run_setup<W: Write>(
+    engine: &AcpEngine,
+    output: &Output<W>,
+    active: &ActiveTurns,
+    id: Value,
+    setup: SessionSetup<'_>,
+) -> io::Result<()> {
+    let SessionSetup {
+        mut reservation,
+        spec,
+        mut entry,
+        cancelled,
+    } = setup;
+    let session_id = entry.summary.session_id.clone();
+    let created = if output.closed.load(Ordering::SeqCst) || cancelled.load(Ordering::SeqCst) {
+        Err("ACP session setup cancelled".into())
+    } else {
+        engine
+            .executor
+            .create_session_executor(&spec, Arc::clone(&cancelled))
+    };
+    let mut retired = Vec::new();
+    let reply = {
+        let mut connection = active.lock().unwrap_or_else(|e| e.into_inner());
+        connection.pending.remove(&session_id);
+        let outcome = match created {
+            Ok(executor) => {
+                entry.executor = executor.map(SessionExecutor);
+                if output.closed.load(Ordering::SeqCst) || cancelled.load(Ordering::SeqCst) {
+                    retired.push(entry);
+                    None
+                } else {
+                    Some(
+                        engine
+                            .publish_session(entry, &mut retired, Some(&mut reservation))
+                            .map(|_| {
+                                connection.sessions.insert(session_id.clone());
+                                json!({"sessionId": session_id})
+                            }),
+                    )
+                }
+            }
+            Err(error) => {
+                retired.push(entry);
+                Some(Err((ACP_ERR_CAPABILITY_REFUSED, error)))
+            }
+        };
+        outcome.map(|result| match result {
+            Ok(value) => rpc_ok(id, value),
+            Err((code, message)) => rpc_error(id, code, message),
+        })
+    };
+    drop(retired);
+    drop(reservation);
+    let sent = reply.map_or(Ok(()), |reply| output.send(&reply));
+    if sent.is_err() {
+        cancel_all(engine, active);
+    } else if let Some(entry) = engine
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .sessions
+        .get_mut(&session_id)
+    {
+        entry.pending_publication = false;
+    }
+    sent
+}
+
+fn prompt(engine: &AcpEngine, params: &Value, active: &ActiveTurns) -> Result<Value, RpcErr> {
     let session = params
         .get("sessionId")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| invalid("sessionId must be a non-empty string"))?;
-    if !engine
-        .state
+    if !active
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .sessions
-        .contains_key(session)
+        .contains(session)
+        || !engine
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sessions
+            .contains_key(session)
     {
         return Err((
             -32002, // Official ACP Resource not found; legacy code stays unchanged.
