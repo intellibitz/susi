@@ -28,6 +28,7 @@ use crate::wire::{FrameStream, MessageType, WireFrame};
 
 /// Start a standard pillar cell. An explicit nonblank cell token takes precedence
 /// over the host's seeded token. The original token bytes remain significant.
+#[allow(clippy::too_many_arguments, reason = "fixed pillar bootstrap contract")]
 pub fn run_pillar<E: std::error::Error + 'static>(
     service: &str,
     port: u16,
