@@ -16,6 +16,11 @@
   },
   "created_by": "CLAUDESELFBUILDBRIEF",
   "created_unix": 1794815617,
+  "closed": {
+    "at_unix": 1794815759,
+    "commit": "34401d8fc4f8f2319945866768be63c6646169e7",
+    "by": "CLAUDESELFBUILDBRIEF"
+  },
   "reuse": {
     "decision": "existing",
     "searched": "crates/susi-core/src/self_build.rs (BRIEF and its unit test), tests/lean_core_ceilings.rs and the ceiling history in docs/lean-core.md, including how the earlier CEO-decided raises were recorded. The existing needle list, ceiling constant and decision log are extended in place; no new test file, module or dependency."
