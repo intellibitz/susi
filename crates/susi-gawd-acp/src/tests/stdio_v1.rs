@@ -3,6 +3,7 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::mpsc;
 
 include!("session_factory.rs");
+include!("tool_events.rs");
 
 struct Client {
     input: TcpStream,
