@@ -1,0 +1,11 @@
+{
+  "branch": "claude-deny-stale",
+  "scopes": [
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "task": "T-CLAUDEPUSHABANDON-1",
+  "agent": "CLAUDEDENYSTALE",
+  "claimed_unix": 1794833836,
+  "lease_until_unix": 1794837436
+}
