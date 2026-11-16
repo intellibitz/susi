@@ -1,0 +1,12 @@
+{
+  "branch": "claude-candidates-tidy",
+  "task": "T-AGENTCLAUDECANDIDATESTIDY-1",
+  "agent": "AGENTCLAUDECANDIDATESTIDY",
+  "head": "488813efdfa0fe34d240e9ae9a62b1fa7a6614f1",
+  "closed_unix": 1794856187,
+  "scopes": [
+    "AGENTS.md",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs"
+  ]
+}
