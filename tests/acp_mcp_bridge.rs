@@ -272,8 +272,8 @@ impl Fixture {
             ],
         );
         fx.assert_local_remotes();
-        let source =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/acp_mcp_bridge/mcp_child.rs");
+        let source = fx.root.join("mcp_child.rs");
+        fs::write(&source, include_str!("acp_mcp_bridge/mcp_child.rs")).unwrap();
         let out = fx
             .command("rustc")
             .args(["--edition=2021", "--crate-name", "acp_mcp_fixture"])
