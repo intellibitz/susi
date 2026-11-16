@@ -2,7 +2,7 @@
   "id": "T-CODEX100KJSON-1",
   "title": "Share exact raw JSON field readers across core and GMCP",
   "goal": "Vision: V-6. Reduce repeated JSON object field lookup/type projection without changing field names, values, defaults, trim/filter/casts, error handling or validation order.",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "size": "m",
   "created_by": "CODEX100KJSON",
   "created_unix": 1794823362,
@@ -201,5 +201,16 @@
     "Focused Linux verification is not release qualification and does not establish the overall below100k goal.",
     "Existing test bodies were preserved; the new boundary test remains inline and its42lines are included in the reported201line runtime reduction."
   ],
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-json-readers.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-json-readers.json",
+  "closed": {
+    "at_unix": 1794825127,
+    "commit": "6846d5f7819e00be1e333c197db359ed4b9ee8df",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "9b3bbf6ca1dba9d61a1f9c2e9700656d6aad913c",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-json-readers.json"
+  }
 }
