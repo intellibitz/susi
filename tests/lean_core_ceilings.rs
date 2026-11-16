@@ -350,7 +350,11 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
 /// Separating runtime Rust, vendor facades, tests, tooling, vendored sources,
 /// and generated audit baselines keeps audit trails and offline vendor trees
 /// intact without inflating first-party runtime size.
-const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 302_000;
+/// 2026-11-16: runtime 302,000 -> 302,016 (T-CLAUDESELFBUILDBRIEF-2, 302,009 measured).
+/// CEO decision 2026-11-16, "this cannot happen, lift the ceiling": the delegated-task
+/// contract's unit test pins every clause of its Mandates 75-81 and one-way publication
+/// items. The ceiling rises by the 16 lines those pins take (docs/lean-core.md).
+const FIRST_PARTY_RUNTIME_RUST_CEILING: usize = 302_016;
 const VENDOR_FACADE_RUST_CEILING: usize = 6_454;
 const TEST_RUST_CEILING: usize = 129_000;
 const TOOLING_RUST_CEILING: usize = 72_200;

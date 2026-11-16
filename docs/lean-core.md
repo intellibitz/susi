@@ -313,8 +313,8 @@ distinct artifacts side by side:
    `GMCP_REQUIREMENTS_MAX_FILE_LINES_CEILING = 2,800`) in
    `tests/lean_core_ceilings.rs`.
 4. **First-party runtime & facade Rust**: `first_party_runtime_rust`
-   (`300,332` lines under `crates/*` excluding `susi-vendor-*` and explicit
-   test/bench paths, plus root `src/**` and `build.rs`; ceiling `302,000`),
+   (`302,009` lines under `crates/*` excluding `susi-vendor-*` and explicit
+   test/bench paths, plus root `src/**` and `build.rs`; ceiling `302,016`),
    `vendor_facade_rust` (`6,454` lines in `crates/susi-vendor-*`; ceiling
    `6,454`), and per-file tool ceilings (`GMCP_TOOLS_MAX_FILE_LINES_CEILING = 1,800`,
    `GMCP_CORE_TOOLS_MAX_FILE_LINES_CEILING = 1,000`), alongside the stricter
@@ -1321,3 +1321,18 @@ vendored crates or append-only audit logs.
   the runtime budget with 40 lines to spare). Nothing is taken out of the count, no
   other ceiling moves, and the lines are owed back by lean-core cuts in `susi-gawd`
   and `susi-gmcp`.
+
+- 2026-11-16 T-CLAUDESELFBUILDBRIEF-2 (CEO decision 2026-11-16, "this cannot
+  happen, lift the ceiling"): `FIRST_PARTY_RUNTIME_RUST_CEILING`
+  `302,000 -> 302,016` (`302,009` measured). The contract Susi prepends to every
+  delegated coding task (`susi_core::self_build::BRIEF`) gained Mandates 75-81
+  and one-way publication while the runtime budget had 7 lines to spare, so its
+  inline unit test pinned only some of the new clauses: the agent-root,
+  vision-cycle, ten-minute and release-sync clauses could have been trimmed
+  without a test failing. The CEO ruled that out. The unit test now pins every
+  clause of the two new items, which takes 16 lines (4 in
+  T-CLAUDESELFBUILDBRIEF-1, 12 here), and the ceiling rises by exactly those 16
+  lines, keeping the 7 it had to spare. The contract text itself did not grow in
+  source lines: its new items were paid for by removing sentences it stated
+  twice. No pillar `src` ceiling and no test, tooling, vendor or per-file ceiling
+  changes.
