@@ -981,6 +981,10 @@ fn gmcp_req_203_014_04_adversarial() {
     struct RestoreAdvPlane;
     impl Drop for RestoreAdvPlane {
         fn drop(&mut self) {
+            let bus = PlaneBus::global();
+            bus.unregister(topics::TOOLS_LIST);
+            bus.unregister(topics::TOOLS_EXISTS);
+            bus.unregister(topics::TOOLS_EXECUTE);
             susi_tools::plane_handler::register();
         }
     }

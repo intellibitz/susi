@@ -1,0 +1,34 @@
+{
+  "id": "T-AGYREL072-8",
+  "title": "Unregister PlaneBus overrides in vc_203_014_part2 Drop guard",
+  "goal": "Call PlaneBus::global().unregister on topics::TOOLS_LIST, TOOLS_EXISTS, and TOOLS_EXECUTE inside RestoreAdvPlane::drop in tests/gmcp_requirements/vc_203_014_part2.rs before re-registering the default prefix handler so subsequent GMCP tests in the same process do not observe Unknown tool.",
+  "size": "xs",
+  "deps": [],
+  "scopes": [
+    "tests/gmcp_requirements/vc_203_014_part2.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Checked all seven PlaneBus::global().register(topics::TOOLS_*) call sites across tests/gmcp_requirements/; vc_203_014_part1, part3, part4 and vc_203_020 already call bus.unregister on the three exact topics in their Drop guards before susi_tools::plane_handler::register()."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_014_04_adversarial"
+    ]
+  },
+  "created_by": "AGYREL071",
+  "created_unix": 1794852089,
+  "closed": {
+    "at_unix": 1794852120,
+    "commit": "88c12d9c91c0e696635589a911e0f3f64982f2b3",
+    "by": "AGYREL071"
+  }
+}
