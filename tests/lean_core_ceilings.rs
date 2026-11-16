@@ -329,11 +329,12 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// by responsibility into `src/tools/core.rs` and `src/tools/core/{agents,cluster,files_os,knowledge,models,substrate}.rs`,
 /// moving its unchanged inline unit suite into `src/tests/core_tools.rs`.
 /// Test organization, not removed runtime capability.
-/// 2026-11-16: susi-gawd 12,525 -> 12,770 (T-LOCALHARNESSZ0LEANZ0CEILINGS-1, measured):
-/// commit f2d9d8131 (workspace state isolation, token lookup, audit, stop, uninstall and
-/// IPC bus rendezvous) landed on main 245 lines over this ceiling and 160 over the runtime
-/// budget below. CEO decision 2026-11-15, "raise any test run limit so harness continues
-/// to run": raised to what main measures, not cut (docs/lean-core.md).
+/// 2026-11-16: susi-gawd 12,525 -> 12,770 and susi-gmcp 24,096 -> 24,128
+/// (T-LOCALHARNESSZ0LEANZ0CEILINGS-1, measured): commit f2d9d8131 (workspace state
+/// isolation, token lookup, audit, stop, uninstall and IPC bus rendezvous) landed on main
+/// 245 and 32 lines over these ceilings and 160 over the runtime budget below. CEO decision
+/// 2026-11-15, "raise any test run limit so harness continues to run": raised to what main
+/// measures, not cut (docs/lean-core.md).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_770),
     ("susi-gawd-swarm", 20_206),
@@ -341,7 +342,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-a2a", 3_251),
     ("susi-gemi", 20_709),
     ("susi-gemi-models", 15_563),
-    ("susi-gmcp", 24_096),
+    ("susi-gmcp", 24_128),
     ("susi-harness", 37_536),
 ];
 

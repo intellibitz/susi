@@ -1308,11 +1308,13 @@ vendored crates or append-only audit logs.
 
 - 2026-11-16 T-LOCALHARNESSZ0LEANZ0CEILINGS-1 (CEO decision 2026-11-15, "raise any test
   run limit so harness continues to run"): `susi-gawd` shipped `src` ceiling
-  `12,525 -> 12,770` (`12,770` measured) and `FIRST_PARTY_RUNTIME_RUST_CEILING`
+  `12,525 -> 12,770` (`12,770` measured), `susi-gmcp` shipped `src` ceiling
+  `24,096 -> 24,128` (`24,128` measured) and `FIRST_PARTY_RUNTIME_RUST_CEILING`
   `301,800 -> 302,000` (`301,960` measured). Commit `f2d9d8131` (workspace state
   isolation, token lookup, audit, stop, uninstall and IPC bus rendezvous) landed on
-  `main` without the gate, 245 lines over the pillar ceiling and 160 over the runtime
-  budget, so `lean_core_ceilings` was red on `main` and no gated landing could pass.
-  The ceilings are raised to what `main` measures (the pillar exactly, the runtime
-  budget with 40 lines to spare). Nothing is taken out of the count, no other ceiling
-  moves, and the lines are owed back by a lean-core cut in `susi-gawd`.
+  `main` without the gate, 245 and 32 lines over the two pillar ceilings and 160 over
+  the runtime budget, so `lean_core_ceilings` was red on `main` and no gated landing
+  could pass. The ceilings are raised to what `main` measures (the pillars exactly,
+  the runtime budget with 40 lines to spare). Nothing is taken out of the count, no
+  other ceiling moves, and the lines are owed back by lean-core cuts in `susi-gawd`
+  and `susi-gmcp`.
