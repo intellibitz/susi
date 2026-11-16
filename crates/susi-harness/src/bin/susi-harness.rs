@@ -30,6 +30,10 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::parse_value;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use susi_harness::catalog::PriceCatalogue;
@@ -196,29 +200,23 @@ impl Options {
                 "--discover" => options.discover = true,
                 "--provider" => options.provider = Some(value()?),
                 "--port" => {
-                    options.port = value()?
-                        .parse()
-                        .map_err(|_| "--port must be a number".to_string())?;
+                    options.port = parse_value(value()?, "--port must be a number")?;
                 }
                 "--host" => options.host = value()?,
                 "--timeout" => {
-                    options.timeout = value()?
-                        .parse()
-                        .map_err(|_| "--timeout must be a number of seconds".to_string())?;
+                    options.timeout =
+                        parse_value(value()?, "--timeout must be a number of seconds")?;
                 }
                 "--max-output-tokens" => {
-                    options.max_output_tokens = Some(
-                        value()?
-                            .parse()
-                            .map_err(|_| "--max-output-tokens must be a number".to_string())?,
-                    );
+                    options.max_output_tokens = Some(parse_value(
+                        value()?,
+                        "--max-output-tokens must be a number",
+                    )?);
                 }
                 "--accounts" => options.accounts = Some(PathBuf::from(value()?)),
                 "--json" => options.json = true,
                 "--port-offset" => {
-                    options.port_offset = value()?
-                        .parse()
-                        .map_err(|_| "--port-offset must be a number".to_string())?;
+                    options.port_offset = parse_value(value()?, "--port-offset must be a number")?;
                 }
                 "--repo" => options.repo = Some(PathBuf::from(value()?)),
                 "--remote" => options.remote = value()?,
@@ -229,9 +227,8 @@ impl Options {
                 "--allow-missing-trailer" => options.allow_missing_trailer = true,
                 "--dry-run" => options.dry_run = true,
                 "--max-attempts" => {
-                    options.max_attempts = value()?
-                        .parse()
-                        .map_err(|_| "--max-attempts must be a positive integer".to_string())?;
+                    options.max_attempts =
+                        parse_value(value()?, "--max-attempts must be a positive integer")?;
                 }
                 "--rev" => options.rev = value()?,
                 "--name" => options.release_name = Some(value()?),

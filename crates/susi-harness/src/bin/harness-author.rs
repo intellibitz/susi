@@ -12,6 +12,10 @@
 
 //! Author a plan from a roadmap vector, through the metered gateway.
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
@@ -118,11 +122,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--roadmap" => roadmap = PathBuf::from(take(&mut args, &argument)?),
             "--vector" => vector = take(&mut args, &argument)?,
             "--out" => out = PathBuf::from(take(&mut args, &argument)?),
-            "--max-tasks" => {
-                max_tasks = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "max-tasks must be a number".to_string())?;
-            }
+            "--max-tasks" => max_tasks = number(&mut args, &argument)?,
             "--workers" => {
                 workers = take(&mut args, &argument)?
                     .split(',')
@@ -130,23 +130,13 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
                     .filter(|value| !value.is_empty())
                     .collect();
             }
-            "--timeout" => {
-                timeout = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
-            }
+            "--timeout" => timeout = number(&mut args, &argument)?,
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if gateway.trim().is_empty() || model.trim().is_empty() {
-        return Err("--gateway and --model are required".into());
-    }
-    if roadmap.as_os_str().is_empty() {
-        return Err("--roadmap is required".into());
-    }
-    if vector.trim().is_empty() {
-        return Err("--vector is required".into());
-    }
+    required!(gateway.trim(), model.trim() => "--gateway and --model are required");
+    required!(roadmap.as_os_str() => "--roadmap is required");
+    required!(vector.trim() => "--vector is required");
     Ok(Options {
         gateway,
         model,
@@ -158,10 +148,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         timeout,
         workers,
     })
-}
-
-fn take(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 fn fail(message: &str) -> ! {
