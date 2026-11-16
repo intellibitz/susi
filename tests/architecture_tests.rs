@@ -2262,6 +2262,15 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Keep every relative link and named command resolving",
         "Dated records say their date and are listed as records",
         "quoted upstream text keeps its words and links",
+        "Keep tests tidy",
+        "run the tests a change can break",
+        "Fix a test your change turned red at once",
+        "Never skip, ignore, loosen or delete a test to get green",
+        "Each test proves one named behavior",
+        "an ignored test gives its reason and an expected panic names its message",
+        "Wait on conditions rather than fixed sleeps",
+        "Pin a count or phrase only when it is the contract",
+        "Remove tests and fixtures with the code they cover",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2315,7 +2324,18 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     assert!(
         flat("crates/susi-core/src/self_build.rs").contains("Link and revisit unfulfilled goals")
     );
-    assert!(flat("crates/susi-core/src/self_build.rs").contains("keep the contract and docs tidy"));
+    assert!(
+        flat("crates/susi-core/src/self_build.rs").contains("keep contract, docs and tests tidy")
+    );
+    for lint in [
+        "ignore_without_reason = \"deny\"",
+        "should_panic_without_expect = \"deny\"",
+    ] {
+        assert!(
+            flat("Cargo.toml").contains(lint),
+            "Cargo.toml must deny {lint}"
+        );
+    }
     for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
         let text = flat(path);
         assert!(text.contains("AGENTS.md") || path == "AGENTS.md");
