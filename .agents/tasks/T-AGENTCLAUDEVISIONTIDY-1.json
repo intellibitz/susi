@@ -1,0 +1,35 @@
+{
+  "id": "T-AGENTCLAUDEVISIONTIDY-1",
+  "title": "Keep visions tidy in core's active contract",
+  "goal": "Vision: V-14. CEO directive 2026-11-16: agents must keep visions tidy. Core keeps one active contract updated in place, so the rule goes into AGENTS.md's records section and the self-build contract (no net line in core), pinned by architecture_tests; core's visions are marked carried where a standing rule holds them, and the under-100k task's lost Vision: V-6 link is restored. The commercial repository records it as Mandate 89 with workflow vision carry and vision tidy (its T-AGENTCLAUDEVISIONTIDY-1).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDEVISIONTIDY",
+  "created_unix": 1794844266,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's active contract (AGENTS.md records section) and self-build contract, the governance tests, and the commercial tool's workflow vision carry and vision tidy. Contract text, tests, vision notes and one restored task link in core."
+  },
+  "scopes": [
+    "AGENTS.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/architecture_tests.rs",
+    ".agents/visions",
+    ".agents/tasks/T-CODEXCORE100K-1.json"
+  ],
+  "limitations": [
+    "Core holds the rule as contract text; carry and tidy are the commercial tool's.",
+    "V-2 stays unsettled: whether it is carried is for new work or its owner to decide.",
+    "The self-build clause changed one line, with no net line in core (Mandate 84)."
+  ]
+}
