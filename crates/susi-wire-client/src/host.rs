@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{BufRead, Write};
 use std::time::{Duration, Instant};
+use susi_paths::http_body::read_line_capped;
 
 /// Per-server client identity advertised by [`McpHost`] (`HOST-012`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,6 +277,7 @@ pub struct HttpEndpoint<'a> {
 pub struct DuplexStreams {
     pub reader: Box<dyn BufRead + Send>,
     pub writer: Box<dyn Write + Send>,
+    /// Invoked exactly once when connection ownership ends, including failed setup.
     pub on_close: Option<Box<dyn FnOnce() + Send>>,
 }
 
@@ -299,6 +301,7 @@ pub struct DuplexPeer {
     server_capabilities: Value,
     subscribed_uris: BTreeSet<String>,
     next_id: u64,
+    oversized_frame: bool,
 }
 
 impl fmt::Debug for DuplexPeer {
@@ -312,28 +315,51 @@ impl fmt::Debug for DuplexPeer {
 
 impl Drop for DuplexPeer {
     fn drop(&mut self) {
-        if let Some(close) = self.on_close.take() {
-            close();
-        }
+        self.close();
     }
 }
 
 impl DuplexPeer {
-    fn connect(
-        streams: DuplexStreams,
+    fn close(&mut self) {
+        if let Some(close) = self.on_close.take() {
+            close();
+        }
+    }
+    fn new(streams: DuplexStreams) -> Self {
+        Self {
+            reader: streams.reader,
+            writer: streams.writer,
+            on_close: streams.on_close,
+            version: String::new(),
+            server_info: Value::Null,
+            server_capabilities: Value::Null,
+            subscribed_uris: BTreeSet::new(),
+            next_id: 2,
+            oversized_frame: false,
+        }
+    }
+    fn ensure_open(&self) -> Result<(), WireError> {
+        if self.oversized_frame {
+            return Err(WireError::Protocol(
+                "duplex JSON-RPC stream is closed after an oversized line".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn initialize(
+        &mut self,
         policy: &mut HostPolicy,
         notifications: &mut Vec<Value>,
-    ) -> Result<Self, WireError> {
-        let DuplexStreams {
-            mut reader,
-            mut writer,
-            on_close,
-        } = streams;
+    ) -> Result<(), WireError> {
         let caps = policy.advertised_capabilities();
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":PROTOCOL_VERSION,"capabilities":caps,"clientInfo":{"name":policy.identity.name,"version":policy.identity.version}}});
-        send_line(&mut *writer, &init)?;
+        send_line(&mut *self.writer, &init)?;
         let result = recv_until_id(
-            (&mut *reader, &mut *writer),
+            (
+                &mut *self.reader,
+                &mut *self.writer,
+                &mut self.oversized_frame,
+            ),
             1,
             None,
             (policy, notifications),
@@ -352,29 +378,20 @@ impl DuplexPeer {
                 "unsupported duplex MCP protocol version {raw_version:?}"
             )));
         }
-        let version = raw_version.to_string();
-        let server_info = result
+        self.version = raw_version.to_string();
+        self.server_info = result
             .get("serverInfo")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        let server_capabilities = result
+        self.server_capabilities = result
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
         send_line(
-            &mut *writer,
+            &mut *self.writer,
             &json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
         )?;
-        Ok(Self {
-            reader,
-            writer,
-            on_close,
-            version,
-            server_info,
-            server_capabilities,
-            subscribed_uris: BTreeSet::new(),
-            next_id: 2,
-        })
+        Ok(())
     }
 
     fn request(
@@ -384,6 +401,7 @@ impl DuplexPeer {
         progress_token: Option<&Value>,
         ctx: (&mut HostPolicy, &mut Vec<Value>),
     ) -> Result<Value, WireError> {
+        self.ensure_open()?;
         let mut req_params = params.clone();
         if let (Some(tok), Some(obj)) = (progress_token, req_params.as_object_mut()) {
             match obj.get_mut("_meta") {
@@ -401,15 +419,24 @@ impl DuplexPeer {
             &mut *self.writer,
             &json!({"jsonrpc":"2.0","id":id,"method":method,"params":req_params}),
         )?;
-        recv_until_id(
-            (&mut *self.reader, &mut *self.writer),
+        let result = recv_until_id(
+            (
+                &mut *self.reader,
+                &mut *self.writer,
+                &mut self.oversized_frame,
+            ),
             id,
             progress_token,
             ctx,
-        )
+        );
+        if self.oversized_frame {
+            self.close();
+        }
+        result
     }
 
     fn notify(&mut self, method: &str, params: Option<Value>) -> Result<(), WireError> {
+        self.ensure_open()?;
         let msg = match params {
             Some(p) => json!({"jsonrpc":"2.0","method":method,"params":p}),
             None => json!({"jsonrpc":"2.0","method":method}),
@@ -421,6 +448,7 @@ impl DuplexPeer {
 /// Maximum buffered notifications retained per hosted server (`HOST-011`).
 pub const MAX_BUFFERED_NOTIFICATIONS: usize = 256;
 const MAX_INTERLEAVED_FRAMES: usize = 1024;
+const MAX_DUPLEX_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 pub(crate) fn push_bounded_notification(buf: &mut Vec<Value>, msg: Value) {
     if buf.len() >= MAX_BUFFERED_NOTIFICATIONS {
@@ -437,27 +465,35 @@ fn send_line(writer: &mut dyn Write, msg: &Value) -> Result<(), WireError> {
 }
 
 fn recv_until_id(
-    io: (&mut dyn BufRead, &mut dyn Write),
+    io: (&mut dyn BufRead, &mut dyn Write, &mut bool),
     expected_id: u64,
     progress_token: Option<&Value>,
     ctx: (&mut HostPolicy, &mut Vec<Value>),
 ) -> Result<Value, WireError> {
-    let (reader, writer) = io;
+    let (mut reader, writer, oversized_frame) = io;
     let (policy, notifications) = ctx;
-    let mut line = String::new();
+    let mut line = Vec::new();
     let mut seen_srv_ids = BTreeSet::new();
     let mut frames_seen = 0usize;
     loop {
         line.clear();
-        if reader.read_line(&mut line)? == 0 {
-            return Err(WireError::Io("EOF reading JSON-RPC peer stream".into()));
-        }
-        if line.len() > 16 * 1024 * 1024 {
+        // Acquire at most the accepted limit plus one byte, including without a
+        // newline. Oversize poisons the connection: its tail is never reused.
+        // This bounds memory, not time spent in a blocking reader or cleanup.
+        let read = read_line_capped(&mut reader, &mut line, (MAX_DUPLEX_LINE_BYTES + 1) as u64);
+        if line.len() > MAX_DUPLEX_LINE_BYTES {
+            *oversized_frame = true;
             return Err(WireError::Protocol(
                 "duplex JSON-RPC line exceeded 16 MiB".into(),
             ));
         }
-        let trimmed = line.trim();
+        read?;
+        if line.is_empty() {
+            return Err(WireError::Io("EOF reading JSON-RPC peer stream".into()));
+        }
+        let text = std::str::from_utf8(&line)
+            .map_err(|_| WireError::Io("stream did not contain valid UTF-8".into()))?;
+        let trimmed = text.trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -717,9 +753,11 @@ impl McpHost {
         mut policy: HostPolicy,
     ) -> Result<Value, WireError> {
         let id = server_id.into();
+        // Own cleanup before vacancy validation or any fallible handshake I/O.
+        let mut peer = DuplexPeer::new(streams);
         self.ensure_vacant(&id)?;
         let mut notifications = Vec::new();
-        let peer = DuplexPeer::connect(streams, &mut policy, &mut notifications)?;
+        peer.initialize(&mut policy, &mut notifications)?;
         let summary = json!({"serverId":id,"transport":"duplex-stdio","protocolVersion":peer.version,"serverInfo":peer.server_info,"capabilities":peer.server_capabilities});
         self.servers.insert(
             id,
@@ -1250,3 +1288,7 @@ fn settle_task_snapshot(snapshot: TaskSnapshot) -> Result<Value, WireError> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/host.rs"]
+mod tests;
