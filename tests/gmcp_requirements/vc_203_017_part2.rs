@@ -418,6 +418,7 @@ fn main() {
     #[cfg(unix)]
     {
         use std::os::unix::net::{UnixListener, UnixStream};
+        use susi_gmcp::mcp::ServiceExt;
         let sock_path = home.join("delta.sock");
         let uds_lis = UnixListener::bind(&sock_path).expect("bind uds");
         let uds_svc = svc_a.clone();

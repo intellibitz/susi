@@ -1,0 +1,57 @@
+{
+  "id": "T-CODEX100KGMCPTEST-1",
+  "title": "Restore the Unix-only MCP service extension import after upstream merge",
+  "goal": "Vision: V-6. Preserve the upstream interop fixture and Windows lint fix while restoring Unix compilation; no production behavior or assertion changes.",
+  "status": "in_progress",
+  "size": "s",
+  "created_by": "CODEXCORE100KIMPLEMENTATION",
+  "created_unix": 1794831068,
+  "base_commit": "6ee62f4ba60e76c25db91eccf640f8f39bae28c9",
+  "deps": [],
+  "scopes": [
+    "tests/gmcp_requirements/vc_203_017_part2.rs",
+    ".agents/tasks/T-CODEX100KGMCPTEST-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_017_05_interop",
+      "--",
+      "--exact"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing GmcpService::serve trait and Unix-only interop branch; upstream f8130fd08 removed the function-wide ServiceExt import.",
+    "reason": "Import the existing trait inside the Unix block that calls serve. Windows does not compile that block, retaining its unused-import fix."
+  },
+  "reproduced_failure": {
+    "command": "cargo check --offline --locked --workspace --all-targets",
+    "source": "6ee62f4ba60e76c25db91eccf640f8f39bae28c9",
+    "error": "E0599: no method named serve on GmcpService because ServiceExt is not in scope",
+    "log": "/workspace/codex/core-100k-state/logs/acp-bridge-final-workspace-check.log"
+  },
+  "coordination": "Fresh read-only Board check at item1740 found no findings, requests or stops before publication; upstream T-AGYREL071-3 is completed. No external messages; parent owns isolated repair and publication.",
+  "validation": {
+    "interop": {
+      "command": "cargo test --offline --locked -p susi --test gmcp_requirements gmcp_req_203_017_05_interop -- --exact",
+      "passed": 1,
+      "seconds": 4.59,
+      "log": "/workspace/codex/core-100k-state/logs/gmcp-interop-unix-repair-test.log"
+    },
+    "strict_clippy": "cargo clippy --offline --locked -p susi --test gmcp_requirements -- -D warnings passed",
+    "workspace_all_targets": "cargo check --offline --locked --workspace --all-targets passed",
+    "format": "cargo fmt --all --check passed",
+    "native_host": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false,
+    "runtime_delta": 0
+  },
+  "progress": "Unix interop assertion suite, strict integration-target Clippy and final workspace all-target check pass. Existing Windows cfg behavior retained; publication pending."
+}
