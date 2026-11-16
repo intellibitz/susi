@@ -1,8 +1,9 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-CODEXEMBEDORDER-1",
   "title": "Deduplicate preferred embedding provider attempts",
   "goal": "Keep a named embedding provider first without retrying it when the general provider list follows, preserving the bounded fallback cascade and its error behavior.",
-  "status": "implemented",
+  "status": "done",
   "owner": "codex",
   "native_worker": "codex-embed-order",
   "created_by": "codex",
@@ -40,5 +41,13 @@
     "ceilings": "cargo test --offline --locked -p susi --test lean_core_ceilings: 2 passed, 0 failed; susi-gemi remains within its 20,709-line ceiling.",
     "integration": "cargo test --offline --locked -p susi --test host_only_privacy: 2 passed, 0 failed; isolated cargo test --offline --locked -p susi --test peer_channel_hub: 2 passed, 0 failed.",
     "native_check": "cargo local-workflow check built and ran all 134 binaries; after the line-neutral fix, the only failure was the existing concurrent peer_channel_hub broken-pipe race. Its isolated rerun passed 2/2. No unrelated failure was masked."
+  },
+  "state": "closed",
+  "implementation_commit": "2bd6a6c7844eaaa2f76dc6ac485db3cd3faf5a21",
+  "verified_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "closed": {
+    "at_unix": 1794817247,
+    "commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+    "by": "AG3HOUSEKEEP"
   }
 }

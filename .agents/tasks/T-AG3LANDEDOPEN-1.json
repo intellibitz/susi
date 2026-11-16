@@ -1,0 +1,53 @@
+{
+  "schema": "susi.task_record/v1",
+  "id": "T-AG3LANDEDOPEN-1",
+  "title": "Audit and archive 9 verified priority landed cloud task records",
+  "goal": "Prove git commit ancestry on origin/main, run each task's acceptance command on current HEAD, and archive 9 verified priority cloud task records (T-CLAUDE-409..413, T-ANTIGRAVITY-5, T-ANTIGRAVITY-7, T-CODEXEMBEDORDER-1, T-CODEXGAWDACP-1) into .agents/tasks/done/ while leaving T-CLAUDEPORTBLOCKS-1 open pending a host with a routed non-loopback LAN IPv4 interface.",
+  "size": "m",
+  "state": "open",
+  "status": "in_progress",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "AG3HOUSEKEEP",
+  "created_unix": 1794817154,
+  "authored": true,
+  "base_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "notes": "Archives the 9 priority cloud tasks whose implementation commits are proven ancestors of origin/main and whose accept.cmd passed on current Linux x86_64 HEAD. T-CLAUDEPORTBLOCKS-1 remains in .agents/tasks/ because its accept.cmd runs host_only_privacy and peer_channel_hub, which require a routed private/link-local non-loopback IPv4 interface absent on this loopback-only cloud VM.",
+  "reuse": {
+    "decision": "existing",
+    "searched": "tests/task_records.rs, tests/task_record_schema_debt.json, .agents/tasks/done/T-AG3DONEDEBT-6.json in Susi Core, and susi-dev-workflow task queue contracts in Susi Commercial Apps",
+    "target": "tests/task_records.rs",
+    "reason": "Reuses the existing susi.task_record/v1 closed-task schema and task_records validation harness without adding code or dependencies."
+  },
+  "scopes": [
+    ".agents/tasks/T-AG3LANDEDOPEN-1.json",
+    ".agents/tasks/done/T-AG3LANDEDOPEN-1.json",
+    ".agents/tasks/T-CLAUDE-409.json",
+    ".agents/tasks/done/T-CLAUDE-409.json",
+    ".agents/tasks/T-CLAUDE-410.json",
+    ".agents/tasks/done/T-CLAUDE-410.json",
+    ".agents/tasks/T-CLAUDE-411.json",
+    ".agents/tasks/done/T-CLAUDE-411.json",
+    ".agents/tasks/T-CLAUDE-412.json",
+    ".agents/tasks/done/T-CLAUDE-412.json",
+    ".agents/tasks/T-CLAUDE-413.json",
+    ".agents/tasks/done/T-CLAUDE-413.json",
+    ".agents/tasks/T-ANTIGRAVITY-5.json",
+    ".agents/tasks/done/T-ANTIGRAVITY-5.json",
+    ".agents/tasks/T-ANTIGRAVITY-7.json",
+    ".agents/tasks/done/T-ANTIGRAVITY-7.json",
+    ".agents/tasks/T-CODEXEMBEDORDER-1.json",
+    ".agents/tasks/done/T-CODEXEMBEDORDER-1.json",
+    ".agents/tasks/T-CODEXGAWDACP-1.json",
+    ".agents/tasks/done/T-CODEXGAWDACP-1.json"
+  ]
+}

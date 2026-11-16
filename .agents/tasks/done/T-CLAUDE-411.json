@@ -1,4 +1,5 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-CLAUDE-411",
   "title": "Turn the red GMCP mastery and hermetic-scope tests green on Linux",
   "goal": "On Linux x86_64 the root package's GMCP suite fails 16 tests and hermetic_scope fails 1. (1) The landing of 06e38eab0 removed 15 redundant allows under crates/susi-gmcp/src and reworded docs/gmcp/contract-203-020.md without re-recording the VC-203 evidence bound to those files, so every vector's records went stale and all 15 mastery tests plus gmcp_mastery_records_are_retained_and_current fail closed; re-record both phases with scripts/gmcp-record-evidence.sh. (2) gmcp_vc_203_014_mastery also closes its Unix-socket adapter without the initialize handshake (the pattern T-CLAUDECLOUDREL-3 and -5 fixed elsewhere); add the handshake. (3) hermetic_scope's nextest test names xtask as its bin-only package, but every workspace member has had a library since xtask gained one, so the test supplies its own metadata with a bin-only package instead.",
@@ -34,7 +35,7 @@
     "searched": "scripts/gmcp-record-evidence.sh and .agents/gmcp/evidence/README.md (the two-phase re-record), tests/gmcp_requirements/adapter_support.rs (adapter_handshake, already used at the fixed sites of T-CLAUDECLOUDREL-3 and -5 and in this file's own operations test), scripts/check-hermetic-tests.sh and the World fixture in tests/hermetic_scope.rs (the fake cargo already answers metadata from a file).",
     "reason": "Every piece exists: the recorder script, the handshake helper and the fake cargo's metadata file. Nothing new is built."
   },
-  "status": "implemented",
+  "status": "done",
   "results": {
     "gmcp": "Both phases of scripts/gmcp-record-evidence.sh re-run on Linux x86_64: 90 requirement checks, then 15 mastery tests, all passed and recorded. cargo test --offline --locked -p susi --test gmcp_requirements: every requirement, mastery and evidence-currency test passes; gmcp_vc_203_014_mastery passes on Linux for the first time (its socket adapter now handshakes before it closes).",
     "hermetic_scope": "cargo test --offline --locked -p susi --test hermetic_scope: 9 passed. The nextest test writes its own metadata with one library package and one binary-only package, since no workspace member is bin-only any more.",
@@ -42,5 +43,14 @@
     "ceiling": "CEO decision 2026-11-15 ('raise any test run limit so harness continues to run'): TEST_RUST_CEILING 127,000 -> 129,000, recorded in docs/lean-core.md.",
     "cause": "The stale evidence was this agent's own regression: 06e38eab0 changed crates/susi-gmcp/src and docs/gmcp without re-recording, and the verification before that landing ran only part of the GMCP suite.",
     "coordination": "tests/host_only_privacy.rs is named in T-CODEXHOSTONLYSERIAL-1 (worker codex-host-only-serial); that work is on main with its results recorded and no live claim, and this change only adds a precondition assertion. Board and claim pushes are refused from this cloud session (HTTP 403), so this record and the commit trailers carry the coordination."
+  },
+  "state": "closed",
+  "base_commit": "bcf884a7200c25d3683ad9f656554b6412517730",
+  "implementation_commit": "1c92035776f2f6e3a90e48626bda2814294de592",
+  "verified_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "closed": {
+    "at_unix": 1794817247,
+    "commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+    "by": "AG3HOUSEKEEP"
   }
 }

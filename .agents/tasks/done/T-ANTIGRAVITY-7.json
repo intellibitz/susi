@@ -1,4 +1,5 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-ANTIGRAVITY-7",
   "native_worker": "antigravity-agent-secrets",
   "title": "Universal cross-OS, local, remote, and cloud agent secret resolution",
@@ -35,5 +36,14 @@
     "crates/susi-tools",
     "deploy/compose"
   ],
-  "status": "in_progress"
+  "status": "done",
+  "state": "closed",
+  "base_commit": "d3b93f83a3899f4cd1d52b209b5928aeba61c008",
+  "implementation_commit": "9b1f4981f2c1b0404e42419c961283b275f379b4",
+  "verified_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "closed": {
+    "at_unix": 1794817247,
+    "commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+    "by": "AG3HOUSEKEEP"
+  }
 }

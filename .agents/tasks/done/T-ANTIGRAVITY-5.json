@@ -1,4 +1,5 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-ANTIGRAVITY-5",
   "native_worker": "antigravity-zero-prompt",
   "title": "Zero-interaction full automation across CLI, daemon, MCP, harness, agents, and cloud",
@@ -45,5 +46,14 @@
     "src",
     "tests"
   ],
-  "status": "in_progress"
+  "status": "done",
+  "state": "closed",
+  "base_commit": "d2c3052120ca6a10981004971fd1ad6f519588c2",
+  "implementation_commit": "56bb1bc4d63055587799153a108a37140e918c9b",
+  "verified_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "closed": {
+    "at_unix": 1794817247,
+    "commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+    "by": "AG3HOUSEKEEP"
+  }
 }

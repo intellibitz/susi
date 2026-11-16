@@ -1,4 +1,5 @@
 {
+  "schema": "susi.task_record/v1",
   "id": "T-CLAUDE-412",
   "title": "Clear the clippy error on main in the 014 mastery test and re-record the VC-203 evidence",
   "goal": "tests/gmcp_requirements/vc_203_014_part4.rs (rewritten by T-CODEXGMCPROADMAP-110) annotates an array as [Box<dyn Fn(&mut Value)>; 9], which clippy -D warnings refuses as type_complexity, so cargo clippy -p susi --all-targets fails on main and every harness candidate is rejected at its lint gate. A local type alias with the borrow's lifetime clears it. The file is in every vector's evidence artifact set, so both phases of scripts/gmcp-record-evidence.sh are re-run.",
@@ -25,9 +26,18 @@
     ".agents/gmcp/evidence",
     ".agents/tasks/T-CLAUDE-412.json"
   ],
-  "status": "implemented",
+  "status": "done",
   "results": {
     "change": "A local alias `type Mutate<'a> = Box<dyn Fn(&mut Value) + 'a>` names the array's element type.",
     "checks": "cargo clippy --offline --locked --workspace --all-targets --features xtask/release-tooling -- -D warnings is clean; both phases of scripts/gmcp-record-evidence.sh passed (90 requirement checks, 15 mastery tests) and are recorded."
+  },
+  "state": "closed",
+  "base_commit": "ca320cc2b6acfec81baa90602c8df8a690022c7c",
+  "implementation_commit": "a59928911f1d32fd5704521d6cc93f0818b163bb",
+  "verified_commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+  "closed": {
+    "at_unix": 1794817247,
+    "commit": "abfb49726da3f8b34d941ad89c4a5c65f89451c4",
+    "by": "AG3HOUSEKEEP"
   }
 }
