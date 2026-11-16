@@ -3,7 +3,7 @@
   "title": "Repair owned MCP duplex handshake cleanup and bounded frame acquisition",
   "goal": "Vision: V-6. Preserve public MCP host functionality while making its existing duplex transport safe to reuse for eventual ACP-supplied MCP servers; no session bridge or deadline claim.",
   "size": "m",
-  "status": "verified_pending_publication",
+  "status": "completed",
   "created_by": "CODEX100KMCPIO",
   "created_unix": 1794826600,
   "base_commit": "48fa3b7af4d529203d0e52ca4e45b93f7df8f8b3",
@@ -72,5 +72,16 @@
     "status": "Verified; independent review clear; no external publication",
     "suggested_existing_root_checks": "gmcp_req_203_017_02_production and gmcp_req_203_017_04_adversarial in gmcp_requirements; parent warm target avoids unnecessary cold root build"
   },
-  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json"
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json",
+  "closed": {
+    "at_unix": 1794827652,
+    "commit": "1b15cfaaa805f61fb35b9406762abc138f408821",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "865c978c6758b36e20e713f6326e82f284e475b0",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json"
+  }
 }
