@@ -630,11 +630,39 @@ pub fn resolve_board_target(workspace: Option<&Path>) -> Result<BoardTarget, Str
                 });
             }
         }
+        // CEO Mandate 83: an agent works in both repositories, and reaches
+        // the board from either without being told where it is.
+        if let Some(clone) = agent_root_board_clone(dir) {
+            return Ok(BoardTarget::Git {
+                work_dir: clone,
+                remote: "origin".to_owned(),
+            });
+        }
     }
 
     Err(format!(
         "Susi Native Board access is mandatory and no board target is configured or reachable (set `{BOARD_URL_ENV}`, `{REMOTE_URL_ENV}`, `{REMOTE_ENV}`, or git remote `board`; public `intellibitz/susi` origin is never used for `refs/board/*`)"
     ))
+}
+
+/// The file that marks an agent's root directory (CEO Mandate 77).
+const AGENT_ROOT_MARKER: &str = ".susi-agent-root";
+/// The private repository that holds the board, by name: an agent keeps a
+/// clone of it beside its clone of this one, under its root.
+const BOARD_HOME_REPO: &str = "susi-commercial-apps";
+
+/// The clone of the board's repository under the agent root that `workspace`
+/// is in: the nearest directory above it that carries the root marker, then
+/// the board's repository by name inside it. Never a clone whose `origin` is
+/// this public repository.
+fn agent_root_board_clone(workspace: &Path) -> Option<PathBuf> {
+    let start = std::fs::canonicalize(workspace).ok()?;
+    let root = start
+        .ancestors()
+        .find(|dir| dir.join(AGENT_ROOT_MARKER).is_file())?;
+    let clone = root.join(BOARD_HOME_REPO);
+    let origin = git(&clone, &["remote", "get-url", "origin"]).ok()?;
+    (!is_public_susi_remote_url(&origin)).then_some(clone)
 }
 
 fn verify_non_public_remote(work_dir: &Path, remote: &str) -> Result<(), String> {
@@ -1823,6 +1851,46 @@ mod tests {
         assert_eq!(items.len(), 4);
         assert_eq!(items.iter().filter(|i| i.item.kind == "claim").count(), 2);
         assert_eq!(items.iter().filter(|i| i.item.kind == "landed").count(), 2);
+    }
+
+    #[test]
+    fn a_core_checkout_finds_the_board_in_the_agents_own_clone_of_its_repository() {
+        let fx = GitBoardFixture::new("agent-root-board");
+        let run = |dir: &Path, args: &[&str]| git(dir, args).expect("git");
+        // An agent root holding a clone of this public repository and a clone
+        // of the board's private one.
+        let agent_root = fx.root.join("claude");
+        let core = agent_root.join("susi");
+        let board = agent_root.join(BOARD_HOME_REPO);
+        for (clone, origin) in [
+            (&core, "https://github.com/intellibitz/susi.git"),
+            (&board, fx.remote.as_str()),
+        ] {
+            fs::create_dir_all(clone).unwrap();
+            run(clone, &["init", "--quiet"]);
+            run(clone, &["remote", "add", "origin", origin]);
+        }
+        // Without the root marker nothing is assumed: the public origin is
+        // never a board, so there is no target.
+        assert_eq!(agent_root_board_clone(&core), None);
+        fs::write(agent_root.join(AGENT_ROOT_MARKER), "agent = \"claude\"\n").unwrap();
+        // With it, the board is the agent's own clone of its repository.
+        let found = agent_root_board_clone(&core).expect("the board clone");
+        assert_eq!(
+            fs::canonicalize(&found).unwrap(),
+            fs::canonicalize(&board).unwrap()
+        );
+        // A directory of that name whose origin is the public core is not it.
+        run(
+            &board,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/intellibitz/susi.git",
+            ],
+        );
+        assert_eq!(agent_root_board_clone(&core), None);
     }
 
     #[test]

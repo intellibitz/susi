@@ -8,26 +8,55 @@
 > Preserve ownership, release qualification, licensing and rollback.
 > See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
 
-## CEO Mandate 82 (2026-11-16): Every Agent Pulls and Merges `origin/main` Every Ten Minutes
+## CEO Mandate 83 (2026-11-16): The Ten Agent Operating Rules
 
-Read [CEO Mandate 82](docs/ceo-mandate-82.md). While it works, every agent
-fetches `origin/main` and merges it into the worktree it is working in at least
-every ten minutes, in each repository it is working in. This adds a clock to
+Read [CEO Mandate 83](docs/ceo-mandate-83.md). It puts in one place how every
+agent works, and wins where older text differs.
+
+1. **Never wait on another agent.** Post a Request on the Susi Board and carry
+   on with other work.
+2. **Hold no claim you are not working on.** Claim when you start, release when
+   you stop (`susi-commercial tasks release <id>`).
+3. **Keep a claim's progress up to date, or lose it.** A claim lives one hour at
+   a time; publishing work on the task or `susi-commercial tasks renew <id>`
+   renews it. A claim nobody keeps alive lapses, and any agent may take the
+   task (`susi-commercial tasks claim <id>`) without asking.
+4. **Always collaborate** through the Susi Board (Mandate 76).
+5. **Always isolated; your own worktrees are yours to reuse** (Mandates 49, 65,
+   74 and 77).
+6. **Commit, push, merge and pull about every ten minutes, meaningfully**: a
+   cadence against drift, not a hard limit (Mandate 82).
+7. **Work in both repositories.** The same tool and the same board from
+   either; commercial code and board items never enter this public core.
+8. **Reach secrets safely**: only through the vault and the process
+   environment, never shown (`susi keys vault`).
+9. **Fully autonomous, full permissions on**, inside the boundaries the other
+   mandates keep: no force push, no destructive action without CEO direction,
+   no spending or publication outside the task (Mandates 62 and 73).
+10. **Be proactive: bring the solution** with every problem, or a task and a
+    board item that proposes it.
+
+## CEO Mandate 82 (2026-11-16): Commit, Push, Merge and Pull About Every Ten Minutes
+
+Read [CEO Mandate 82](docs/ceo-mandate-82.md), amended the same day by rule 6
+of Mandate 83. While it works, every agent commits a meaningful step, merges
+`origin/main` into the worktree it is working in and publishes to `main` about
+every ten minutes, in each repository it is working in. It adds a rhythm to
 Mandate 74 (latest remote before starting, when resuming and before every
 commit) and stands beside Mandate 80 (review ready work for integration every
-ten minutes): one clock, taking work in and handing work out.
+ten minutes).
 
-- **How:** commit your work, then `git fetch origin main && git merge
-  origin/main` (or `susi-commercial workflow sync`). For a clean worktree,
-  `susi-commercial workflow fresh --pull`; with `--watch` it repeats every ten
-  minutes until stopped.
+- **How:** commit, then `susi-commercial workflow sync` (or `git fetch origin
+  main && git merge origin/main`), then `susi-commercial workflow ship`.
+  `susi-commercial workflow fresh` shows how far behind a worktree is, how much
+  of its work is unpublished and for how long; `fresh --pull --watch` pulls a
+  clean worktree every ten minutes until stopped.
+- **A cadence, not a hard limit:** it prevents drift. Nothing is refused when
+  ten minutes pass; the tool says so plainly. Every step is meaningful: no
+  empty commit, no noise, no broken half-step pushed to satisfy a clock.
 - **Never forced:** resolve a conflict; no rebase of shared history, no force,
-  no empty merge to satisfy the clock. An unreachable remote is not a
-  violation. A merge is never refused.
-- **Enforced:** once a worktree has been behind `origin/main` for more than
-  ten minutes, counted from the tool's first notice, the commit guard lets one
-  commit through to save the work and refuses every commit after it until the
-  worktree has merged. No override. It adds no gate to `main`.
+  no empty merge. An unreachable remote is not a violation. A merge is never
+  refused. It adds no gate to `main`.
 
 ## CEO Mandate 81 (2026-11-15): Release Cuts Must Sync the Local Host Binary and Live Daemon
 
@@ -134,7 +163,8 @@ board refs files it under the next number (CEO directive 2026-11-16).
   appending, never edit or delete another agent's item.
 - **Respect claims and answer each other:** never edit inside another agent's
   open claim, ask the owner on the board, and answer what is addressed to you
-  before starting new work.
+  before starting new work. Asking never means waiting: carry on with other
+  work, and a claim past its lease is open to any agent (Mandate 83).
 - **Truthful, confidential, portable:** only verified facts; no credentials or
   commercial source on the board; plain text with zero GitHub or hosted-service
   dependency. The board coordinates; Git stays the record; it adds no gate.
@@ -222,9 +252,9 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   `susi-commercial workflow fresh` reports the lag; the commit
   guard notes any lag and refuses a commit more than 20 commits behind
   (`git config susi.maxBehind <n>` changes the limit; an unreachable remote
-  never refuses; a merge is never refused). Under Mandate 82 a worktree behind
-  for more than ten minutes gets one commit to save its work and no more until
-  it has merged.
+  never refuses; a merge is never refused). Mandates 82 and 83 add a
+  ten-minute cadence for committing, pushing, merging and pulling; it notes
+  drift and refuses nothing.
 - **GitHub is portable Git storage only:** Pure Git transport (`origin` for
   `susi` and `susi-commercial-apps`); zero GitHub Actions, zero hosted PR/status
   gates, zero `gh` CLI or GitHub API lock-in; moving clouds is a remote URL change.
@@ -339,7 +369,8 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 79 | **Vision-driven continuous self-improvement (2026-11-12).** Section above; [`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md). |
 | 80 | **Three core pillars and synchronized Step 1 delivery (2026-11-15).** Directive at the top of this file; [`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md). |
 | 81 | **Release cuts must sync the local host binary and live daemon (2026-11-15).** Section above; [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md). |
-| 82 | **Every agent pulls and merges `origin/main` every ten minutes (2026-11-16).** Section above; [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md). |
+| 82 | **Commit, push, merge and pull about every ten minutes: a cadence, not a hard limit (2026-11-16).** Section above; [`docs/ceo-mandate-82.md`](docs/ceo-mandate-82.md). |
+| 83 | **The ten agent operating rules (2026-11-16).** Section above; [`docs/ceo-mandate-83.md`](docs/ceo-mandate-83.md). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

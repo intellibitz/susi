@@ -2184,7 +2184,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=82).collect::<Vec<_>>(),
+        (1..=83).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2212,6 +2212,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
             "Release cuts must sync the local host binary and live daemon",
         ),
         (82, "pulls and merges origin/main every ten minutes"),
+        (83, "Never wait on another agent"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -3187,11 +3188,20 @@ fn core_cli_has_no_ui_subcommands() {
     }
 }
 
-/// Mandate 82 (CEO 2026-11-16): every agent pulls and merges `origin/main`
-/// at least every ten minutes.
+/// Mandate 82 (CEO 2026-11-16, amended the same day by Mandate 83): commit,
+/// push, merge and pull about every ten minutes, as a cadence that refuses
+/// nothing.
 #[test]
-fn ceo_mandate_82_has_every_agent_pull_and_merge_every_ten_minutes() {
+fn ceo_mandate_82_is_a_ten_minute_cadence_that_refuses_nothing() {
     let root = workspace_root();
+    // Flattened, so a re-wrapped paragraph still carries its requirement.
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
     for path in [
         "AGENTS.md",
         ".agents/identity.json",
@@ -3200,21 +3210,31 @@ fn ceo_mandate_82_has_every_agent_pull_and_merge_every_ten_minutes() {
         "README.md",
         "docs/ceo-mandate-74.md",
     ] {
-        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        let text = flat(path);
         assert!(
             text.contains("ceo-mandate-82.md"),
             "{path}: Mandate 82 must be discoverable"
         );
+        // The withdrawn refusal must not creep back into a rule file.
+        for withdrawn in [
+            "refused its next commit",
+            "refused every commit after it",
+            "refuses every commit after it",
+            "one commit to save its work",
+        ] {
+            assert!(
+                !text.contains(withdrawn),
+                "{path} still describes the withdrawn ten-minute refusal: {withdrawn}"
+            );
+        }
     }
-    // Flattened, so a re-wrapped paragraph still carries its requirement.
-    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-82.md"))
-        .unwrap()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let doc = flat("docs/ceo-mandate-82.md");
     for phrase in [
         "**Agent reminder (one line):**",
-        "at least every ten minutes",
+        "commit, push, merge and pull about every ten minutes",
+        "A cadence, not a hard limit",
+        "Nothing is refused when ten minutes pass",
+        "No empty commit, no noise",
         "git fetch origin main && git merge origin/main",
         "susi-commercial workflow fresh --pull --watch",
         "A conflict is resolved, never forced",
@@ -3223,6 +3243,7 @@ fn ceo_mandate_82_has_every_agent_pull_and_merge_every_ten_minutes() {
         "No gate is added to `main`",
         "Mandate 74",
         "Mandate 80",
+        "Mandate 83",
         "Implementation truth",
         "Not enforced",
     ] {
@@ -3240,6 +3261,75 @@ fn ceo_mandate_82_has_every_agent_pull_and_merge_every_ten_minutes() {
         Some("every agent must merge and pull every 10 minutes"),
         "the CEO's words are recorded as they were given"
     );
+}
+
+/// Mandate 83 (CEO 2026-11-16): the ten agent operating rules.
+#[test]
+fn ceo_mandate_83_sets_the_ten_agent_operating_rules() {
+    let root = workspace_root();
+    let flat = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "docs/ceo-mandate-76.md",
+        "docs/ceo-mandate-82.md",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("ceo-mandate-83.md") || text.contains("Mandate 83"),
+            "{path}: Mandate 83 must be discoverable"
+        );
+    }
+    let doc = flat("docs/ceo-mandate-83.md");
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "1. **Never wait on another agent.**",
+        "2. **Hold no claim you are not working on.**",
+        "3. **Keep a claim's progress up to date, or lose it.**",
+        "4. **Always collaborate.**",
+        "5. **Always isolated; your own worktrees are yours to reuse.**",
+        "6. **Commit, push, merge and pull about every ten minutes, meaningfully.**",
+        "7. **Work in both repositories.**",
+        "8. **Reach secrets safely.**",
+        "9. **Fully autonomous, full permissions on.**",
+        "10. **Be proactive: bring the solution.**",
+        "not a hard limit",
+        "any agent may then take the task",
+        "Full permission is not permission to do harm",
+        "never enter the public core",
+        "Never open the CEO's Personal vault",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 83 lost requirement: {phrase}"
+        );
+    }
+    // Full permission never lifts the boundaries the other mandates set.
+    let agents = flat("AGENTS.md");
+    assert!(agents.contains("no force push, no destructive action without CEO direction"));
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-8.json")).unwrap(),
+    )
+    .unwrap();
+    let said = vision["statement"].as_str().unwrap();
+    for words in [
+        "agents cannot wait on other agents",
+        "not a hard limit but to prevent drifts",
+        "agents being proactive in providing solutions to problems",
+    ] {
+        assert!(said.contains(words), "V-8 lost the CEO's words: {words}");
+    }
 }
 
 /// Mandate 81 (CEO 2026-11-15): release cuts must sync the local host binary and live daemon.
