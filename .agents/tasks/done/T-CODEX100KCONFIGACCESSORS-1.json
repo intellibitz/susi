@@ -2,7 +2,7 @@
   "id": "T-CODEX100KCONFIGACCESSORS-1",
   "title": "Consolidate typed bundled-default config accessor definitions",
   "goal": "Vision: V-6. Reduce repeated physical runtime source while preserving all46public typed accessors, their documentation, serde types, config lookup keys and bundled-default behavior. Keep every specialized accessor and existing test unchanged.",
-  "status": "in_progress",
+  "status": "completed",
   "size": "s",
   "created_by": "CODEX100KCONFIGACCESSORS",
   "created_unix": 1794832012,
@@ -35,7 +35,7 @@
     "Run full susi-config library tests, strict all-target Clippy and formatting; preserve missing/wrong-type fallback, explicit values and public signatures.",
     "Record actual runtime source delta without changing tests, count exclusions or dependency manifests."
   ],
-  "phase": "verified_pending_parent_integration",
+  "phase": "integrated_verified_published",
   "validation": {
     "config_lib": {
       "command": "cargo test --offline --locked -p susi-config --lib",
@@ -69,5 +69,17 @@
     "ordered_api_docs_sha256": "cf08028b5b9867d61030f897a77f47ce45d3a68046bb9336b73069ab19b579b8"
   },
   "evidence": ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
-  "progress": "Verified78runtime-line reduction. No tests moved/removed, exclusions changed or functionality dropped. Source/local commit handoff pending parent integrated measurement/publication."
+  "progress": "Verified78runtime-line reduction. No tests moved/removed, exclusions changed or functionality dropped. Source/local commit handoff pending parent integrated measurement/publication.",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json",
+  "closed": {
+    "at_unix": 1794832683,
+    "commit": "706707908b4424e06a38f1dd96612173a293740f",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "706707908b4424e06a38f1dd96612173a293740f"
+  },
+  "integration_result": "Parent repeated existing tests and exact/differential parity checks on integrated source; source and evidence published and remote-verified. Only scoped reduction task closed; complete307361-line core and standards goal remain open."
 }

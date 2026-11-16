@@ -20,7 +20,7 @@
   },
   "implementation_evidence": [
     ".agents/evidence/core-under-100k/2026-11-16-config-accessors.json",
-    ".agents/tasks/T-CODEX100KLEDGER-1.json"
+    ".agents/tasks/done/T-CODEX100KLEDGER-1.json"
   ],
   "integrated_validation": {
     "config_lib": {

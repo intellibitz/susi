@@ -3,7 +3,7 @@
   "title": "Share context-graph relation construction and mission failure counting",
   "goal": "Vision: V-6. Remove duplicated runtime source while preserving every graph id/timestamp/event/order/persistence behavior and every mission failure attribution policy. No capability, test, dependency or counting exclusion is removed.",
   "size": "s",
-  "status": "in_progress",
+  "status": "completed",
   "created_by": "CODEX100KLEDGER",
   "created_unix": 1794832131,
   "base_commit": "49a4a8e2aae575c150bdf42dd5f54cbf75353cf4",
@@ -37,7 +37,7 @@
     "Record physical runtime delta and byte-identical inline test sections."
   ],
   "progress_unix": 1794832400,
-  "phase": "verified_pending_parent_integration",
+  "phase": "integrated_verified_published",
   "progress": "90 physical runtime lines removed through shared relation construction and failure attribution. All43 existing scoped tests pass unchanged,262944 finite function differential comparisons pass, strict library Clippy and workspace formatting pass. Parent owns integration/publication and full goal remains open.",
   "source_delta": {
     "crates/susi-core/src/context_graph.rs": {
@@ -116,5 +116,17 @@
         "sha256": "f046f98fe673c0c5b0de42b03e980e5abdab3cb279cb2f19f4fb6b8e72502178"
       }
     }
-  }
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-accessors-ledger-integrated.json",
+  "closed": {
+    "at_unix": 1794832683,
+    "commit": "706707908b4424e06a38f1dd96612173a293740f",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "706707908b4424e06a38f1dd96612173a293740f"
+  },
+  "integration_result": "Parent repeated existing tests and exact/differential parity checks on integrated source; source and evidence published and remote-verified. Only scoped reduction task closed; complete307361-line core and standards goal remain open."
 }
