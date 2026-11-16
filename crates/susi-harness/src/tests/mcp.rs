@@ -176,6 +176,177 @@ fn stdio_skips_notifications_before_the_json_rpc_response() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["result"]["ok"], true);
 }
+#[test]
+fn stdio_frame_limit_includes_the_newline_and_does_not_overread() {
+    let response = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}\n";
+    let limit = MAX_STDIO_FRAME_BYTES as usize;
+    let mut bytes = vec![b' '; limit - response.len()];
+    bytes.extend_from_slice(response.as_bytes());
+    assert_eq!(
+        read_stdio_response(&mut Cursor::new(&bytes)).unwrap()["id"],
+        1
+    );
+    bytes.insert(0, b' ');
+    let mut reader = Cursor::new(bytes);
+    assert!(read_stdio_response(&mut reader)
+        .unwrap_err()
+        .to_string()
+        .contains("line too long"));
+    assert_eq!(reader.position(), MAX_STDIO_FRAME_BYTES);
+}
+#[test]
+fn stdio_rejects_partial_eof_and_invalid_utf8_frames() {
+    for bytes in [
+        b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}".as_slice(),
+        b"{\"method\":\"notifications/progress\"}",
+        b" \r",
+        b"\xff\n",
+    ] {
+        assert!(read_stdio_response(&mut Cursor::new(bytes)).is_err());
+    }
+}
+#[cfg(unix)]
+fn isolated_stdio_fixture(script: &str, timeout: Duration) -> StdioTransport {
+    let child = std::process::Command::new("/bin/sh")
+        .args(["-c", script])
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    StdioTransport::from_child(child)
+        .unwrap()
+        .with_timeout(timeout)
+}
+#[cfg(unix)]
+#[test]
+fn stdio_nonreading_child_times_out_large_requests_and_notifications() {
+    for notification in [false, true] {
+        let mut transport =
+            isolated_stdio_fixture("while :; do :; done", Duration::from_millis(150));
+        transport.set_call_timeout(None);
+        let mut message = json!({"jsonrpc":"2.0", "method":"fixture", "params":{
+            "text": "x".repeat(256 * 1024)
+        }});
+        if !notification {
+            message["id"] = json!(1);
+        }
+        let started = Instant::now();
+        let result = if notification {
+            transport.notify(&message)
+        } else {
+            transport.exchange(&message).map(|_| ())
+        };
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("mcp write timed out"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(transport.child.try_wait().unwrap().is_some());
+        assert!(transport.writes.is_none());
+        assert!(transport.responses.is_none());
+        assert!(transport
+            .notify(&json!({"method":"must-not-be-retried"}))
+            .unwrap_err()
+            .to_string()
+            .contains("closed"));
+    }
+}
+#[cfg(unix)]
+#[test]
+fn stdio_optional_call_budget_preserves_long_running_native_operations() {
+    let mut transport = isolated_stdio_fixture(
+        concat!(
+            "IFS= read -r _line; /bin/sleep 0.25; ",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":true}'"
+        ),
+        Duration::from_millis(100),
+    );
+    assert_eq!(transport.call_timeout, Some(Duration::from_millis(100)));
+    transport.set_call_timeout(None);
+    let started = Instant::now();
+    assert_eq!(
+        transport.exchange(&json!({"id":1})).unwrap()["result"],
+        true
+    );
+    assert!(started.elapsed() >= Duration::from_millis(200));
+    assert_eq!(transport.timeout, Duration::from_millis(100));
+    transport.set_call_timeout(Some(Duration::from_millis(50)));
+    assert_eq!(transport.call_timeout, Some(Duration::from_millis(50)));
+}
+#[cfg(unix)]
+#[test]
+fn stdio_optional_call_budget_still_bounds_a_started_response_frame() {
+    let mut transport = isolated_stdio_fixture(
+        "IFS= read -r _line; printf '%s' '{'; while :; do :; done",
+        Duration::from_millis(100),
+    );
+    transport.set_call_timeout(None);
+    let started = Instant::now();
+    let error = transport
+        .exchange(&json!({"id":1}))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("mcp response frame timed out"), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(transport.child.try_wait().unwrap().is_some());
+}
+#[cfg(unix)]
+#[test]
+fn stdio_notifications_never_extend_an_explicit_call_budget() {
+    let mut transport = isolated_stdio_fixture(
+        concat!(
+            "IFS= read -r _line; while :; do printf '%s\\n' ",
+            "'{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}'; ",
+            "/bin/sleep 0.025; done"
+        ),
+        Duration::from_millis(150),
+    );
+    let started = Instant::now();
+    let error = transport
+        .exchange(&json!({"id":1}))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("mcp response timed out"), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(transport.child.try_wait().unwrap().is_some());
+}
+#[cfg(unix)]
+#[test]
+fn stdio_malformed_response_aborts_a_still_running_owned_child() {
+    let mut transport = isolated_stdio_fixture(
+        "IFS= read -r _line; printf '%s\\n' 'invalid'; while :; do :; done",
+        Duration::from_secs(2),
+    );
+    let error = transport.exchange(&json!({"id":1})).unwrap_err();
+    assert!(error.to_string().contains("mcp response"));
+    assert!(transport.child.try_wait().unwrap().is_some());
+    assert!(transport.writes.is_none());
+    assert!(transport.responses.is_none());
+}
+#[cfg(unix)]
+#[test]
+fn stdio_write_time_consumes_the_response_deadline_without_joining_pipe_holders() {
+    let mut transport = isolated_stdio_fixture(
+        concat!(
+            "/bin/sleep 0.25; IFS= read -r _line; /bin/sleep 0.5; ",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}'"
+        ),
+        Duration::from_millis(600),
+    );
+    let started = Instant::now();
+    let error = transport
+        .exchange(&json!({"id":1, "text":"x".repeat(256 * 1024)}))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("mcp response timed out"), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(transport.child.try_wait().unwrap().is_some());
+    // The finite sleep descendant inherited the pipes. Closing must not join
+    // either worker even while that descendant keeps the pipe handles open.
+    transport.close().unwrap();
+    assert!(transport.reader.is_none());
+    assert!(transport.writer.is_none());
+}
 #[cfg(unix)]
 #[test]
 fn stdio_transport_reads_a_response_from_the_reader_worker() {

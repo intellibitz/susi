@@ -12,9 +12,9 @@ use crate::tools::{Policy, ToolSpec};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use susi_error::{EaiError, EaiResult};
 
 /// The protocol revision this client offers in `initialize`.
@@ -36,7 +36,10 @@ pub const GMCP_HTTP_PATH: &str = "/mcp";
 /// Largest response body [`HttpSocketTransport`] reads.
 pub const MAX_HTTP_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Default deadline for one MCP stdio response.
+/// Largest incoming MCP stdio frame, including the terminating newline.
+pub const MAX_STDIO_FRAME_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Default deadline for writing one MCP stdio message and reading its response.
 pub const DEFAULT_STDIO_TIMEOUT_SECS: u64 = 60;
 
 /// One tool an MCP server advertises.
@@ -83,6 +86,15 @@ pub trait Transport: Send {
 
     /// Set the deadline for subsequent messages.
     fn set_timeout(&mut self, _timeout: Duration) {}
+
+    /// Set the call-response budget. Transports supporting `None` may wait
+    /// until completion or closure while retaining bounded writes. Other
+    /// transports retain their current timeout when `None` is requested.
+    fn set_call_timeout(&mut self, timeout: Option<Duration>) {
+        if let Some(timeout) = timeout {
+            self.set_timeout(timeout);
+        }
+    }
 
     /// Release any session owned by this transport.
     ///
@@ -157,6 +169,12 @@ impl<T: Transport> McpClient<T> {
     /// The underlying transport.
     pub fn transport(&self) -> &T {
         &self.transport
+    }
+
+    /// Set the transport's call-response budget after completing discovery.
+    /// `None` permits unbounded stdio response waits; HTTP retains its timeout.
+    pub fn set_call_timeout(&mut self, timeout: Option<Duration>) {
+        self.transport.set_call_timeout(timeout);
     }
 
     /// Perform the MCP handshake once.
@@ -359,7 +377,7 @@ impl<T: Transport> Drop for McpClient<T> {
     }
 }
 
-/// Read the next response from an MCP stdio stream.
+/// Read one bounded MCP stdio frame, distinguishing skipped notifications.
 ///
 /// Servers may send JSON-RPC notifications (for example progress or log
 /// events) between a request and its response. Notifications have a method
@@ -367,45 +385,71 @@ impl<T: Transport> Drop for McpClient<T> {
 /// the request's response. A message with an id, malformed JSON, or a
 /// response-shaped message without an id is returned to the client layer,
 /// which preserves its normal correlation checks.
+fn read_stdio_message<R: BufRead>(reader: &mut R) -> EaiResult<Option<Value>> {
+    let mut line = Vec::new();
+    susi_paths::http_body::read_line_capped(reader, &mut line, MAX_STDIO_FRAME_BYTES)
+        .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
+    if line.is_empty() {
+        return Err(EaiError::io("mcp server closed the stream"));
+    }
+    if !line.ends_with(b"\n") {
+        return Err(EaiError::io("mcp server closed an incomplete frame"));
+    }
+    let line =
+        std::str::from_utf8(&line).map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
+    if line.trim().is_empty() {
+        return Ok(None);
+    }
+    let message: Value = serde_json::from_str(line)
+        .map_err(|error| EaiError::internal(format!("mcp response: {error}")))?;
+    let notification = message.get("id").is_none()
+        && message.get("method").and_then(Value::as_str).is_some()
+        && message.get("result").is_none()
+        && message.get("error").is_none();
+    Ok((!notification).then_some(message))
+}
+
+#[cfg(test)]
 fn read_stdio_response<R: BufRead>(reader: &mut R) -> EaiResult<Value> {
-    let mut line = String::new();
     loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
-        if read == 0 {
-            return Err(EaiError::io("mcp server closed the stream"));
+        if let Some(message) = read_stdio_message(reader)? {
+            return Ok(message);
         }
-        if line.trim().is_empty() {
-            continue;
-        }
-        let message: Value = serde_json::from_str(&line)
-            .map_err(|error| EaiError::internal(format!("mcp response: {error}")))?;
-        let notification = message.get("id").is_none()
-            && message.get("method").and_then(Value::as_str).is_some()
-            && message.get("result").is_none()
-            && message.get("error").is_none();
-        if notification {
-            continue;
-        }
-        return Ok(message);
     }
 }
 
-type StdioResponses = Receiver<EaiResult<Value>>;
-type StdioReader = JoinHandle<()>;
+enum StdioResponse {
+    FrameStarted,
+    FrameFinished(EaiResult<Option<Value>>),
+}
+
+type StdioResponses = Receiver<StdioResponse>;
+type StdioWorker = JoinHandle<()>;
+
+struct StdioWrite {
+    line: String,
+    completion: SyncSender<EaiResult<()>>,
+}
 
 fn start_stdio_reader(
     mut stdout: BufReader<ChildStdout>,
-) -> EaiResult<(StdioResponses, StdioReader)> {
-    let (sender, receiver) = mpsc::channel();
+) -> EaiResult<(StdioResponses, StdioWorker)> {
+    let (sender, receiver) = mpsc::sync_channel(1);
     let reader = thread::Builder::new()
         .name("susi-mcp-stdio-reader".to_string())
         .spawn(move || loop {
-            let result = read_stdio_response(&mut stdout);
+            if let Err(error) = stdout.fill_buf() {
+                let _ = sender.send(StdioResponse::FrameFinished(Err(EaiError::io(format!(
+                    "mcp read: {error}"
+                )))));
+                break;
+            }
+            if sender.send(StdioResponse::FrameStarted).is_err() {
+                break;
+            }
+            let result = read_stdio_message(&mut stdout);
             let finished = result.is_err();
-            if sender.send(result).is_err() || finished {
+            if sender.send(StdioResponse::FrameFinished(result)).is_err() || finished {
                 break;
             }
         })
@@ -413,14 +457,59 @@ fn start_stdio_reader(
     Ok((receiver, reader))
 }
 
+fn start_stdio_writer(mut stdin: ChildStdin) -> EaiResult<(SyncSender<StdioWrite>, StdioWorker)> {
+    let (sender, receiver) = mpsc::sync_channel::<StdioWrite>(1);
+    let writer = thread::Builder::new()
+        .name("susi-mcp-stdio-writer".to_string())
+        .spawn(move || {
+            while let Ok(write) = receiver.recv() {
+                let result = writeln!(stdin, "{}", write.line)
+                    .and_then(|()| stdin.flush())
+                    .map_err(|error| EaiError::io(format!("mcp write: {error}")));
+                let finished = result.is_err();
+                if write.completion.send(result).is_err() || finished {
+                    break;
+                }
+            }
+        })
+        .map_err(|error| EaiError::io(format!("mcp writer thread: {error}")))?;
+    Ok((sender, writer))
+}
+
+fn receive_stdio<T>(
+    receiver: &Receiver<T>,
+    started: Instant,
+    timeout: Duration,
+    phase: &str,
+) -> EaiResult<T> {
+    let remaining = timeout.saturating_sub(started.elapsed());
+    let result = if remaining.is_zero() {
+        Err(RecvTimeoutError::Timeout)
+    } else {
+        receiver.recv_timeout(remaining)
+    };
+    match result {
+        Ok(result) => Ok(result),
+        Err(RecvTimeoutError::Timeout) => Err(EaiError::io(format!(
+            "mcp {phase} timed out after {} ms",
+            timeout.as_millis()
+        ))),
+        Err(RecvTimeoutError::Disconnected) => {
+            Err(EaiError::io(format!("mcp stdio {phase} worker stopped")))
+        }
+    }
+}
+
 /// A JSON-RPC transport over a child process's stdio.
 #[derive(Debug)]
 pub struct StdioTransport {
     child: Child,
-    stdin: ChildStdin,
-    responses: Receiver<EaiResult<Value>>,
-    reader: Option<JoinHandle<()>>,
+    writes: Option<SyncSender<StdioWrite>>,
+    responses: Option<StdioResponses>,
+    reader: Option<StdioWorker>,
+    writer: Option<StdioWorker>,
     timeout: Duration,
+    call_timeout: Option<Duration>,
 }
 
 impl StdioTransport {
@@ -476,71 +565,126 @@ impl StdioTransport {
                 return Err(error);
             }
         };
+        let (writes, writer) = match start_stdio_writer(stdin) {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         Ok(Self {
             child,
-            stdin,
-            responses,
+            writes: Some(writes),
+            responses: Some(responses),
             reader: Some(reader),
+            writer: Some(writer),
             timeout: Duration::from_secs(DEFAULT_STDIO_TIMEOUT_SECS),
+            call_timeout: Some(Duration::from_secs(DEFAULT_STDIO_TIMEOUT_SECS)),
         })
     }
 
-    /// Set the per-response deadline.
+    /// Set the deadline shared by writing a message and reading its response.
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout.max(Duration::from_millis(1));
+        self.set_timeout(timeout);
         self
     }
 
-    /// Set the per-response deadline in seconds, with a one-second minimum.
+    /// Set the per-message deadline in seconds, with a one-second minimum.
     #[must_use]
     pub fn with_timeout_secs(self, timeout_secs: u64) -> Self {
         self.with_timeout(Duration::from_secs(timeout_secs.max(1)))
     }
 
     fn stop_child(&mut self) {
+        self.writes.take();
+        self.responses.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        // Do not join the reader: a child can pass stdout to a grandchild,
-        // which keeps the pipe open after the child itself is reaped.
+        // A descendant can retain either pipe after the root is reaped.
+        // Detach workers instead of making close or a timeout join blocked IO.
         let _ = self.reader.take();
+        let _ = self.writer.take();
+    }
+
+    fn write_message(&mut self, message: &Value, started: Instant) -> EaiResult<()> {
+        let line = serde_json::to_string(message)
+            .map_err(|error| EaiError::internal(format!("mcp request: {error}")))?;
+        let sender = self
+            .writes
+            .as_ref()
+            .ok_or_else(|| EaiError::io("mcp stdio transport is closed"))?;
+        if started.elapsed() >= self.timeout {
+            return Err(EaiError::io("mcp write timed out before dispatch"));
+        }
+        let (completion, receiver) = mpsc::sync_channel(1);
+        sender
+            .try_send(StdioWrite { line, completion })
+            .map_err(|_| EaiError::io("mcp stdio writer is unavailable"))?;
+        receive_stdio(&receiver, started, self.timeout, "write")?
+    }
+
+    fn read_response(&self, started: Instant) -> EaiResult<Value> {
+        let responses = self
+            .responses
+            .as_ref()
+            .ok_or_else(|| EaiError::io("mcp stdio transport is closed"))?;
+        let mut frame_started = None;
+        loop {
+            let event = match (self.call_timeout, frame_started) {
+                (Some(timeout), _) => receive_stdio(responses, started, timeout, "response")?,
+                (None, Some(started)) => {
+                    receive_stdio(responses, started, self.timeout, "response frame")?
+                }
+                (None, None) => responses
+                    .recv()
+                    .map_err(|_| EaiError::io("mcp stdio response worker stopped"))?,
+            };
+            match event {
+                StdioResponse::FrameStarted => frame_started = Some(Instant::now()),
+                StdioResponse::FrameFinished(result) => {
+                    if let Some(response) = result? {
+                        return Ok(response);
+                    }
+                    frame_started = None;
+                }
+            }
+        }
     }
 }
 
 impl Transport for StdioTransport {
     fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout.max(Duration::from_millis(1));
+        self.call_timeout = Some(self.timeout);
     }
 
-    fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
-        let line = serde_json::to_string(request)
-            .map_err(|error| EaiError::internal(format!("mcp request: {error}")))?;
-        writeln!(self.stdin, "{line}")
-            .map_err(|error| EaiError::io(format!("mcp write: {error}")))?;
-        self.stdin
-            .flush()
-            .map_err(|error| EaiError::io(format!("mcp flush: {error}")))?;
-        match self.responses.recv_timeout(self.timeout) {
-            Ok(result) => result,
-            Err(RecvTimeoutError::Timeout) => {
-                let timeout_ms = self.timeout.as_millis();
-                self.stop_child();
-                Err(EaiError::io(format!(
-                    "mcp response timed out after {timeout_ms} ms"
-                )))
-            }
-            Err(RecvTimeoutError::Disconnected) => Err(EaiError::io("mcp stdio reader stopped")),
+    fn set_call_timeout(&mut self, timeout: Option<Duration>) {
+        if let Some(timeout) = timeout {
+            self.set_timeout(timeout);
+        } else {
+            self.call_timeout = None;
         }
     }
 
+    fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
+        let started = Instant::now();
+        let result = self
+            .write_message(request, started)
+            .and_then(|()| self.read_response(started));
+        if result.is_err() {
+            self.stop_child();
+        }
+        result
+    }
+
     fn notify(&mut self, notification: &Value) -> EaiResult<()> {
-        let line = serde_json::to_string(notification)
-            .map_err(|error| EaiError::internal(format!("mcp notification: {error}")))?;
-        writeln!(self.stdin, "{line}")
-            .map_err(|error| EaiError::io(format!("mcp write: {error}")))?;
-        self.stdin
-            .flush()
-            .map_err(|error| EaiError::io(format!("mcp flush: {error}")))
+        let result = self.write_message(notification, Instant::now());
+        if result.is_err() {
+            self.stop_child();
+        }
+        result
     }
 
     fn close(&mut self) -> EaiResult<()> {
