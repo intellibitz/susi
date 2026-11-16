@@ -51,5 +51,6 @@
     "runtime_physical_lines_added": 2,
     "production_behavior_changes": 0,
     "existing_assertions_removed_or_weakened": 0
-  }
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-mcp-ownership.json"
 }
