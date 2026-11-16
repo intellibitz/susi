@@ -123,8 +123,8 @@ current goals and revisit unfulfilled goals and moved upstream dependencies;
 never claim progress from a missing record. Keep goals tidy: record each one
 once, in the words it was given, and never edit it; link every task that serves
 it and never strip the link when rewriting the task; when a goal lives on as a
-standing rule, record where in a create-only carried note, which never claims
-the goal met; and account for every goal, taking up again or carrying one whose
+standing rule, retain its location in a create-only carried note in local storage,
+which never claims the goal met; account for every goal, taking up or carrying one whose
 tasks are all closed. Preserve required artifact provenance
 with the artifact, independently of optional operational history. Review the
 current contract in place instead of adding a new numbered historical mandate.
