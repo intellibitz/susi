@@ -1,46 +1,43 @@
-# Gate receipts: every landing leaves a record anyone can re-run
+# Gate receipts
 
-An external review (2026-11-08) named self-attestation as this project's
-central trust gap: the local gate (`cargo local-workflow ship`) verified every
-landing, but the only records were refs in one laptop's `.git` and a status
-line on GitHub. This page describes the receipt every gated landing now leaves
-in the repository, how the ship tool writes it, and how a third party re-runs
-it on a clean clone with `cargo xtask verify-receipt <commit>`.
+`cargo local-workflow ship` retains the results of its gates in local Git
+metadata. Receipts bind the exact source tree, commands, results, toolchain and
+lockfile. `cargo xtask verify-receipt <commit>` checks a retained receipt and
+can re-run its commands. Missing history is not evidence of a passing gate.
 
-## What a landing looks like on `main`
+## Publication and retention
 
-A ship verifies a merge commit `H` (the integration head: `origin/main` plus
-the agent's branch, merged with `--no-ff`). The gate runs format, licenses,
-clippy, the affected test binaries, each task's acceptance command and the
-doctests on `H`'s exact tree. Before anything is published, the tool writes
-the receipt of `H` as a **receipt-only commit** `R` whose sole parent is `H`
-and whose only change is the file `.agents/receipts/<H>.json`. `R` is what is
-pushed to `origin/main`; the local integration ref
-(`refs/susi/integration/current`) stays at `H`, and
-`refs/susi/receipts/<H>` names `R`.
+A ship verifies integration head `H`, containing the fetched `origin/main` and
+the selected source branches. The gate runs format, licenses, clippy, affected
+test binaries, task acceptances and doctests on that exact tree. Before
+publication it creates receipt-only child `R`, whose only change is the virtual
+file `.agents/receipts/<H>.json`. The local ref `refs/susi/receipts/<H>` retains
+`R`; `refs/susi/integration/current` names `H`.
 
-A file cannot contain its own commit's hash, so the receipt describes its
-parent: `H` is the tree the gate ran on, and `R` differs from `H` by the
-receipt alone. `git log --first-parent origin/main` therefore alternates
-between verified merges and their receipts; `.agents/receipts/` accumulates
-one file per landing.
+Only `H` is pushed to `origin/main`. The worktree and published source gain no
+receipt file. The existing Git object database stores the receipt outside
+checked-out source, including its exact parent binding. A normal clone does not
+fetch these private refs. Historical source receipts remain readable, and
+`--receipt <file>` accepts a separately supplied copy.
 
-Publication is refused when the receipt cannot be built (unreadable gate
-results, a tree with a `Cargo.toml` but no `Cargo.lock`, a gate that did not
-pass) or when `refs/susi/receipts/<H>` is absent at publish time. `cargo
-local-workflow ship --retry` republishes the recorded `R`; a head accepted by
-an older ship tool has no receipt commit and must be shipped again.
+Publication is refused when the receipt cannot be built or verified, including
+unreadable results, a missing required lockfile, a failed gate or an absent local
+receipt ref. `ship --retry` rechecks the retained receipt and publishes `H`.
+If local history is lost, run the gates again or supply the required proof to the
+verifier; absence never qualifies a release. Required artifact provenance stays
+with the artifact independently of optional operational history.
 
-## The receipt (`susi-gate-receipt-v1`)
+## The receipt (`susi-gate-receipt-v2`)
 
 ```json
 {
-  "schema": "susi-gate-receipt-v1",
+  "schema": "susi-gate-receipt-v2",
   "digest": "<sha256 of the compact JSON of everything but this member>",
   "integration": {
     "commit": "<H>",
     "tree": "<H^{tree}>",
-    "origin_main": "<the origin/main H merged onto, H^1>"
+    "origin_main": "<the fetched origin/main integrated into H>",
+    "merge_first_parent": "<H^1>"
   },
   "sources": [{"agent": "receipts", "commit": "<agent branch head>",
                "claim_base": "<reserved base>", "task": "T-RECEIPTS-1"}],
@@ -89,10 +86,8 @@ Field by field:
   executable path, so only the gate's own binaries are listed. Cargo prints
   that path relative to the gate's working directory when the target
   directory is inside it (a serial `cargo test` gate, such as a task's
-  acceptance command) and absolute otherwise; both forms are read. The first
-  receipt (`.agents/receipts/fe3521e36f44b54a333b6110df75e64bd7ea80a5.json`)
-  predates that and lists no harnesses for its `task:T-RECEIPTS-1` gate,
-  only its totals.
+  acceptance command) and absolute otherwise; both forms are read. The
+  legacy receipt format may contain totals without a per-harness list.
 - `log_sha256` is the digest of the gate log retained in the gate host's Git
   object store (`refs/susi/provenance/receipts/*` names the blobs); the
   receipt carries the digest, not the log.
@@ -113,24 +108,32 @@ evidence lines but no test totals or harness list.
 ## Re-running a receipt
 
 ```text
-git clone https://github.com/intellibitz/susi
-cd susi
 cargo fetch --locked            # once; the gates run --offline
-cargo xtask verify-receipt <H>
+cargo xtask verify-receipt <H>   # retained receipt in this clone
+cargo xtask verify-receipt <H> --receipt <file>  # separately supplied receipt
 ```
 
 `<H>` is the verified merge (the receipt's `integration.commit`); the receipt
-commit `R` or any abbreviation works too (the tool finds the receipt in the
-working tree, at `HEAD`, or in `R`'s tree when given `R`). `--receipt <file>`
-verifies a receipt supplied out of band.
+commit `R` or any abbreviation works too when that object is available. The
+tool checks an explicit file first, then the retained local receipt ref, then
+legacy source copies at the working tree or `HEAD`, or `R`'s tree when given
+`R`. A damaged local ref is refused instead of silently using a legacy copy.
+Legacy v1 receipts retain their original first-parent semantics.
+A supplied JSON file can reproduce gate observations, but without its original
+receipt commit the structural check remains skipped and the command exits
+nonzero. Transfer the corresponding private ref explicitly through Git when
+complete historical verification is required; an ordinary source clone never
+claims to contain that proof.
 
-The tool reports one line per check and exits non-zero on any mismatch:
+The tool reports one line per check and exits nonzero on a mismatch or skipped check:
 
 1. Static checks against the clone: schema and digest; `integration.commit`
-   and `integration.tree` are `<H>` and its tree; `origin_main` is `H^1`;
-   `cargo_lock_sha256` matches `git show H:Cargo.lock`; the commit that added
-   `.agents/receipts/<H>.json` is `H`'s single-parent child changing nothing
-   else; every recorded gate exited 0.
+   and `integration.tree` are `<H>` and its tree; the observed integration
+   base and first parent match the recorded schema; `cargo_lock_sha256`
+   matches `git show H:Cargo.lock`; a retained receipt commit or legacy source
+   addition is `H`'s single-parent child changing only the receipt file;
+   every recorded gate exited 0. A supplied file without its original receipt
+   commit reports that structural check as unavailable, never as proved.
 2. Toolchain: the local `rustc -vV` (run inside the scratch worktree, so the
    pinned toolchain applies) must have the recorded SHA-256 and host. When it
    does not, the gates are **skipped**, not failed: the tool cannot say
@@ -172,14 +175,8 @@ registry cache (`cargo fetch --locked`) because every gate runs `--offline`.
 Expect 20-40 minutes for a receipt whose test selection covers a few crates;
 the whole-workspace selection takes about as long as the gate did.
 
-A mismatch is reported as such, never explained away. Known causes: a test
-that is flaky under load (the board records one in `tests/first_goal_opening.rs`
-on 2026-11-08) shows up as a harness whose counts differ or an exit code of
-101; a missing `cargo-deny` shows as a non-zero exit of the `licenses` gate;
-a different host triple is a skip, not a mismatch. Receipts verified with
-the first verifier (before `T-RECEIPTS2-1`) showed a clippy exit code of 101
-on every re-run: it appended the target directory after clippy's `--`. Run
-the current verifier.
+A mismatch is reported as such. Missing tools or failed tests remain failures;
+a different toolchain is reported as a skip unless explicitly overridden.
 
 ## For the gate host
 
@@ -190,16 +187,17 @@ does everything above. Two details worth knowing:
   (`native-gates.json`: ids, argv, status, duration, counts and the retained
   log blobs) when the gate kept one, else from the evidence lines. It is
   committed with Git plumbing alone (temporary index, `write-tree`,
-  `commit-tree`), so no worktree is touched and the published tree is `H`'s
-  tree plus one file.
-- `ship --retry` pushes the receipt commit recorded for the verified head. A
-  head without one (accepted before this change) cannot be retried; run
-  `ship` again so the receipt is written.
+  `commit-tree`), so no worktree is touched. Its retention ref is local;
+  the published tree is exactly `H`'s tree.
+- `ship --retry` validates the retained receipt before pushing `H`. A head
+  without that local proof cannot be retried; run `ship` again so its gates
+  produce a new receipt.
 
 Unit tests for the writer, the parser and the verifier are in
 `xtask/src/gate_receipt.rs`; the ship tests in
-`xtask/src/bin/local-workflow.rs` check that a ship publishes the receipt
-commit and refuses to publish without one.
+`xtask/src/local_workflow/tests.rs` check that publication preserves the
+verified source tree, local proof is required, and explicitly supplied receipts
+remain verifiable after an ordinary clone.
 
 ## Complete workspace binary execution (staged)
 

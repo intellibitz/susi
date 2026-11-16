@@ -1,0 +1,8 @@
+{
+  "schema": "susi.vision/v1",
+  "id": "V-15",
+  "statement": "make a mandate that agents must keep mandates tidy",
+  "set_by": "ceo",
+  "recorded_by": "AGENTCLAUDEMANDATETIDY",
+  "set_unix": 1794845504
+}

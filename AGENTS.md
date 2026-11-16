@@ -126,8 +126,23 @@ it and never strip the link when rewriting the task; when a goal lives on as a
 standing rule, retain its location in a create-only carried note in local storage,
 which never claims the goal met; account for every goal, taking up or carrying one whose
 tasks are all closed. Preserve required artifact provenance
-with the artifact, independently of optional operational history. Review the
-current contract in place instead of adding a new numbered historical mandate.
+with the artifact, independently of optional operational history.
+
+Keep the contract tidy. Review the current contract in place instead of adding a
+new numbered historical mandate. State each rule once, here or in the one
+document this contract links, and point to it elsewhere instead of copying it.
+When a rule changes, correct every older text it touches in the same change, so
+no two current texts disagree. Keep every link and named command resolving, and
+every implementation-truth note true, updated in the change that alters what
+holds its rule. Agent rule files stay identical pointers that restate nothing.
+
+Keep documentation tidy. A document says what is true now and changes in the
+change that alters what it describes; correct or remove it when its subject
+goes. Keep one topic in one document, found through the documentation index
+(`docs/README.md`) and extended rather than copied, and list every new document
+there. Keep every relative link and named command resolving. Dated records say
+their date and are listed as records; quoted upstream text keeps its words and
+links.
 
 The local delivery goal remains a verified live executable in under 60 seconds,
 with declared millisecond response budgets. Measure cold/warm build, test,

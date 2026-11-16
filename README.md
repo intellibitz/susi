@@ -5,8 +5,8 @@
 **[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Forking and contributing](CONTRIBUTING.md)**
 
 Susi is a local-first AI OS socket: one Rust daemon exposes models, agents and
-tools through stable protocols on ports `9090-9094`. Its three Apache-2.0 core
-pillars are **GAWD** (agent coordination, A2A, ACP and parallel harness), **GEMI**
+tools through stable protocols on ports `9090-9094`. Its three core pillars,
+all Apache-2.0, are **GAWD** (agent coordination, A2A, ACP and parallel harness), **GEMI**
 (inference routing), and **GMCP** (MCP and governed tools).
 
 The core is a generic protocol boundary. Concrete model engines, providers,
@@ -166,6 +166,7 @@ describes available commands and migration limits.
 
 ## Read next
 
+- [docs/README.md](docs/README.md): every document, indexed.
 - [docs/architecture.md](docs/architecture.md): pillars, Tier S invariants, plane bus and its loopback rendezvous, the plug bridge to the commercial suite, the lean-core direction, the command reference.
 - [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
