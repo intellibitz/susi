@@ -1,169 +1,186 @@
 # Harness runbook
 
-The operator's path from an empty shell to a mission SUSI runs on itself.
+Run an authorized mission from an isolated checkout, distinguish local
+integration from remote publication, and retain its working state outside
+tracked source. Follow the [active contract](../AGENTS.md) and
+[cross-host coordination guide](harness-coordination.md).
 
 ## Prerequisites
 
-| What | Check |
-|---|---|
-| `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in the environment | the gateway reports a missing key on the first call that needs it |
-| a `susi-commercial` binary (Susi Commercial Apps' dev workflow) that can run `workflow` and `tasks` | `susi-commercial workflow check` |
-| the pinned toolchain's `rust-src` component | `rustup component add rust-src` in the checkout; the first `susi local workflow list` then builds the verified standard library the native workflow compiles with |
-| `cargo-deny` | the landing gate runs `cargo deny --offline --locked check licenses` |
-| a board target and an agent name | `SUSI_BOARD_REMOTE_URL` (or `git config susi.board.remote-url`, or a `board` remote) and `SUSI_AGENT`: a core checkout has no board of its own, and a mission posts its claim before the first task |
+- Use a development candidate or qualified installed binary with the native
+  workflow entry points. Keep debug builds separate from the installed release.
+  Prepare the pinned toolchain, matching source component and platform build
+  prerequisites through the [native bootstrap](native-bootstrap.md); license and
+  standard-library qualification remain required.
+- Select priced model IDs from `susi harness models` and the chosen price
+  catalogue. Supply only the credentials those endpoints require to the gateway.
+  A model that cannot be priced is refused before spending.
+- Install and admit the implementation providers required by the mission. The
+  five harness filesystem tools and workflow/storage/scorecard operations use
+  registered MCP providers; the worker's `run_command` keeps its local policy.
+  A built core binary alone does not supply these implementations. See the
+  [implementation-service contract](architecture.md#implementation-services-and-protocol-adapters).
+- Use an owned agent identity and authorized private board target, configured
+  through `SUSI_BOARD_REMOTE_URL`, `susi.board.remote-url` or a `board` remote.
+  The current mission path posts coordination messages before and after running;
+  those messages must be authorized. It refuses the protected public source
+  repository as a board destination.
 
-The harness itself installs nothing else: it routes to the providers directly
-and the native worker runs in process, so there is no proxy binary and no
-external agent runtime to put on `PATH`. The last three rows are what the
-native workflow under it needs; on Linux that workflow also needs a C compiler
-and the system ICU and OpenSSL 3 headers
-([NATIVE-BUILDS.md](../toolchain/windows-stdlib/NATIVE-BUILDS.md)). With no
-provider key at all, see "No provider key" below.
-
-A dev build must not be installed over the release binary (Mandate 48). Use
-`target/debug/susi.exe` for a dev mission, or cut a release.
+For the shell examples below, run from the repository root. Set `SUSI_BIN`,
+`HARNESS_BIN` and `GATEWAY_BIN` to the actual candidate executables (`susi`,
+`susi-harness` and `harness-gateway`). Set `RUN_DIR` to an existing private
+absolute directory outside the checkout. Set `PLANNER_MODEL`, `WORKER_MODEL` and
+`WORKER_MODELS` to admitted, priced model IDs; the last may be comma-separated. Equivalent
+native shell argument lists work on supported platforms. No command here
+installs a provider or grants permission implicitly.
 
 ## 1. Start the meter
 
-From `crates/susi-harness`:
-
 ```sh
-cargo run -p susi-harness --bin harness-gateway -- \
-  --port 9188 \
+"$GATEWAY_BIN" --port 9188 \
   --catalogue deploy/harness/prices.json \
-  --ledger out/ledger.jsonl \
-  --upstream direct
+  --ledger "$RUN_DIR/ledger.jsonl" --upstream direct
 ```
 
-`--upstream direct` means the gateway resolves each model through the built-in
-registry and posts to the provider's own HTTPS endpoint. The gateway refuses a
-model the catalogue cannot price. That refusal is the point: spend that cannot be
-priced cannot be bounded.
+`--upstream direct` resolves models through the gateway's registry and sends
+requests to their configured endpoints. Unpriced models are refused. Keep this
+process's credentials and runtime home private; select a different owned port
+if the example port is occupied.
 
 ## 2. Author the plan
 
 ```sh
-susi harness author \
-  --gateway http://127.0.0.1:9188 --model deepseek-flash \
+"$SUSI_BIN" harness author \
+  --gateway http://127.0.0.1:9188 --model "$PLANNER_MODEL" \
   --roadmap .agents/roadmap.json VC-203-001 \
-  --workers deepseek-flash,gemini-flash --max-tasks 3 --out plan.json
+  --workers "$WORKER_MODELS" --max-tasks 3 --out "$RUN_DIR/plan.json"
 ```
 
-The author is the **supervisor** model. Each task names a worker model. Read the
-plan before running it: a task reserves scopes and declares an acceptance, and
-the run refuses a plan whose packages, scopes or acceptance do not resolve.
+Choose a current roadmap vector for the actual task. Inspect the generated plan:
+each task needs a resolvable package, confined scope and meaningful acceptance.
+The author model proposes work; it does not authorize changes or certify their
+completion. To select existing dependency-ready queue tasks instead, use
+`harness plan` as described in [the harness guide](harness.md#draining-the-roadmap-queue).
 
-## 3. Watch spend from the command line
+## 3. Watch spend and control
 
 ```sh
-susi harness budget --ledger out/ledger.jsonl
-susi harness status --ledger out/ledger.jsonl --events out/events.jsonl
+"$SUSI_BIN" harness budget --ledger "$RUN_DIR/ledger.jsonl"
+"$SUSI_BIN" harness status \
+  --ledger "$RUN_DIR/ledger.jsonl" --events "$RUN_DIR/events.jsonl"
 ```
 
-`budget` prints the one-line budget report and any top-up alert; `status`
-prints the harness API snapshot built from the ledger and event feed only (no
-plan, supervisor state, controls or budget). Neither needs a server.
-
-Optionally, for a client that wants a live feed, serve the harness API:
+`budget` reports spend and top-up alerts. `status` builds a snapshot from the
+ledger and event feed; it does not load the plan, supervisor state or controls.
+For a client that needs those inputs and a live feed:
 
 ```sh
-susi harness api \n  --ledger out/ledger.jsonl --events out/events.jsonl \n  --plan plan.json --state supervisor-state.json \n  --controls out/control.jsonl \n  --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
+"$SUSI_BIN" harness api \
+  --ledger "$RUN_DIR/ledger.jsonl" --events "$RUN_DIR/events.jsonl" \
+  --plan "$RUN_DIR/plan.json" --state "$RUN_DIR/supervisor-state.json" \
+  --controls "$RUN_DIR/control.jsonl" \
+  --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
 ```
 
-It serves JSON and SSE only, with no page at `/`: `GET /api/status`,
-`GET /api/events`, `POST /api/command` and `GET /health` on
-`http://127.0.0.1:9181`. Core ships no UI; any visual view of it lives in the
-commercial desktop (Susi Commercial Apps).
+This serves JSON and SSE at `/api/status`, `/api/events`, `/api/command` and
+`/health`, with no page at `/`. It binds loopback by default. With a seeded
+`api_auth_token`, writes to `/api/command` require its bearer token; before
+seeding, only loopback callers may write. Preserve the existing `NetGuard`
+authorization rather than exposing an unauthenticated control endpoint.
 
 ## 4. Run the mission
 
 ```sh
-susi harness run plan.json --repo . \
+"$SUSI_BIN" harness run "$RUN_DIR/plan.json" --repo . \
   --gateway http://127.0.0.1:9188 \
-  --model deepseek-flash --workers gemini-flash \
+  --model "$WORKER_MODEL" --workers "$WORKER_MODELS" \
   --catalogue deploy/harness/prices.json --budget-usd 0.50 \
-  --ledger out/ledger.jsonl --controls out/control.jsonl \
-  --parallel 2 --state supervisor-state.json
+  --ledger "$RUN_DIR/ledger.jsonl" --controls "$RUN_DIR/control.jsonl" \
+  --rsi-log "$RUN_DIR/rsi-loop.jsonl" --adapter-state "$RUN_DIR/adapter" \
+  --parallel 2 --state "$RUN_DIR/supervisor-state.json"
 ```
 
-What happens:
+The adapter reserves each task's worktree, claim and scope, then runs the worker
+and verifies acceptance. Failed attempts follow the configured attempt and
+escalation policy; retained work and claimed candidates are not disposable.
+Accepted work is committed and passed to native `local workflow integrate`.
+This path has no hosted review or pull-request step.
 
-1. Each task gets its own worktree, task record and claim.
-2. The adapter commits the task record, then runs the native worker in process.
-3. If the worker does not pass acceptance, the worktree is reset to that record
-   and the next model on the ranked ladder runs.
-4. An accepted task lands through `workflow finish`: gate, close, push, PR,
-   merge.
-5. The supervisor persists after every task. Rerunning the same command skips
-   what landed and retries what did not.
-6. When the next attempt's worst-case estimate would cross the cap, the task is
-   left unstarted and the report says `budget_exhausted`. Nothing is retried.
+Preparation may run in parallel; landing is serial. The supervisor persists
+after each task and skips tasks already recorded as done on resume. Its `done`
+means native local integration succeeded, not that the remote accepted a push
+or that a production release is qualified. When the next attempt's worst-case
+estimate would exceed the cap, it remains unstarted with `budget_exhausted`.
 
-### No provider key: a subscription CLI worker
+### A configured CLI worker
+
+An installed CLI may provide the worker through `cli:<tool>[:<model>]` and its
+own authentication. Set `CLI_WORKER` to an actual admitted entry. Use a plan
+whose task models select that same CLI route or omit their model override; a
+plan pinned to a conflicting billing route is refused:
 
 ```sh
-SUSI_HARNESS_CLI_GOVERNED=1 susi harness run plan.json --repo . \
-  --gateway http://127.0.0.1:9188 --model cli:claude:sonnet --timeout 2700
+SUSI_HARNESS_CLI_GOVERNED=1 "$SUSI_BIN" harness run "$RUN_DIR/plan.json" \
+  --repo . --gateway http://127.0.0.1:9188 --model "$CLI_WORKER" \
+  --timeout 2700 --state "$RUN_DIR/supervisor-state.json" \
+  --controls "$RUN_DIR/control.jsonl" --ledger "$RUN_DIR/ledger.jsonl" \
+  --rsi-log "$RUN_DIR/rsi-loop.jsonl" --adapter-state "$RUN_DIR/adapter"
 ```
 
-`--model cli:<tool>[:<model>]` runs an installed coding CLI as the worker on
-its own subscription: it needs no provider key and makes no gateway call
-(`--gateway` is still a required flag, and nothing needs to listen there).
-`SUSI_HARNESS_CLI_GOVERNED` runs that worker governed
-([harness.md](harness.md), "A governed CLI worker"). A subscription mission
-gives each task one attempt, with no ladder to escalate on. A plan entry with
-no `task` mints its own task record, named `T-LOCAL…` after the worktree.
+This worker does not call the model gateway, although `--gateway` remains a
+required argument. Its own authentication and usage terms still apply. The
+governed mode requires a supported permission profile and refuses an unknown
+profile before launch; see [governed CLI workers](harness.md#a-governed-cli-worker).
+A CLI-only mission has one attempt and no model escalation ladder. A plan entry
+without a task ID creates a native task record for its worktree.
 
-## 5. Read the result
+## 5. Inspect and publish
+
+Inspect the supervisor report and the retained local integration receipt.
+Report states include done, failed, skipped, unstarted, budget exhaustion,
+pause and abort. Read spend and errors with the status command above. A missing
+state file, empty history or coordination message is not completion evidence.
+
+The native integration reference is `refs/susi/integration/current`. When it
+holds the intended accepted candidate, publish it through the admitted workflow
+provider using the standalone harness command:
 
 ```sh
-susi harness status --ledger out/ledger.jsonl --events out/events.jsonl
+"$HARNESS_BIN" submit-main --repo . \
+  --rev refs/susi/integration/current --remote origin
 ```
 
-The report is `done`, `failed`, `skipped`, `unstarted`, `budget_exhausted`,
-`paused`, `aborted`. The snapshot carries per-mission spend and per-worker cost;
-the harness API snapshot (served with `--controls`) also carries the last
-operator commands.
+This reconciles onto observed remote main and performs a normal fast-forward
+publication. Inspect the returned receipt and confirm the remote contains the
+accepted head. If publication succeeded but archival cleanup has a warning,
+retain that accepted result and repair cleanup; do not resubmit the original
+mutation. An uncertain transport result requires remote/receipt inspection
+before any retry.
 
-## 6. Publish the landing
-
-A task reported `done` is integrated locally: `refs/susi/integration/current` holds the
-gated merge and its receipt. Putting it on the storage remote is a separate step:
-
-```sh
-susi-commercial workflow submit-main refs/susi/integration/current
-```
-
-The publisher fast-forwards `main`, or reconciles onto it when other agents pushed in the
-meantime, and then closes the task record the landing carried: the open copy under
-`.agents/tasks/` is removed and the copy under `.agents/tasks/done/` is marked closed with
-the published commit. Nothing is left to archive by hand. The next mission starts from the
-published `main`, and `integrate` builds on it even when it has moved since.
+After confirmed acceptance, the receiver retains verified native task records in the
+clone's Git metadata (`susi-records/completed`) and removes active source copies
+through a confirmed cleanup commit. It does not create growing
+`.agents/tasks/done/` histories. Conflicting local records block cleanup with a
+warning; missing history never becomes proof. Local integration alone leaves
+pending intent available until publication settles.
 
 ## When something blocks
 
-| Symptom | What to do |
+| Symptom | Response |
 |---|---|
-| `budget_exhausted`, tasks unstarted | raise `--budget-usd`, or run a smaller plan. The ledger shows what the attempts cost. |
-| a task failed on every model | the error is about the task or the environment, not the model. Fix the acceptance/scope; the ladder deliberately stopped instead of spending more. |
-| operator paused | send `{"command":"resume","mission_id":"…"}` to `POST /api/command` (or append a resume command to the control log), rerun the same command. |
-| operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
-| the landing failed: `native integration failed … candidate retained` | the accepted work and its claim are kept, and the message names the gate's log. Fix what the gate found (it may be the base, not the candidate: a test already red on main stops every landing), then rerun the mission, which re-verifies the retained candidate and lands it; `susi local workflow integrate <claim>` does the same by hand. |
-| the landing is refused at once: `integration history does not contain the claim base` | the local integration head holds a landing that is not on the fetched main yet, so a claim based on that main cannot build on it. Publish the local integration (`susi-commercial workflow submit-main refs/susi/integration/current`), fetch, and rerun the mission. A main that only moved through other agents' pushes needs nothing: `integrate` builds on the fetched main by itself. |
-| the landing gate fails in `host_only_privacy`: `this test needs a routed private or link-local IPv4 address` | the host's only routed address is outside the reach `local_only` keeps local (a cloud container, or a host with only a public address), so the privacy tests cannot run and no landing passes its gate there. Land from a host with a LAN address, or run the landing inside a private network namespace that has one (`unshare -n`, loopback up with a private address and a default route through it): the gate is offline and needs no other network. |
-| a claim is stale | `susi-commercial tasks audit`; the queue reports the holder and the lease. |
-| a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
+| Provider unavailable or permission refused | Inspect the admitted MCP entry and exact executable permissions. Install/repair through the authorized implementation workflow; do not fake a successful empty result or bypass admission. |
+| `budget_exhausted` | Inspect spend, use a smaller plan or an explicitly authorized higher cap, then resume the same state. `top_up` records a balance event; it does not raise the mission cap. |
+| Acceptance fails on every attempt | Inspect the task, environment and retained output. Repair the implementation or a demonstrably incorrect acceptance command; do not weaken a valid requirement to obtain a pass. |
+| Paused or aborted | Resume a pause through the authenticated control API or the owned control log. Abort remains sticky in that log; a new mission/control log requires an intentional new run. |
+| `native integration failed … candidate retained` | Keep the candidate and claim, inspect the gate log and fix its cause. Resume re-verifies retained work; `susi local workflow integrate <claim>` is the same native landing path. |
+| `integration history does not contain the claim base` | Inspect the local integration ref and fetched main, publish a valid pending integration if needed, fetch and reconcile. Do not reset another claim or force the ref. |
+| A required platform or privacy fixture cannot run | Supply its actual isolated platform/network prerequisites or qualify on an appropriate host. Do not mark a skipped or unavailable check as passing. |
+| A claim appears stale | Inspect its owner and lease on the actual coordinator. Release only work you own or have explicit authority to recover. |
+| A model reports missing credentials or rejects them | Repair only that endpoint's authorized credential configuration. Do not print secrets or remove or disable a credential merely because a call failed. |
 
-## Cautions
-
-- The harness API binds loopback by default. `POST /api/command` passes core's
-  `NetGuard`: with `api_auth_token` seeded it needs `Authorization: Bearer
-  <token>`; before seeding only loopback callers may write.
-- `top_up` records a provider balance event; it does not change the mission's
-  hard cap. Raise `--budget-usd` to spend more.
-- The ledger is append-only. Never edit it by hand; a correction is a new entry
-  in the accounting, not a rewrite of history.
-
-## Budget refusals
-
-A refused attempt is not a failure of the model. The report says `budget_exhausted` and the task stays unstarted. Read the ledger for what the attempts cost, raise the cap with `--budget-usd`, and rerun the same command: the supervisor skips what landed and starts with the task that was refused.
+Keep live accounting append-only and preserve the state needed for recovery.
+Disposable operational history may be discarded after its consumers no longer
+need it; do not publish it as source. Release qualification, required legal
+notices and artifact-bound provenance are separate obligations. The whole agent
+engine and persistent identifier migrations remain incomplete; this runbook
+does not claim the core-size goal or protocol certification is complete.
