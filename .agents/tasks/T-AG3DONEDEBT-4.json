@@ -46,5 +46,6 @@
                    ".agents/tasks/done/T-HTTPAGENTSWEB4T1104-1.json",
                    ".agents/tasks/done/T-HTTPTRANS1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "58927c3d42aa31992ac70ba6ea7c24f0e416ddc8"
 }
