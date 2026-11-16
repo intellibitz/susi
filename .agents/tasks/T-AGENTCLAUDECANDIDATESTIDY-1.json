@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENTCLAUDECANDIDATESTIDY-1",
+  "title": "Keep candidates tidy (commercial Mandate 96), in the active contract",
+  "goal": "Vision: V-21. Directive 2026-11-16: agents must keep candidates tidy. The rule lands in core's active contract after the releases rule, which it amends: one plainly named line per version, advanced by fast-forward; opened under a task and kept moving; and standing authorization to delete a line once it has ended (released, superseded or merged into a release), exactly those lines at the objects observed in one atomic push, each recorded in .agents/storage/directed-deletions.txt. Pinned in tests/architecture_tests.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDECANDIDATESTIDY",
+  "created_unix": 1794855901,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inside Susi: the active contract already keeps candidate lines fast-forward-only and requires recorded authorization for a deletion; docs/git-storage-publisher.md and the storage guard already accept deletions listed in .agents/storage/directed-deletions.txt; the commercial workflow candidates verb (susi-commercial-apps Mandate 96) reviews lines and retires ended ones. This amends one contract paragraph and adds one, plus one brief phrase; no new code."
+  }
+}
