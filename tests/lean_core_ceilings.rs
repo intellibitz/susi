@@ -189,7 +189,7 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-const COMPLETE_SOCKET_CEILING: usize = 305_897;
+const COMPLETE_SOCKET_CEILING: usize = 305_773;
 /// The CEO's limit: strictly below 100,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 99_999;
 

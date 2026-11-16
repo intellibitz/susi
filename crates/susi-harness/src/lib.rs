@@ -107,6 +107,20 @@ pub mod smart;
 pub mod storage_guard;
 pub mod supervisor;
 pub(crate) mod tool_backend;
+
+/// Register the host HTTP adapter for shared MCP calls; stdio needs no adapter.
+/// HTTP embedders invoke this during composition; registration starts no provider.
+pub fn register_tool_backend() {
+    susi_config::mcp_session::register_http_transport(|server| {
+        let headers = susi_config::mcp::validate_http_headers(server)
+            .map_err(susi_error::EaiError::config)?;
+        Ok(Box::new(
+            mcp::HttpSocketTransport::new(&server.command)
+                .with_headers(headers)?
+                .with_timeout_secs(12),
+        ))
+    });
+}
 pub mod tools;
 pub mod usage;
 pub mod validate;
