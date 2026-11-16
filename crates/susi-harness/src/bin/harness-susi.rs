@@ -16,6 +16,10 @@
 //! worker in that worktree, verifies the commit and the acceptance, and lands
 //! the work through `workflow finish`.
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -117,11 +121,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             "--gateway" => gateway = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
             "--alternate" => alternates.push(take(&mut args, &argument)?),
-            "--timeout" => {
-                timeout = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
-            }
+            "--timeout" => timeout = number(&mut args, &argument)?,
             "--state" => state = PathBuf::from(take(&mut args, &argument)?),
             other if other.starts_with("--") => {
                 return Err(format!("unknown argument {other}"));
@@ -130,33 +130,15 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
         }
     }
 
-    if repo.as_os_str().is_empty() {
-        return Err("--repo is required".into());
-    }
-    if susi_program.as_os_str().is_empty() {
-        return Err("--susi is required".into());
-    }
-    if worktree_name.trim().is_empty() {
-        return Err("--name is required".into());
-    }
-    if title.trim().is_empty() {
-        return Err("--title is required".into());
-    }
-    if accept.trim().is_empty() {
-        return Err("--accept is required".into());
-    }
-    if scopes.is_empty() {
-        return Err("at least one --scope is required".into());
-    }
-    if gateway.trim().is_empty() || model.trim().is_empty() {
-        return Err("--gateway and --model are required".into());
-    }
-    if state.as_os_str().is_empty() {
-        return Err("--state is required".into());
-    }
-    if prompt_words.is_empty() {
-        return Err("a prompt is required".into());
-    }
+    required!(repo.as_os_str() => "--repo is required");
+    required!(susi_program.as_os_str() => "--susi is required");
+    required!(worktree_name.trim() => "--name is required");
+    required!(title.trim() => "--title is required");
+    required!(accept.trim() => "--accept is required");
+    required!(scopes => "at least one --scope is required");
+    required!(gateway.trim(), model.trim() => "--gateway and --model are required");
+    required!(state.as_os_str() => "--state is required");
+    required!(prompt_words => "a prompt is required");
 
     Ok(RunOptions {
         repo,
@@ -177,10 +159,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             net_deletion_allowance: susi_harness::adapter::net_deletion_allowance_from_env(),
         },
     })
-}
-
-fn take(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 fn fail(message: &str) -> ! {

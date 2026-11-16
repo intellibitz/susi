@@ -1,0 +1,131 @@
+{
+  "id": "T-CODEX100KARGS-1",
+  "base": "6a262d346",
+  "status": "completed",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing input_schema! macro in crates/susi-gmcp/src/mcp/schema.rs; all 123 args marker structs and core_tool_definitions; existing GMCP schema tests and actual registry helper in root socket_parity.",
+    "reason": "Use the existing multiple-struct schema generator and one private wrapper for the exact repeated workspace admission field; no new schema implementation, metadata stores or dependencies."
+  },
+  "results": {
+    "args_runtime_physical_lines": {
+      "before": 1777,
+      "after": 1534,
+      "reduction": 243
+    },
+    "public_types": 123,
+    "tools_default": 199,
+    "tools_rich": 204,
+    "new_test_lines_net": 33,
+    "all_rust_physical_reduction": 210,
+    "metadata_hash_default": "c8303f4bff9e9a13fd7da39094683ae27fc4b66912e74c50880710694ad02c52",
+    "metadata_hash_rich": "7a89f2f05efb8cfb8e7242036f60b36948348a4fa45045c58d830db764edf82d"
+  },
+  "validation": [
+    {
+      "command": "cargo test --offline --locked -j 2 -p susi-gmcp --test args_schema_parity --test tool_input_schemas",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test --offline --locked -j 2 -p susi-gmcp --features tools-rich --test args_schema_parity --test tool_input_schemas",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test --offline --locked -j 2 -p susi --test socket_parity",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test --offline --locked -j 2 -p susi --features tools-rich --test socket_parity",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo clippy --offline --locked -j 2 -p susi-gmcp --all-targets --features tools-rich -- -D warnings",
+      "result": "pass"
+    },
+    {
+      "command": "cargo clippy --offline --locked -j 2 -p susi --test socket_parity --features tools-rich -- -D warnings",
+      "result": "pass"
+    },
+    {
+      "command": "cargo fmt -p susi-gmcp -p susi --check",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p susi-gmcp --all-targets --features tools-rich -- -D warnings",
+      "result": "pass reported by worker"
+    }
+  ],
+  "prior_validation_gap": {
+    "introduced_by": "7a00adb5c refactor(gmcp): share builtin tool registration",
+    "detected": "Unmodified every_registered_tool_has_a_typed_input_schema test panicked at tool_input_schemas.rs:167 because it parsed literal register_meta_tool calls; descriptor loop no longer contains those names. Its three sibling tests passed. Earlier bootstrap scoped verification did not run this suite.",
+    "repair": "Parent authorized moving only this registration invariant to existing root socket_parity, which can execute actual bootstrap without new dependencies. Assert every registry name has a non-passthrough schema, exact 199/204 registry count and complete equality with declared schema names. Retain exact name-to-handler mapping in existing daemon bootstrap fixture. GMCP schema catalog count strengthened from >=80 to exact199/204.",
+    "no_skipped_assertions": true,
+    "test_count_change": "4 original schema tests preserved across ownership suites; one new complete metadata fingerprint test. No tests skipped or removed for line count."
+  },
+  "limitations": [
+    "Focused Linux development verification is not a complete release qualification.",
+    "Most unique schema metadata remains explicit; no public types, fields, doc strings, catalog order, feature gates or metadata were removed.",
+    "Tests increased in physical source; line reduction comes only from production schema declaration consolidation."
+  ],
+  "execution_environment": {
+    "target": "/workspace/codex/susi-core-100k-args-target",
+    "SUSI_HOME": "/workspace/codex/susi-core-100k-args-state/home",
+    "cargo_jobs": 2
+  },
+  "title": "Consolidate typed MCP input declarations while preserving every schema",
+  "goal": "Vision: V-6. Reuse schema declarations without changing any of the 123 public marker types, 199 default / 204 rich tools, exact wire metadata or behavior; restore registry-to-schema verification broken by the prior bootstrap refactor.",
+  "size": "m",
+  "created_by": "CODEXCORE100KARGS",
+  "created_unix": 1794821912,
+  "deps": [
+    "T-CODEX100KBOOTSTRAP-1"
+  ],
+  "scopes": [
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/tests/args_schema_parity.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
+    "tests/socket_parity.rs",
+    ".agents/tasks/T-CODEX100KARGS-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--test",
+      "args_schema_parity",
+      "--test",
+      "tool_input_schemas"
+    ]
+  },
+  "integrated_verification": {
+    "default": "4 GMCP schema +6 socket parity tests passed",
+    "tools-rich": "4 GMCP schema +6 socket parity tests passed"
+  },
+  "closed": {
+    "at_unix": 1794822597,
+    "commit": "b51ad0df246d524bc03f9871610999a09b09dedd",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "ccc19a9b675c20068f8d19fa847bf1ce5e913328",
+    "integration_evidence": ".agents/evidence/core-under-100k/2026-11-16-tool-declarations.json"
+  }
+}

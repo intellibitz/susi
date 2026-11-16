@@ -746,40 +746,19 @@ fn endpoint_url(url: &str) -> String {
 /// matches the request's, else the last JSON message carrying a result or an
 /// error.
 fn response_from_event_stream(text: &str, id: Option<&Value>) -> EaiResult<Value> {
-    let mut events: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for line in text.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() {
-            if !current.is_empty() {
-                events.push(std::mem::take(&mut current));
-            }
-            continue;
+    let messages = susi_core::mcp_client::event_stream_messages(
+        text.lines().map(|line| line.trim_end_matches('\r')),
+    );
+    let mut last = None;
+    for message in
+        messages.filter(|message| message.get("result").is_some() || message.get("error").is_some())
+    {
+        if id.is_some_and(|id| message.get("id") == Some(id)) {
+            return Ok(message);
         }
-        if let Some(data) = line.strip_prefix("data:") {
-            if !current.is_empty() {
-                current.push('\n');
-            }
-            current.push_str(data.strip_prefix(' ').unwrap_or(data));
-        }
+        last = Some(message);
     }
-    if !current.is_empty() {
-        events.push(current);
-    }
-    let answers: Vec<Value> = events
-        .iter()
-        .filter_map(|event| serde_json::from_str::<Value>(event).ok())
-        .filter(|message| message.get("result").is_some() || message.get("error").is_some())
-        .collect();
-    let matching = id.and_then(|id| {
-        answers
-            .iter()
-            .find(|message| message.get("id") == Some(id))
-            .cloned()
-    });
-    matching
-        .or_else(|| answers.last().cloned())
-        .ok_or_else(|| EaiError::network("mcp event stream carried no JSON-RPC response"))
+    last.ok_or_else(|| EaiError::network("mcp event stream carried no JSON-RPC response"))
 }
 
 #[cfg(test)]

@@ -1,0 +1,338 @@
+{
+  "schema": "susi.core-size-progress/v1",
+  "recorded_unix": 1794822597,
+  "integration_base": "ccc19a9b675c20068f8d19fa847bf1ce5e913328",
+  "baseline_commit": "694a728dab8391402e3d46ddf6076705f67d4d75",
+  "baseline_complete_socket_rust": 307131,
+  "before_batch": 305446,
+  "after_batch": 305301,
+  "batch_runtime_lines_removed": 145,
+  "batch_test_lines_added": 164,
+  "batch_all_rust_lines_added": 19,
+  "cumulative_runtime_lines_removed": 1893,
+  "cumulative_correctness_lines_added": 60,
+  "cumulative_net_runtime_lines_removed": 1833,
+  "upstream_runtime_lines_added": 3,
+  "remaining_to_remove": 205302,
+  "strict_limit": 100000,
+  "goal_met": false,
+  "subtasks": [
+    "T-CODEX100KMCP-1",
+    "T-CODEX100KFRONTEND-1",
+    "T-CODEX100KGEMI-1"
+  ],
+  "checks": [
+    {
+      "name": "fourth-mcp",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-mcp.log",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 461 filtered out; finished in 0.14s",
+        "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 545 filtered out; finished in 0.06s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s"
+      ],
+      "executed_tests": 35
+    },
+    {
+      "name": "fourth-frontends",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-frontends.log",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "executed_tests": 41
+    },
+    {
+      "name": "fourth-gemi",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-gemi.log",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 452 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s"
+      ],
+      "executed_tests": 452
+    },
+    {
+      "name": "fourth-clippy",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-clippy.log",
+      "exit_code": 0,
+      "test_results": [],
+      "executed_tests": 0
+    },
+    {
+      "name": "fourth-format",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-format.log",
+      "exit_code": 0,
+      "test_results": [],
+      "executed_tests": 0
+    },
+    {
+      "name": "fourth-workspace-check",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-workspace-check.log",
+      "exit_code": 0,
+      "test_results": [],
+      "executed_tests": 0
+    },
+    {
+      "name": "fourth-structure",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-structure.log",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s",
+        "test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.38s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s"
+      ],
+      "executed_tests": 67
+    },
+    {
+      "name": "fourth-live-build",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-live-build.log",
+      "exit_code": 0,
+      "test_results": [],
+      "executed_tests": 0
+    },
+    {
+      "name": "fourth-goal-check",
+      "log": "/workspace/codex/core-100k-state/logs/fourth-goal-check.log",
+      "exit_code": 101,
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.37s"
+      ],
+      "executed_tests": 1
+    }
+  ],
+  "source_hashes": {
+    "crates/susi-core/src/mcp_client.rs": "b97bda7d2c43cfa1ae6c6dc56f5d744fb2a6846045d9cbffc8857a6de00881a8",
+    "crates/susi-gemi/src/coding_models_ext.rs": "d46acfb890717d2144423901dc5d0f001d3eb344cfa19194cbf0a9576344ea2d",
+    "crates/susi-gemi/src/frontier_ext.rs": "81a5c444b028609f4f7d7026fdae1bb2538987cbf45fefb983b1fda234d93c6f",
+    "crates/susi-gemi/src/lib.rs": "59d864b51998bcabf545cfc1388e4b2d4536f1703fae4eb87b7284db1de3a457",
+    "crates/susi-gemi/src/model_probe.rs": "cb67fa32618ffe6b83bf9bdea0a6472d5741ed03978dc1e7aa455651a1c14bdc",
+    "crates/susi-gemi/src/open_weight_ext.rs": "e906581e7a2b3ad339709fb6e954814234578dfd690180831985959d8d9776a8",
+    "crates/susi-gemi/src/openrouter_ext.rs": "b319ca702b65ea896380f22e71b5a04fe6f89ccb6452fc7523e50e1b1ee3b9b1",
+    "crates/susi-gemi/src/plane_handler.rs": "bfded3592db3ef76bff68c8db25d9e370836cc0ad27cfe09cf0a9c708c56c975",
+    "crates/susi-gemi/src/tests/model_probe.rs": "f7ee0cb17d05272903248fe7e81a04d31e3e16f7a5c292f85559b9367cf3328e",
+    "crates/susi-gemi/src/tests/plane_payload.rs": "fbb25751364bbcb3f5f2f422dc76d3fe09ec21dcac0021b531080b7e3d54753d",
+    "crates/susi-gemi/src/tests/vc_202_020_rate_mastery.rs": "f911df89b2782933f1418400aa88344540f8eec315f910de3bae0fbf3709e678",
+    "crates/susi-harness/src/bin/harness-author.rs": "29d5160828f0a747e72341d1e6c4975e4f56bf5b19a33674b552f90a296db48c",
+    "crates/susi-harness/src/bin/harness-gateway.rs": "df783878464c9afe7d6791568641b6bdb7eb5ae27057f36c8273e62bf71c7eae",
+    "crates/susi-harness/src/bin/harness-run.rs": "319477eb7b1c6b65ce30792338b65a9310c3fa85647c396b30cd546478384da2",
+    "crates/susi-harness/src/bin/harness-supervise.rs": "54a4702933beafc714df7150cd97981e6960f76e55fd5752f4a00c1a0d7959de",
+    "crates/susi-harness/src/bin/harness-susi.rs": "8c01d586eabc9d32283888520131b5369d4c05053758e77a2f93711ef09e2b58",
+    "crates/susi-harness/src/bin/support/args.rs": "3451166cebf7bb07fdead9f68f16b703e379604c8d46c55d61e6d4b55ecdce62",
+    "crates/susi-harness/src/bin/susi-harness.rs": "64be84fe17f2a92901002d99ba4f6ba115b20de7d9ace18e112b69b7e940d12b",
+    "crates/susi-harness/src/mcp.rs": "78593e70a976a7fac8c62951f53ecbebeb85839b9dceec2c6d9952df66cf4946",
+    "crates/susi-harness/src/tests/mcp.rs": "54d39d3bb941ffc93af8d85a3caa76922d48c4e11cc864b389c11e832582121a"
+  },
+  "live_conformance": {
+    "isolation": "Same private host_only instance and cleared provider environment, rebuilt exact runtime sources; daemon started/stopped successfully. No paid inference or production installation.",
+    "result": {
+      "checks": [
+        {
+          "detail": "GET /health without token -> 200",
+          "id": "health@26090",
+          "ms": 3,
+          "outcome": "pass"
+        },
+        {
+          "detail": "GET /health without token -> 200",
+          "id": "health@26091",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "GET /health without token -> 200",
+          "id": "health@26093",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "GET /health without token -> 200",
+          "id": "health@26094",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST /mcp without token -> 401",
+          "id": "auth.required@26090",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "GET /v1/models without token -> 401",
+          "id": "auth.required@26091",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST /mcp without token -> 401",
+          "id": "auth.required@26093",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST / without token -> 401",
+          "id": "auth.required@26094",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST /stream without token -> 401",
+          "id": "auth.required@26094/stream",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST /acp without token -> 401",
+          "id": "auth.required@26094/acp",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "POST /acp/stream without token -> 401",
+          "id": "auth.required@26094/acp/stream",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200 server \"susi-gmcp\" (2026-07-28)",
+          "id": "mcp.discover@26090",
+          "ms": 12,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200 server \"susi-gmcp\" (2026-07-28)",
+          "id": "mcp.discover@26093",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200, 199 tools",
+          "id": "mcp.tools-list@26090",
+          "ms": 56,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200, 199 tools",
+          "id": "mcp.tools-list@26093",
+          "ms": 39,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 404, JSON-RPC error code Some(-32601) (want -32601)",
+          "id": "mcp.unknown-method@26090",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "negotiated \"2025-06-18\"; initialized -> Ok(202); tools/list -> 200 (199 tools)",
+          "id": "mcp.session-2025-06-18@26090",
+          "ms": 34,
+          "outcome": "pass"
+        },
+        {
+          "detail": "negotiated \"2025-06-18\"; initialized -> Ok(202); tools/list -> 200 (199 tools)",
+          "id": "mcp.session-2025-06-18@26093",
+          "ms": 36,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200 name \"susi-gawd\" interface \"http://127.0.0.1:26094/\" (8 honest skills, streaming=true)",
+          "id": "a2a.agent-card@26094",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200, JSON-RPC error code Some(-32601) (want -32601)",
+          "id": "a2a.unknown-method@26094",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "unknown method -> 200 code Some(-32601) (want -32601); SubscribeToTask missing task -> 200 code Some(-32001), legacy tasks/resubscribe -> 200 code Some(-32001) (want -32001)",
+          "id": "a2a.stream@26094",
+          "ms": 1,
+          "outcome": "pass"
+        },
+        {
+          "detail": "status 200 schema \"susi-acp-discovery/v1\" protocol_version \"2026-11-11\" endpoints=(\"/acp\", \"/acp/stream\")",
+          "id": "acp.discover@26094",
+          "ms": 0,
+          "outcome": "pass"
+        },
+        {
+          "detail": "negotiated \"2026-11-11\", session \"acp-sess-000001\" closed, unknown -> 200 code Some(-32601) (want -32601)",
+          "id": "acp.rpc@26094",
+          "ms": 2,
+          "outcome": "pass"
+        },
+        {
+          "detail": "6 unauthenticated pings drew no reply; signed pings only",
+          "id": "udp.discovery@26092",
+          "ms": 564,
+          "outcome": "pass"
+        },
+        {
+          "detail": "opt-in: signed_udp_ping verifies positive SUSI_PONG_SIG* reply",
+          "id": "udp.discovery-signed@26092",
+          "ms": 0,
+          "outcome": "skip"
+        },
+        {
+          "detail": "4 models",
+          "id": "gemi.models@26091",
+          "ms": 2,
+          "outcome": "pass"
+        },
+        {
+          "detail": "opt-in: --inference runs one local, 1-token streamed completion",
+          "id": "gemi.stream@26091",
+          "ms": 0,
+          "outcome": "skip"
+        },
+        {
+          "detail": "server \"susi-gmcp\" negotiated \"2025-06-18\", 199 tools",
+          "id": "mcp.stdio",
+          "ms": 120,
+          "outcome": "pass"
+        },
+        {
+          "detail": "negotiated \"2026-11-11\", session \"acp-sess-000001\" listed and closed",
+          "id": "acp.stdio",
+          "ms": 60,
+          "outcome": "pass"
+        }
+      ],
+      "conformant": true,
+      "host": "127.0.0.1",
+      "port_offset": 17000
+    }
+  },
+  "limitations": [
+    "Size acceptance executed one test and failed at305301 physical runtime/facade lines.",
+    "Positive signed UDP and inference checks skipped explicitly; development Linux conformance is not full standards/release certification.",
+    "145 runtime lines were removed, 164 test lines added; all-source Rust is19 lines larger. No coverage deleted or relocated for count."
+  ],
+  "prospective_extraction_audit": {
+    "status": "read-only candidates, not ready or approved migrations",
+    "harness_execution_policy_source_upper_bound": 12041,
+    "model_acquisition_lifecycle_source_upper_bound": 10203,
+    "keepass_integration_source_upper_bound": 4586,
+    "constraints": "Counts include inline tests and are not guaranteed deletions. Commercial harness calls back into core, model destination lacks installation parity, and Commercial Apps changes current licensing/access. A working companion and full existing behavior/access parity are prerequisites. User architecture preference remains pending; no migration has occurred."
+  }
+}

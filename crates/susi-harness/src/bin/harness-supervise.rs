@@ -12,6 +12,10 @@
 
 //! Run a mission plan against susi, resuming where the last run stopped.
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -148,39 +152,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--ledger" => ledger = PathBuf::from(take(&mut args, &argument)?),
             "--controls" => controls = PathBuf::from(take(&mut args, &argument)?),
             "--rsi-log" => rsi_log = Some(PathBuf::from(take(&mut args, &argument)?)),
-            "--attempts" => {
-                max_attempts = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "attempts must be a number".to_string())?;
-            }
-            "--timeout" => {
-                timeout = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
-            }
+            "--attempts" => max_attempts = number(&mut args, &argument)?,
+            "--timeout" => timeout = number(&mut args, &argument)?,
             "--prefix" => prefix = take(&mut args, &argument)?,
             "--adapter-state" => adapter_state = PathBuf::from(take(&mut args, &argument)?),
-            "--parallel" => {
-                parallel = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "parallel must be a number".to_string())?;
-            }
+            "--parallel" => parallel = number(&mut args, &argument)?,
             other => return Err(format!("unknown argument {other}")),
         }
     }
 
-    if plan.as_os_str().is_empty() {
-        return Err("--plan is required".into());
-    }
-    if repo.as_os_str().is_empty() || susi_program.as_os_str().is_empty() {
-        return Err("--repo and --susi are required".into());
-    }
-    if gateway_url.trim().is_empty() || model.trim().is_empty() {
-        return Err("--gateway and --model are required".into());
-    }
-    if adapter_state.as_os_str().is_empty() {
-        return Err("--adapter-state is required".into());
-    }
+    required!(plan.as_os_str() => "--plan is required");
+    required!(repo.as_os_str(), susi_program.as_os_str() => "--repo and --susi are required");
+    required!(gateway_url.trim(), model.trim() => "--gateway and --model are required");
+    required!(adapter_state.as_os_str() => "--adapter-state is required");
     if state.as_os_str().is_empty() {
         state = plan.with_file_name("supervisor-state.json");
     }
@@ -211,10 +195,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         adapter_state,
         parallel,
     })
-}
-
-fn take(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 fn fail(message: &str) -> ! {

@@ -20,6 +20,7 @@ use crate::susi_core::plane_bus::daemon;
 use crate::susi_error::EaiResult;
 
 use super::args;
+use super::forward::forwarded_tools;
 use super::forward::{forward, merged, policy_paths, policy_workspace, Kind};
 use super::CoreTools;
 
@@ -53,31 +54,18 @@ fn retry(kind: &str, arg: &Value, workspace: &Path) -> EaiResult<String> {
 }
 
 impl CoreTools {
-    crate::tool_def!(adapter_doctor_tool_attr {
-        name: "adapter_doctor",
-        description: "Readiness rows for agent, framework, coding-model or MCP adapters (nothing installed, no paid call), as `susi <agents|frameworks|models|mcp> doctor`. Args: kind, optional id",
-        input_schema: args::typed::<args::AdapterDoctor>(),
-    });
-    pub fn adapter_doctor(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        adapters("doctor", arg, &[KIND, ID], workspace)
-    }
+    forwarded_tools! {
+        adapter_doctor(adapter_doctor_tool_attr, args::typed::<args::AdapterDoctor>()),
+        "Readiness rows for agent, framework, coding-model or MCP adapters (nothing installed, no paid call), as `susi <agents|frameworks|models|mcp> doctor`. Args: kind, optional id",
+        |arg, workspace| adapters("doctor", arg, &[KIND, ID], workspace);
 
-    crate::tool_def!(adapter_setup_tool_attr {
-        name: "adapter_setup",
-        description: "Setup instructions and the effective adapter, as `susi <agents|frameworks|models|mcp> setup`. Args: kind, id",
-        input_schema: args::typed::<args::AdapterId>(),
-    });
-    pub fn adapter_setup(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        adapters("setup", arg, &[KIND, ID], workspace)
-    }
+        adapter_setup(adapter_setup_tool_attr, args::typed::<args::AdapterId>()),
+        "Setup instructions and the effective adapter, as `susi <agents|frameworks|models|mcp> setup`. Args: kind, id",
+        |arg, workspace| adapters("setup", arg, &[KIND, ID], workspace);
 
-    crate::tool_def!(adapter_configure_tool_attr {
-        name: "adapter_configure",
-        description: "Store a host adapter override (agent and framework adapters pass the verified upgrade), as `susi <agents|frameworks|models|mcp> configure`. Args: kind, id, and adapter (object) or file (absolute path)",
-        input_schema: args::typed::<args::AdapterConfigure>(),
-    });
-    pub fn adapter_configure(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        forward(
+        adapter_configure(adapter_configure_tool_attr, args::typed::<args::AdapterConfigure>()),
+        "Store a host adapter override (agent and framework adapters pass the verified upgrade), as `susi <agents|frameworks|models|mcp> configure`. Args: kind, id, and adapter (object) or file (absolute path)",
+        |arg, workspace| forward(
             daemon::adapters,
             "configure",
             arg,
@@ -86,43 +74,23 @@ impl CoreTools {
                 json!({ "workspace": workspace.display().to_string() }),
                 policy_paths(arg, &[("file", false)])?,
             ),
-        )
-    }
+        );
 
-    crate::tool_def!(adapter_reset_tool_attr {
-        name: "adapter_reset",
-        description: "Drop a host adapter override and return the bundled adapter, as `susi <agents|frameworks|models|mcp> reset`. Args: kind, id",
-        input_schema: args::typed::<args::AdapterId>(),
-    });
-    pub fn adapter_reset(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        adapters("reset", arg, &[KIND, ID], workspace)
-    }
+        adapter_reset(adapter_reset_tool_attr, args::typed::<args::AdapterId>()),
+        "Drop a host adapter override and return the bundled adapter, as `susi <agents|frameworks|models|mcp> reset`. Args: kind, id",
+        |arg, workspace| adapters("reset", arg, &[KIND, ID], workspace);
 
-    crate::tool_def!(agents_retry_tool_attr {
-        name: "agents_retry",
-        description: "Run a finished external agent task again with its original prompt (refused while it is active or unknown), as `susi agents retry`. Args: task_id, optional workspace",
-        input_schema: args::typed::<args::TaskRetry>(),
-    });
-    pub fn agents_retry(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        retry("agents", arg, workspace)
-    }
+        agents_retry(agents_retry_tool_attr, args::typed::<args::TaskRetry>()),
+        "Run a finished external agent task again with its original prompt (refused while it is active or unknown), as `susi agents retry`. Args: task_id, optional workspace",
+        |arg, workspace| retry("agents", arg, workspace);
 
-    crate::tool_def!(frameworks_retry_tool_attr {
-        name: "frameworks_retry",
-        description: "Run a finished agent-framework task again with its original prompt, as `susi frameworks retry`. Args: task_id, optional workspace",
-        input_schema: args::typed::<args::TaskRetry>(),
-    });
-    pub fn frameworks_retry(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        retry("frameworks", arg, workspace)
-    }
+        frameworks_retry(frameworks_retry_tool_attr, args::typed::<args::TaskRetry>()),
+        "Run a finished agent-framework task again with its original prompt, as `susi frameworks retry`. Args: task_id, optional workspace",
+        |arg, workspace| retry("frameworks", arg, workspace);
 
-    crate::tool_def!(mcp_add_tool_attr {
-        name: "mcp_add",
-        description: "Admit an MCP server (stdio command or streamable HTTP URL) into the registry and hot-plug it, as `susi mcp-add`. Args: name, command_or_url, optional args",
-        input_schema: args::typed::<args::McpAdd>(),
-    });
-    pub fn mcp_add(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        adapters(
+        mcp_add(mcp_add_tool_attr, args::typed::<args::McpAdd>()),
+        "Admit an MCP server (stdio command or streamable HTTP URL) into the registry and hot-plug it, as `susi mcp-add`. Args: name, command_or_url, optional args",
+        |arg, workspace| adapters(
             "mcp_add",
             arg,
             &[
@@ -131,7 +99,7 @@ impl CoreTools {
                 ("args", Kind::StrArray),
             ],
             workspace,
-        )
+        );
     }
 }
 

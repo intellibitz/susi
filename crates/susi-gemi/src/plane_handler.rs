@@ -21,17 +21,15 @@ use susi_gemi_models::intent::{IntentCategory, IntentClassifier, TaskComplexity}
 struct GemiPlaneHandler;
 
 fn workspace_path(payload: &Value) -> PathBuf {
-    payload
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    path_field(payload, "workspace")
+}
+
+fn string_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
+    payload.get(key).and_then(Value::as_str)
 }
 
 fn path_field(payload: &Value, key: &str) -> PathBuf {
-    payload
-        .get(key)
-        .and_then(|v| v.as_str())
+    string_field(payload, key)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }
@@ -114,32 +112,23 @@ impl PlaneHandler for GemiPlaneHandler {
                 serde_json::to_value(models).map_err(|e| e.to_string())
             }
             topics::GEMI_MODELS_SELECT => {
-                if let Some(set) = payload.get("set").and_then(|v| v.as_str()) {
+                if let Some(set) = string_field(&payload, "set") {
                     let msg = ModelManager::set_selected_model(set).map_err(|e| e.to_string())?;
                     Ok(json!({ "text": msg }))
                 } else {
-                    let intent = payload
-                        .get("intent")
-                        .and_then(|v| v.as_str())
-                        .and_then(parse_intent);
+                    let intent = string_field(&payload, "intent").and_then(parse_intent);
                     Ok(json!({
                         "model": ModelManager::get_selected_model(intent)
                     }))
                 }
             }
             topics::GEMI_MODELS_ACTIVE => {
-                let intent = payload
-                    .get("intent")
-                    .and_then(|v| v.as_str())
-                    .and_then(parse_intent);
+                let intent = string_field(&payload, "intent").and_then(parse_intent);
                 let (engine, model) = ModelManager::get_active_engine_and_model(intent);
                 Ok(json!({ "engine": engine, "model": model }))
             }
             topics::GEMI_MODELS_PATH => {
-                let model_id = payload
-                    .get("model_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or("model_id required")?;
+                let model_id = string_field(&payload, "model_id").ok_or("model_id required")?;
                 Ok(json!({
                     "path": ModelManager::get_model_path(model_id)
                         .map(|p| p.display().to_string())
@@ -168,10 +157,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 Ok(json!(items))
             }
             topics::GEMI_MODELS_INSTALL => {
-                let target = payload
-                    .get("target")
-                    .and_then(|v| v.as_str())
-                    .ok_or("target required")?;
+                let target = string_field(&payload, "target").ok_or("target required")?;
                 Ok(json!({ "text": ModelManager::install_model(target) }))
             }
             topics::GEMI_MODELS_ENSURE => {
@@ -182,11 +168,8 @@ impl PlaneHandler for GemiPlaneHandler {
                 }
             }
             topics::GEMI_MODELS_SELECT_MIN => {
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let min_c = payload
-                    .get("min_complexity")
-                    .and_then(|v| v.as_str())
-                    .and_then(parse_complexity);
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
+                let min_c = string_field(&payload, "min_complexity").and_then(parse_complexity);
                 Ok(json!({
                     "model": ModelManager::get_selected_model_for_request_with_min_complexity(
                         prompt,
@@ -196,7 +179,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }))
             }
             "gemi.models.router.resolve" => {
-                let requires = payload.get("requires").and_then(|v| v.as_str());
+                let requires = string_field(&payload, "requires");
                 let max_cost = payload.get("max_cost").and_then(|v| v.as_f64());
                 let resolved = InferenceRouter::resolve_model_for_capabilities(
                     requires,
@@ -208,7 +191,7 @@ impl PlaneHandler for GemiPlaneHandler {
             topics::GEMI_ROUTING_PLAN => {
                 http_provider::register_configured_cloud_endpoints(CapabilityRegistry::global());
                 let providers = CapabilityRegistry::global().list_providers();
-                let requires = payload.get("requires").and_then(|value| value.as_str());
+                let requires = string_field(&payload, "requires");
                 let max_cost = payload.get("max_cost").and_then(|value| value.as_f64());
                 let allow_cloud = payload
                     .get("allow_cloud")
@@ -223,9 +206,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 .map_err(|e| e.to_string())
             }
             topics::GEMI_ROUTING_CLEAR_COOLDOWN => {
-                let provider = payload
-                    .get("provider")
-                    .and_then(|value| value.as_str())
+                let provider = string_field(&payload, "provider")
                     .filter(|value| !value.trim().is_empty())
                     .ok_or_else(|| "provider is required".to_string())?;
                 Ok(json!({
@@ -242,52 +223,31 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_INFER_GENERATE => {
                 let _on_demand = bind_on_demand(&payload);
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
                 let ws = workspace_path(&payload);
                 Ok(json!({
                     "text": GemiEngine::generate_reasoning(prompt, &ws)
                 }))
             }
-            topics::GEMI_INFER_GENERATE_DEEP => {
+            topics::GEMI_INFER_GENERATE_DEEP | topics::GEMI_INFER_GENERATE_DEEP_MODEL => {
                 let _on_demand = bind_on_demand(&payload);
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
                 let ws = workspace_path(&payload);
-                let min_c = payload
-                    .get("min_complexity")
-                    .and_then(|v| v.as_str())
-                    .and_then(parse_complexity);
+                let model = (topic == topics::GEMI_INFER_GENERATE_DEEP_MODEL)
+                    .then(|| string_field(&payload, "model").unwrap_or("default"));
+                let min_c = string_field(&payload, "min_complexity").and_then(parse_complexity);
                 // `requires` (absent = none): declared request capability —
                 // forwarded into the engine's local-rung gate.
-                let requires = payload.get("requires").and_then(|v| v.as_str());
+                let requires = string_field(&payload, "requires");
                 let chat = payload.get("chat").cloned();
                 Ok(json!({
                     "text": GemiEngine::generate_reasoning_deep_opts_chat(
-                        prompt, &ws, None, min_c, requires, chat
-                    )
-                }))
-            }
-            topics::GEMI_INFER_GENERATE_DEEP_MODEL => {
-                let _on_demand = bind_on_demand(&payload);
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let ws = workspace_path(&payload);
-                let model = payload
-                    .get("model")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("default");
-                let min_c = payload
-                    .get("min_complexity")
-                    .and_then(|v| v.as_str())
-                    .and_then(parse_complexity);
-                let requires = payload.get("requires").and_then(|v| v.as_str());
-                let chat = payload.get("chat").cloned();
-                Ok(json!({
-                    "text": GemiEngine::generate_reasoning_deep_opts_chat(
-                        prompt, &ws, Some(model), min_c, requires, chat
+                        prompt, &ws, model, min_c, requires, chat
                     )
                 }))
             }
             topics::GEMI_INFER_VERIFY => {
-                let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let text = string_field(&payload, "text").unwrap_or("");
                 let ws = workspace_path(&payload);
                 match GemiEngine::verify_axiomatic_alignment(text, &ws) {
                     Ok(t) => Ok(json!({ "text": t })),
@@ -296,13 +256,10 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_INFER_STREAM => {
                 let _on_demand = bind_on_demand(&payload);
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
                 let ws = workspace_path(&payload);
-                let stream_id = payload
-                    .get("stream_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let model = payload.get("model").and_then(|v| v.as_str());
+                let stream_id = string_field(&payload, "stream_id").unwrap_or("");
+                let model = string_field(&payload, "model");
                 let bus = PlaneBus::global();
                 let emit = |chunk: String| {
                     if !stream_id.is_empty() {
@@ -327,7 +284,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 // `requires` (absent = none): the request's declared
                 // capability — `"tools"` gates the local rung on a
                 // tool-capable model and injects the registered schemas.
-                let requires = payload.get("requires").and_then(|v| v.as_str());
+                let requires = string_field(&payload, "requires");
                 let chat = payload.get("chat").cloned();
                 let text = if deep {
                     GemiEngine::generate_reasoning_stream_deep_meta_chat(
@@ -342,21 +299,21 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_INFER_EMBED => {
                 let _on_demand = bind_on_demand(&payload);
-                let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                let want = payload.get("model").and_then(|v| v.as_str());
+                let text = string_field(&payload, "text").unwrap_or("");
+                let want = string_field(&payload, "model");
                 match GemiEngine::embed_text(text, want) {
                     Ok(v) => Ok(json!({ "embedding": v })),
                     Err(e) => Ok(json!({ "error": e })),
                 }
             }
             topics::GEMI_PLAN_PARTITION => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = string_field(&payload, "goal").unwrap_or("");
                 let ws = workspace_path(&payload);
                 let plan = eai_to_string(MissionPlanner::partition_mission(goal, &ws))?;
                 Ok(json!({ "goals": plan.goals }))
             }
             topics::GEMI_PLAN_MISSION => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = string_field(&payload, "goal").unwrap_or("");
                 let ws = workspace_path(&payload);
                 let plan = eai_to_string(MissionPlanner::plan_mission(goal, &ws))?;
                 Ok(json!({ "goals": plan.goals }))
@@ -366,7 +323,7 @@ impl PlaneHandler for GemiPlaneHandler {
             // under another claim; the `gemi.` prefix registration already
             // routes it, and the constant can land when the crate frees up.
             "gemi.orchestrate.mission" => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = string_field(&payload, "goal").unwrap_or("");
                 let ws = workspace_path(&payload);
                 let (topology, answer) = crate::orchestration::orchestrate_mission(
                     goal,
@@ -398,7 +355,7 @@ impl PlaneHandler for GemiPlaneHandler {
                             .collect()
                     })
                     .unwrap_or_default();
-                let provider = payload.get("provider").and_then(|v| v.as_str());
+                let provider = string_field(&payload, "provider");
                 let ctx = crate::context_assembly::assemble(&turns);
                 crate::context_assembly::record_assembly(provider, &ctx);
                 Ok(json!({
@@ -410,7 +367,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }))
             }
             topics::GEMI_PLAN_REFINE => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = string_field(&payload, "goal").unwrap_or("");
                 let plan = payload.get("plan").cloned().unwrap_or(json!({}));
                 let blackboard = plan.to_string();
                 let ws = workspace_path(&payload);
@@ -418,12 +375,12 @@ impl PlaneHandler for GemiPlaneHandler {
                 Ok(json!({ "goals": refined.goals }))
             }
             topics::GEMI_INTENT_CLASSIFY => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = string_field(&payload, "goal").unwrap_or("");
                 let intent = IntentClassifier::classify(goal);
                 Ok(json!({ "intent": format!("{intent:?}").to_lowercase() }))
             }
             topics::GEMI_ALPHA_PROJECTION => {
-                let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let text = string_field(&payload, "text").unwrap_or("");
                 let vec =
                     crate::engines::alpha::SusiAlphaModel::semantic_centroid_projection(text, None)
                         .map_err(|e| e.to_string())?;
@@ -446,7 +403,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 "models": crate::engines::runtime::InferenceHost::loaded_models(),
             })),
             topics::GEMI_MODELS_PRELOAD | topics::GEMI_MODELS_UNLOAD => {
-                let model = payload.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                let model = string_field(&payload, "model").unwrap_or("");
                 let result = if topic == topics::GEMI_MODELS_PRELOAD {
                     crate::engines::runtime::InferenceHost::preload(model)
                 } else {
@@ -455,7 +412,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 result.map_err(|e| e.to_string())
             }
             topics::GEMI_ECOSYSTEM_START => {
-                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let id = string_field(&payload, "id").unwrap_or("");
                 if id.trim().is_empty() {
                     return Err("id is required".to_string());
                 }
@@ -467,14 +424,11 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_ECOSYSTEM_KB => crate::models::eco_query::kb_query(&payload),
             topics::GEMI_ECOSYSTEM_EXPLAIN => {
-                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let id = string_field(&payload, "id").unwrap_or("");
                 if id.trim().is_empty() {
                     return Err("id is required".to_string());
                 }
-                let dir = payload
-                    .get("dir")
-                    .and_then(|v| v.as_str())
-                    .map(std::path::PathBuf::from);
+                let dir = string_field(&payload, "dir").map(std::path::PathBuf::from);
                 if dir.as_ref().is_some_and(|d| !d.is_absolute()) {
                     return Err("dir must be an absolute path".to_string());
                 }
@@ -506,22 +460,22 @@ impl PlaneHandler for GemiPlaneHandler {
                 Ok(json!({ "order": order, "cooled": cooled }))
             }
             topics::GEMI_PROVIDER_FAILURE => {
-                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
+                let name = string_field(&payload, "name").unwrap_or("");
+                let error = string_field(&payload, "error").unwrap_or("");
                 if !name.is_empty() {
                     InferenceRouter::record_failure(name, error);
                 }
                 Ok(json!({ "ok": true }))
             }
             topics::GEMI_PROVIDER_SUCCESS => {
-                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let name = string_field(&payload, "name").unwrap_or("");
                 if !name.is_empty() {
                     InferenceRouter::record_provider_success(name);
                 }
                 Ok(json!({ "ok": true }))
             }
             topics::GEMI_PULSE_REASON => {
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
                 let ws = workspace_path(&payload);
                 let text = SusiPulse::reason(prompt, &ws).map_err(|e| e.to_string())?;
                 Ok(json!({ "text": text }))
@@ -531,25 +485,19 @@ impl PlaneHandler for GemiPlaneHandler {
                 Err(e) => Ok(json!({ "error": e.to_string() })),
             },
             topics::GEMI_CODING_PREFER => {
-                let id = payload
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .ok_or("id is required")?;
+                let id = string_field(&payload, "id").ok_or("id is required")?;
                 let message = CodingModelManager::new()
                     .and_then(|manager| manager.prefer(id))
                     .map_err(|e| e.to_string())?;
                 Ok(json!({ "preferred": id, "message": message }))
             }
             "gemi.brain.explain_masterpiece" => {
-                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = string_field(&payload, "prompt").unwrap_or("");
                 let explanation = crate::engines::brain::explain_masterpiece(prompt);
                 serde_json::to_value(explanation).map_err(|e| e.to_string())
             }
             "gemi.brain.pareto" => {
-                let class_str = payload
-                    .get("class")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("code");
+                let class_str = string_field(&payload, "class").unwrap_or("code");
                 let class = crate::engines::brain::TaskClass::ALL
                     .into_iter()
                     .find(|c| c.label().eq_ignore_ascii_case(class_str))
@@ -582,6 +530,10 @@ impl PlaneHandler for GemiPlaneHandler {
 pub fn register() {
     PlaneBus::global().register_prefix("gemi.", Arc::new(GemiPlaneHandler));
 }
+
+#[cfg(test)]
+#[path = "tests/plane_payload.rs"]
+mod payload_tests;
 
 #[cfg(test)]
 mod tests {

@@ -25,6 +25,10 @@
 //! each bearer token names an account with a money cap and a rate limit, and
 //! `/v1/models` lists the registry. Without it the gateway stays loopback-open.
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -149,11 +153,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut accounts: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
-            "--port" => {
-                port = take(&mut args, &flag)?
-                    .parse()
-                    .map_err(|_| "port must be a number".to_string())?;
-            }
+            "--port" => port = number(&mut args, &flag)?,
             "--catalogue" => catalogue = PathBuf::from(take(&mut args, &flag)?),
             "--ledger" => ledger = PathBuf::from(take(&mut args, &flag)?),
             "--upstream" => upstream = take(&mut args, &flag)?,
@@ -169,30 +169,14 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
                 api_key_env = Some(name);
             }
             "--accounts" => accounts = Some(PathBuf::from(take(&mut args, &flag)?)),
-            "--timeout" => {
-                timeout = take(&mut args, &flag)?
-                    .parse()
-                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
-            }
-            "--max-output-tokens" => {
-                max_output_tokens = Some(
-                    take(&mut args, &flag)?
-                        .parse()
-                        .map_err(|_| "max-output-tokens must be a number".to_string())?,
-                );
-            }
+            "--timeout" => timeout = number(&mut args, &flag)?,
+            "--max-output-tokens" => max_output_tokens = Some(number(&mut args, &flag)?),
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if catalogue.as_os_str().is_empty() {
-        return Err("--catalogue is required".into());
-    }
-    if ledger.as_os_str().is_empty() {
-        return Err("--ledger is required".into());
-    }
-    if upstream.trim().is_empty() {
-        return Err("--upstream is required".into());
-    }
+    required!(catalogue.as_os_str() => "--catalogue is required");
+    required!(ledger.as_os_str() => "--ledger is required");
+    required!(upstream.trim() => "--upstream is required");
     Ok(Options {
         port,
         catalogue,
@@ -204,10 +188,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         max_output_tokens,
         accounts,
     })
-}
-
-fn take(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 fn fail(message: &str) -> ! {

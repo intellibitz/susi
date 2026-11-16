@@ -308,6 +308,23 @@ pub fn core_input_schema(name: &str) -> Option<Arc<JsonObject>> {
 
 // ── Models and inference ───────────────────────────────────────────────
 
+// Schemas share the workspace admission field while keeping it in its original
+// position. Fields after it are explicit in `then`; all other fields and docs
+// continue through the existing input_schema! generator unchanged.
+macro_rules! workspace_input_schema {
+    ($($vis:vis struct $name:ident { $($before:tt)* } $(then { $($after:tt)* })?;)*) => {
+        crate::input_schema! {
+            $($vis struct $name {
+                $($before)*
+                /// Absolute workspace the CLI would run this in (default: the server
+                /// workspace); admitted only where the MAC policy grants it.
+                pub workspace: Option<String>,
+                $($($after)*)?
+            })*
+        }
+    };
+}
+
 crate::input_schema! {
 pub struct InferencePlacement {
     /// Capability the request needs (for example "vision" or "tools").
@@ -317,25 +334,19 @@ pub struct InferencePlacement {
     /// Whether cloud placement is allowed (default true).
     pub allow_cloud: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct InferenceResetProvider {
     /// Exact provider id to re-admit after routing quarantine.
     pub provider: String,
 }
-}
 
-crate::input_schema! {
 pub struct CodingModelsPrefer {
     /// Coding/agent model id to prefer for subsequent routing.
     pub model: String,
 }
-}
 
 // ── Workspace I/O ──────────────────────────────────────────────────────
 
-crate::input_schema! {
 pub struct ReadFile {
     /// Workspace-relative path to read. One of path, file or filename is required.
     pub path: Option<String>,
@@ -344,18 +355,14 @@ pub struct ReadFile {
     /// Alias of path.
     pub filename: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct WriteFile {
     /// Workspace-relative destination path; missing parent directories are created.
     pub path: String,
     /// Full file content; the file is replaced atomically.
     pub content: String,
 }
-}
 
-crate::input_schema! {
 pub struct ExecCommand {
     /// Command line to run in the workspace (shell-split, not run through a shell).
     /// One of command, cmd or input is required.
@@ -367,9 +374,7 @@ pub struct ExecCommand {
     /// Cancellation scope the task is registered under.
     pub cancel_scope: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ApplyPatchFile {
     /// Workspace-relative file path.
     pub path: String,
@@ -380,7 +385,7 @@ pub struct ApplyPatchFile {
 }
 }
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct ApplyPatchCycle {
     /// Patches to apply (at least one).
     pub files: Vec<ApplyPatchFile>,
@@ -394,10 +399,7 @@ pub struct ApplyPatchCycle {
     pub description: String,
     /// Run apply+test in an isolated workspace copy named by this id, promoting only on success.
     pub isolate: Option<String>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 crate::input_schema! {
@@ -407,70 +409,54 @@ pub struct AstAnalyze {
     /// Inline source text (analysed as Rust unless path names another extension).
     pub code: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct Query {
     /// Search query text.
     pub query: String,
 }
-}
 
-crate::input_schema! {
 pub struct SandboxExec {
     /// Command to run inside the Docker sandbox.
     pub cmd: String,
 }
-}
 
-crate::input_schema! {
 pub struct BrowserAutomate {
     /// External http(s) URL to capture; internal and loopback hosts are refused.
     pub url: String,
 }
-}
 
 // ── OS view ────────────────────────────────────────────────────────────
 
-crate::input_schema! {
 pub struct OsServices {
     /// "status" (default), "list", or "restart".
     pub action: Option<String>,
     /// Leaf service name; required when action is "restart".
     pub name: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct OsPs {
     /// Maximum rows (default 50, max 500).
     pub limit: Option<u64>,
     /// Substring filter on the process name.
     pub filter: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct OsKill {
     /// Supervised service pid.
     pub pid: u64,
     /// "term" (default) or "kill"; "TERM", "KILL", "15" and "9" are accepted.
     pub signal: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct OsLogs {
     /// Leaf service name.
     pub name: String,
     /// Lines to tail (default 50, max 500).
     pub lines: Option<u64>,
 }
-}
 
 // ── Quorum commit ledger and cluster ───────────────────────────────────
 
-crate::input_schema! {
 /// Wire shape of `susi_core::commit_log::CommitRecord`.
 pub struct CommitRecord {
     /// Round identifier (hex digest of electorate and commit time).
@@ -519,32 +505,24 @@ pub struct CommitRecord {
     #[serde(default)]
     pub endorsements: Vec<MemberEndorsement>,
 }
-}
 
-crate::input_schema! {
 pub struct MemberEndorsement {
     /// Endorsing member node_id.
     pub node: String,
     /// Ed25519 signature (hex) over susi-endorse-v1:{record.signature}.
     pub sig: String,
 }
-}
 
-crate::input_schema! {
 pub struct CommitRecords {
     /// Commit records to ingest (max 1000).
     pub records: Vec<CommitRecord>,
 }
-}
 
-crate::input_schema! {
 pub struct CommitLog {
     /// Records to list, newest first (default 20, max 500).
     pub limit: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct CommitLogFetch {
     /// Only records from this coordinator (default: all).
     pub coordinator: Option<String>,
@@ -555,25 +533,19 @@ pub struct CommitLogFetch {
     /// Matches to skip, for pagination (default 0).
     pub offset: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct ClusterRekeyStage {
     /// The committed cluster_rekey record.
     pub record: CommitRecord,
     /// Next-epoch cluster key, 64 hex characters.
     pub key_hex: String,
 }
-}
 
-crate::input_schema! {
 pub struct RecordOnly {
     /// The commit record.
     pub record: CommitRecord,
 }
-}
 
-crate::input_schema! {
 pub struct MemberPropose {
     /// Subject as "node_id@address".
     pub member: String,
@@ -584,18 +556,14 @@ pub struct MemberPropose {
     /// Subject's signature over susi-bind-v1:{id}:{pubkey}; required with member_pubkey.
     pub subject_sig: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct A2aDelegate {
     /// "self", a member node_id, an ip, or http://ip[:port].
     pub peer: String,
     /// Task text sent to the remote agent.
     pub message: String,
 }
-}
 
-crate::input_schema! {
 pub struct DelegateToIde {
     /// Goal for the IDE agent.
     pub goal: String,
@@ -606,74 +574,46 @@ pub struct DelegateToIde {
 
 // ── External agents, frameworks and swarm tasks ───────────────────────
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct AgentsRun {
     /// Execution agent id (see agents_list).
     pub agent: String,
     /// Task prompt.
     pub prompt: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct FrameworksRun {
     /// Framework engine id (see frameworks_list).
     pub engine: String,
     /// Task prompt.
     pub prompt: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct ExternalTaskStatus {
     /// Durable task id returned by the run tool.
     pub task_id: String,
     /// Recover cloud status after worker loss (default false).
     pub refresh: Option<bool>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct ExternalTaskId {
     /// Durable task id returned by the run tool.
     pub task_id: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct ExternalTaskLogs {
     /// Durable task id returned by the run tool.
     pub task_id: String,
     /// Read stderr instead of stdout (default false).
     pub stderr: Option<bool>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct ExternalTaskSend {
     /// Durable task id returned by agents_run.
     pub task_id: String,
     /// Follow-up message for the cloud agent (must not be empty).
     pub message: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 crate::input_schema! {
@@ -681,27 +621,21 @@ pub struct SwarmTaskId {
     /// Swarm task id (see tasks_list).
     pub task_id: String,
 }
-}
 
 // ── MCP servers and agent registry ─────────────────────────────────────
 
-crate::input_schema! {
 pub struct McpConfigure {
     /// MCP server name.
     pub name: String,
     /// Package to configure (defaults to name).
     pub package: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct LeadingMcpServer {
     /// Leading MCP server id (see leading_mcp_list).
     pub server: String,
 }
-}
 
-crate::input_schema! {
 pub struct AgentRegister {
     /// Agent name.
     pub name: String,
@@ -710,18 +644,16 @@ pub struct AgentRegister {
     /// Comma-separated capability categories.
     pub categories: String,
 }
-}
 
 // ── Reasoning ──────────────────────────────────────────────────────────
 
-crate::input_schema! {
 pub struct ReasonPrompt {
     /// Reasoning request. The complete arguments object is serialized into the prompt.
     pub intent: Option<String>,
 }
 }
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct SusiSolve {
     /// Natural-language intent. intent, input and prompt are read in that order.
     pub intent: Option<String>,
@@ -729,22 +661,15 @@ pub struct SusiSolve {
     pub input: Option<String>,
     /// Alias of intent.
     pub prompt: Option<String>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct MissionRun {
     /// The goal, as typed after `susi`.
     pub goal: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
+} then {
     /// Advisory model hint; it never bypasses governance.
     pub model: Option<String>,
-}
+};
 }
 
 // ── Context graph ──────────────────────────────────────────────────────
@@ -756,9 +681,7 @@ pub struct ContextGraphQuery {
     /// Subgraph depth around node_id (default 2).
     pub depth: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct ContextGraphIngest {
     /// Event source (default "unknown").
     pub source: Option<String>,
@@ -771,9 +694,7 @@ pub struct ContextGraphIngest {
     /// Acting user.
     pub user: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ContextGraphShow {
     /// Maximum events to return (default 20), as `susi context-graph show --limit`.
     pub limit: Option<u64>,
@@ -781,19 +702,15 @@ pub struct ContextGraphShow {
     /// workspace). Only a filter on the shared graph; nothing under the path is read.
     pub workspace: Option<String>,
 }
-}
 
 // ── Extension packs (plan B4 group 11) ─────────────────────────────────
 
-crate::input_schema! {
 pub struct ExtensionPackId {
     /// Installed pack id: the directory name under the host extensions root,
     /// `<config_dir>/extensions/<id>` (e.g. `commercial-default`).
     pub id: String,
 }
-}
 
-crate::input_schema! {
 pub struct ExtensionsValidate {
     /// Path of the pack directory to check (it holds manifest.json): absolute,
     /// or relative to the server workspace (the socket has no caller working
@@ -804,26 +721,18 @@ pub struct ExtensionsValidate {
 
 // ── Missions (plan B4 group 6) ─────────────────────────────────────────
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct PlanRun {
     /// Natural-language goal to solve via iterative planning.
     pub goal: String,
     /// Maximum number of planning steps (default 3), as `susi plan --max-steps`.
     pub max_steps: Option<u32>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct IntentIngest {
     /// Natural-language intent to record in the evidence ledger, as `susi pulse <intent…>`.
     pub intent: String,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 // ── Runtime models and placement (plan B4 group 12) ────────────────────
@@ -833,18 +742,14 @@ pub struct RuntimeModel {
     /// Model id to load into, or evict from, the inference cache.
     pub model: String,
 }
-}
 
-crate::input_schema! {
 pub struct PlacementDecision {
     /// Decision id, `placement-<pid>-<unix>-<seq>`, from a placement response.
     pub decision_id: String,
 }
-}
 
 // ── Inter-app broker, privacy, intents ─────────────────────────────────
 
-crate::input_schema! {
 pub struct IpcGrant {
     /// Granting identity (default "susi").
     pub grantor: Option<String>,
@@ -857,9 +762,7 @@ pub struct IpcGrant {
     /// Grant lifetime in seconds.
     pub ttl_secs: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct IpcRequest {
     /// Requesting identity.
     pub requester: String,
@@ -872,9 +775,7 @@ pub struct IpcRequest {
     /// Requested lifetime in seconds.
     pub ttl_secs: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct IpcNegotiate {
     /// Pending request id.
     pub request_id: String,
@@ -883,9 +784,7 @@ pub struct IpcNegotiate {
     /// Approve (true) or deny (false, default).
     pub approve: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct IpcSend {
     /// Sender identity; needs a dispatch grant unless "susi".
     pub from: String,
@@ -896,27 +795,21 @@ pub struct IpcSend {
     /// Message payload (any JSON).
     pub payload: Option<serde_json::Value>,
 }
-}
 
-crate::input_schema! {
 pub struct IpcReceive {
     /// Identity whose messages to receive.
     pub recipient: String,
     /// Maximum messages (default 10).
     pub limit: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct PrivacyConsentEgress {
     /// Subject receiving the egress grant (default "susi").
     pub subject: Option<String>,
     /// Grant lifetime in seconds (default 3600).
     pub ttl_secs: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct IntentAdvertise {
     /// Provider identity (default "agent").
     pub from: Option<String>,
@@ -925,9 +818,7 @@ pub struct IntentAdvertise {
     /// Extra payload (any JSON).
     pub payload: Option<serde_json::Value>,
 }
-}
 
-crate::input_schema! {
 pub struct IntentNeed {
     /// Requesting identity (default "planner").
     pub from: Option<String>,
@@ -944,16 +835,13 @@ pub struct IntentNeed {
 
 // ── Transactions ───────────────────────────────────────────────────────
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct TxBegin {
     /// Transaction description (default "agent tx").
     pub description: Option<String>,
     /// Workspace-relative files to snapshot.
     pub files: Option<Vec<String>>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 crate::input_schema! {
@@ -961,18 +849,14 @@ pub struct TxId {
     /// Transaction id returned by tx_begin.
     pub id: String,
 }
-}
 
 // ── Context and IPC (plan B4 group 8) ──────────────────────────────────
 
-crate::input_schema! {
 pub struct IpcPending {
     /// Only requests addressed to this grantor (default: every pending request).
     pub grantor: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct IpcScope {
     /// Identity holding (or losing) the scope.
     pub grantee: String,
@@ -981,24 +865,18 @@ pub struct IpcScope {
     /// Action on the resource.
     pub action: String,
 }
-}
 
-crate::input_schema! {
 pub struct IpcList {
     /// Identity whose grants to list.
     pub grantee: String,
 }
-}
 
-crate::input_schema! {
 pub struct PrivacyMode {
     /// `balanced`, `local_only` (this machine and its local network; aliases `local-only`,
     /// `edge`, `strict`), `host_only` (this machine alone: loopback; aliases `host-only`, `host`) or `open` (`permissive`); else refused.
     pub mode: String,
 }
-}
 
-crate::input_schema! {
 pub struct PrivacyGrant {
     /// Subject receiving the capability (default "susi").
     pub subject: Option<String>,
@@ -1009,9 +887,7 @@ pub struct PrivacyGrant {
     /// Lifetime in seconds (default: the policy's default lifetime).
     pub ttl_secs: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct PrivacyRevoke {
     /// Subject holding the capability (default "susi").
     pub subject: Option<String>,
@@ -1020,9 +896,7 @@ pub struct PrivacyRevoke {
     /// Resource the capability covers (default "*").
     pub resource: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ContextSampleOs {
     /// Optional user name to associate with the sample.
     pub user: Option<String>,
@@ -1034,18 +908,13 @@ pub struct ContextSampleOs {
 
 // ── Assurance (plan B4 group 5) ────────────────────────────────────────
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct AuditVerify {
     /// Only count verified entries at or after this Unix timestamp; the full
     /// chain is always checked.
     pub since: Option<u64>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
-}
+};
 
-crate::input_schema! {
 pub struct AuditQuery {
     /// Only records by this actor.
     pub actor: Option<String>,
@@ -1057,10 +926,7 @@ pub struct AuditQuery {
     pub since: Option<u64>,
     /// Only records at or before this Unix timestamp.
     pub until: Option<u64>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 crate::input_schema! {
@@ -1071,34 +937,26 @@ pub struct AuditEvidenceExport {
     /// Absolute destination path for the independently verifiable export.
     pub output: String,
 }
-}
 
 // ── Onboarding (plan B4 group 4) ───────────────────────────────────────
 
-crate::input_schema! {
 pub struct SetupApply {
     /// Grant cloud API key consent in this apply (default false), as
     /// `susi setup apply --cloud`.
     pub cloud: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct EcosystemScan {
     /// Return the last persisted scan instead of scanning now (default
     /// false): `susi ecosystem status` rather than `susi ecosystem scan`.
     pub cached: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct EcosystemStart {
     /// Engine id from `ecosystem_scan` (e.g. "ollama").
     pub id: String,
 }
-}
 
-crate::input_schema! {
 pub struct EcosystemKb {
     /// `list` (default), `show`, `search` or `check`.
     pub action: Option<String>,
@@ -1116,20 +974,16 @@ pub struct EcosystemKb {
     /// Absolute path of a single store dir instead of the layered store.
     pub dir: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct EcosystemExplain {
     /// Entity id (e.g. "openai-chat-completions", "mcp", "a2a").
     pub id: String,
     /// Absolute path of a single store dir instead of the layered store.
     pub dir: Option<String>,
 }
-}
 
 // ── OS (plan B4 group 9) ───────────────────────────────────────────────
 
-crate::input_schema! {
 pub struct OsProvision {
     /// `probe` (default: version-only probe of each cloud CLI), `list` or `apply`.
     pub action: Option<String>,
@@ -1140,7 +994,7 @@ pub struct OsProvision {
 }
 }
 
-crate::input_schema! {
+workspace_input_schema! {
 pub struct OsCapabilities {
     /// `discover` (default), `invoke`, or `delegate` (issue a signed envelope).
     pub action: Option<String>,
@@ -1158,10 +1012,7 @@ pub struct OsCapabilities {
     pub budget_micros: Option<u64>,
     /// `invoke`/`delegate`: host-signed `susi-delegation/v1` envelope to nest under.
     pub delegation: Option<serde_json::Map<String, serde_json::Value>>,
-    /// Absolute workspace the CLI would run this in (default: the server
-    /// workspace); admitted only where the MAC policy grants it.
-    pub workspace: Option<String>,
-}
+};
 }
 
 crate::input_schema! {
@@ -1170,34 +1021,26 @@ pub struct ServiceName {
     /// or susi-native.
     pub name: String,
 }
-}
 
-crate::input_schema! {
 pub struct CommitsShow {
     /// Epoch hex prefix (unique), e.g. the first 12 characters `commit_log` shows.
     pub epoch: String,
 }
-}
 
-crate::input_schema! {
 pub struct PeersProbe {
     /// Peer host, optionally `host:port`.
     pub host: String,
     /// UDP discovery port (default: this node's effective discovery port).
     pub port: Option<u16>,
 }
-}
 
 // ── B4 group 3: providers, keys (presence only) and the brain ──────────
 
-crate::input_schema! {
 pub struct ProviderVendor {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderDoctor {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
@@ -1206,18 +1049,14 @@ pub struct ProviderDoctor {
     /// openrouter only: also list a sample of live model ids (proves the key).
     pub live: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderSetup {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
     /// Model id (required for openweight and frontier).
     pub model: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderConfigure {
     /// Provider control plane: openweight or frontier.
     pub vendor: String,
@@ -1230,25 +1069,19 @@ pub struct ProviderConfigure {
     /// Absolute path to the override JSON file (the CLI's file argument).
     pub file: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderModel {
     /// Provider control plane: openweight or frontier.
     pub vendor: String,
     /// Model id.
     pub model: String,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderPull {
     /// Open-weight model id whose weights `ollama pull` fetches.
     pub model: String,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderPrefer {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
@@ -1257,9 +1090,7 @@ pub struct ProviderPrefer {
     /// Clear the pin (openrouter: clear the pinned model, keep the cloud preference).
     pub clear: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderProbe {
     /// openweight, frontier, openrouter, or coding (`susi models probe`).
     pub vendor: String,
@@ -1268,50 +1099,38 @@ pub struct ProviderProbe {
     /// Prompt (default "Reply with exactly: ok"). Cloud probes are paid.
     pub prompt: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct ProviderModels {
     /// List the live model ids the OpenRouter key reaches instead of the curated routes.
     pub live: Option<bool>,
     /// Most live ids to return (default 50).
     pub limit: Option<u64>,
 }
-}
 
-crate::input_schema! {
 pub struct KeysPrefer {
     /// Cloud vendor to prefer (omit, without clear, to report the preference).
     pub vendor: Option<String>,
     /// Clear the preferred cloud vendor.
     pub clear: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct KeysCheck {
     /// One vendor (default: every vendor with a key).
     pub vendor: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct KeysModels {
     /// Vendor whose model list the key reaches.
     pub vendor: String,
 }
-}
 
-crate::input_schema! {
 pub struct BrainStatus {
     /// Top ranked providers per task class (default 5).
     pub top: Option<u64>,
     /// Only this task class (e.g. reflex, chat, code, reasoning, estate_ops).
     pub class: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BrainBudget {
     /// Budget dial: low, balanced or max.
     pub level: Option<String>,
@@ -1330,80 +1149,60 @@ pub struct BrainBudget {
     /// Start a new accounting window.
     pub new_window: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct BrainPrompt {
     /// Prompt to classify or explain.
     pub prompt: String,
 }
-}
 
-crate::input_schema! {
 pub struct BrainExport {
     /// Absolute path to write the bundle to (default: return the bundle).
     pub out: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BrainImport {
     /// Absolute path to the evidence bundle to merge.
     pub file: String,
 }
-}
 
-crate::input_schema! {
 pub struct BrainBench {
     /// Absolute path for the JSONL evidence (default ~/.susi/brain_bench.jsonl).
     pub out: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BrainProbe {
     /// Registered provider name (see brain_status).
     pub provider: String,
     /// Do not record the outcomes as brain evidence.
     pub no_record: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct SelectModel {
     /// Model name or id to select as the active substrate.
     pub model: String,
 }
-}
 
-crate::input_schema! {
 pub struct ScoutModel {
     /// HTTPS URL of the model artifact to download, license-admit and verify.
     pub url: String,
 }
-}
 
 // ── B4 group 7: adapters ───────────────────────────────────────────────
 
-crate::input_schema! {
 pub struct AdapterDoctor {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
     /// One adapter id (default: every adapter in the catalog).
     pub id: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct AdapterId {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
     /// Adapter id (agent, framework engine, coding model or MCP server).
     pub id: String,
 }
-}
 
-crate::input_schema! {
 pub struct AdapterConfigure {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
@@ -1414,9 +1213,7 @@ pub struct AdapterConfigure {
     /// Absolute path to the adapter JSON file (the CLI's file argument).
     pub file: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct TaskRetry {
     /// Durable id of a finished task to run again with its original prompt.
     pub task_id: String,
@@ -1424,9 +1221,7 @@ pub struct TaskRetry {
     /// workspace); admitted only where the MAC policy grants filesystem.write.
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct McpAdd {
     /// Registry name for the server.
     pub name: String,
@@ -1435,11 +1230,9 @@ pub struct McpAdd {
     /// Extra argv for a stdio server.
     pub args: Option<Vec<String>>,
 }
-}
 
 // ── B4 group 1: the self-build harness ─────────────────────────────────
 
-crate::input_schema! {
 pub struct HarnessStatus {
     /// Absolute path to the ledger the gateway writes.
     pub ledger: String,
@@ -1450,9 +1243,7 @@ pub struct HarnessStatus {
     /// Absolute path to the plan the supervisor runs.
     pub plan: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct HarnessBudget {
     /// Absolute path to the ledger (default: the repository's default ledger).
     pub ledger: Option<String>,
@@ -1460,9 +1251,7 @@ pub struct HarnessBudget {
     /// the substrate home).
     pub repo: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct HarnessModels {
     /// registry (default, no network), verify, discover or available.
     pub mode: Option<String>,
@@ -1471,9 +1260,7 @@ pub struct HarnessModels {
     /// Absolute repository path (available: its catalogue and ledger).
     pub repo: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct HarnessPlan {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1490,9 +1277,7 @@ pub struct HarnessPlan {
     /// Gateway the plan will run through.
     pub gateway: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct HarnessAuthor {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1511,9 +1296,7 @@ pub struct HarnessAuthor {
     /// Worker models, comma-separated (default auto).
     pub workers: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct HarnessRun {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1550,20 +1333,16 @@ pub struct HarnessRun {
     /// Absolute adapter state directory (default: harness-state in the repository).
     pub adapter_state: Option<String>,
 }
-}
 
 // ── B4 groups 2, 4, 9, 10 and 13: host views and maintenance ───────────
 
-crate::input_schema! {
 pub struct WorkspaceView {
     /// Absolute workspace to report on (the CLI's working directory;
     /// default: the server workspace). Admitted only where the MAC policy
     /// grants filesystem.read.
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct OperatorStatus {
     /// Absolute workspace to report on (the CLI's working directory;
     /// default: the server workspace). Admitted only where the MAC policy
@@ -1574,16 +1353,12 @@ pub struct OperatorStatus {
     /// routing, spend, approvals) instead of the `--json` identity summary.
     pub detail: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct ModelUninstall {
     /// One SUSI-managed `.gguf` filename (not a path).
     pub name: String,
 }
-}
 
-crate::input_schema! {
 pub struct IntentLadderArgs {
     /// scorecard (default), run, slice, gaps, verify or adopt_gap.
     pub mode: Option<String>,
@@ -1593,33 +1368,25 @@ pub struct IntentLadderArgs {
     /// default: the server workspace), admitted by the MAC policy.
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct PeersAdd {
     /// IP or hostname of the peer daemon to join (may include `:port`).
     pub host: String,
     /// UDP discovery port (default: the host-contract port plus port_offset).
     pub port: Option<u16>,
 }
-}
 
-crate::input_schema! {
 pub struct PeerName {
     /// node_id or address (prefix) of the peer.
     pub peer: String,
 }
-}
 
-crate::input_schema! {
 pub struct PeersRekey {
     /// Rotate even when some members fail to stage (they are stranded and
     /// must be re-provisioned with the new key).
     pub force: Option<bool>,
 }
-}
 
-crate::input_schema! {
 pub struct LedgerVerify {
     /// Refetch every pinned upstream and fail closed on drift (network)
     /// instead of verifying the local corpus.
@@ -1631,16 +1398,12 @@ pub struct LedgerVerify {
     /// server workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BrainPareto {
     /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
     pub class: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BlackboardPost {
     /// Blackboard key.
     pub key: String,
@@ -1657,9 +1420,7 @@ pub struct BlackboardPost {
     /// Absolute workspace (default: server workspace).
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BoardList {
     /// Maximum newest items to return.
     pub limit: Option<u64>,
@@ -1668,9 +1429,7 @@ pub struct BoardList {
     /// Absolute workspace (default: server workspace).
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BoardCheck {
     /// Acting agent identity (defaults to SUSI_AGENT or git config susi.agent).
     pub agent: Option<String>,
@@ -1679,9 +1438,7 @@ pub struct BoardCheck {
     /// Absolute workspace (default: server workspace).
     pub workspace: Option<String>,
 }
-}
 
-crate::input_schema! {
 pub struct BoardPost {
     /// Item kind: claim, landed, cut, heads-up, request, answer, handoff, decision, blocked, stop, lift, note.
     pub kind: String,

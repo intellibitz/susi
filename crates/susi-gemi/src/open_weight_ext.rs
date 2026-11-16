@@ -1,6 +1,5 @@
 //! Engines-side open-weight helpers (prefer local routing, live probe).
-use crate::susi_core::provider::Provider;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::EaiResult as Result;
 use susi_gemi_models::open_weight::OpenWeightManager;
 
 use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
@@ -35,21 +34,9 @@ pub fn prefer(model: &str, clear: bool) -> Result<String> {
 
 /// Local probe against the effective Ollama/vLLM endpoint (no cloud key required).
 pub fn probe(id: &str, prompt: &str) -> Result<String> {
-    if prompt.trim().is_empty() {
-        bail!("probe prompt must not be empty");
-    }
-    let manager = OpenWeightManager::new()?;
-    let provider = provider(&manager, id)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("tokio runtime for open-weight probe")?;
-    let _permit = crate::key_arbitration::try_acquire(provider.name())
-        .map_err(|d| susi_error::eai_err!(format!("{}: {}", provider.name(), d.describe())))?;
-    let text = runtime
-        .block_on(provider.generate(prompt))
-        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
-    Ok(crate::susi_config::redact_credentials(&text))
+    crate::model_probe::run(prompt, "tokio runtime for open-weight probe", || {
+        provider(&OpenWeightManager::new()?, id)
+    })
 }
 
 #[cfg(test)]

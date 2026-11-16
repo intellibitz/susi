@@ -1,5 +1,4 @@
 //! Engines-side OpenRouter helpers (live `/models`, paid probe).
-use crate::susi_core::provider::Provider;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::openrouter::{
     attribution_headers, is_openrouter_base, OpenRouterManager, API_BASE,
@@ -37,21 +36,9 @@ pub fn prefer(model: Option<&str>, clear_model: bool) -> Result<String> {
 
 /// Paid probe against the effective OpenRouter model.
 pub fn probe(prompt: &str) -> Result<String> {
-    if prompt.trim().is_empty() {
-        bail!("probe prompt must not be empty");
-    }
-    let manager = OpenRouterManager::new()?;
-    let provider = provider(&manager)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("tokio runtime for OpenRouter probe")?;
-    let _permit = crate::key_arbitration::try_acquire(provider.name())
-        .map_err(|d| susi_error::eai_err!(format!("{}: {}", provider.name(), d.describe())))?;
-    let text = runtime
-        .block_on(provider.generate(prompt))
-        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
-    Ok(crate::susi_config::redact_credentials(&text))
+    crate::model_probe::run(prompt, "tokio runtime for OpenRouter probe", || {
+        provider(&OpenRouterManager::new()?)
+    })
 }
 
 /// Live model ids from OpenRouter `GET /models` (requires key). Caps list size.

@@ -18,6 +18,10 @@
 //!   --mission pilot-2 --task exec-1 "Create hello.txt containing OK"
 //! ```
 
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -82,16 +86,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
             "--state" => state = PathBuf::from(take(&mut args, &argument)?),
             "--mission" => mission = take(&mut args, &argument)?,
             "--task" => task = take(&mut args, &argument)?,
-            "--attempt" => {
-                attempt = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "attempt must be a number".to_string())?;
-            }
-            "--timeout" => {
-                timeout = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
-            }
+            "--attempt" => attempt = number(&mut args, &argument)?,
+            "--timeout" => timeout = number(&mut args, &argument)?,
             other if other.starts_with("--") => {
                 return Err(format!("unknown argument {other}"));
             }
@@ -99,24 +95,12 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
         }
     }
 
-    if gateway.trim().is_empty() {
-        return Err("--gateway is required".into());
-    }
-    if model.trim().is_empty() {
-        return Err("--model is required".into());
-    }
-    if workspace.as_os_str().is_empty() {
-        return Err("--workspace is required".into());
-    }
-    if state.as_os_str().is_empty() {
-        return Err("--state is required".into());
-    }
-    if mission.trim().is_empty() || task.trim().is_empty() {
-        return Err("--mission and --task are required".into());
-    }
-    if prompt_words.is_empty() {
-        return Err("a prompt is required".into());
-    }
+    required!(gateway.trim() => "--gateway is required");
+    required!(model.trim() => "--model is required");
+    required!(workspace.as_os_str() => "--workspace is required");
+    required!(state.as_os_str() => "--state is required");
+    required!(mission.trim(), task.trim() => "--mission and --task are required");
+    required!(prompt_words => "a prompt is required");
 
     Ok(ExecutorConfig {
         gateway_url: gateway,
@@ -129,10 +113,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
         timeout: Duration::from_secs(timeout),
         prompt: prompt_words.join(" "),
     })
-}
-
-fn take(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 #[cfg(test)]
