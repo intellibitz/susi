@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -552,18 +551,12 @@ pub fn docker_present() -> bool {
 }
 
 fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 fn unique_id() -> Result<String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(1);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let nanos = susi_paths::unix_epoch_elapsed().as_nanos();
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
     Ok(format!("{nanos:016x}{pid:08x}{seq:08x}"))

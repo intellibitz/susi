@@ -576,10 +576,7 @@ fn rotate_log_if_large(path: &std::path::Path, cap_bytes: u64) {
 /// `YYYY-MM-DD HH:MM:SS` UTC from the wall clock — readable ops
 /// timestamps without pulling a datetime crate into the supervisor.
 fn utc_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = susi_paths::unix_epoch_elapsed().as_secs();
     let days = secs / 86400;
     let tod = secs % 86400;
     let (h, m, s) = (tod / 3600, tod % 3600 / 60, tod % 60);
@@ -1034,16 +1031,9 @@ fn respawn(
     shutdown: &AtomicBool,
 ) {
     if let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         if crash_loop_exhausted(rec, now) {
-            let until = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-                + DISABLE_COOLDOWN_SECS;
+            let until = susi_paths::unix_epoch_elapsed().as_secs() + DISABLE_COOLDOWN_SECS;
             slog(&format!(
                 "[supervisor] {} exceeded {MAX_RESTARTS} restarts; suspending respawns for {}s",
                 svc.name, DISABLE_COOLDOWN_SECS
@@ -1124,10 +1114,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
         // Rows dropped this pass (external release) — replayed onto the
         // fresh table inside the locked merge so the removal sticks.
         let mut removed: Vec<String> = Vec::new();
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now_secs = susi_paths::unix_epoch_elapsed().as_secs();
         for svc in LEAF_SERVICES {
             // Abort mid-pass the moment shutdown is raised — a respawn
             // blocked in wait_for_port must not outlive the teardown.

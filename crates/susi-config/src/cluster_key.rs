@@ -168,10 +168,7 @@ const MAX_STAGE_AGE_SECS: u64 = 24 * 60 * 60;
 const PREV_KEY_OVERLAP_SECS: u64 = 7 * 24 * 60 * 60;
 
 fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// Companion path for a timestamp sidecar file next to `path`.
@@ -345,10 +342,7 @@ pub fn random_nonce_hex() -> String {
         let seed = format!(
             "{}:{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            susi_paths::unix_epoch_elapsed().as_nanos()
         );
         let digest = Sha256::digest(seed.as_bytes());
         return susi_paths::hex::encode(&digest[..16]);
@@ -873,10 +867,7 @@ impl PingNonceCache {
 }
 
 fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// The local address the OS routes `dest` from: a throwaway UDP socket is

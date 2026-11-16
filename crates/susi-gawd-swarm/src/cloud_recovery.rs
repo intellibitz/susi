@@ -423,10 +423,7 @@ async fn verify_recovery_answer(
         let evidence = EvidenceRecord::new(
             provider.to_string(),
             1.0,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            susi_paths::unix_epoch_elapsed().as_secs(),
             Claim {
                 subject: report.goal.clone(),
                 predicate: "mission_completed".into(),
@@ -462,10 +459,7 @@ async fn verify_recovery_answer(
     let evidence = EvidenceRecord::new(
         provider.to_string(),
         1.0,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
+        susi_paths::unix_epoch_elapsed().as_secs(),
         Claim {
             subject: report.goal.clone(),
             predicate: "mission_completed".into(),

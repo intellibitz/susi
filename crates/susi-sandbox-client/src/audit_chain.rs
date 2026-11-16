@@ -149,10 +149,7 @@ pub(crate) fn append_with_key_within(
         crate::susi_config::file_lock::FileLock::acquire_within(dir, &lock_name, lock_budget)
             .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
     let prev = last_hash(audit_file, key)?;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let ts = susi_paths::unix_epoch_elapsed().as_secs();
 
     let mut hasher = Sha256::new();
     hasher.update(prev.as_bytes());

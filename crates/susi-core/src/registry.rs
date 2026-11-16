@@ -104,10 +104,7 @@ impl CapabilityRegistry {
     /// old per-instance in-memory maps (tests and unwired contexts rely on
     /// registrations not leaking between `new()` instances).
     pub fn new() -> Self {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+        let nanos = susi_paths::unix_epoch_elapsed().as_nanos();
         // The bus discovers peers under the rendezvous directory's parent.
         // Give each isolated registry its own parent, including its bus key.
         let dir = std::env::temp_dir()

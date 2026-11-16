@@ -29,10 +29,7 @@ fn background_diagnostics_requested() -> bool {
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 pub struct SusiRuntimeAdmin;

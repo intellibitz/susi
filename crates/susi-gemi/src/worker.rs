@@ -379,10 +379,7 @@ pub fn effective_cost_usd(
 /// from worker windows; other provider keys consult the key arbiter's own
 /// quota windows — one function, every capped worker covered.
 pub fn headroom(provider: &str) -> Option<(u64, u64)> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
     if let Some((used, allowance, _)) = quota_state(provider, now) {
         return Some(((allowance - used).max(0.0) as u64, allowance as u64));
     }
@@ -392,10 +389,7 @@ pub fn headroom(provider: &str) -> Option<(u64, u64)> {
 /// The remaining-fraction view, arbiter-aware: the ranking's scarcity
 /// signal for every worker that has one.
 pub fn remaining_fraction_unified(provider: &str) -> Option<f64> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
     remaining_fraction(provider, now).or_else(|| {
         crate::key_arbitration::quota_headroom(provider).map(|(rem, allow)| {
             if allow == 0 {

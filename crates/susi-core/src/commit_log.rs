@@ -47,6 +47,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::time::UNIX_EPOCH;
 use susi_paths::SusiDirs;
 /// A single quorum-commit decision, signed by the coordinator.
@@ -247,10 +248,7 @@ impl CommitRecord {
     /// absent — a node outside the cluster cannot mint commit records.
     pub fn seal(input: CommitInput<'_>) -> Option<Self> {
         let key = crate::susi_config::cluster_key::cluster_key()?;
-        let committed_at = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let committed_at = susi_paths::unix_epoch_elapsed().as_secs();
         let mut sorted = input.electorate;
         sorted.sort();
         let epoch = susi_paths::hex::encode(Sha256::digest(
@@ -392,10 +390,7 @@ impl CommitRecord {
         electorate: Vec<String>,
     ) -> Option<Self> {
         let key = crate::susi_config::cluster_key::cluster_key()?;
-        let committed_at = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let committed_at = susi_paths::unix_epoch_elapsed().as_secs();
         let mut sorted = electorate;
         sorted.sort();
         let epoch = susi_paths::hex::encode(Sha256::digest(
@@ -794,10 +789,7 @@ pub fn claim_leadership_at(path: &Path, leader: &str) -> u64 {
     if state.leader != leader {
         state.term += 1;
         state.leader = leader.to_string();
-        state.updated_at = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        state.updated_at = susi_paths::unix_epoch_elapsed().as_secs();
         let _ = save_term_to(path, &state);
     }
     state.term
@@ -839,10 +831,7 @@ pub fn check_term_at(path: &Path, record: &CommitRecord) -> TermVerdict {
         let next = TermState {
             term: record.term,
             leader: record.leader.clone(),
-            updated_at: std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            updated_at: susi_paths::unix_epoch_elapsed().as_secs(),
         };
         if _file_lock.is_some() {
             let _ = save_term_to(path, &next);
@@ -1206,10 +1195,7 @@ pub fn compact_at(ledger: &Path, snapshot: &Path, archive: &Path) -> EaiResult<u
         .map_err(|e| EaiError::filesystem(format!("write {}: {e}", archive.display())))?;
     let snap = LedgerSnapshot {
         version: 1,
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+        created_at: susi_paths::unix_epoch_elapsed().as_secs(),
         high_water: state.coordinators.clone(),
         term: state.term,
         leader: state.leader.clone(),

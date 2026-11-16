@@ -32,7 +32,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A long-horizon quota window: how a provider plan's allowance resets.
 /// Distinct from the sliding rate window — these model real plan limits.
@@ -163,10 +162,7 @@ pub fn limits_from_env() -> ArbiterLimits {
 }
 
 fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 #[derive(Debug, Default)]

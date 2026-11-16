@@ -226,12 +226,9 @@ pub struct PostedErrorEvent {
 /// Normalise and redact a [`PostedErrorEvent`] into a JSONL metrics record.
 #[must_use]
 pub fn normalize_posted_event(event: PostedErrorEvent) -> serde_json::Value {
-    let ts = event.ts.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    });
+    let ts = event
+        .ts
+        .unwrap_or_else(|| susi_paths::unix_epoch_elapsed().as_secs());
     let kind = event
         .kind
         .or(event.variant)

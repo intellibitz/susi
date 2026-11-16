@@ -80,10 +80,7 @@ impl EaiError {
     impl_eai_err!(internal, Internal);
 
     fn log_to_metrics(&self) {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let ts = susi_paths::unix_epoch_elapsed().as_secs();
 
         let entry = serde_json::json!({
             "ts": ts,

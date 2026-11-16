@@ -41,10 +41,7 @@ pub struct AgentTransaction {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn tx_dir(workspace: &Path) -> PathBuf {

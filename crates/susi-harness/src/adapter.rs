@@ -308,10 +308,7 @@ impl CommandRunner for ProcessRunner {
             command.env("CARGO_TARGET_DIR", cwd.join("target"));
             command.env("CARGO_NET_OFFLINE", "true");
         }
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0);
+        let stamp = susi_paths::unix_epoch_elapsed().as_nanos();
         let base = std::env::temp_dir().join(format!("susi-run-{}-{stamp}", std::process::id()));
         let stdout_path = base.with_extension("out");
         let stderr_path = base.with_extension("err");

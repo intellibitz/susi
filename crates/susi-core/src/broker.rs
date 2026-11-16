@@ -83,17 +83,11 @@ pub struct IpcMessage {
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn now_nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_nanos()
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {

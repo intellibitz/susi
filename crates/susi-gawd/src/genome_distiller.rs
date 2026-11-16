@@ -27,10 +27,7 @@ impl GenomeDistiller {
     /// workspace experience buffer; returns how many were written.
     pub fn distill_genome_to_experience(workspace: &Path) -> EaiResult<usize> {
         let mut samples = Vec::new();
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let timestamp = susi_paths::unix_epoch_elapsed().as_secs();
 
         // 1. Distill identity.json (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {

@@ -110,10 +110,7 @@ impl SwarmBlackboard {
 
     /// Evaporates expired pheromones from the blackboard (Point 36).
     pub fn evaporate_pheromones(&self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
 
         self.pheromones.write().retain(|_, p| {
             // TTL is in milliseconds, convert to seconds

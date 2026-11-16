@@ -94,10 +94,7 @@ impl EvolutionManager {
             }
         }
         let marker = wasm.with_extension("attempted");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         let last = std::fs::read_to_string(&marker)
             .ok()
             .and_then(|s| s.trim().parse::<u64>().ok())

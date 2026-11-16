@@ -248,10 +248,7 @@ fn day_file(workspace: &Path, subsystem: &str, unix: u64) -> PathBuf {
 }
 
 fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 /// Remove day files past the retention window (file name carries the day).

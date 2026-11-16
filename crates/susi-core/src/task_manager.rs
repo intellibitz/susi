@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -339,10 +339,7 @@ impl TaskHandle {
 
     pub fn report_progress(&self) {
         let _guard = self.result.write().unwrap_or_else(|e| e.into_inner());
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         self.observe_gap();
         self.last_progress_secs.store(now, Ordering::Release);
         self.progress_count.fetch_add(1, Ordering::Release);
@@ -445,16 +442,10 @@ impl SwarmTaskManager {
     ) -> Arc<TaskHandle> {
         let task_id = format!(
             "task_{}_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
+            susi_paths::unix_epoch_elapsed().as_nanos(),
             rand_id()
         );
-        let now_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now_secs = susi_paths::unix_epoch_elapsed().as_secs();
         let idle_threshold = TelemetryHistoryStore::global().get_idle_threshold_ms(name);
 
         let scope_cancelled = scope.is_some_and(|s| {
@@ -614,10 +605,7 @@ impl SwarmTaskManager {
             loop {
                 std::thread::sleep(Duration::from_millis(1000));
                 let mgr = SwarmTaskManager::global();
-                let now_secs = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
+                let now_secs = susi_paths::unix_epoch_elapsed().as_secs();
 
                 // Zero-Lock Iteration Phase
                 let mut expired: Vec<(String, u64, u64)> = Vec::new();
@@ -715,10 +703,7 @@ impl SwarmTaskManager {
         }
         // Time explicitly spent paused must not consume the running idle lease.
         record.last_progress_secs.store(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            susi_paths::unix_epoch_elapsed().as_secs(),
             Ordering::Release,
         );
         if let Some(flag) = self
@@ -764,11 +749,7 @@ impl SwarmTaskManager {
 }
 
 fn rand_id() -> u32 {
-    (SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-        % 100000) as u32
+    (susi_paths::unix_epoch_elapsed().as_nanos() % 100000) as u32
 }
 
 #[cfg(test)]

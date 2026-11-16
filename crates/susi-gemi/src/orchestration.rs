@@ -613,10 +613,7 @@ pub fn orchestrate_mission(
             Ok(text)
         }
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
     let (topology, answer) = orchestrate(
         mission,
         &plan.goals,

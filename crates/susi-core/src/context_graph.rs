@@ -13,7 +13,6 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::RwLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 use susi_paths::hex;
 
 /// Stable identifier for a node in the context graph.
@@ -251,10 +250,7 @@ impl ContextGraph {
 
     /// Current unix timestamp, or 0 on failure.
     fn now() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+        susi_paths::unix_epoch_elapsed().as_secs()
     }
 
     fn append_event(&self, event: &ContextGraphEvent) -> EaiResult<()> {

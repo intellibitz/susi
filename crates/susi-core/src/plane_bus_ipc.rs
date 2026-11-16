@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use susi_paths::SusiDirs;
 
 /// Connect timeout: the rendezvous only ever targets this host.
@@ -525,10 +525,7 @@ impl IpcPlaneBus {
     pub fn open_stream(&self) -> (String, std::sync::mpsc::Receiver<Value>) {
         let id = format!(
             "{}-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
+            susi_paths::unix_epoch_elapsed().as_nanos(),
             self.stream_seq.fetch_add(1, Ordering::Relaxed)
         );
         let (tx, rx) = std::sync::mpsc::channel();

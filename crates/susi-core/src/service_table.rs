@@ -15,7 +15,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -195,10 +195,7 @@ pub fn save_to(path: &std::path::Path, records: &[ServiceRecord]) -> EaiResult<(
 
 /// Upsert a record by service name; returns the stored record.
 pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16) -> ServiceRecord {
-    let now = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
     // One row per name — a table restored from a corrupted file could
     // carry duplicates; absorb them into the first and drop the rest
     // so the invariant is repaired, not just respected.
@@ -249,10 +246,7 @@ pub fn record_external(
     pid: u32,
     port: u16,
 ) -> ServiceRecord {
-    let now = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
     let rec = ServiceRecord {
         name: name.to_string(),
         pid,
@@ -555,10 +549,7 @@ impl ServiceStatus {
         let Some(start) = self.started_at else {
             return "-".to_string();
         };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
         let secs = now.saturating_sub(start);
         if secs >= 86400 {
             format!("{}d{}h", secs / 86400, (secs % 86400) / 3600)

@@ -113,10 +113,7 @@ static RESIDENT_GGUF_MODELS: LazyLock<RwLock<HashMap<PathBuf, ResidentGgufEntry>
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 fn now_unix_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 fn file_modified_secs(meta: &std::fs::Metadata) -> u64 {

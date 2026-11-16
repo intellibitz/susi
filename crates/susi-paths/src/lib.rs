@@ -28,6 +28,15 @@ pub struct SusiDirs;
 
 const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
 
+/// Sample the wall clock once, returning zero if it precedes the Unix epoch.
+/// Callers choose the timestamp unit and retain their own conversion policy.
+#[inline]
+pub fn unix_epoch_elapsed() -> Duration {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+}
+
 impl SusiDirs {
     /// Cached while the service is healthy; while it is down the local
     /// resolver answers and the service is retried on a bounded backoff

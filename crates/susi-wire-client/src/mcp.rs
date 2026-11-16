@@ -20,7 +20,9 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Protocol revision this client requests. A copy of
 /// `susi_core::mcp_client::PROTOCOL_VERSION` (susi-core is not a
@@ -1629,10 +1631,7 @@ impl PersistedTaskHandleStore {
         match Self::open(&path) {
             Ok(store) => Ok((store, None)),
             Err(WireError::Protocol(_)) => {
-                let nanos = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos();
+                let nanos = susi_paths::unix_epoch_elapsed().as_nanos();
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -1720,10 +1719,7 @@ impl PersistedTaskHandleStore {
         }
         let payload = serde_json::to_vec_pretty(&json!({ "version": 1, "handles": self.handles.iter().map(PersistedTaskHandle::to_json).collect::<Vec<_>>(),}))
         .map_err(|e| WireError::Protocol(e.to_string()))?;
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let nanos = susi_paths::unix_epoch_elapsed().as_nanos();
         let file_name = self
             .path
             .file_name()

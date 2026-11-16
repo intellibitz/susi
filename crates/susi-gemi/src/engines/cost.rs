@@ -225,10 +225,7 @@ pub fn expected_call_cost_usd_in(
 /// [`task_token_profile`] priced against the catalog, cache-hit rate
 /// included. `None` when no price record exists (VC-202-002).
 fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    susi_paths::unix_epoch_elapsed().as_secs()
 }
 
 pub fn expected_task_cost_usd_in(
