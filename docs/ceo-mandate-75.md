@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # CEO Mandate 75: Raw Source (`main`) & Distill (`release`) Architecture, Cloud Raw-Source Feature Pickup, and Pure `Apache-2.0` License Compliance
 
 Effective 2026-11-12. Binding on every agent in the Susi AI ecosystem — local,
@@ -28,7 +20,7 @@ ongoing work per Mandate 1.
 operate both `susi` and `susi-commercial-apps` strictly on the **Raw Source
 (`main`) -> Distill (`release`)** model with remote pull-and-merge reconciliation,
 freely pick up capabilities from cloud raw sources (`local-harvest raw-features`,
-`route`, `pickup`) into Susi Core's 3 `<10s` lean socket pillars or into closed,
+`route`, `pickup`) into Susi Core's three core pillars (lean, `<10s`) or into closed,
 licensed, paid `susi-commercial-apps`, enforce **Pure `Apache-2.0` ONLY** for all
 cloud raw-source harvesting (full §4(a)–(d) compliance, hard-refusing MIT-only,
 BSD-only, LLVM-exception, `AND`, copyleft and unlicensed code), and coordinate
@@ -37,9 +29,10 @@ the shared Susi Board.
 
 ## 1. Raw Source (`main` branch) & Distill (`release` branch) Philosophy
 
-Both `intellibitz/susi` (free-forever Apache-2.0 open-core socket) and
-`intellibitz/susi-commercial-apps` (closed, cryptographically licensed, paid
-corporate suite) operate strictly on one symmetric delivery pipeline:
+Both `intellibitz/susi` (free-forever Apache-2.0 open-core socket, published one
+way by the CEO and free for the world to fork, Mandate 72) and
+`intellibitz/susi-commercial-apps` (private, closed, cryptographically licensed,
+paid corporate suite) operate strictly on one symmetric delivery pipeline:
 **Raw Source (`main`) -> Distill (`release`)**.
 
 ### 1.1 Raw Source (`main`)

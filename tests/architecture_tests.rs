@@ -3243,3 +3243,77 @@ fn ceo_mandate_81_enforces_release_binary_sync() {
     assert!(sync_sh.contains("adopt_reference_build"));
     assert!(sync_sh.contains("qualified:"));
 }
+
+/// CEO directive 2026-11-16 (Mandate 72): core is Apache-2.0 and published one
+/// way. The CEO alone holds push authority, nothing is accepted from outside,
+/// and the world is free to fork. Every front door says so, and none of them
+/// invites a pull request again.
+#[test]
+fn core_is_published_one_way_and_free_to_fork() {
+    let root = workspace_root();
+    // Wrapped prose: compare on single-spaced text.
+    let flat = |path: &str| -> String {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "CONTRIBUTING.md",
+        "CONTRIBUTORS.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/lean-core.md",
+    ] {
+        let text = flat(path);
+        assert!(
+            text.contains("published one way"),
+            "{path}: must say core is published one way"
+        );
+        assert!(
+            text.contains("free to fork") || text.contains("may fork"),
+            "{path}: must say the world may fork core"
+        );
+    }
+    for path in ["AGENTS.md", ".agents/identity.json", "CONTRIBUTING.md"] {
+        let text = flat(path);
+        assert!(
+            text.contains("CEO alone holds push authority"),
+            "{path}: push authority is the CEO's alone"
+        );
+        assert!(
+            text.contains("agents the CEO authorizes"),
+            "{path}: the CEO's agents push on the CEO's authority"
+        );
+    }
+    for path in [
+        "README.md",
+        "CONTRIBUTING.md",
+        "CONTRIBUTORS.md",
+        "docs/lean-core.md",
+        "docs/integrating-with-susi.md",
+    ] {
+        let text = flat(path).to_lowercase();
+        for invitation in [
+            "welcomes contributions",
+            "pull requests from a fork",
+            "good first issue",
+            "help wanted",
+            "by contributing to",
+            "contributing from outside",
+            "never fork",
+        ] {
+            assert!(
+                !text.contains(invitation),
+                "{path}: `{invitation}` contradicts one-way publication"
+            );
+        }
+    }
+}

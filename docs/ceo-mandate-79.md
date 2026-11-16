@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # CEO Mandate 79: Vision-Driven Continuous Self-Improvement — Distill the Apache-2.0 World
 
 Effective 2026-11-12. Binding on every agent in the Susi AI ecosystem — local,
@@ -94,6 +86,10 @@ after `workflow check`, and whenever it finishes a task. One cycle:
    pillars, or Commercial Apps), and take only the part that serves a standing
    vision, under Mandates 75 and 78: pure `Apache-2.0`, pinned commit,
    manifest, notices, `Origin:` trailers, Rust, and the old code deleted.
+   When the look finds nothing to take, say so: put the evidence in the task
+   record and record the look with `susi-commercial workflow vision looked
+   --url <url> --commit <commit> --task <T-ID> --note "<text>"`. Never import
+   code, and never edit a harvest manifest, to make a source read as current.
 4. **Dump to `main`, distill, release.** Mandates 74 and 75 unchanged.
 5. **Measure the generation.** A release is better than the last only on
    evidence: tests, the intent ladder, size and the `<10s` budget (Mandates 1,
@@ -105,7 +101,7 @@ after `workflow check`, and whenever it finishes a task. One cycle:
 ## 4. Where the result goes
 
 Routing is Mandate 75's and does not change: lean socket primitives inside the
-three open pillars go to the free Apache-2.0 core; every add-on feature, UI,
+three core pillars go to the free Apache-2.0 core; every add-on feature, UI,
 pack, connector and governance plane goes to closed, licensed, paid Susi
 Commercial Apps. Commercial code never moves into core. Core vision records
 are public: they carry no commercial detail and no secret.
@@ -138,6 +134,11 @@ pushed so every agent's next cycle shows it.
   `ceo vision` line in `susi-commercial workflow check` so every session sees
   the standing vision and whether a task has taken it up. The CEO's directive
   above is recorded as `V-1` in both repositories.
+- **Added 2026-11-12 (Commercial `T-LOOKS-1`): a look that imported nothing.**
+  `susi-commercial workflow vision looked` writes a create-only record
+  `.agents/looks/L-<n>.json`, and the cycle then reports that source as current
+  until its head moves past the commit that was looked at. The commercial
+  edition of this mandate describes the verb and what it refuses.
 - **Not enforced, and what the cycle does not prove:** the cycle reports; it
   imports nothing and gates nothing. It compares commit IDs, so it knows that
   an upstream moved, not whether the change is useful. `set_by` is recorded as

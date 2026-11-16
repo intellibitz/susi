@@ -10,7 +10,7 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.21.70-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Contributing](CONTRIBUTING.md)**
+**[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Forking and contributing](CONTRIBUTING.md)**
 
 Susi is an open, local-first AI operating substrate: one Rust daemon on your
 machine that puts the models, agents and tools you already have behind a
@@ -19,7 +19,8 @@ OpenAI/Anthropic SDK or A2A peer talks to all of them the same way. It is built
 around **three Apache-2.0 core pillars**: **GAWD** (agent coordination, A2A, ACP and Susi Harness with parallel multi-agent workflow), **GEMI** (model inference routing), and **GMCP** (MCP protocol and governed tools). It routes work across local engines
 (Ollama, llama.cpp, vLLM) and cloud providers by evidence, lets agents declare a
 mission complete only with receipts, and seals what they did into an append-only
-HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever.
+HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever. It is
+published one way and everyone is free to fork it ([License](#license)).
 
 Scoped claim (Mandate 45): Susi is an evidence-gated agent-of-agents substrate
 *on* your host, not a replacement operating system and not a chatbot wrapper.
@@ -31,7 +32,7 @@ exact scope is in [What RSI means here](docs/architecture.md#what-rsi-means-here
 - **Developers** who want one local endpoint for every model and tool, with an
   inspectable routing decision (`susi os route`) instead of a vendor default.
 - **Teams building products on Susi** from the outside, through the fixed port
-  contract, never by forking it ([integration guide](docs/integrating-with-susi.md),
+  contract, with no need to fork it ([integration guide](docs/integrating-with-susi.md),
   [conformance checker](docs/host-contract-conformance.md)).
 - **Agents and their operators** who need missions grounded in receipts, a
   governed tool path and an audit trail that survives a crash.
@@ -179,21 +180,27 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–81),
-[`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md),
-[`docs/ceo-mandate-75.md`](docs/ceo-mandate-75.md) and
-[`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md) (agents collaborate through the
-Susi Board) and [`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md) (each agent works
-under its own root directory) and
-[`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md) (never reinvent the wheel:
-reuse Apache-2.0 work first) and
-[`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md) (vision-driven continuous
-self-improvement: Apache-2.0 projects are the raw source Susi is distilled from) and
-[`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md) (three core pillars and synchronized
-Step 1 delivery) and [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md) (every
-qualified release cut syncs the local host binary and live daemon, with
-Linux/Windows timer parity and `RunLevel=Limited`). Work happens in isolated
-worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–81).
+The current mandate documents:
+
+- [`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md) and
+  [`docs/ceo-mandate-75.md`](docs/ceo-mandate-75.md): dump labelled work to
+  `main`, distill releases, harvest pure Apache-2.0 work.
+- [`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md): agents collaborate through
+  the Susi Board.
+- [`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md): each agent works under its
+  own root directory.
+- [`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md): never reinvent the wheel;
+  reuse Apache-2.0 work first.
+- [`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md): vision-driven continuous
+  self-improvement; Apache-2.0 projects are the raw source Susi is distilled from.
+- [`docs/ceo-mandate-80.md`](docs/ceo-mandate-80.md): three core pillars and
+  synchronized Step 1 delivery.
+- [`docs/ceo-mandate-81.md`](docs/ceo-mandate-81.md): every qualified release
+  cut syncs the local host binary and live daemon, with Linux/Windows timer
+  parity and `RunLevel=Limited`.
+
+Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every
 workflow step over portable Git storage (GitHub is storage only: zero GitHub
 Actions, zero hosted PRs). Susi core targets a `<10s` warm `build + test + release`
@@ -209,7 +216,7 @@ qualified immutable releases (`releases/<tag>.json`), and release integration
 verifies the actual combined tree before a release ref moves;
 [`.agents/lanes/`](.agents/lanes/) documents history and never substitutes
 for a reservation. The full path, with the native Windows notes, is in
-[docs/evidence.md](docs/evidence.md#building-susi-the-workflow-mandates-4972).
+[docs/evidence.md](docs/evidence.md#building-susi-the-workflow).
 
 ## Read next
 
@@ -224,3 +231,9 @@ for a reservation. The full path, with the native Windows notes, is in
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE). Provided as-is, without warranty; users run the engine and its agents at their own risk.
+
+The repository is published one way: IntelliBitz's CEO alone holds push
+authority, exercised by the CEO or by the agents the CEO authorizes, and no
+pull request, patch or commit from outside is accepted. You are free to fork it
+and work in your own fork under the license, which grants code rights and no
+right to the Susi name or marks. See [CONTRIBUTING.md](CONTRIBUTING.md).

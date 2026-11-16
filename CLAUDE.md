@@ -10,11 +10,18 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–79). Follow its native isolated workflow
+requirements (identity.json Mandates 62–81). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
 and production qualification. Requirements are not claims of current compliance.
+
+Susi core (`intellibitz/susi`) is open source under Apache-2.0 and published one
+way (CEO directive 2026-11-16, Mandate 72; AGENTS.md "Open-core boundary"): the
+CEO alone holds push authority, exercised by the CEO or by the agents the CEO
+authorizes; no pull request, patch or commit from outside is accepted; the world
+is free to fork and work in its own fork. Susi Commercial Apps
+(`intellibitz/susi-commercial-apps`) is private, closed source and licensed.
 
 Read `docs/ceo-mandate-81.md` (Mandate 81, 2026-11-15): cutting or publishing
 any qualified release for this host must sync `~/.susi/bin/susi` (`susi.exe`),

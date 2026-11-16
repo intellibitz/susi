@@ -93,7 +93,7 @@ digests, followed by atomic promotion, health verification and tested rollback.
 The strict dependency license gate passes with the replacement implementations;
 future dependency changes must pass the same unchanged policy.
 
-## Building susi: the workflow (Mandates 49–72)
+## Building susi: the workflow
 
 Read [`AGENTS.md`](../AGENTS.md), the canonical instructions for every agent.
 The native local workflow has no GitHub account, Actions, pull-request or remote

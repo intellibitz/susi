@@ -1,4 +1,4 @@
-> **Current governing contract:** follow `AGENTS.md` and identity Mandates 62–72.
+> **Current governing contract:** follow `AGENTS.md` and the mandates in `.agents/identity.json`.
 > This document includes existing harness behavior and legacy remote/script
 > adapters. They are migration status, not mandatory prerequisites for agent
 > development. The required harness owns native local integration and release
@@ -389,7 +389,7 @@ susi harness api --ledger out/ledger.jsonl --plan plan.json \
 ```
 
 Every task is a real task in the queue: its own worktree, its own claim, its own
-acceptance, its own pull request. The harness does not bypass the repository's
+acceptance, its own labelled commits. The harness does not bypass the repository's
 rules; it makes them mechanical.
 
 ### The worker's file tools

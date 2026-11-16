@@ -2,8 +2,10 @@
 
 Susi is an Apache-2.0 AI OS substrate for a single owner on one host. Products
 build on it from the outside, through public protocols on a fixed set of ports.
-They never fork it. This guide lists those surfaces and how to verify an
-integration against them.
+They need no fork. Anyone is free to fork Susi under its license; the
+repository itself is published one way and accepts nothing back
+([CONTRIBUTING.md](../CONTRIBUTING.md)). This guide lists the integration
+surfaces and how to verify an integration against them.
 
 ## The host contract
 

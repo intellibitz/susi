@@ -1,17 +1,33 @@
-# SUSI Project Contributors
+# Susi authors and maintainers
 
-SUSI is an Apache-2.0 open-source project maintained by a collaborative community of open-source engineers, protocol implementers, extension-pack authors, and autonomous agent nodes.
+Susi core is an Apache-2.0 open-source project of IntelliBitz. It is published
+one way: IntelliBitz's CEO alone holds push authority, exercised by the CEO or
+by the agents the CEO authorizes. No pull request, patch or commit from outside
+is accepted, so this file lists the people and agents who write what is
+published here. Anyone is free to fork the repository and work in their own
+fork; see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-Want to join the contributor list? Read **[CONTRIBUTING.md](CONTRIBUTING.md)** or pick up an open issue labeled [`good first issue`](https://github.com/intellibitz/susi/labels/good%20first%20issue) or [`help wanted`](https://github.com/intellibitz/susi/labels/help%20wanted)!
+## Maintainer and authors
 
-## Maintainers, Human Contributors & Autonomous Nodes
 - **IntelliBitz** ([@intellibitz](https://github.com/intellibitz)) — Founder & Lead Maintainer
 - **Muthu Ramadoss** ([@muthuramadoss](https://github.com/muthuramadoss)) — Author & Principal Architect
-- **Community Contributors** — Open-source engineers, MCP/A2A integrators, and extension-pack authors ([see all GitHub contributors](https://github.com/intellibitz/susi/graphs/contributors))
-- **Gemini (Google AI)** ([@gemini](https://github.com/gemini)) — AI Co-Collaborator, AI Vision Architect & Autonomous Contributor
+- **Gemini (Google AI)** — AI Co-Collaborator, AI Vision Architect & Autonomous Contributor
 - **Claude (Anthropic)** — AI Co-Collaborator & Autonomous Contributor
+- **The other agents the CEO authorizes** write, test and integrate the code
+  under [AGENTS.md](AGENTS.md). Each commit names its task
+  (`Task: T-<AGENT>-<n>`); the record of who did what is in
+  [`.agents/tasks/`](.agents/tasks/) and the Git history, which also keeps the
+  authorship of every earlier commit.
 
-## Development Setup
+## Harvested open-source work
+
+Susi reuses Apache-2.0 work from other projects. Their authors are credited
+where the code is: in each harvest manifest
+(`.agents/harvest/H-<AGENT>-<n>.json`), in the notices kept in the harvested
+files, and in the `THIRD_PARTY_NOTICES` that ship with a release
+([docs/harvest.md](docs/harvest.md)).
+
+## Development setup
 
 After cloning (once per clone; worktrees share it):
 
@@ -19,8 +35,7 @@ After cloning (once per clone; worktrees share it):
 scripts/setup-dev.sh
 ```
 
-This enables `.githooks` (`pre-commit`: rustfmt; `pre-push`: clippy) and the
-`ledger` merge driver that unions entries appended to `.agents/evidence.json`
-by parallel agents. External contributors can submit standard GitHub Pull Requests
-from a fork (see **[CONTRIBUTING.md](CONTRIBUTING.md)**); local multi-agent workers
-use isolated worktrees (see **[AGENTS.md](AGENTS.md)**, "Native local agent loop").
+This enables `.githooks` (`pre-commit`: staged Rust formatting; `pre-push`:
+transport safety only) and the `ledger` merge driver that unions entries
+appended to `.agents/evidence.json` by parallel agents. The CEO's agents work in
+isolated worktrees (see **[AGENTS.md](AGENTS.md)**, "Native local agent loop").

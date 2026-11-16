@@ -31,7 +31,7 @@ Project maintainers are responsible for clarifying and enforcing our standards o
 
 ## Scope
 
-This Code of Conduct applies within all project spaces (GitHub Issues, Pull Requests, Discussions, documentation, and extension registries) and also applies when an individual is officially representing the project or its community in public spaces.
+This Code of Conduct applies within all project spaces (issue reports, discussions, documentation, and extension registries) and also applies when an individual is officially representing the project or its community in public spaces. The repository is published one way and accepts no pull requests ([CONTRIBUTING.md](CONTRIBUTING.md)); this code covers how people treat each other around it, including in forks that choose to adopt it.
 
 ## Enforcement
 

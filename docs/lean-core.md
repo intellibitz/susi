@@ -89,12 +89,15 @@ current release meets the budgets.
   full required checks, provenance and native platform evidence. The <10 s
   warm fast check never substitutes for full release qualification.
 
-## Contributing from outside
+## Outside the CEO's agents: fork, do not send
 
-Use the portable Git contribution workflow in [CONTRIBUTING.md](../CONTRIBUTING.md).
-An authorized agent reconciles contributed commits into labelled development
-work. GitHub is storage only; contributions do not require a hosted pull request
-or a laptop-only integration gate. Source publication does not qualify a release.
+The repository is published one way (CEO directive 2026-11-16, Mandate 72): the
+CEO alone holds push authority, exercised by the CEO or by the agents the CEO
+authorizes, and no pull request, patch or commit from outside is accepted.
+Anyone may fork it and work in their own fork under Apache-2.0
+([CONTRIBUTING.md](../CONTRIBUTING.md)). Code from a fork returns only by Susi's
+own harvest ([harvest.md](harvest.md)). Source publication does not qualify a
+release.
 
 ## Sub-10-second warm Build + Test + Release budget (CEO Mandate 74, 2026-11-11)
 

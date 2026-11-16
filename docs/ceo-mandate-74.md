@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # CEO Mandate 74: Autonomous CTO Ecosystem Mandate — <10s Core, 3 Pillars, Remote Pull & Merge, Distilled Releases, and Open-World Harvest
 
 Effective 2026-11-11 (extended 2026-11-12 by [CEO Mandate 75](ceo-mandate-75.md),
@@ -27,8 +19,8 @@ states current implementation truth vs. active engineering work.
 
 **Agent reminder (one line):** Follow CEO Mandate 74 (`docs/ceo-mandate-74.md`):
 work in your own isolated worktree with remote pull and merge at every step,
-keep Susi core build+test+release under 10 seconds across its 5 Apache-2.0
-pillars (`GAWD` including A2A, ACP and Susi Harness; `GEMI`; `GMCP`), dump labelled work
+keep Susi core build+test+release under 10 seconds across its three core pillars
+(Apache-2.0: `GAWD` including A2A, ACP and Susi Harness; `GEMI`; `GMCP`), dump labelled work
 straight into `main` with no gates and no PRs, let Susi distill releases with
 conflict-free parallel picks, harvest Apache-2.0 code with full attribution, keep
 all add-ons closed/licensed/paid in `susi-commercial-apps`, and treat GitHub as a
@@ -370,10 +362,17 @@ below under [CEO Mandate 75](ceo-mandate-75.md).
 7. **Prefer harvest over new dependencies** when it reduces dependency reach and
    size (Mandate 69 and the lean-core ladder). Harvested code is then Susi's to maintain.
 
-### 5.3 Giving back
+### 5.3 Giving back, and forks
 
-Susi core is Apache-2.0, so others may harvest from it. Fixes to harvested code
-should go upstream. Every upstream contribution follows that project's
+Susi core is Apache-2.0, so others may harvest from it, and anyone may fork it
+and work in their own fork. It is published one way (CEO directive 2026-11-16,
+Mandate 72): the CEO alone holds push authority over `intellibitz/susi`,
+exercised by the CEO or by the agents the CEO authorizes, and no pull request,
+patch or commit from outside is accepted. A fork is an Apache-2.0 project like
+any other: its code returns to Susi only by Susi's own harvest under this
+section, never by request.
+
+Fixes to harvested code should go upstream. Every upstream contribution follows that project's
 rules (DCO or CLA). Signing a CLA, or contributing to an organization for the
 first time, is an outward legal act: it needs CEO authorization. Commercial code,
 credentials and private plans never go upstream.
@@ -445,7 +444,7 @@ changes to repository settings, branch protection, accounts or credentials.
    `SUSI_HOME` and unique identity. Claim disjoint scopes.
 3. Reconcile via remote pull and merge across workflow steps (`start`, `sync`,
    `commit`, `distill`, `ship`, `release`) whenever `origin` is reachable.
-4. Build the core pillar capability or fix yourself (keeping core inside the 5
+4. Build the core pillar capability or fix yourself (keeping core inside the 3
    Apache-2.0 pillars and the `<10s` warm build+test+release budget; routing all
    add-ons to `susi-commercial-apps`), or harvest Apache-2.0 code with manifest,
    notices and trailers.

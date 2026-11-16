@@ -209,7 +209,7 @@ susi harness mission --roadmap VC-201-0NN --budget-usd 2 --workers 3
 Three agents in three worktrees, each with its own claim and scope; a planner
 that turns a roadmap vector into a validated plan; coders that run tools and
 the repository's acceptance; a reviewer that gates each diff; merges that land
-through the normal pull request path; a ledger total under the cap. `kill -9`
+through serialized fast-forward integration; a ledger total under the cap. `kill -9`
 mid-run, restart, and it resumes without double-spending or re-serving
 completed work. The harness API's `replay` reassembles that journal — the event
 feed, the ledger rows and the graph handoffs — into one deterministic,

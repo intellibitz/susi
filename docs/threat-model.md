@@ -12,8 +12,8 @@ content checks stay pattern-based, and that no document covered LAN discovery
 (UDP 9092), gossip (UDP 9095), the bearer-token boundary on 9090-9094, or the
 self-signed TLS on non-loopback binds.
 
-Scope: the host daemon (`susid`), the thin `susi` client, the four pillar
-crates and the leaf services as they ship in this repository. Plugs admitted
+Scope: the host daemon (`susid`), the thin `susi` client, the pillar crates
+(GAWD, GEMI, GMCP) and the leaf services as they ship in this repository. Plugs admitted
 over the socket, and everything in Susi Commercial Apps, have their own threat
 models.
 

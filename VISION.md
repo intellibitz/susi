@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # SUSI vision
 
 SUSI is the operating layer for AI ecosystems: one governed substrate for
@@ -25,6 +17,10 @@ feature, enterprise pack, SSO/RBAC gateway, FinOps plane, corporate fleet
 controller, desktop, and visual view lives in Susi Commercial Apps
 (`intellibitz/susi-commercial-apps` — closed-source, licensed, and paid corporate
 software), which reaches core through the same public protocols.
+
+The core is published one way: IntelliBitz's CEO alone holds push authority and
+nothing is accepted from outside, and everyone is free to fork it and work in
+their own fork under Apache-2.0 ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 This document states direction. Current product truth is defined by
 `.agents/identity.json`, verified claims by `.agents/evidence.json`, and

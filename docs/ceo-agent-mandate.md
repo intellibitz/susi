@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # CEO mandate: independent agents, Susi integration and pristine releases
 
 Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md)
@@ -198,11 +190,15 @@ access or move content between access domains without explicit authorization.
 ## 7. Lean core and free Apache-2.0 foundation
 
 Core remains the lean standard-protocol socket built around **GAWD, GEMI, GMCP
-and the harness**, formalized under CEO Mandate 74 (2026-11-11) into **3 primary
-core pillars** — **GAWD** (swarm/A2A), **GEMI** (inference router), **GMCP**
-(MCP protocol & tool plane), **ACP** (Agent Client Protocol / Agent
-Communication Protocol standard open socket), and **Susi Harness** (with
-built-in parallel multi-agent workflow) — Apache-2.0 and free forever. Susi core
+and the harness**, formalized under CEO Mandates 74 and 80 into three core
+pillars: **GAWD** (swarm/A2A, the **ACP** standard open socket for the Agent
+Client Protocol / Agent Communication Protocol, and the **Susi Harness** with
+built-in parallel multi-agent workflow), **GEMI** (inference router) and
+**GMCP** (MCP protocol & tool plane). Core is Apache-2.0 and free forever, and
+it is published one way (CEO directive 2026-11-16, Mandate 72): the CEO alone
+holds push authority over `intellibitz/susi`, exercised by the CEO or by the
+agents the CEO authorizes; nothing is accepted from outside, and the world is
+free to fork. Susi core
 targets a blazing-fast `<10s` (`total_ms < 10_000`) warm `build + test + release`
 pipeline budget (with cold and warm measurements recorded separately and
 honestly). All add-on features, enterprise packs, SSO/RBAC, FinOps, corporate

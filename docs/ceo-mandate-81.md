@@ -1,11 +1,3 @@
-> **Current Step 1 directive (2026-11-15, Mandate 80):** exactly three core pillars:
-> **GAWD** (including A2A, ACP and Susi Harness parallel multi-agent workflow),
-> **GEMI**, **GMCP**. Older architectural counts are superseded
-> taxonomy, not removal of those capabilities. Review ready work for safe
-> integration every ten minutes; synchronize source, tests, mandates and docs.
-> Preserve ownership, release qualification, licensing and rollback.
-> See `docs/ceo-mandate-80.md` (or `ceo-mandate-80.md` from this directory).
-
 # CEO Mandate 81: Feature and Production Releases Must Sync the Local Host Binary and Live Daemon
 
 Effective 2026-11-15. Binding on every agent in the Susi AI ecosystem — local,
@@ -14,8 +6,8 @@ cloud, external (`Claude`, `Codex`, `Antigravity` / `Carbon`, `Grok`, `DeepSeek`
 and `intellibitz/susi-commercial-apps`. `.agents/identity.json` records this
 directive as **Mandate 81**. It builds directly on **Mandate 48** (installed
 Susi is the stable copy that tracks the latest qualified release), **Mandate 64**
-(native Windows is first-class alongside Linux), and **Mandate 80** (three core
-pillars and synchronized delivery). `intellibitz/susi-commercial-apps` carries the
+(native Windows is first-class alongside Linux), and **Mandate 80** (three core pillars
+and synchronized delivery). `intellibitz/susi-commercial-apps` carries the
 paired commercial edition in its own `docs/ceo-mandate-81.md`.
 
 **Agent reminder (one line):** Follow CEO Mandate 81 (`docs/ceo-mandate-81.md`):
