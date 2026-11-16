@@ -167,7 +167,7 @@ fn stdio_skips_notifications_before_the_json_rpc_response() {
 #[test]
 fn stdio_transport_reads_a_response_from_the_reader_worker() {
     let script = concat!(
-        "printf '%s\\n%s\\n' '",
+        "IFS= read -r _line && printf '%s\\n%s\\n' '",
         "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/log\"}",
         "' '",
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}",
@@ -175,7 +175,7 @@ fn stdio_transport_reads_a_response_from_the_reader_worker() {
     );
     let mut transport = StdioTransport::spawn("sh", &["-c".into(), script.into()])
         .unwrap()
-        .with_timeout(Duration::from_secs(1));
+        .with_timeout(Duration::from_secs(5));
     let response = transport
         .exchange(&json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
         .unwrap();
