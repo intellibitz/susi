@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-020",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs (vc_203_020.rs, vc_203_020_part2.rs) - gmcp_req_203_020_01_contract through _06_operations plus gmcp_vc_203_020_mastery (7 tests): docs/gmcp/contract-203-020.md binds SDK-001..SDK-018, all 14 pinned VC-203-020 specification and schema authorities in .agents/gmcp/sources.json, threat model, SLO budgets, non-claims, and incident runbook; production code in crates/susi-gmcp/src/sdk.rs, crates/susi-gmcp/src/sdk/examples.rs, crates/susi-gmcp/src/protocol.rs, crates/susi-gmcp/src/extensions.rs, crates/susi-config/src/extensions.rs, src/cli/extensions_cli.rs, and crates/susi-gmcp/examples/01_minimal_tool.rs..06_production_plugin_server.rs implements the Susi-shaped ServerBuilder and GmcpService authoring SDK (JSON Schema 2020-12 sdk_schema! derivation, typed RequestContext, composable outer-to-inner middleware, tools, static/templated resources with URI guard, prompts, completions, filtered subscriptions, MRTR elicitation/sampling/roots helpers, durable Tasks, custom extensions, in-process TestHarness, atomic CatalogUpdate hot reload, and ops_snapshot() diagnostics), fail-closed transactional PluginBundle / host extension-pack lifecycle (API major compatibility, permission grants, SHA-256 + Ed25519 manifest integrity, all-or-nothing attach rollback, leak-free unload with task cancellation, zero vendor types across the boundary, and zero bundled packs in Core per DEFAULT_PACK_ID = \"default\"), and runnable minimal-through-production examples; mastery verification consumes and strictly verifies retained commit-bound non-waived non-mock evidence for GMCP-203-020-01..06 while rejecting missing, stale, unsigned, locally modified, waived, mock-only, unlinked, wrong-digest, and zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-107",
+    "T-CODEXGMCPROADMAP-108",
+    "T-CODEXGMCPROADMAP-109",
+    "T-CODEXGMCPROADMAP-110",
+    "T-CODEXGMCPROADMAP-111",
+    "T-CODEXGMCPROADMAP-112",
+    "T-CODEXGMCPROADMAP-113"
+  ],
+  "recorded_by": "AG2FEATURES",
+  "recorded_unix": 1794787000
+}

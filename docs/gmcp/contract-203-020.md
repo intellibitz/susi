@@ -1,6 +1,6 @@
 # Contract GMCP-203-020-01 — GMCP server authoring SDK and plugin host lifecycle
 
-Status: **implemented** (requirements GMCP-203-020-01..06, vector VC-203-020)
+Status: **delivered** (requirements GMCP-203-020-01..06 + GMCP-203-020-M, vector VC-203-020)
 Baseline date: **2026-11-15**
 
 ## Normative clause
@@ -350,7 +350,8 @@ examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
 ## Evidence locations
 
 - **Contract & acceptance suite**: `docs/gmcp/contract-203-020.md`,
-  `tests/gmcp_requirements.rs`, and `tests/gmcp_requirements/vc_203_020.rs`
+  `tests/gmcp_requirements.rs`, `tests/gmcp_requirements/vc_203_020.rs`, and
+  `tests/gmcp_requirements/vc_203_020_part2.rs`
   (`gmcp_req_203_020_01_contract` through `gmcp_req_203_020_06_operations` and
   `gmcp_vc_203_020_mastery`).
 - **Pinned upstream corpus**: `.agents/gmcp/sources.json` and

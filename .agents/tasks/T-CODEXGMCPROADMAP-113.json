@@ -23,5 +23,34 @@
   },
   "roadmap": "VC-203-020",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256247
+  "created_unix": 1792256247,
+  "state": "open",
+  "status": "in_progress",
+  "base_commit": "48e61cb53d3c378b7a379bba60d9ead4f6e10c3d",
+  "limitations": [
+    "Per `docs/gmcp-roadmap.md` (`VC-203-020`), `docs/gmcp/contract-203-020.md`, and zero-UI plan A9, Core ships the protocol-generic server authoring SDK and fail-closed plugin host lifecycle with zero bundled vendor plugin packs (`DEFAULT_PACK_ID = \"default\"`; curated packs live in Susi Commercial Apps).",
+    "In-process `PluginBundle` attachment provides transactional capability/permission/checksum admission, panic-isolated execution, and leak-free unload with task cancellation, rather than an OS syscall sandbox (OS process/filesystem/network sandboxing is tracked under `VC-203-029`)."
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "crates/susi-gmcp/src/sdk.rs",
+      "crates/susi-gmcp/src/sdk/examples.rs",
+      "docs/gmcp/contract-203-020.md",
+      "tests/gmcp_requirements/support.rs",
+      "tests/gmcp_requirements/vc_203_020.rs",
+      "tests/gmcp_requirements/vc_203_020_part2.rs"
+    ],
+    "target": "tests/gmcp_requirements/vc_203_020_part2.rs",
+    "why": "Wired `gmcp_vc_203_020_mastery` directly atop existing `production_reference_server`, `sample_plugin_bundle`, runnable examples `01..06`, `GmcpServer::serve_http_service`, `Session`, `TestHarness`, and shared `assert_bound_to_tested_commit` evidence helpers without duplicating production or test harness infrastructure."
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/roadmap-verdicts/VC-203-020.json",
+    ".agents/roadmap.json",
+    ".agents/tasks",
+    "docs/gmcp/contract-203-020.md",
+    "tests/gmcp_requirements/vc_203_020.rs",
+    "tests/gmcp_requirements/vc_203_020_part2.rs"
+  ]
 }

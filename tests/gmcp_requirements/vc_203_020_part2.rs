@@ -704,7 +704,7 @@ fn gmcp_req_203_020_06_operations() {
             assert!(!records.is_empty() && records.iter().all(|r| r["exit"] == 0 && r["artifact_sha256"] == ledger_sha));
         }
     }
-    assert!(ev_count >= 15 && !ev_dir.join("VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
+    assert!(ev_count >= 16 && ev_dir.join("VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
 
     let disk_bytes = adapter_tree_bytes(&sdk_tasks);
     assert!(
@@ -712,4 +712,334 @@ fn gmcp_req_203_020_06_operations() {
         "durable task store exceeded 256 KiB ({disk_bytes})"
     );
     GmcpService::unbind_direct_server("sdk-020-06-direct");
+}
+
+/// GMCP-203-020-M: Vector mastery gate for VC-203-020 (GMCP server authoring SDK and plugin lifecycle).
+#[test]
+fn gmcp_vc_203_020_mastery() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use susi_gmcp::direct_call::call_tool_direct;
+    use susi_gmcp::mcp::model::{CallToolResult, ClientCapabilities, ContentBlock, Tool};
+    use susi_gmcp::protocol::GmcpService;
+    use susi_gmcp::sdk::{
+        examples::{production_reference_server, sample_plugin_bundle},
+        CatalogUpdate, PluginError, PluginPolicy, TestHarness,
+    };
+    use susi_gmcp::server::GmcpServer;
+    use susi_gmcp::susi_config::extensions::{self as pack_ext, DEFAULT_PACK_ID};
+    use susi_wire_client::mcp::{CallToolOutcome, Session, TaskStatus as ClientTaskStatus};
+
+    struct EvidenceCtx<'a> {
+        root: &'a Path,
+        ledger_hash: &'a str,
+        test_src: &'a str,
+        head_digest: &'a str,
+        now: u64,
+    }
+
+    fn verify_vc_203_020_evidence(
+        ctx: &EvidenceCtx<'_>,
+        evidence_text: &str,
+        committed_artifacts: Option<&[String]>,
+    ) -> Result<BTreeSet<String>, String> {
+        const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
+        let names = |r: &Value, t: &Value| LINK.iter().all(|f| r["supersedes"][*f] == t[*f]);
+        let mut order: Vec<String> = Vec::new();
+        let mut chains: std::collections::HashMap<String, Vec<Value>> = Default::default();
+        for line in evidence_text.lines().filter(|l| !l.trim().is_empty()) {
+            let rec: Value = serde_json::from_str(line).map_err(|e| format!("bad JSON: {e}"))?;
+            let req = rec["requirement"].as_str().unwrap_or_default().to_string();
+            match chains.get_mut(&req) {
+                Some(ch) => {
+                    if !ch.iter().any(|old| names(&rec, old)) {
+                        return Err(format!("{req}: missing supersedes link"));
+                    }
+                    ch.push(rec);
+                }
+                None => {
+                    order.push(req.clone());
+                    chains.insert(req, vec![rec]);
+                }
+            }
+        }
+        let newest: Vec<Value> = order
+            .into_iter()
+            .filter_map(|req| {
+                let ch = chains.remove(&req)?;
+                ch.iter()
+                    .filter(|r| !ch.iter().any(|later| names(later, r)))
+                    .max_by_key(|r| r["recorded_unix"].as_u64().unwrap_or(0))
+                    .cloned()
+            })
+            .collect();
+
+        let mut covered = BTreeSet::new();
+        let req_fields = "requirement|check|exit|detail|recorded_unix|artifact_sha256|identity";
+        for rec in newest {
+            let req = rec["requirement"].as_str().unwrap_or_default();
+            if req.ends_with("-M") {
+                continue;
+            }
+            if rec.get("waived").is_some() || rec.get("mock").is_some() {
+                return Err(format!("{req}: waived or mock evidence rejected"));
+            }
+            if req_fields.split('|').any(|f| rec[f].is_null()) {
+                return Err(format!("{req}: missing required field"));
+            }
+            if rec["exit"] != 0
+                || rec["identity"].as_str().unwrap_or_default().is_empty()
+                || rec["detail"].as_str().unwrap_or_default().is_empty()
+                || rec["artifact_sha256"].as_str().unwrap_or_default() != ctx.ledger_hash
+            {
+                return Err(format!("{req}: invalid exit/identity/detail/ledger_hash"));
+            }
+            let ts = rec["recorded_unix"].as_u64().unwrap_or(0);
+            if ts <= 1_792_256_000 || ts > ctx.now + 60 {
+                return Err(format!("{req}: stale or future recorded_unix {ts}"));
+            }
+            let check = rec["check"].as_str().unwrap_or_default();
+            let Some(fn_name) =
+                check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+            else {
+                return Err(format!("{req}: unsupported check command"));
+            };
+            if !fn_name.starts_with("gmcp_")
+                || fn_name.contains(char::is_whitespace)
+                || !is_test_fn(ctx.test_src, fn_name)
+            {
+                return Err(format!("{req}: zero-test missing fn {fn_name}"));
+            }
+            if let Some(artifacts) = committed_artifacts {
+                assert_bound_to_tested_commit(ctx.root, &rec, artifacts, ctx.head_digest);
+            } else {
+                let c = rec["tested_commit"].as_str().unwrap_or_default();
+                if c.len() != 40
+                    || !c.chars().all(|x| x.is_ascii_hexdigit())
+                    || rec["tested_artifacts"].as_str() != Some(ctx.head_digest)
+                {
+                    return Err(format!("{req}: invalid commit/artifact binding"));
+                }
+            }
+            covered.insert(req.to_string());
+        }
+        for n in 1..=6 {
+            let req = format!("GMCP-203-020-0{n}");
+            if !covered.contains(&req) {
+                return Err(format!("missing evidence for {req}"));
+            }
+        }
+        Ok(covered)
+    }
+
+    let (_lock, _env, home) = gmcp_http_home_guard("020-mastery");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = home.join("scratch");
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let token = "tok-020-mastery-bearer";
+    std::fs::write(cfg_dir.join("api_token"), format!("{token}\n")).unwrap();
+    pack_ext::invalidate_extension_caches();
+
+    // 1. Contract, ledger parity, zero-vendor boundary & schema derivation.
+    let report = ledger_report(root);
+    assert!(report["verified"] == true && susi_json(root, &home, &["mcp", "ledger"]) == report);
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-020.md")).unwrap();
+    for tok in "Status: **delivered**|GMCP-203-020-01..06 + GMCP-203-020-M|SDK-001|SDK-018|## Operations and incident runbook".split('|') {
+        assert!(contract.contains(tok), "missing `{tok}`");
+    }
+    let sdk_src = std::fs::read_to_string(root.join("crates/susi-gmcp/src/sdk.rs")).unwrap();
+    for forbidden in ["rmcp::", "schemars::", "axum::", "tower::", "wasmtime::"] {
+        assert!(!sdk_src.contains(forbidden), "vendor leak `{forbidden}`");
+    }
+    susi_gmcp::sdk_schema! {
+        /// Mastery schema derivation check.
+        struct MasteryInput {
+            query: String,
+            #[serde(default, rename = "maxResults")]
+            max_results: u32,
+            tag: Option<String>,
+        }
+    }
+    let derived = Value::Object(susi_gmcp::mcp::schema::root::<MasteryInput>());
+    assert_eq!(derived["$schema"], "https://json-schema.org/draft/2020-12/schema");
+    assert_eq!(derived["properties"]["maxResults"]["default"], json!(0));
+
+    // 2. All 6 runnable minimal-through-production examples (`01`..`06`) pass cleanly.
+    assert_eq!(DEFAULT_PACK_ID, "default");
+    for (name, res) in [
+        ("01_minimal_tool", sdk_ex_01::run(&scratch.join("ex01"))),
+        ("02_structured_middleware", sdk_ex_02::run(&scratch.join("ex02"))),
+        ("03_resources_prompts_completions", sdk_ex_03::run(&scratch.join("ex03"))),
+        ("04_mrtr_and_durable_tasks", sdk_ex_04::run(&scratch.join("ex04"))),
+        ("05_hot_reload_and_subscriptions", sdk_ex_05::run(&scratch.join("ex05"))),
+        ("06_production_plugin_server", sdk_ex_06::run(&scratch.join("ex06"))),
+    ] {
+        let out = res.unwrap_or_else(|e| panic!("{name} failed: {e}"));
+        assert!(out["example"] == name && out["ok"] == true, "{out}");
+    }
+    assert!(!cfg_dir.join("extensions").exists());
+
+    // 3. Full authoring SDK, transactional plugin lifecycle, cross-transport & hot-reload proof.
+    let (sdk_ws, sdk_tasks) = (scratch.join("ws"), scratch.join("tasks"));
+    std::fs::create_dir_all(&sdk_ws).unwrap();
+    let (svc, audit_log) = production_reference_server(sdk_ws, sdk_tasks).unwrap();
+    let pack_dir = scratch.join("signed-pack");
+    std::fs::create_dir_all(pack_dir.join("catalog")).unwrap();
+    let art = br#"{"tools":["plugin_lookup","plugin_watch"]}"#;
+    std::fs::write(pack_dir.join("catalog/plugin.json"), art).unwrap();
+    let sha = susi_paths::hex::encode(Sha256::digest(art));
+    let files = BTreeMap::from([("catalog".into(), "catalog/plugin.json".into())]);
+    let csums = BTreeMap::from([("catalog".into(), format!("sha256:{sha}"))]);
+    let sk = SigningKey::from_bytes(&[17u8; 32]);
+    let mk_bundle = || {
+        let mut b = sample_plugin_bundle(Some(pack_dir.clone()), csums.clone(), files.clone());
+        b.manifest.signer = Some(susi_paths::hex::encode(sk.verifying_key().to_bytes()));
+        b.manifest.signatures.insert("catalog".into(), susi_paths::hex::encode(sk.sign(art).to_bytes()));
+        b
+    };
+    std::fs::write(pack_dir.join("manifest.json"), serde_json::to_vec_pretty(&mk_bundle().manifest).unwrap()).unwrap();
+
+    // Denied permission & colliding tool fail transactionally with zero partial catalog residue.
+    assert!(matches!(svc.attach_plugin(mk_bundle(), &PluginPolicy::strict()), Err(PluginError::PermissionDenied(_, _))));
+    let policy = PluginPolicy::strict().grant_permission("filesystem.read");
+    let obj_schema: susi_gmcp::mcp::model::JsonObject = serde_json::from_value(json!({"type": "object"})).unwrap();
+    let mut colliding = mk_bundle().with_tool(
+        Tool::new_with_raw("summarize_items", None, obj_schema.clone()),
+        Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) })),
+    );
+    colliding.manifest.id = "colliding-plugin".into();
+    assert!(svc.attach_plugin(colliding, &policy).is_err() && svc.ops_snapshot()["plugins"] == json!([]));
+
+    svc.attach_plugin(mk_bundle(), &policy).expect("attach signed plugin");
+    svc.bind_direct_server("sdk-020-mastery").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let http_svc = svc.clone();
+    let _http = std::thread::spawn(move || GmcpServer::serve_http_service(http_svc, vec![listener], None, false));
+    for _ in 0..50 {
+        if TcpStream::connect(&addr).is_ok() { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let mut w26 = Session::open_2026_07_28(&addr, Some(token), Duration::from_secs(15)).unwrap();
+    let out26 = w26.call_tool("summarize_items", &json!({"items": ["a", "b"], "scope": {"namespace": "m"}}), None, &mut |_| {}).unwrap();
+    assert_eq!(out26["structuredContent"]["count"], json!(2));
+    assert!(audit_log.read().iter().any(|e| e.starts_with("mw1:before:")));
+    let task_h = match w26.call_tool_with_tasks("approval_workflow", &json!({"ticket": "T-1"}), true, &mut |_| {}).unwrap() {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected Task outcome, got {other:?}"),
+    };
+    let done = w26.poll_task_until_done(&task_h, Some(Duration::from_secs(10)), |_| Ok(json!({"approve": {"decision": "approved"}}))).unwrap();
+    assert_eq!(done.handle.status, ClientTaskStatus::Completed);
+    let watch_h = match w26.call_tool_with_tasks("plugin_watch", &json!({"key": "watch"}), true, &mut |_| {}).unwrap() {
+        CallToolOutcome::Task(h) => h,
+        other => panic!("expected plugin_watch Task outcome, got {other:?}"),
+    };
+
+    let mut w25 = Session::open(&addr, Some(token), Duration::from_secs(15)).unwrap();
+    assert_eq!(w25.call_tool("plugin_lookup", &json!({"key": "leg"}), None, &mut |_| {}).unwrap()["content"][0]["text"], json!("plugin:leg"));
+    w25.close().unwrap();
+    assert_eq!(call_tool_direct("sdk-020-mastery", "plugin_lookup", &json!({"key": "dir"}), root).unwrap()["content"][0]["text"], json!("plugin:dir"));
+
+    let rt = adapter_runtime(&home);
+    rt.block_on(async {
+        let h = TestHarness::spawn(svc.clone());
+        let caps: ClientCapabilities = serde_json::from_value(json!({"elicitation": {}, "roots": {}})).unwrap();
+        let mrtr1 = h.request_modern("tools/call", json!({"name": "confirm_action", "arguments": {"operation": "ship"}}), caps.clone()).await.unwrap();
+        assert_eq!(mrtr1["result"]["resultType"], "input_required");
+        let mrtr2 = h.request_modern("tools/call", json!({"name": "confirm_action", "arguments": {"operation": "ship"}, "requestState": mrtr1["result"]["requestState"], "inputResponses": {"confirm": {"approved": true}}}), caps).await.unwrap();
+        assert_eq!(mrtr2["result"]["resultType"], "complete");
+
+        svc.reload_catalog(CatalogUpdate::new().with_tool(
+            Tool::new_with_raw("hot_reloaded_tool", None, obj_schema.clone()),
+            Arc::new(|_p, _c| Box::pin(async { Ok(CallToolResult::success(vec![ContentBlock::text("hot")]).into()) })),
+        )).unwrap();
+        assert!(svc.ops_snapshot()["catalog"]["tools"].as_array().unwrap().contains(&json!("plugin_lookup")));
+
+        let unload = svc.unload_plugin("sdk-sample-plugin").unwrap();
+        assert!(unload.removed_tools == 2 && svc.ops_snapshot()["plugins"] == json!([]));
+        h.shutdown().await;
+    });
+    for _ in 0..30 {
+        if w26.get_task(&watch_h.task_id).unwrap().handle.status == ClientTaskStatus::Cancelled { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(w26.get_task(&watch_h.task_id).unwrap().handle.status, ClientTaskStatus::Cancelled);
+    w26.close().unwrap();
+    GmcpService::unbind_direct_server("sdk-020-mastery");
+
+    // 4. Strict 01..06 evidence verification & 11-case negative rejection matrix.
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap()));
+    let test_src = read_all_gmcp_requirements_sources(root);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let artifacts = evidence_artifacts(root, "VC-203-020");
+    let head_digest = artifacts_digest(root, "HEAD", &artifacts).expect("HEAD artifacts digest");
+
+    let valid_tests = [
+        ("GMCP-203-020-01", "gmcp_req_203_020_01_contract"),
+        ("GMCP-203-020-02", "gmcp_req_203_020_02_production"),
+        ("GMCP-203-020-03", "gmcp_req_203_020_03_integration"),
+        ("GMCP-203-020-04", "gmcp_req_203_020_04_adversarial"),
+        ("GMCP-203-020-05", "gmcp_req_203_020_05_interop"),
+        ("GMCP-203-020-06", "gmcp_req_203_020_06_operations"),
+    ];
+    let good_lines: Vec<Value> = valid_tests.iter().map(|(r, t)| json!({"requirement":r,"check":format!("cargo test --locked --test gmcp_requirements {t}"),"exit":0,"detail":"ok","recorded_unix":now,"artifact_sha256":ledger_hash,"identity":"AG2FEATURES","tested_commit":"0".repeat(40),"tested_artifacts":head_digest})).collect();
+    let good_text = good_lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+    let ev_ctx = EvidenceCtx { root, ledger_hash: &ledger_hash, test_src: &test_src, head_digest: &head_digest, now };
+    let check_ev = |txt: &str, committed: bool| verify_vc_203_020_evidence(&ev_ctx, txt, committed.then_some(artifacts.as_slice()));
+    assert!(check_ev(&good_text, false).is_ok());
+    assert!(check_ev(&good_lines[..5].iter().map(Value::to_string).collect::<Vec<_>>().join("\n"), false).is_err());
+
+    type Mutate<'a> = Box<dyn Fn(&mut Value) + 'a>;
+    let mutators: [Mutate<'_>; 9] = [
+        Box::new(|v| v["recorded_unix"] = json!(1_700_000_000_u64)),
+        Box::new(|v| v["recorded_unix"] = json!(now + 120)),
+        Box::new(|v| v["artifact_sha256"] = json!("deadbeef")),
+        Box::new(|v| v["tested_artifacts"] = json!("stale-digest")),
+        Box::new(|v| v["identity"] = json!("")),
+        Box::new(|v| v["exit"] = json!(1)),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("waived".into(), json!(true)); }),
+        Box::new(|v| { v.as_object_mut().unwrap().insert("mock".into(), json!(true)); }),
+        Box::new(|v| v["check"] = json!("cargo test --locked --test gmcp_requirements gmcp_req_203_020_99_missing")),
+    ];
+    for mutate in mutators {
+        let mut bad = good_lines[0].clone();
+        mutate(&mut bad);
+        let txt = std::iter::once(&bad).chain(&good_lines[1..]).map(Value::to_string).collect::<Vec<_>>().join("\n");
+        assert!(check_ev(&txt, false).is_err());
+    }
+    assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-020.jsonl")).unwrap();
+    assert_eq!(check_ev(&evidence, true).expect("VC-203-020.jsonl valid").len(), 6);
+
+    // 5. Roadmap, verdict, closed prerequisite tasks & clean working tree checks.
+    let roadmap_json: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap()).unwrap();
+    let vc_entry = roadmap_json["vectors"].as_array().unwrap().iter().find(|e| e["id"] == "VC-203-020").unwrap();
+    assert!(vc_entry["progress"].as_str().unwrap_or_default().starts_with("DELIVERED"));
+
+    let verdict: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-020.json")).unwrap()).unwrap();
+    assert!(verdict["vector"] == "VC-203-020" && verdict["verdict"] == "delivered");
+    let tracked = verdict["tracked_by"].as_array().unwrap();
+    assert_eq!(tracked.len(), 7);
+    for n in 107..=113 {
+        assert!(tracked.contains(&json!(format!("T-CODEXGMCPROADMAP-{n}"))));
+    }
+    for n in 107..=112 {
+        assert!(root.join(format!(".agents/tasks/done/T-CODEXGMCPROADMAP-{n}.json")).is_file());
+    }
+
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "--", ".agents/gmcp", "docs/gmcp", "tests/gmcp_requirements.rs", "tests/gmcp_requirements", "crates/susi-gmcp", ".agents/roadmap.json", ".agents/roadmap-verdicts"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
 }
