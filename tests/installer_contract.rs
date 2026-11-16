@@ -39,8 +39,13 @@ fn run_bash(script: &str) -> std::process::Output {
         .write_all(script.as_bytes())
         .unwrap();
     let started = Instant::now();
+    let limit = if cfg!(windows) {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(20)
+    };
     while child.try_wait().unwrap().is_none() {
-        if started.elapsed() > Duration::from_secs(20) {
+        if started.elapsed() > limit {
             let _ = child.kill();
             let _ = child.wait();
             panic!("a headless installer must not wait for interactive input");

@@ -31,7 +31,7 @@ impl Drop for Process {
             .stderr(Stdio::null())
             .status();
         #[cfg(windows)]
-        let _ = Command::new("taskkill")
+        let _ = susi_paths::console::background_command("taskkill")
             .env_clear()
             .args(["/PID", &self.0.id().to_string(), "/T", "/F"])
             .stdout(Stdio::null())
