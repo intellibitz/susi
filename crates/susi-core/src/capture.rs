@@ -423,11 +423,23 @@ impl EvidenceSession {
         workspace: &Path,
         execute: impl FnOnce() -> EaiResult<String>,
     ) -> EaiResult<String> {
-        let session = Self::for_workspace(workspace);
-        let result = execute();
-        if let Some(session) = session {
-            session.record(tool, arguments, &result);
+        match Self::for_workspace(workspace) {
+            Some(session) => session.capture_bound(tool, arguments, execute),
+            None => execute(),
         }
+    }
+
+    /// Capture in an explicitly owned mission ledger, including work run in
+    /// an isolated worker directory. No workspace lookup or new authority.
+    /// Trusted dispatchers still authorize the actual invocation workspace.
+    pub fn capture_bound(
+        &self,
+        tool: &str,
+        arguments: &serde_json::Value,
+        execute: impl FnOnce() -> EaiResult<String>,
+    ) -> EaiResult<String> {
+        let result = execute();
+        self.record(tool, arguments, &result);
         result
     }
 

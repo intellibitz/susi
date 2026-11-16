@@ -181,39 +181,35 @@ impl ToolRegistry {
     }
 
     pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
-        // The acting mission, when this dispatch runs inside one (evidence
-        // sessions are bound per mission; worker threads resolve by
-        // workspace). Its id is the dispatch subject: agent tokens are
-        // checked per mission and refusals are recorded against it.
+        // The acting mission's id is the dispatch subject. Session-owned
+        // workers carry its ledger explicitly; legacy dispatch retains its
+        // workspace fallback. Tokens and refusals belong to that mission.
         let scope = crate::susi_core::scoped_tools::current();
         if let Some(scope) = &scope {
             if let Err(error) = scope.check() {
                 return crate::susi_error::EaiError::protocol(error).to_string();
             }
         }
-        let mission = if scope
+        let bound_evidence = scope
             .as_ref()
-            .is_some_and(|scope| scope.resolve(name).is_some())
+            .and_then(|_| crate::susi_core::capture::EvidenceSession::current());
+        if bound_evidence.is_none()
+            && scope
+                .as_ref()
+                .is_some_and(|scope| scope.resolve(name).is_some())
         {
             // Owner-local calls must use an explicitly handed-off ledger.
             // Workspace lookup may otherwise select another concurrent
             // session's mission authority and receipts.
-            let Some(session) = crate::susi_core::capture::EvidenceSession::current() else {
-                return crate::susi_error::EaiError::protocol(
-                    "session tool dispatch requires its bound mission evidence",
-                )
-                .to_string();
-            };
-            if workspace.canonicalize().ok().as_deref() != Some(session.workspace()) {
-                return crate::susi_error::EaiError::protocol(
-                    "session tool workspace differs from its bound mission evidence",
-                )
-                .to_string();
-            }
-            Some(session.id().to_string())
-        } else {
-            Self::current_mission(workspace)
-        };
+            return crate::susi_error::EaiError::protocol(
+                "session tool dispatch requires its bound mission evidence",
+            )
+            .to_string();
+        }
+        let mission = bound_evidence
+            .as_ref()
+            .map(|session| session.id().to_string())
+            .or_else(|| Self::current_mission(workspace));
 
         // Process posture first — a mission's tokens can only ever narrow
         // what the host itself is allowed to do, never widen it, so a
@@ -228,7 +224,13 @@ impl ToolRegistry {
         }
 
         if let Some(mission) = mission.as_deref() {
-            if let Err(error) = Self::ensure_mission_authority(mission, workspace) {
+            // Isolated worker directories retain their owning mission's
+            // egress declaration. Actual tool MAC below still sees the
+            // invocation workspace, as does the provider.
+            let mission_workspace = bound_evidence
+                .as_ref()
+                .map_or(workspace, |session| session.workspace());
+            if let Err(error) = Self::ensure_mission_authority(mission, mission_workspace) {
                 Self::record_authority_refusal(mission, name, &error.to_string());
                 return error.to_string();
             }
@@ -246,7 +248,7 @@ impl ToolRegistry {
             }
         }
 
-        if let Some(scope) = scope {
+        if let (Some(scope), Some(evidence)) = (scope, bound_evidence) {
             if let Some(tool) = scope.resolve(name) {
                 let mac = MacPolicy::global();
                 for (action, resource) in &tool.required_actions {
@@ -271,17 +273,13 @@ impl ToolRegistry {
                         }
                     }
                 }
-                return crate::susi_core::capture::EvidenceSession::capture_call(
-                    name,
-                    arg,
-                    workspace,
-                    || {
+                return evidence
+                    .capture_bound(name, arg, || {
                         scope
                             .call(name, arg, workspace, mission.as_deref())
                             .map_err(crate::susi_error::EaiError::protocol)
-                    },
-                )
-                .unwrap_or_else(|error| error.to_string());
+                    })
+                    .unwrap_or_else(|error| error.to_string());
             }
         }
 

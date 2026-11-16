@@ -18,7 +18,8 @@
     "crates/susi-tools/src/tests/scoped_tools.rs",
     "crates/susi-gawd-swarm/src/cancel_propagate.rs",
     "crates/susi-gawd-swarm/src/cloud_recovery.rs",
-    ".agents/tasks/T-CODEX100KSCOPEDTOOLS-1.json"
+    ".agents/tasks/T-CODEX100KSCOPEDTOOLS-1.json",
+    "crates/susi-core/src/capture.rs"
   ],
   "deps": [],
   "accept": {
@@ -38,19 +39,20 @@
     "reason": "Reuse current catalog/dispatch/authority paths with an opaque Arc context; no dependency, protocol credential serialization or globally registered session tool."
   },
   "coordination": "Scoped child implementation; parent integrates root ACP factory and GEMI wiring before main publication. No push or external Board messages. Board read item1708 had no stops or requests.",
-  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim. Follow-up: carry narrower current cancellation through scoped parallel-map and both recovery worker boundaries; preserve unscoped worker behavior. Follow-up: explicitly carry the existing watched progress sink through parallel, cancellable and recovery workers for scoped and unscoped requests, keeping protocol diagnostics off stdout.",
+  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim. Follow-up: carry narrower current cancellation through scoped parallel-map and both recovery worker boundaries; preserve unscoped worker behavior. Follow-up: explicitly carry the existing watched progress sink through parallel, cancellable and recovery workers for scoped and unscoped requests, keeping protocol diagnostics off stdout. Follow-up: capture scoped MCP results directly in the explicitly carried root mission ledger while retaining actual worker invocation workspace for MAC/provider. Initialize scoped mission authority from the bound root workspace even when a builtin dispatches first; no fresh session, token reset or budget.",
   "validation": {
     "scoped_core_tests": 8,
-    "scoped_tools_tests": 4,
+    "scoped_tools_tests": 5,
     "plane_tests": 37,
-    "registry_tests": 13,
+    "registry_tests": 14,
     "cancel_propagate_tests": 12,
     "cloud_recovery_tests": 17,
     "clippy": "cargo clippy --offline --locked -p susi-core -p susi-tools -p susi-gawd-swarm --lib -- -D warnings passed",
     "format": "cargo fmt --all --check passed",
     "fixtures": "Tools tests use env-cleared child processes in private temporary roots; no paid/external calls or Board posts.",
     "handoff_followup": "Scoped core 7 and cloud recovery 17 pass; affected core/swarm library clippy -D warnings passed. Regression observes exact child-token identity on parallel workers, child cancellation without parent cancellation, parent refusal while child remains live, and unscoped workers retaining prior behavior.",
-    "sink_followup": "Scoped core 8, cancellation 12 and recovery 17 tests pass; core/swarm clippy -D warnings and fmt pass. Parallel and cancellable tests verify sink handoff with and without scoped tools, plus restoration/unwatched behavior."
+    "sink_followup": "Scoped core 8, cancellation 12 and recovery 17 tests pass; core/swarm clippy -D warnings and fmt pass. Parallel and cancellable tests verify sink handoff with and without scoped tools, plus restoration/unwatched behavior.",
+    "bound_ledger_followup": "Tools registry 14 and core capture-related 19 tests pass; core/tools library clippy -D warnings and fmt pass. Different-worker-workspace regression proves actual provider workspace, original mission id/grant revocation, root egress restriction despite permissive worker declaration, and owned MCP receipt only in root ledger. Builtin receipt behavior and receipt wire shape remain unchanged."
   },
   "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim."
 }

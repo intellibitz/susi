@@ -12,6 +12,7 @@ struct Owner {
     marker: String,
     closed: AtomicBool,
     calls: AtomicUsize,
+    observed: std::sync::Mutex<Vec<(std::path::PathBuf, String)>>,
 }
 
 impl ScopedToolProvider for Owner {
@@ -29,7 +30,7 @@ impl ScopedToolProvider for Owner {
         &self,
         _: &str,
         _: &Value,
-        _: &Path,
+        workspace: &Path,
         mission: Option<&str>,
         _: Option<crate::susi_core::progress::Cancel>,
         _: crate::susi_core::progress::Cancel,
@@ -37,21 +38,33 @@ impl ScopedToolProvider for Owner {
         let bound = EvidenceSession::current().expect("scope must carry its mission evidence");
         assert_eq!(mission, Some(bound.id()));
         self.calls.fetch_add(1, Ordering::AcqRel);
+        self.observed
+            .lock()
+            .unwrap()
+            .push((workspace.to_path_buf(), bound.id().to_string()));
         Ok(self.marker.clone())
     }
 }
 
 fn owner(marker: &str) -> (Arc<Owner>, Arc<ToolScope>) {
+    owner_with_actions(marker, vec![(actions::PROCESS_EXEC.into(), COMMAND.into())])
+}
+
+fn owner_with_actions(
+    marker: &str,
+    required_actions: Vec<(String, String)>,
+) -> (Arc<Owner>, Arc<ToolScope>) {
     let owner = Arc::new(Owner {
         tools: vec![ScopedTool {
             name: NAME.into(),
             description: marker.into(),
             input_schema: json!({"type":"object","properties":{"literal":{"type":"string"}},"required":["literal"]}),
-            required_actions: vec![(actions::PROCESS_EXEC.into(), COMMAND.into())],
+            required_actions,
         }],
         marker: marker.into(),
         closed: AtomicBool::new(false),
         calls: AtomicUsize::new(0),
+        observed: std::sync::Mutex::new(Vec::new()),
     });
     let scope = ToolScope::new(owner.clone(), Arc::new(AtomicBool::new(false)));
     (owner, scope)
@@ -201,7 +214,7 @@ fn scoped_tools_closed_scope_refuses_global_fallback_and_legacy_stays_available(
 }
 
 #[test]
-fn scoped_tools_refuse_missing_or_mismatched_mission_instead_of_workspace_fallback() {
+fn scoped_tools_refuse_missing_mission_instead_of_workspace_fallback() {
     let Some(home) = crate::private_config_fixture() else {
         return;
     };
@@ -212,9 +225,100 @@ fn scoped_tools_refuse_missing_or_mismatched_mission_instead_of_workspace_fallba
     with_scope(Some(scope), || {
         assert!(ToolRegistry::execute_tool(NAME, &json!({}), workspace)
             .contains("bound mission evidence"));
-        let _bound = EvidenceSession::enter(Some(session.clone()));
-        assert!(ToolRegistry::execute_tool(NAME, &json!({}), &home).contains("workspace differs"));
     });
     assert_eq!(owner.calls.load(Ordering::Acquire), 0);
     assert!(session.receipts().is_empty());
+}
+
+#[test]
+fn scoped_tools_worker_workspace_keeps_root_ledger_authority_and_egress() {
+    let Some(home) = crate::private_config_fixture() else {
+        return;
+    };
+    let root = home.parent().unwrap();
+    let worker = root.join("isolated-worker");
+    std::fs::create_dir_all(worker.join(".susi")).unwrap();
+    std::fs::create_dir_all(root.join(".susi")).unwrap();
+    std::fs::write(
+        root.join(".susi/mission-egress.json"),
+        r#"{"allow_hosts":["allowed.invalid"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        worker.join(".susi/mission-egress.json"),
+        r#"{"permissive":true}"#,
+    )
+    .unwrap();
+    let root_session = EvidenceSession::new("root mission", root, str::to_owned).unwrap();
+    let unrelated_worker_session =
+        EvidenceSession::new("another mission", &worker, str::to_owned).unwrap();
+    let _latest = EvidenceSession::activate(&unrelated_worker_session);
+    let _bound = EvidenceSession::enter(Some(root_session.clone()));
+    let marker = format!(
+        "Observed fixture invocation workspace: {}",
+        worker.display()
+    );
+    let (owner, scope) = owner_with_actions(
+        &marker,
+        vec![
+            (actions::PROCESS_EXEC.into(), COMMAND.into()),
+            (actions::NETWORK_EGRESS.into(), "*".into()),
+        ],
+    );
+    let mac = MacPolicy::global();
+    mac.grant("susi", actions::NETWORK_EGRESS, "*", Some(60))
+        .unwrap();
+    ToolRegistry::register_meta_tool(
+        ToolRegistry::global(),
+        "zz_worker_prelude",
+        "local prelude",
+        MetaCategory::SystemPrimitive,
+        |_, _| Ok("prelude".into()),
+    );
+    with_scope(Some(scope), || {
+        // A builtin may run before the first MCP call. It must initialize
+        // this mission's gate from the root declaration, not worker cwd.
+        assert_eq!(
+            ToolRegistry::execute_tool("zz_worker_prelude", &json!({}), &worker),
+            "prelude"
+        );
+        assert!(!ToolRegistry::mission_egress_policy_for(root_session.id())
+            .unwrap()
+            .is_permissive());
+        assert_eq!(
+            ToolRegistry::execute_tool(NAME, &json!({"url":"https://allowed.invalid"}), &worker),
+            marker
+        );
+        assert_eq!(
+            owner.observed.lock().unwrap().as_slice(),
+            &[(worker.clone(), root_session.id().to_string())]
+        );
+        let blocked =
+            ToolRegistry::execute_tool(NAME, &json!({"url":"https://blocked.invalid"}), &worker);
+        assert!(blocked.contains("EGRESS DENY"), "{blocked}");
+        assert_eq!(
+            ToolRegistry::mission_egress_refusals(root_session.id())[0].host,
+            "blocked.invalid"
+        );
+        assert!(mac
+            .revoke(root_session.id(), actions::PROCESS_EXEC, "*")
+            .unwrap());
+        assert!(ToolRegistry::execute_tool(
+            NAME,
+            &json!({"url":"https://allowed.invalid"}),
+            &worker
+        )
+        .contains("MAC DENY"));
+    });
+    assert_eq!(owner.calls.load(Ordering::Acquire), 1);
+    assert_eq!(root_session.receipts().len(), 1);
+    assert_eq!(root_session.receipts()[0].output, marker);
+    // Builtin receipt lookup keeps its existing workspace behavior. The
+    // owned MCP result must never follow that lookup into this ledger.
+    assert_eq!(unrelated_worker_session.receipts().len(), 1);
+    assert_eq!(
+        unrelated_worker_session.receipts()[0].tool,
+        "zz_worker_prelude"
+    );
+    assert!(!mac.is_permitted(unrelated_worker_session.id(), actions::PROCESS_EXEC, "*"));
 }
