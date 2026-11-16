@@ -7,14 +7,8 @@ use super::CoreTools;
 use crate::susi_core::plane_bus::gawd;
 use crate::susi_core::plane_bus::gemi::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
-use crate::tools::args;
 
 impl CoreTools {
-    crate::tool_def!(list_models_tool_attr {
-        name: "list_models",
-        description: "List available model substrates",
-        input_schema: args::no_args(),
-    });
     pub fn list_models(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let models = ModelManager::list_models(workspace);
         let count = models.as_array().map(|a| a.len()).unwrap_or(0);
@@ -23,12 +17,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(select_model_tool_attr {
-        name: "select_model",
-        description:
-            "Select or override the active model substrate, as `susi select-model`. Args: model",
-        input_schema: args::typed::<args::SelectModel>(),
-    });
     pub fn select_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         // `{model}` over MCP; a bare string from in-process callers.
         let model = arg
@@ -44,11 +32,6 @@ impl CoreTools {
         Ok(v.field_str("text").unwrap_or("model selected").to_string())
     }
 
-    crate::tool_def!(inference_placement_tool_attr {
-        name: "inference_placement",
-        description: "Explain whether SUSI will run inference locally or in cloud and why. Args: optional requires, max_cost, allow_cloud (default true)",
-        input_schema: args::typed::<args::InferencePlacement>(),
-    });
     pub fn inference_placement(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         // The registry path does not enforce the typed schema, so the
         // constraints are validated here with the same rules a completion's
@@ -74,11 +57,6 @@ impl CoreTools {
             .map_err(|error| EaiError::internal(format!("encode placement: {error}")))
     }
 
-    crate::tool_def!(inference_reset_provider_tool_attr {
-        name: "inference_reset_provider",
-        description: "Re-admit a repaired inference provider after routing quarantine. Args: {provider: exact provider id}",
-        input_schema: args::typed::<args::InferenceResetProvider>(),
-    });
     pub fn inference_reset_provider(
         arg: &serde_json::Value,
         workspace: &Path,
@@ -105,11 +83,6 @@ impl CoreTools {
         .map_err(|error| EaiError::internal(format!("encode cooldown reset: {error}")))
     }
 
-    crate::tool_def!(scout_model_tool_attr {
-        name: "scout_model",
-        description: "Download, license-admit and verify a model from an HTTPS URL on the daemon's download agent, as `susi scout-model`. Args: url",
-        input_schema: args::typed::<args::ScoutModel>(),
-    });
     pub fn scout_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         // `{url}` over MCP; a bare string from in-process callers.
         let url = arg
@@ -136,11 +109,6 @@ impl CoreTools {
         Ok(text)
     }
 
-    crate::tool_def!(verify_model_download_agent_tool_attr {
-        name: "verify_model_download_agent",
-        description: "Verify model download agent, check network status, and report provisioning of the hardware-selected model ladder",
-        input_schema: args::no_args(),
-    });
     pub fn verify_model_download_agent(
         _arg: &serde_json::Value,
         workspace: &Path,
@@ -149,21 +117,10 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| report.to_string()))
     }
 
-    crate::tool_def!(train_reflexes_tool_attr {
-        name: "train_reflexes",
-        description: "Manually trigger native neural reflex distillation",
-        input_schema: args::no_args(),
-    });
     pub fn train_reflexes(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd::train_reflexes(workspace).map_err(EaiError::governance)
     }
 
-    crate::tool_def!(swarm_schedule_tool_attr {
-        name: "swarm_schedule",
-        description:
-            "Show recent mission scheduler decisions: per-agent scores, admitted vs deferred",
-        input_schema: args::no_args(),
-    });
     pub fn swarm_schedule(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let decisions = gawd::scheduler_recent_decisions(50);
         if decisions.as_array().map(|a| a.is_empty()).unwrap_or(true) {
@@ -172,21 +129,11 @@ impl CoreTools {
         Ok(serde_json::to_string_pretty(&decisions).unwrap_or_else(|_| decisions.to_string()))
     }
 
-    crate::tool_def!(coding_models_list_tool_attr {
-        name: "coding_models_list",
-        description: "List top developer/agent models and local setup readiness",
-        input_schema: args::no_args(),
-    });
     pub fn coding_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let rows = crate::susi_core::plane_bus::gemi::coding_catalog();
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
-    crate::tool_def!(coding_models_prefer_tool_attr {
-        name: "coding_models_prefer",
-        description: "Prefer a coding/agent model id for subsequent routing",
-        input_schema: args::typed::<args::CodingModelsPrefer>(),
-    });
     pub fn coding_models_prefer(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let model = arg
             .field_str("model")

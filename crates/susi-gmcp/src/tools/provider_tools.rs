@@ -183,11 +183,6 @@ impl CoreTools {
         );
     }
 
-    crate::tool_def!(benchmark_run_tool_attr {
-        name: "benchmark_run",
-        description: "Measure real local inference latency and tokens/sec (and a configured cloud endpoint), as `susi benchmark`",
-        input_schema: args::no_args(),
-    });
     pub fn benchmark_run(_arg: &Value, workspace: &Path) -> EaiResult<String> {
         let reply = daemon::providers(json!({
             "action": "benchmark",

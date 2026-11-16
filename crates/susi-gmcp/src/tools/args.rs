@@ -70,59 +70,126 @@ pub fn passthrough() -> Arc<JsonObject> {
     Arc::new(object)
 }
 
-/// Every `CoreTools` handler's generated `#[tool]` definition (name,
-/// description and typed `inputSchema`), in handler order.
+// Some daemon tools have a different historical order from their public schemas.
+// The two sections below preserve the wire order around the common registry rows.
+macro_rules! schema_catalog {
+    ($collect:ident) => {
+        crate::gmcp_catalog_groups! {
+            @rows wire $collect, [
+                [status_tool_attr, no_args() =>
+                    "SUSI Substrate status report"] status;
+                [ledger_verify_tool_attr, typed::<LedgerVerify>() =>
+                    "Verify the pinned GMCP normative requirements ledger (VC-203-001): vendored corpus hashes, verbatim clauses, complete row classification; drift=true checks the pinned upstreams instead, as `susi mcp ledger [--drift]`. Args: optional drift, refetched, workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace)."] ledger_verify;
+                [sovereign_dashboard_tool_attr, no_args() =>
+                    "Report on autonomous invisible work performed by the substrate"] sovereign_dashboard;
+                [bloat_audit_tool_attr, typed::<WorkspaceView>() =>
+                    "Recursively audit every Rust source under the workspace (AST-based; target/, dot directories and test-only trees skipped) and target/ (build artifact size) for bloat and hardcoded secrets, on std worker threads across all cores. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace)."] bloat_audit;
+                [identity_tool_attr, no_args() =>
+                    "SUSI substrate identity report"] identity;
+                [distill_genome_tool_attr, no_args() =>
+                    "Distill the compiled genome into the workspace experience buffer (indexed by semantic search)"] distill_genome;
+                [self_validate_tool_attr, no_args() =>
+                    "Report the hardware profile and tensor device, and check the compiled genome"] self_validate;
+                [list_models_tool_attr, no_args() =>
+                    "List available model substrates"] list_models;
+                [select_model_tool_attr, typed::<SelectModel>() =>
+                    "Select or override the active model substrate, as `susi select-model`. Args: model"] select_model;
+                [inference_placement_tool_attr, typed::<InferencePlacement>() =>
+                    "Explain whether SUSI will run inference locally or in cloud and why. Args: optional requires, max_cost, allow_cloud (default true)"] inference_placement;
+                [inference_reset_provider_tool_attr, typed::<InferenceResetProvider>() =>
+                    "Re-admit a repaired inference provider after routing quarantine. Args: {provider: exact provider id}"] inference_reset_provider;
+                [scout_model_tool_attr, typed::<ScoutModel>() =>
+                    "Download, license-admit and verify a model from an HTTPS URL on the daemon's download agent, as `susi scout-model`. Args: url"] scout_model;
+                [verify_model_download_agent_tool_attr, no_args() =>
+                    "Verify model download agent, check network status, and report provisioning of the hardware-selected model ladder"] verify_model_download_agent;
+                [train_reflexes_tool_attr, no_args() =>
+                    "Manually trigger native neural reflex distillation"] train_reflexes;
+                [swarm_schedule_tool_attr, no_args() =>
+                    "Show recent mission scheduler decisions: per-agent scores, admitted vs deferred"] swarm_schedule;
+                [read_file_tool_attr, typed::<ReadFile>() =>
+                    "Read file content in workspace"] read_file;
+                [write_file_tool_attr, typed::<WriteFile>() =>
+                    "Write content to workspace file"] write_file;
+                [exec_command_tool_attr, typed::<ExecCommand>() =>
+                    "Execute command in workspace"] exec_command;
+                [os_services_tool_attr, typed::<OsServices>() =>
+                    "List the substrate's leaf services (susi-paths/error/config/sandbox/native) with supervised pids and live health; action=restart <name> SIGTERMs a supervised service for the daemon to respawn"] os_services;
+                [os_ps_tool_attr, typed::<OsPs>() =>
+                    "List host processes (pid, name, RSS; threads excluded) on Linux, Windows and macOS, sorted by memory; args: {limit?: N, filter?: substring}"] os_ps;
+                [os_sysinfo_tool_attr, no_args() =>
+                    "Host summary on Linux, Windows and macOS: kernel, uptime, load average, memory totals, cpu count, OS version, cpu utilization; a metric the OS does not keep reads unavailable"] os_sysinfo;
+                [os_kill_tool_attr, typed::<OsKill>() =>
+                    "Send TERM or KILL to a pid the substrate supervises (daemon-spawned service pids only — fails closed on any other pid, including external table rows); args: {pid: N, signal?: \"term\"|\"kill\"}"] os_kill;
+                [os_logs_tool_attr, typed::<OsLogs>() =>
+                    "Tail a supervised leaf service's log (substrate_home/logs/<name>.log); args: {name: string, lines?: N (default 50, max 500)}"] os_logs;
+                [commit_record_tool_attr, typed::<CommitRecord>() =>
+                    "Accept a replicated swarm commit record. Args: the CommitRecord JSON object. Verifies the coordinator's cluster-key signature and internal consistency before appending to the local ledger — unsigned/forged records fail closed."] commit_record;
+                [commit_records_tool_attr, typed::<CommitRecords>() =>
+                    "Batch intake of replicated commit records for anti-entropy pushes. Args: {records: [CommitRecord, ...]} (max 1000) — every record re-runs signature, coordinator-membership, and term gates; the accepted set appends in one ledger pass, and any remaining sequence gap is repaired from the coordinator once. Returns an applied/skipped/refused summary."] commit_records;
+                [a2a_delegate_tool_attr, typed::<A2aDelegate>() =>
+                    "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. Every request carries this node's Ed25519 request signature, which is how bound members authorize us; the host Bearer token is sent only to this node's own A2A port. Returns the completed task's agent reply text."] a2a_delegate;
+                [commit_log_fetch_tool_attr, typed::<CommitLogFetch>() =>
+                    "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N, offset?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators), skipping `offset` matches for pagination."] commit_log_fetch;
+                [cluster_rekey_stage_tool_attr, typed::<ClusterRekeyStage>() =>
+                    "Prepare phase of cluster-key rotation: stage a next-epoch cluster key delivered with its committed cluster_rekey record. Args: {record: CommitRecord, key_hex: string (64 hex)}. Verifies the record's signature under the current key, requires coordinator authority, checks the pushed key's SHA-256 matches the committed fingerprint, stages it (0600), then appends the record. Does NOT rotate — a separate cluster_rekey_commit call delivers the activate record whose apply activates the staged key."] cluster_rekey_stage;
+                [cluster_rekey_commit_tool_attr, typed::<RecordOnly>() =>
+                    "Commit phase of cluster-key rotation: apply a committed cluster_rekey_activate record. Args: {record: CommitRecord}. Verifies the record's signature (current key — members are still pre-rotation when this arrives), requires coordinator authority, then appends it; the append's apply activates the staged cluster.key.next when its fingerprint matches the committed one. Members that never staged stay on the old epoch."] cluster_rekey_commit;
+                [member_propose_tool_attr, typed::<MemberPropose>() =>
+                    "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a roster delta. Args: {member: \"node_id@address\", kind?: \"member_add\"|\"member_remove\"|\"member_unban\" (default member_add)}. Refuses unless this node is the currently claimed leader. member_add refuses banned subjects or the leader itself; member_remove requires the subject in the leader's roster; member_unban requires the subject banned. On success the record is sealed, appended, and pushed to the roster including the subject."] member_propose;
+                [member_endorse_tool_attr, typed::<RecordOnly>() =>
+                    "Endorse a sealed privileged record (member/rekey kind) — the joint-consensus vote a leader collects before committing a roster/config delta. Args: {record: <CommitRecord json>}. Verifies the record's HMAC signature under this member's cluster.key and refuses non-privileged kinds, then returns {node, sig} where sig is this node's Ed25519 signature over susi-endorse-v1:{record.signature}. An endorsement is only a vote on that exact record — all intake gates still apply when it lands."] member_endorse;
+                [cluster_status_tool_attr, no_args() =>
+                    "Read-only consensus snapshot for cluster-wide status checks: {node, term, leader, records, heads, key_epoch, roster, banned, bound, pubkey}. `heads` maps each coordinator's node_id to its highest ledger seq + epoch prefix — comparing heads across members exposes ledger divergence directly. No args."] cluster_status;
+                [commit_log_tool_attr, typed::<CommitLog>() =>
+                    "List quorum commit records in the local ledger, newest first. Args: {limit?: N}"] commit_log;
+            ], [
+                [delegate_to_ide_tool_attr, typed::<DelegateToIde>() =>
+                    "Delegate a complex, ambiguous, or IDE-level task to an overarching IDE Agent like Antigravity. Use this when the swarm encounters a problem requiring a full IDE environment or human interaction."] delegate_to_ide;
+                // Plan B4 groups 2, 6, 11 and 12 (`control_plane.rs`).
+                [operator_snapshot_tool_attr, typed::<WorkspaceView>() =>
+                    "Unified operator state (workload, resources, providers, config, federation, evidence) for the server workspace: the same document as `susi top --json`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace)."] operator_snapshot;
+                [extensions_list_tool_attr, no_args() =>
+                    "List installed extension packs: the same document as `susi extensions list`"] extensions_list;
+                [extensions_status_tool_attr, no_args() =>
+                    "Active extension pack, its root, and every installed pack: the same document as `susi extensions status`"] extensions_status;
+                [extensions_validate_tool_attr, typed::<ExtensionsValidate>() =>
+                    "Check a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state, as `susi extensions validate`. Args: {path: pack directory, absolute or relative to the server workspace}"] extensions_validate;
+                [extensions_load_tool_attr, typed::<ExtensionPackId>() =>
+                    "Verify and activate an installed extension pack, as `susi extensions load`. Args: {id}"] extensions_load;
+                [extensions_unload_tool_attr, typed::<ExtensionPackId>() =>
+                    "Deactivate an extension pack (files kept; compiled defaults serve), as `susi extensions unload`. Args: {id}"] extensions_unload;
+                [brain_pareto_tool_attr, typed::<BrainPareto>() =>
+                    "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers"] brain_pareto;
+            ]
+        }
+    };
+}
+
+macro_rules! declare_attributes {
+    (@method [$($attrs:tt)*] $definition:ident $handler:ident []) => {};
+    (@method [$($attrs:tt)*] $definition:ident $handler:ident [$schema:expr => $wire:literal]) => {
+        $($attrs)*
+        crate::tool_def!($definition { name: stringify!($handler), description: $wire, input_schema: $schema });
+    };
+    ($($(#[$attr:meta])* [$definition:ident $(, $schema:expr => $wire:literal)?]
+      $handler:ident $(: $category:ident => $summary:literal)?;)*) => {
+        $(declare_attributes!(@method [$(#[$attr])*] $definition $handler [$($schema => $wire)?]);)*
+    };
+}
+
+impl CoreTools {
+    schema_catalog!(declare_attributes);
+}
+
+/// Every built-in handler's name, wire description and typed schema in public list order.
 pub fn core_tool_definitions() -> Vec<crate::mcp::model::Tool> {
     macro_rules! definitions {
-        ($($(#[$attr:meta])* [$definition:ident] $($handler:ident: $category:ident => $description:literal)?;)*) => {
+        ($($(#[$attr:meta])* [$definition:ident $(, $schema:expr => $wire:literal)?]
+          $handler:ident $(: $category:ident => $summary:literal)?;)*) => {
             vec![$($(#[$attr])* CoreTools::$definition(),)*]
         };
     }
-    crate::gmcp_catalog_groups!(definitions, [
-        [status_tool_attr];
-        [ledger_verify_tool_attr];
-        [sovereign_dashboard_tool_attr];
-        [bloat_audit_tool_attr];
-        [identity_tool_attr];
-        [distill_genome_tool_attr];
-        [self_validate_tool_attr];
-        [list_models_tool_attr];
-        [select_model_tool_attr];
-        [inference_placement_tool_attr];
-        [inference_reset_provider_tool_attr];
-        [scout_model_tool_attr];
-        [verify_model_download_agent_tool_attr];
-        [train_reflexes_tool_attr];
-        [swarm_schedule_tool_attr];
-        [read_file_tool_attr];
-        [write_file_tool_attr];
-        [exec_command_tool_attr];
-        [os_services_tool_attr];
-        [os_ps_tool_attr];
-        [os_sysinfo_tool_attr];
-        [os_kill_tool_attr];
-        [os_logs_tool_attr];
-        [commit_record_tool_attr];
-        [commit_records_tool_attr];
-        [a2a_delegate_tool_attr];
-        [commit_log_fetch_tool_attr];
-        [cluster_rekey_stage_tool_attr];
-        [cluster_rekey_commit_tool_attr];
-        [member_propose_tool_attr];
-        [member_endorse_tool_attr];
-        [cluster_status_tool_attr];
-        [commit_log_tool_attr];
-    ], [
-        [delegate_to_ide_tool_attr];
-        // Plan B4 groups 2, 6, 11 and 12 (`control_plane.rs`).
-        [operator_snapshot_tool_attr];
-        [extensions_list_tool_attr];
-        [extensions_status_tool_attr];
-        [extensions_validate_tool_attr];
-        [extensions_load_tool_attr];
-        [extensions_unload_tool_attr];
-        [brain_pareto_tool_attr];
-    ])
+    schema_catalog!(definitions)
 }
 
 /// The typed `inputSchema` of a built-in `CoreTools` handler, by tool name.

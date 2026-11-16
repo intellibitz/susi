@@ -6,14 +6,8 @@ use susi_config::JsonFields as _;
 use super::CoreTools;
 use crate::susi_core::plane_bus::{gawd, gawd_hooks};
 use crate::susi_error::{EaiError, EaiResult};
-use crate::tools::args;
 
 impl CoreTools {
-    crate::tool_def!(commit_record_tool_attr {
-        name: "commit_record",
-        description: "Accept a replicated swarm commit record. Args: the CommitRecord JSON object. Verifies the coordinator's cluster-key signature and internal consistency before appending to the local ledger — unsigned/forged records fail closed.",
-        input_schema: args::typed::<args::CommitRecord>(),
-    });
     pub fn commit_record(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("commit_record", &arg.to_string(), workspace)?;
         let record: crate::susi_core::commit_log::CommitRecord =
@@ -119,11 +113,6 @@ impl CoreTools {
         Ok(out)
     }
 
-    crate::tool_def!(commit_records_tool_attr {
-        name: "commit_records",
-        description: "Batch intake of replicated commit records for anti-entropy pushes. Args: {records: [CommitRecord, ...]} (max 1000) — every record re-runs signature, coordinator-membership, and term gates; the accepted set appends in one ledger pass, and any remaining sequence gap is repaired from the coordinator once. Returns an applied/skipped/refused summary.",
-        input_schema: args::typed::<args::CommitRecords>(),
-    });
     pub fn commit_records(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("commit_records", &arg.to_string(), workspace)?;
         let records: Vec<crate::susi_core::commit_log::CommitRecord> = serde_json::from_value(
@@ -202,11 +191,6 @@ impl CoreTools {
         .to_string())
     }
 
-    crate::tool_def!(commit_log_fetch_tool_attr {
-        name: "commit_log_fetch",
-        description: "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N, offset?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators), skipping `offset` matches for pagination.",
-        input_schema: args::typed::<args::CommitLogFetch>(),
-    });
     pub fn commit_log_fetch(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let coordinator = arg.field_str("coordinator");
         let from_seq = arg.field_u64("from_seq").unwrap_or(1);
@@ -230,11 +214,6 @@ impl CoreTools {
             .map_err(|e| EaiError::internal(format!("serialize commit records: {e}")))
     }
 
-    crate::tool_def!(cluster_rekey_stage_tool_attr {
-        name: "cluster_rekey_stage",
-        description: "Prepare phase of cluster-key rotation: stage a next-epoch cluster key delivered with its committed cluster_rekey record. Args: {record: CommitRecord, key_hex: string (64 hex)}. Verifies the record's signature under the current key, requires coordinator authority, checks the pushed key's SHA-256 matches the committed fingerprint, stages it (0600), then appends the record. Does NOT rotate — a separate cluster_rekey_commit call delivers the activate record whose apply activates the staged key.",
-        input_schema: args::typed::<args::ClusterRekeyStage>(),
-    });
     pub fn cluster_rekey_stage(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // Audit WITHOUT key_hex — the pushed secret must never reach
         // the audit log; the record alone carries its fingerprint.
@@ -350,11 +329,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(cluster_rekey_commit_tool_attr {
-        name: "cluster_rekey_commit",
-        description: "Commit phase of cluster-key rotation: apply a committed cluster_rekey_activate record. Args: {record: CommitRecord}. Verifies the record's signature (current key — members are still pre-rotation when this arrives), requires coordinator authority, then appends it; the append's apply activates the staged cluster.key.next when its fingerprint matches the committed one. Members that never staged stay on the old epoch.",
-        input_schema: args::typed::<args::RecordOnly>(),
-    });
     pub fn cluster_rekey_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("cluster_rekey_commit", &arg.to_string(), workspace)?;
         let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
@@ -421,11 +395,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(member_propose_tool_attr {
-        name: "member_propose",
-        description: "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a roster delta. Args: {member: \"node_id@address\", kind?: \"member_add\"|\"member_remove\"|\"member_unban\" (default member_add)}. Refuses unless this node is the currently claimed leader. member_add refuses banned subjects or the leader itself; member_remove requires the subject in the leader's roster; member_unban requires the subject banned. On success the record is sealed, appended, and pushed to the roster including the subject.",
-        input_schema: args::typed::<args::MemberPropose>(),
-    });
     pub fn member_propose(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)?;
         let member = arg
@@ -617,11 +586,6 @@ impl CoreTools {
         ))
     }
 
-    crate::tool_def!(member_endorse_tool_attr {
-        name: "member_endorse",
-        description: "Endorse a sealed privileged record (member/rekey kind) — the joint-consensus vote a leader collects before committing a roster/config delta. Args: {record: <CommitRecord json>}. Verifies the record's HMAC signature under this member's cluster.key and refuses non-privileged kinds, then returns {node, sig} where sig is this node's Ed25519 signature over susi-endorse-v1:{record.signature}. An endorsement is only a vote on that exact record — all intake gates still apply when it lands.",
-        input_schema: args::typed::<args::RecordOnly>(),
-    });
     pub fn member_endorse(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("member_endorse", &arg.to_string(), workspace)?;
         let rec_val = arg
@@ -647,11 +611,6 @@ impl CoreTools {
         Ok(serde_json::json!({"node": node, "sig": sig}).to_string())
     }
 
-    crate::tool_def!(cluster_status_tool_attr {
-        name: "cluster_status",
-        description: "Read-only consensus snapshot for cluster-wide status checks: {node, term, leader, records, heads, key_epoch, roster, banned, bound, pubkey}. `heads` maps each coordinator's node_id to its highest ledger seq + epoch prefix — comparing heads across members exposes ledger divergence directly. No args.",
-        input_schema: args::no_args(),
-    });
     pub fn cluster_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         use crate::susi_core::commit_log;
         let term = commit_log::load_term();
@@ -695,12 +654,6 @@ impl CoreTools {
         .to_string())
     }
 
-    crate::tool_def!(commit_log_tool_attr {
-        name: "commit_log",
-        description:
-            "List quorum commit records in the local ledger, newest first. Args: {limit?: N}",
-        input_schema: args::typed::<args::CommitLog>(),
-    });
     pub fn commit_log(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let limit = arg.field_u64("limit").unwrap_or(20).min(500) as usize;
         let records = crate::susi_core::commit_log::load();

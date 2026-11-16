@@ -124,11 +124,6 @@ impl CoreTools {
         );
     }
 
-    crate::tool_def!(harness_run_tool_attr {
-        name: "harness_run",
-        description: "Start running a plan under the budget gate on a daemon thread (prepare in parallel, land in order); returns the mission and its state file, as `susi harness run`. Needs process.exec: the run drives this daemon's own susi binary (the CLI's --susi stays local). Args: repo, plan, gateway, and the CLI's other optional flags",
-        input_schema: args::typed::<args::HarnessRun>(),
-    });
     pub fn harness_run(arg: &Value, workspace: &Path) -> EaiResult<String> {
         if arg.get("susi").is_some_and(|v| !v.is_null()) {
             return Err(EaiError::config(
