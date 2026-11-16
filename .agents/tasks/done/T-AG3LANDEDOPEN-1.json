@@ -4,8 +4,8 @@
   "title": "Audit and archive 9 verified priority landed cloud task records",
   "goal": "Prove git commit ancestry on origin/main, run each task's acceptance command on current HEAD, and archive 9 verified priority cloud task records (T-CLAUDE-409..413, T-ANTIGRAVITY-5, T-ANTIGRAVITY-7, T-CODEXEMBEDORDER-1, T-CODEXGAWDACP-1) into .agents/tasks/done/ while leaving T-CLAUDEPORTBLOCKS-1 open pending a host with a routed non-loopback LAN IPv4 interface.",
   "size": "m",
-  "state": "open",
-  "status": "in_progress",
+  "state": "closed",
+  "status": "done",
   "deps": [],
   "accept": {
     "cmd": [
@@ -49,5 +49,12 @@
     ".agents/tasks/done/T-CODEXEMBEDORDER-1.json",
     ".agents/tasks/T-CODEXGAWDACP-1.json",
     ".agents/tasks/done/T-CODEXGAWDACP-1.json"
-  ]
+  ],
+  "implementation_commit": "f7981a302185375ee3ac4cf5fab6929f649f9fe5",
+  "verified_commit": "f7981a302185375ee3ac4cf5fab6929f649f9fe5",
+  "closed": {
+    "at_unix": 1794817395,
+    "commit": "f7981a302185375ee3ac4cf5fab6929f649f9fe5",
+    "by": "AG3HOUSEKEEP"
+  }
 }
