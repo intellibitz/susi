@@ -627,6 +627,66 @@ impl Drop for Provider {
 }
 
 #[test]
+#[ignore = "real shipped-binary ordered MCP environment and Unicode child names"]
+fn supplied_mcp_environment_preserves_platform_alias_order_and_unicode() {
+    let mut provider = Provider::start();
+    let fx = Fixture::new("env-order", &provider.url);
+    let mut acp = Acp::start(&fx, "acp");
+    let unicode = "Grüße 世界 ${UNCHANGED}\n✓";
+    let upper = json!({"name":"SUSI_ACP_FIXTURE_ALIAS","value":"upper-synthetic"});
+    let lower = json!({"name":"susi_acp_fixture_alias","value":"lower-synthetic"});
+    for (id, tag, aliases) in [
+        (2, "upper-first", [upper.clone(), lower.clone()]),
+        (3, "lower-first", [lower, upper]),
+    ] {
+        let mut descriptor = fx.descriptor(tag, tag, "normal");
+        let env = descriptor["env"].as_array_mut().unwrap();
+        env.extend(aliases);
+        env.push(json!({"name":"SUSI_ACP_FIXTURE_Å","value":unicode}));
+        acp.session(&fx, id, vec![descriptor]);
+        let rows = fx.wait_trace(tag, "env-observed");
+        let observed = &rows
+            .iter()
+            .find(|row| row["event"] == "env-observed")
+            .unwrap()["data"];
+        assert_eq!(
+            observed["unicode"], unicode,
+            "Unicode name/value changed in the actual MCP child"
+        );
+        #[cfg(windows)]
+        {
+            let last = if tag == "upper-first" {
+                "lower-synthetic"
+            } else {
+                "upper-synthetic"
+            };
+            assert_eq!(
+                observed["upper"], last,
+                "Windows aliases must retain the last supplied value"
+            );
+            assert_eq!(
+                observed["lower"], last,
+                "Windows alias lookup must be case-insensitive"
+            );
+        }
+        #[cfg(unix)]
+        {
+            assert_eq!(observed["upper"], "upper-synthetic");
+            assert_eq!(observed["lower"], "lower-synthetic");
+        }
+    }
+    acp.eof();
+    provider.finish();
+    assert_child_gone(&fx, "upper-first");
+    assert_child_gone(&fx, "lower-first");
+    assert!(
+        provider.requests.lock().unwrap().is_empty(),
+        "session creation unexpectedly ran an inference prompt"
+    );
+    fx.assert_no_persisted_mcp(&[unicode, "upper-synthetic", "lower-synthetic"]);
+}
+
+#[test]
 #[ignore = "real shipped-binary GAWD/GEMI/MCP integration; isolated offline processes"]
 fn supplied_mcp_tools_are_called_and_same_cwd_sessions_are_isolated() {
     let mut provider = Provider::start();

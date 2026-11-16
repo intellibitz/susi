@@ -30,6 +30,13 @@ fn trace(path: &Path, event: &str, data: &str) {
     file.flush().unwrap();
 }
 
+fn environment_value(name: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .map(|value| quoted(&value))
+        .unwrap_or_else(|| "null".into())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = Path::new(&args[1]);
@@ -43,6 +50,18 @@ fn main() {
         std::process::id()
     );
     trace(path, "started", &probe);
+    // Separate from the tool result so existing exact-result assertions retain
+    // their original schema. All names/values belong only to this fixture.
+    trace(
+        path,
+        "env-observed",
+        &format!(
+            "{{\"upper\":{},\"lower\":{},\"unicode\":{}}}",
+            environment_value("SUSI_ACP_FIXTURE_ALIAS"),
+            environment_value("susi_acp_fixture_alias"),
+            environment_value("SUSI_ACP_FIXTURE_Å")
+        ),
+    );
     if mode == "descendant-helper" {
         // Ignore stdin and keep all three inherited pipes open even after the
         // MCP parent exits. Only the host's process containment may stop us.
