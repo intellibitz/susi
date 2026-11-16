@@ -1,0 +1,75 @@
+{
+  "id": "T-CODEX100KMCPIO-1",
+  "title": "Repair owned MCP duplex handshake cleanup and bounded frame acquisition",
+  "goal": "Vision: V-6. Preserve public MCP host functionality while making its existing duplex transport safe to reuse for eventual ACP-supplied MCP servers; no session bridge or deadline claim.",
+  "size": "m",
+  "status": "in_progress",
+  "created_by": "CODEX100KMCPIO",
+  "created_unix": 1794826600,
+  "base_commit": "48fa3b7af4d529203d0e52ca4e45b93f7df8f8b3",
+  "scopes": [
+    "crates/susi-wire-client/src/host.rs",
+    "crates/susi-wire-client/src/tests/host.rs",
+    ".agents/tasks/T-CODEX100KMCPIO-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "McpHost/DuplexPeer lifecycle and existing caller child kill/wait closures; susi-paths http_body::read_line_capped; wire-client and root GMCP host test fixtures; parent pinned ACP/MCP audit design.",
+    "reason": "Reuse existing peer Drop ownership before first fallible operation and existing bounded-line helper. No new dependencies or external code/schema imports; retain public DuplexStreams field-move compatibility."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "2",
+      "-p",
+      "susi-wire-client",
+      "--lib"
+    ]
+  },
+  "limitations": [
+    "Bounded acquisition is a memory bound, not an I/O deadline; generic blocked read/write and cleanup closure can delay return.",
+    "Parent owns integration/publication and external coordination. Scoped local WIP commits only; no pushes or board posts."
+  ],
+  "phase": "verified_pending_parent_integration",
+  "validation": {
+    "crate_tests": {
+      "command": "cargo test --offline --locked -j2 -p susi-wire-client --lib",
+      "passed": 50,
+      "existing_tests_unchanged": 42,
+      "new_regression_tests": 7,
+      "new_subprocess_fixture_tests": 1
+    },
+    "clippy": {
+      "command": "cargo clippy --offline --locked -j2 -p susi-wire-client --all-targets -- -D warnings",
+      "status": "passed"
+    },
+    "format": "cargo fmt --all --check and git diff --check",
+    "independent_review": "review_gemi read-only final source review: no actionable findings",
+    "coverage": [
+      "Cleanup exactly once on first initialize write/flush failure, EOF, malformed response, missing/unsupported version, initialized notification write/flush failure, duplicate ID rejection, successful disconnect and host drop",
+      "Failed initialize kills and waits for an actual still-running directly owned child; fallback cleanup prevents test orphaning",
+      "No-newline acquisition consumes at most16MiB+1 bytes; oversized frame tail cannot be reused, later request/cancel perform no additional reads/writes, sibling peer remains usable",
+      "Exactly16MiB with newline or EOF remains accepted; MAX+1 including newline is rejected; Unicode trim and strict UTF8 diagnostics preserved",
+      "Underlying InvalidData remains I/O error; ordinary JSON-RPC errors allow later successful request"
+    ],
+    "target": "/workspace/codex/susi-core-100k-mcpio-target",
+    "susi_home": "/workspace/codex/susi-core-100k-mcpio-state/home",
+    "jobs": 2
+  },
+  "source_delta": {
+    "runtime_physical_lines_net": 42,
+    "test_physical_lines_net": 392,
+    "all_rust_physical_lines_net": 434,
+    "note": "Correctness repair, positive measured addition; no reduction claimed, tests removed/moved, dependencies or public API changes."
+  },
+  "optional_reduction_review": "Parent authorized assessing ACP read_frame shortening, but it was deliberately not edited: std take().read_until retries Interrupted whereas the current manual fill_buf loop returns it; exact behavior parity was not established.",
+  "handoff": {
+    "owner": "parent /root",
+    "status": "Verified; independent review clear; no external publication",
+    "suggested_existing_root_checks": "gmcp_req_203_017_02_production and gmcp_req_203_017_04_adversarial in gmcp_requirements; parent warm target avoids unnecessary cold root build"
+  }
+}
