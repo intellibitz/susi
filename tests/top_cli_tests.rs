@@ -137,6 +137,43 @@ fn test_top_drill_down_explains_blocked_work() {
     fs::write(tasks_dir.join("T-TEST-DEP-02.json"), task_b).unwrap();
     fs::write(tasks_dir.join("T-TEST-BLOCKED-01.json"), task_a).unwrap();
 
+    // Older task stores may contain malformed records, duplicate dependency
+    // entries, or tasks without an ID. The queue and drill-down handle them
+    // independently while reading the same snapshot.
+    fs::write(tasks_dir.join("corrupt.json"), "{").unwrap();
+    fs::write(
+        tasks_dir.join("legacy.json"),
+        r#"{"id":"T-LEGACY","title":42,"claimed_by":7,"created_by":"owner","deps":[null, "T-TEST-DEP-02", "T-TEST-DEP-02", "closed"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        tasks_dir.join("missing-id.json"),
+        r#"{"deps":["T-TEST-DEP-02"]}"#,
+    )
+    .unwrap();
+    let (code, stdout, stderr) = run_susi_in_dir(&["top", "--json"], Some(&temp));
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let state: UnifiedOperatorState = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(state.snapshot.queue.len(), 3);
+    let legacy = &state.snapshot.queue[0];
+    assert_eq!(
+        (&*legacy.task_id, &*legacy.holder, &*legacy.title),
+        ("T-LEGACY", "owner", "")
+    );
+    let blocked_ids: Vec<_> = state
+        .blocked_work
+        .iter()
+        .map(|row| row.task_id.as_str())
+        .collect();
+    assert_eq!(
+        blocked_ids,
+        ["", "T-LEGACY", "T-LEGACY", "T-TEST-BLOCKED-01"]
+    );
+    assert!(state
+        .blocked_work
+        .iter()
+        .all(|row| row.reason == "unmet dependency: T-TEST-DEP-02"));
+
     let (code, stdout, stderr) = run_susi_in_dir(&["top"], Some(&temp));
     assert_eq!(code, 0, "stderr: {stderr}");
 

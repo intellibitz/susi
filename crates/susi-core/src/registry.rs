@@ -1,7 +1,7 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
+use susi_paths::sync::RwLock;
 
 type Service = Arc<dyn Any + Send + Sync>;
 type ServiceFactory = Arc<dyn Fn() -> Service + Send + Sync>;
@@ -22,7 +22,6 @@ impl DynamicServiceRegistry {
     pub fn register<T: Send + Sync + 'static>(&self, service: T) {
         self.services
             .write()
-            .unwrap_or_else(|e| e.into_inner())
             .insert(TypeId::of::<T>(), Arc::new(service));
     }
 
@@ -33,25 +32,13 @@ impl DynamicServiceRegistry {
     {
         self.factories
             .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(
-                name.into(),
-                Arc::new(move || {
-                    let instance: Arc<T> = factory();
-                    instance as Arc<dyn Any + Send + Sync>
-                }),
-            );
+            .insert(name.into(), Arc::new(move || factory() as Service));
     }
 
     /// Instantiates a generic service dynamically via its registered String semantic identifier.
     pub fn instantiate<T: Send + Sync + 'static>(&self, name: &str) -> Option<Arc<T>> {
         // Release the map guard before calling user code, which may register factories.
-        let factory = Arc::clone(
-            self.factories
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(name)?,
-        );
+        let factory = self.factories.read().get(name).cloned()?;
         factory().downcast::<T>().ok()
     }
 
@@ -59,7 +46,6 @@ impl DynamicServiceRegistry {
     pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.services
             .read()
-            .unwrap_or_else(|e| e.into_inner())
             .get(&TypeId::of::<T>())
             .and_then(|val| val.clone().downcast::<T>().ok())
     }

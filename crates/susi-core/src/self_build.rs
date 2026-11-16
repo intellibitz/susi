@@ -74,7 +74,7 @@ license and Rust audits, executable smoke tests, artifact digest, atomic replace
 checks and tested rollback. Qualified releases also synchronize the installed binary, \
 susi.build.json and live daemon. Keep Windows scheduled tasks at RunLevel=Limited. \
 Keep the installed release current when a newer host-qualified release is reachable and \
-no client is mid-mission; verify its artifact and retain rollback. Keep releases tidy.
+no client is mid-mission; verify its artifact, keep rollback. Keep releases and candidates tidy.
 6. Keep core a generic standards socket with exactly three core pillars: GAWD (A2A, ACP and \
 parallel harness), GEMI and GMCP. Concrete implementations belong in separate packages; \
 prove each destination works through the standard socket before removing core implementation. \
