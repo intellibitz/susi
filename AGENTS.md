@@ -228,6 +228,16 @@ child environments and prove fixture routing before side-effecting test actions.
 A command named `check` may mutate: inspect its behavior rather than trusting its
 name. Do not send real coordination messages from tests.
 
+Keep tests tidy. Before publishing, run the tests a change can break: its crates,
+their dependents, and the root tests that read changed documents or data. Fix a
+test your change turned red at once; when its author has not fixed it within an
+hour of a coordination request, any agent may. Never skip, ignore, loosen or
+delete a test to get green. Each test proves one named behavior; an ignored test
+gives its reason and an expected panic names its message. Wait on conditions
+rather than fixed sleeps. Pin a count or phrase only when it is the contract, and
+move the pin in the change that moves it. Remove tests and fixtures with the code
+they cover.
+
 Use the pinned compiler and committed lockfile. Scope development checks to
 changed crates and dependents, and run all required checks before qualification:
 

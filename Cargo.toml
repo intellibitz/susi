@@ -87,6 +87,9 @@ complexity = { level = "warn", priority = -1 }
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
+# An ignored test gives its reason; an expected panic names its message.
+ignore_without_reason = "deny"
+should_panic_without_expect = "deny"
 # Hard-denied: production code returns typed `EaiResult`s; panic-capable
 # macros require an inline `#[allow]` + justification comment (the audit
 # trail), same pattern as `#[allow(unsafe_code)]` on justified FFI sites.
