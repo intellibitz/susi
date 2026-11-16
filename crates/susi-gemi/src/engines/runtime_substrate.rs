@@ -2,16 +2,13 @@
 //! (or the built-in GGUF substrate when compiled with `--features local-engine`).
 
 use crate::engines::local_plug::{
-    call_bus_plug, local_engine_plug, TOPIC_LOCAL_LOADED, TOPIC_LOCAL_PRELOAD,
+    call_bus_plug, local_engine_plug, LOCAL_ENGINE_ABSENT, TOPIC_LOCAL_LOADED, TOPIC_LOCAL_PRELOAD,
     TOPIC_LOCAL_REUSABLE, TOPIC_LOCAL_UNLOAD,
 };
 use serde_json::json;
 use std::path::Path;
 
 use crate::susi_error::{EaiError, EaiResult};
-
-const LOCAL_ENGINE_ABSENT: &str =
-    "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 
 pub struct InferenceHost;
 
@@ -52,34 +49,28 @@ impl InferenceHost {
 
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = resolve_model_id(model_id)?;
-        if let Some(plug) = local_engine_plug() {
-            return plug.unload(&path);
-        }
-        if let Some(res) = call_bus_plug(
-            TOPIC_LOCAL_UNLOAD,
-            json!({ "path": path.display().to_string() }),
-        ) {
-            return res;
-        }
-        Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
+        Self::try_unload(&path).unwrap_or_else(|| Err(EaiError::inference(LOCAL_ENGINE_ABSENT)))
     }
 
     pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
+        Self::try_unload(path).unwrap_or_else(|| {
+            Ok(json!({
+                "path": path,
+                "unloaded": false,
+                "in_flight_users": null,
+                "gpu_pool": "not_applicable",
+            }))
+        })
+    }
+
+    fn try_unload(path: &Path) -> Option<EaiResult<serde_json::Value>> {
         if let Some(plug) = local_engine_plug() {
-            return plug.unload(path);
+            return Some(plug.unload(path));
         }
-        if let Some(res) = call_bus_plug(
+        call_bus_plug(
             TOPIC_LOCAL_UNLOAD,
             json!({ "path": path.display().to_string() }),
-        ) {
-            return res;
-        }
-        Ok(json!({
-            "path": path,
-            "unloaded": false,
-            "in_flight_users": null,
-            "gpu_pool": "not_applicable",
-        }))
+        )
     }
 
     pub fn loaded_models() -> Vec<serde_json::Value> {

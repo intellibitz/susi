@@ -105,6 +105,138 @@ struct MockRouteProvider {
     reply: &'static str,
 }
 
+fn run_in_generation_fixture(test_name: &str) -> bool {
+    const CHILD: &str = "SUSI_GENERATION_ENTRY_FIXTURE";
+    if std::env::var(CHILD).as_deref() == Ok(test_name) {
+        return false;
+    }
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child.args([
+        "--exact",
+        &format!("engines::runtime::tests::{test_name}"),
+        "--nocapture",
+    ]);
+    child
+        .env_clear()
+        .current_dir(dir.path())
+        .env(CHILD, test_name);
+    susi_paths::test_env::isolate_home(&mut child, dir.path());
+    let output = child.output().unwrap();
+    assert!(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
+}
+
+#[cfg(not(feature = "local-engine"))]
+#[test]
+fn partial_local_engine_host_preserves_reply_priority_and_never_repeats_training() {
+    if run_in_generation_fixture(
+        "partial_local_engine_host_preserves_reply_priority_and_never_repeats_training",
+    ) {
+        return;
+    }
+    use crate::engines::alpha::SusiAlphaModel;
+    use crate::engines::local_plug::{
+        LOCAL_ENGINE_ABSENT, TOPIC_LOCAL_ALPHA_INVENTORY, TOPIC_LOCAL_ALPHA_TRAIN,
+    };
+    use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
+    use serde_json::{json, Value};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[derive(Default)]
+    struct PartialHost(AtomicUsize);
+    impl PlaneHandler for PartialHost {
+        fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+            if topic == TOPIC_LOCAL_ALPHA_INVENTORY {
+                return Ok(json!({"ready": true}));
+            }
+            self.0.fetch_add(1, Ordering::SeqCst);
+            match payload["staged_file"].as_str().unwrap() {
+                "both" => Ok(json!({"summary": "first", "text": "second"})),
+                "text-only" => Ok(json!({"text": "second"})),
+                "malformed" => Ok(json!({"summary": false, "text": "second"})),
+                _ => Err("training result unavailable".into()),
+            }
+        }
+    }
+    let host = Arc::new(PartialHost::default());
+    let bus = PlaneBus::global();
+    bus.register(TOPIC_LOCAL_ALPHA_INVENTORY, host.clone());
+    bus.register(TOPIC_LOCAL_ALPHA_TRAIN, host.clone());
+    let workspace = std::env::current_dir().unwrap();
+    SusiAlphaModel::load(&workspace).unwrap();
+    let train =
+        |staged| SusiAlphaModel::train_on_staged_file(&workspace, std::path::Path::new(staged));
+    assert_eq!(train("both").unwrap(), "first");
+    assert_eq!(train("text-only").unwrap(), "second");
+    assert!(train("malformed")
+        .unwrap_err()
+        .to_string()
+        .contains(LOCAL_ENGINE_ABSENT));
+    assert!(train("failed")
+        .unwrap_err()
+        .to_string()
+        .contains("training result unavailable"));
+    assert_eq!(host.0.load(Ordering::SeqCst), 4);
+}
+
+#[test]
+fn hosted_generation_entry_points_keep_model_choices_and_meta_before_content() {
+    if run_in_generation_fixture(
+        "hosted_generation_entry_points_keep_model_choices_and_meta_before_content",
+    ) {
+        return;
+    }
+    const NAME: &str = "ollama-generator-fixture";
+    const ANSWER: &str = "fixture response from the selected generator";
+    crate::susi_core::registry::CapabilityRegistry::global().register_provider(MockRouteProvider {
+        name: NAME,
+        reply: ANSWER,
+    });
+    let workspace = std::env::current_dir().unwrap();
+    let prompt = "Explain two ways that a weather archive could describe a seasonal change.";
+    let named = format!("   {NAME}   ");
+    let events = std::cell::RefCell::new(Vec::new());
+    let content = |text: String| events.borrow_mut().push(text);
+    let meta = |name: &str| events.borrow_mut().push(format!("serving:{name}"));
+    assert_eq!(
+        GemiEngine::generate_reasoning_deep_with_model(prompt, &workspace, &named),
+        ANSWER
+    );
+    assert_eq!(
+        GemiEngine::generate_reasoning_stream_with_model(prompt, &workspace, &content, &named),
+        ANSWER
+    );
+    assert!(events.borrow().iter().any(|event| event == ANSWER));
+    events.borrow_mut().clear();
+    assert_eq!(
+        GemiEngine::generate_reasoning_stream_meta(
+            prompt,
+            &workspace,
+            &content,
+            Some(&named),
+            &meta,
+            None
+        ),
+        ANSWER
+    );
+    let emitted = events.borrow();
+    let served = emitted
+        .iter()
+        .position(|e| e == &format!("serving:{NAME}"))
+        .unwrap();
+    let answered = emitted.iter().position(|e| e == ANSWER).unwrap();
+    assert!(served < answered, "{emitted:?}");
+}
+
 impl crate::susi_core::provider::Provider for MockRouteProvider {
     fn name(&self) -> &str {
         self.name

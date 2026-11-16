@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXCOREMODELS-7",
+  "title": "Share hosted GEMI generation and engine activation paths",
+  "goal": "Vision: V-2. Preserve native standalone GGUF metadata and offline reflex, the separately admitted tensor engine, exact model/stream options, receipt ordering and provider fallback while removing duplicate activation and generator dispatch.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "engines::runtime::"
+    ]
+  },
+  "created_by": "CODEXCOREMODELS",
+  "created_unix": 1794861494,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Actual offline, opt-in and paired runtime_models MCP cache receipts, actual GPU Fabric model preload and license refusal, GEMI public reasoning wrapper family and existing chat/stream entry points, native backend registry and shared routing receipts, local plug and partial topic fallback; commercial free workspace pack is not an installed GEMI provider."
+  }
+}

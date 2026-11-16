@@ -2,15 +2,12 @@
 //! (or the built-in pure-Rust reflex engine when compiled with `--features local-engine`).
 
 use crate::engines::local_plug::{
-    call_bus_plug, local_engine_plug, TrainedAlphaReflex, TOPIC_LOCAL_ALPHA_INVENTORY,
-    TOPIC_LOCAL_ALPHA_PREDICT, TOPIC_LOCAL_ALPHA_TRAIN,
+    call_bus_plug, call_bus_text, local_engine_plug, TrainedAlphaReflex, LOCAL_ENGINE_ABSENT,
+    TOPIC_LOCAL_ALPHA_INVENTORY, TOPIC_LOCAL_ALPHA_PREDICT, TOPIC_LOCAL_ALPHA_TRAIN,
 };
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use susi_error::{eai_err as anyhow, EaiResult as Result};
-
-const LOCAL_ENGINE_ABSENT: &str =
-    "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 
 pub(crate) use crate::engines::alpha_avail::action_available;
 
@@ -33,22 +30,19 @@ impl SusiAlphaModel {
                 trained: Some(trained),
             });
         }
-        if local_engine_plug().is_some() && Self::inventory(global_dir).get("error").is_none() {
+        let attached =
+            local_engine_plug().is_some() && Self::inventory(global_dir).get("error").is_none();
+        if attached
+            || call_bus_plug(
+                TOPIC_LOCAL_ALPHA_INVENTORY,
+                json!({ "global_dir": global_dir.display().to_string() }),
+            )
+            .is_some_and(|result| result.is_ok_and(|inv| inv.get("error").is_none()))
+        {
             return Ok(Self {
                 global_dir: global_dir.to_path_buf(),
                 trained: None,
             });
-        }
-        if let Some(Ok(inv)) = call_bus_plug(
-            TOPIC_LOCAL_ALPHA_INVENTORY,
-            json!({ "global_dir": global_dir.display().to_string() }),
-        ) {
-            if inv.get("error").is_none() {
-                return Ok(Self {
-                    global_dir: global_dir.to_path_buf(),
-                    trained: None,
-                });
-            }
         }
         Err(anyhow!(LOCAL_ENGINE_ABSENT))
     }
@@ -64,23 +58,13 @@ impl SusiAlphaModel {
         if let Some(plug) = local_engine_plug() {
             return plug.alpha_train_on_staged_file(global_dir, staged_file);
         }
-        if let Some(res) = call_bus_plug(
+        call_bus_text(
             TOPIC_LOCAL_ALPHA_TRAIN,
             json!({
-                "global_dir": global_dir.display().to_string(),
-                "staged_file": staged_file.display().to_string(),
+                "global_dir": global_dir.display().to_string(), "staged_file": staged_file.display().to_string(),
             }),
-        ) {
-            let val = res?;
-            if let Some(s) = val
-                .get("summary")
-                .or_else(|| val.get("text"))
-                .and_then(|v| v.as_str())
-            {
-                return Ok(s.to_string());
-            }
-        }
-        Err(anyhow!(LOCAL_ENGINE_ABSENT))
+            &["summary", "text"],
+        )
     }
 
     pub fn inventory(global_dir: &Path) -> serde_json::Value {
@@ -119,15 +103,11 @@ impl SusiAlphaModel {
         if let Some(plug) = local_engine_plug() {
             return plug.alpha_predict_intent(&self.global_dir, raw);
         }
-        if let Some(res) = call_bus_plug(
+        call_bus_text(
             TOPIC_LOCAL_ALPHA_PREDICT,
             json!({ "global_dir": self.global_dir.display().to_string(), "prompt": raw }),
-        ) {
-            if let Some(a) = res?.get("action").and_then(|v| v.as_str()) {
-                return Ok(a.to_string());
-            }
-        }
-        Err(anyhow!(LOCAL_ENGINE_ABSENT))
+            &["action"],
+        )
     }
 
     pub fn semantic_centroid_projection(
