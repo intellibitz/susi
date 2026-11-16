@@ -28,16 +28,13 @@ use serde_json::{json, Value};
 use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::RwLock;
 use susi_config::JsonFields as _;
+use susi_paths::sync::RwLock;
 
-fn tool_topic(name: &str) -> String {
-    format!("capability.tool.{name}")
-}
-
-fn provider_topic(name: &str) -> String {
-    format!("capability.provider.{name}")
+fn capability_topic(kind: &str, name: &str) -> String {
+    format!("capability.{kind}.{name}")
 }
 
 fn is_caps_manifest_name(name: &str) -> bool {
@@ -154,7 +151,7 @@ impl Tool for RemoteTool {
         let resp = self
             .bus
             .request(
-                &tool_topic(&self.name),
+                &capability_topic("tool", &self.name),
                 json!({
                     "args": args,
                     "workspace": workspace.to_string_lossy(),
@@ -211,52 +208,43 @@ struct RemoteProvider {
     name: String,
 }
 
+impl RemoteProvider {
+    fn request(&self, payload: Value) -> EaiResult<Value> {
+        self.bus
+            .request(&capability_topic("provider", &self.name), payload)
+            .map_err(|e| EaiError::network(format!("provider `{}` unreachable: {e}", self.name)))
+    }
+}
+
 impl Provider for RemoteProvider {
     fn name(&self) -> &str {
         &self.name
     }
 
     fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
-        let bus = Arc::clone(&self.bus);
-        let name = self.name.clone();
         Box::pin(async move {
-            let resp = bus
-                .request(&provider_topic(&name), json!({ "op": "health" }))
-                .map_err(|e| EaiError::network(format!("provider `{name}` unreachable: {e}")))?;
+            let resp = self.request(json!({ "op": "health" }))?;
             Ok(resp.field_bool("healthy").unwrap_or(false))
         })
     }
 
     fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
-        let bus = Arc::clone(&self.bus);
-        let name = self.name.clone();
         let prompt = prompt.to_string();
         Box::pin(async move {
-            let resp = bus
-                .request(
-                    &provider_topic(&name),
-                    json!({ "op": "generate", "prompt": prompt }),
-                )
-                .map_err(|e| EaiError::network(format!("provider `{name}` unreachable: {e}")))?;
-            resp.field_str("output")
-                .map(str::to_string)
-                .ok_or_else(|| EaiError::process(format!("provider `{name}`: malformed response")))
+            let resp = self.request(json!({ "op": "generate", "prompt": prompt }))?;
+            resp.field_str("output").map(str::to_string).ok_or_else(|| {
+                EaiError::process(format!("provider `{}`: malformed response", self.name))
+            })
         })
     }
 
     fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
-        let bus = Arc::clone(&self.bus);
-        let name = self.name.clone();
         let text = text.to_string();
         Box::pin(async move {
-            let resp = bus
-                .request(
-                    &provider_topic(&name),
-                    json!({ "op": "embed", "text": text }),
-                )
-                .map_err(|e| EaiError::network(format!("provider `{name}` unreachable: {e}")))?;
-            serde_json::from_value(resp.get("embedding").cloned().unwrap_or(Value::Null))
-                .map_err(|e| EaiError::process(format!("provider `{name}`: bad embedding: {e}")))
+            let resp = self.request(json!({ "op": "embed", "text": text }))?;
+            serde_json::from_value(resp.get("embedding").cloned().unwrap_or(Value::Null)).map_err(
+                |e| EaiError::process(format!("provider `{}`: bad embedding: {e}", self.name)),
+            )
         })
     }
 
@@ -277,6 +265,8 @@ impl Drop for CapBatchGuard<'_> {
     }
 }
 
+type CapabilityMap<T> = Arc<RwLock<HashMap<String, T>>>;
+
 /// Capability registry facade that interoperates across independent
 /// processes sharing one `<cache>/bus/<pid>` rendezvous. Registration is local
 /// plus a bus topic + single per-copy manifest file (`caps.json`); lookup falls
@@ -284,13 +274,11 @@ impl Drop for CapBatchGuard<'_> {
 #[derive(Clone)]
 pub struct IpcCapabilityRegistry {
     bus: Arc<IpcPlaneBus>,
-    #[allow(clippy::type_complexity)]
-    tools: Arc<RwLock<HashMap<String, Arc<dyn Tool>>>>,
-    #[allow(clippy::type_complexity)]
-    providers: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
-    agents: Arc<RwLock<HashMap<String, AgentCapability>>>,
-    batch_depth: Arc<std::sync::atomic::AtomicUsize>,
-    dirty_caps: Arc<std::sync::atomic::AtomicBool>,
+    tools: CapabilityMap<Arc<dyn Tool>>,
+    providers: CapabilityMap<Arc<dyn Provider>>,
+    agents: CapabilityMap<AgentCapability>,
+    batch_depth: Arc<AtomicUsize>,
+    dirty_caps: Arc<AtomicBool>,
 }
 
 impl IpcCapabilityRegistry {
@@ -303,8 +291,8 @@ impl IpcCapabilityRegistry {
             tools: Arc::new(RwLock::new(HashMap::new())),
             providers: Arc::new(RwLock::new(HashMap::new())),
             agents: Arc::new(RwLock::new(HashMap::new())),
-            batch_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            dirty_caps: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            batch_depth: Arc::new(AtomicUsize::new(0)),
+            dirty_caps: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -318,20 +306,13 @@ impl IpcCapabilityRegistry {
 
     fn begin_batch(&self) {
         self.bus.begin_batch();
-        self.batch_depth
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.batch_depth.fetch_add(1, Ordering::AcqRel);
     }
 
     fn end_batch(&self) {
         self.bus.end_batch();
-        let prev = self
-            .batch_depth
-            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-        if prev == 1
-            && self
-                .dirty_caps
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
-        {
+        let prev = self.batch_depth.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 && self.dirty_caps.swap(false, Ordering::AcqRel) {
             self.flush_caps();
         }
     }
@@ -340,24 +321,11 @@ impl IpcCapabilityRegistry {
         let mut tools: Vec<(String, String)> = self
             .tools
             .read()
-            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(name, t)| (name.clone(), t.description().to_string()))
             .collect();
-        let mut providers: Vec<String> = self
-            .providers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        let mut agents: Vec<AgentCapability> = self
-            .agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect();
+        let mut providers: Vec<String> = self.providers.read().keys().cloned().collect();
+        let mut agents: Vec<AgentCapability> = self.agents.read().values().cloned().collect();
         let path = self.bus.caps_file();
         if tools.is_empty() && providers.is_empty() && agents.is_empty() {
             let _ = std::fs::remove_file(&path);
@@ -417,9 +385,8 @@ impl IpcCapabilityRegistry {
     }
 
     fn mark_or_flush_caps(&self) {
-        if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) > 0 {
-            self.dirty_caps
-                .store(true, std::sync::atomic::Ordering::Release);
+        if self.batch_depth.load(Ordering::Acquire) > 0 {
+            self.dirty_caps.store(true, Ordering::Release);
         } else {
             self.flush_caps();
         }
@@ -496,28 +463,22 @@ impl IpcCapabilityRegistry {
         let tool: Arc<dyn Tool> = Arc::new(EnforcedTool {
             inner: Arc::new(tool),
         });
-        self.tools
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(name.clone(), Arc::clone(&tool));
-        self.bus
-            .register(&tool_topic(&name), Arc::new(ToolDispatch { tool }));
+        self.tools.write().insert(name.clone(), Arc::clone(&tool));
+        self.bus.register(
+            &capability_topic("tool", &name),
+            Arc::new(ToolDispatch { tool }),
+        );
         self.mark_or_flush_caps();
     }
 
     /// Local copy first; otherwise a remote proxy when another copy serves
     /// the capability (metadata file or wired topic).
     pub fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        if let Some(t) = self
-            .tools
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(name)
-        {
+        if let Some(t) = self.tools.read().get(name) {
             return Some(Arc::clone(t));
         }
         let meta = self.find_cap("tool", name);
-        if meta.is_none() && !self.bus.is_wired(&tool_topic(name)) {
+        if meta.is_none() && !self.bus.is_wired(&capability_topic("tool", name)) {
             return None;
         }
         let description = meta
@@ -534,37 +495,12 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn unregister_tool(&self, name: &str) -> bool {
-        let removed = self
-            .tools
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(name)
-            .is_some();
-        self.bus.unregister(&tool_topic(name));
-        if removed {
-            self.mark_or_flush_caps();
-        }
-        self.remove_own_cap("tool", name);
-        removed
+        self.unregister(&self.tools, "tool", name)
     }
 
     /// All visible tool names — locally registered plus remote capabilities.
     pub fn list_tools(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .tools
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        for meta in self.scan_kind_caps("tool") {
-            if let Some(n) = meta.field_str("name") {
-                if !names.iter().any(|x| x == n) {
-                    names.push(n.to_string());
-                }
-            }
-        }
-        names
+        self.visible_names(&self.tools, "tool")
     }
 
     // ---- providers ---------------------------------------------------------
@@ -573,25 +509,21 @@ impl IpcCapabilityRegistry {
         let name = provider.name().to_string();
         self.providers
             .write()
-            .unwrap_or_else(|e| e.into_inner())
             .insert(name.clone(), Arc::clone(&provider));
         self.bus.register(
-            &provider_topic(&name),
+            &capability_topic("provider", &name),
             Arc::new(ProviderDispatch { provider }),
         );
         self.mark_or_flush_caps();
     }
 
     pub fn get_provider(&self, name: &str) -> Option<Arc<dyn Provider>> {
-        if let Some(p) = self
-            .providers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(name)
-        {
+        if let Some(p) = self.providers.read().get(name) {
             return Some(Arc::clone(p));
         }
-        if self.find_cap("provider", name).is_none() && !self.bus.is_wired(&provider_topic(name)) {
+        if self.find_cap("provider", name).is_none()
+            && !self.bus.is_wired(&capability_topic("provider", name))
+        {
             return None;
         }
         Some(Arc::new(RemoteProvider {
@@ -601,32 +533,29 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn unregister_provider(&self, name: &str) -> bool {
-        let removed = self
-            .providers
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(name)
-            .is_some();
-        self.bus.unregister(&provider_topic(name));
-        if removed {
-            self.mark_or_flush_caps();
-        }
-        self.remove_own_cap("provider", name);
-        removed
+        self.unregister(&self.providers, "provider", name)
     }
 
     pub fn list_providers(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .providers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        for meta in self.scan_kind_caps("provider") {
-            if let Some(n) = meta.field_str("name") {
-                if !names.iter().any(|x| x == n) {
-                    names.push(n.to_string());
+        self.visible_names(&self.providers, "provider")
+    }
+
+    fn unregister<T>(&self, local: &CapabilityMap<T>, kind: &str, name: &str) -> bool {
+        let removed = local.write().remove(name).is_some();
+        self.bus.unregister(&capability_topic(kind, name));
+        if removed {
+            self.mark_or_flush_caps();
+        }
+        self.remove_own_cap(kind, name);
+        removed
+    }
+
+    fn visible_names<T>(&self, local: &CapabilityMap<T>, kind: &str) -> Vec<String> {
+        let mut names: Vec<_> = local.read().keys().cloned().collect();
+        for meta in self.scan_kind_caps(kind) {
+            if let Some(name) = meta.field_str("name") {
+                if !names.iter().any(|local| local == name) {
+                    names.push(name.to_string());
                 }
             }
         }
@@ -637,20 +566,12 @@ impl IpcCapabilityRegistry {
 
     pub fn register_agent_capability(&self, cap: AgentCapability) {
         let name = cap.name.clone();
-        self.agents
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(name, cap);
+        self.agents.write().insert(name, cap);
         self.mark_or_flush_caps();
     }
 
     pub fn get_agent_capability(&self, name: &str) -> Option<AgentCapability> {
-        if let Some(c) = self
-            .agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(name)
-        {
+        if let Some(c) = self.agents.read().get(name) {
             return Some(c.clone());
         }
         let meta = self.find_cap("agent", name)?;
@@ -665,13 +586,7 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn list_agents(&self) -> Vec<AgentCapability> {
-        let mut out: Vec<AgentCapability> = self
-            .agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect();
+        let mut out: Vec<AgentCapability> = self.agents.read().values().cloned().collect();
         for meta in self.scan_kind_caps("agent") {
             let name = meta.field_str("name").unwrap_or("");
             if !out.iter().any(|c| c.name == name) {
@@ -815,6 +730,11 @@ mod tests {
         assert_eq!(emb, vec![4.0, 1.0]);
         assert!(block_on(prov.is_healthy()).expect("health"));
         assert!(b.list_providers().contains(&"echo_prov".to_string()));
+        assert!(a.unregister_provider("echo_prov"));
+        assert!(!a.unregister_provider("echo_prov"));
+        assert!(b.get_provider("echo_prov").is_none());
+        assert!(!b.list_providers().iter().any(|name| name == "echo_prov"));
+        assert!(block_on(prov.generate("after removal")).is_err());
     }
 
     #[test]
