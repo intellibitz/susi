@@ -99,7 +99,25 @@ pub fn call_reply_with_info(
     if !arguments.is_object() {
         return Err(EaiError::config("MCP object arguments are required"));
     }
-    let mut session = open_tool_with_info(name, cwd, client_info)?;
+    call_session(open_tool_with_info(name, cwd, client_info)?, arguments)
+}
+
+/// Return `None` only after healthy discovery declares no matching tool.
+pub fn try_call_reply_with_info(
+    name: &str,
+    arguments: &Value,
+    cwd: Option<&Path>,
+    client_info: ClientInfo,
+) -> EaiResult<Option<ToolReply>> {
+    if !arguments.is_object() {
+        return Err(EaiError::config("MCP object arguments are required"));
+    }
+    find_tool(name, cwd, client_info, true)?
+        .map(|session| call_session(session, arguments))
+        .transpose()
+}
+
+fn call_session(mut session: Box<dyn ToolSession>, arguments: &Value) -> EaiResult<ToolReply> {
     let reply = session.call(arguments);
     // Cleanup cannot invalidate or replay an already completed operation.
     let _ = session.close();
@@ -190,6 +208,21 @@ pub fn open_tool_with_info(
     cwd: Option<&Path>,
     client_info: ClientInfo,
 ) -> EaiResult<Box<dyn ToolSession>> {
+    find_tool(name, cwd, client_info, false)?.ok_or_else(|| no_provider(name, 0))
+}
+
+fn no_provider(name: &str, unavailable: usize) -> EaiError {
+    EaiError::config(format!(
+        "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
+    ))
+}
+
+fn find_tool(
+    name: &str,
+    cwd: Option<&Path>,
+    client_info: ClientInfo,
+    inspect_remote: bool,
+) -> EaiResult<Option<Box<dyn ToolSession>>> {
     if name.is_empty() {
         return Err(EaiError::config("MCP tool name is required"));
     }
@@ -200,55 +233,43 @@ pub fn open_tool_with_info(
     let mut selected = None;
     let mut unavailable = 0usize;
     for (server_name, server) in servers {
-        let mut client = match connect(&server, cwd, client_info) {
-            Ok(client) => client,
-            Err(_) => {
-                unavailable += 1;
-                continue;
-            }
+        let remote_cwd =
+            inspect_remote && cwd.is_some() && matches!(server.http_scope(), Ok(Some(_)));
+        let transport_cwd = if remote_cwd { None } else { cwd };
+        let discovery = connect(&server, transport_cwd, client_info).and_then(|mut client| {
+            let tools = client.list_tools()?;
+            Ok((client, tools))
+        });
+        let Ok((client, tools)) = discovery else {
+            unavailable += 1;
+            continue;
         };
-        let tools = match client.list_tools() {
-            Ok(tools) => tools,
-            Err(_) => {
-                unavailable += 1;
-                continue;
-            }
-        };
-        let matches = tools.iter().filter(|tool| tool.name == name).count();
-        if matches > 1 || (matches == 1 && selected.is_some()) {
+        let mut matches = tools.iter().filter(|tool| tool.name == name);
+        let Some(tool) = matches.next() else { continue };
+        if remote_cwd {
+            unavailable += 1;
+            continue;
+        }
+        if matches.next().is_some() || selected.is_some() {
             return Err(EaiError::config(format!(
                 "MCP tool '{name}' has ambiguous providers"
             )));
         }
-        if matches == 1 {
-            let schema = tools
-                .iter()
-                .find(|tool| tool.name == name)
-                .map(|tool| tool.schema.clone());
-            let upload = tools.iter().any(|tool| tool.name == UPLOAD_TOOL);
-            selected = Some((
-                server_name,
-                server,
-                client,
-                schema.unwrap_or(Value::Null),
-                upload,
-            ));
-        }
+        selected = Some(Session {
+            name: name.to_owned(),
+            registry: registry_path.clone(),
+            server_name,
+            server,
+            schema: tool.schema.clone(),
+            upload: tools.iter().any(|tool| tool.name == UPLOAD_TOOL),
+            client: Some(client),
+        });
     }
-    let (server_name, server, client, schema, upload) = selected.ok_or_else(|| {
-        EaiError::config(format!(
-            "no available authorized MCP provider advertises '{name}' ({unavailable} unavailable)"
-        ))
-    })?;
-    Ok(Box::new(Session {
-        name: name.to_owned(),
-        registry: registry_path,
-        server_name,
-        server,
-        schema,
-        upload,
-        client: Some(client),
-    }))
+    match selected {
+        Some(session) => Ok(Some(Box::new(session))),
+        None if unavailable == 0 => Ok(None),
+        None => Err(no_provider(name, unavailable)),
+    }
 }
 
 const UPLOAD_TOOL: &str = "susi_resource_upload";

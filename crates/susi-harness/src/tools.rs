@@ -102,83 +102,67 @@ impl Registry {
     #[must_use]
     pub fn builtin() -> Self {
         let mut registry = Self::default();
-        registry.register(ToolSpec::native(
+        let mut register = |name, description, properties: Value, required: &[&str]| {
+            let mut schema = json!({"type": "object", "properties": properties});
+            if !required.is_empty() {
+                schema["required"] = json!(required);
+            }
+            registry.register(ToolSpec::native(name, description, schema, Policy::Auto));
+        };
+        register(
             "view_file",
             "Read file lines from the workspace. Lines are 1-indexed. Provide optional start_line and end_line to view a line slice.",
             json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Relative path to file in workspace" },
-                    "start_line": { "type": "integer", "description": "1-based starting line number" },
-                    "end_line": { "type": "integer", "description": "1-based ending line number" }
-                },
-                "required": ["path"]
+                "path": { "type": "string", "description": "Relative path to file in workspace" },
+                "start_line": { "type": "integer", "description": "1-based starting line number" },
+                "end_line": { "type": "integer", "description": "1-based ending line number" }
             }),
-            Policy::Auto,
-        ));
-        registry.register(ToolSpec::native(
+            &["path"],
+        );
+        register(
             "write_to_file",
             "Create a new file in the workspace with content. Refuses a path that already exists: add to an existing file with append_to_file, or change part of it with replace_file_content.",
             json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Relative path to a file that does not exist yet" },
-                    "content": { "type": "string", "description": "Complete text of the new file" }
-                },
-                "required": ["path", "content"]
+                "path": { "type": "string", "description": "Relative path to a file that does not exist yet" },
+                "content": { "type": "string", "description": "Complete text of the new file" }
             }),
-            Policy::Auto,
-        ));
-        registry.register(ToolSpec::native(
+            &["path", "content"],
+        );
+        register(
             "append_to_file",
             "Append content to the end of a workspace file (a newline is inserted first when the file does not end in one); creates the file when it is missing. The way to add a function or test to a large file.",
             json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Relative path to file in workspace" },
-                    "content": { "type": "string", "description": "Text to add at the end of the file" }
-                },
-                "required": ["path", "content"]
+                "path": { "type": "string", "description": "Relative path to file in workspace" },
+                "content": { "type": "string", "description": "Text to add at the end of the file" }
             }),
-            Policy::Auto,
-        ));
-        registry.register(ToolSpec::native(
+            &["path", "content"],
+        );
+        register(
             "replace_file_content",
             "Perform an exact surgical string replacement in a workspace file.",
             json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Relative path to file in workspace" },
-                    "target": { "type": "string", "description": "Exact text substring to match and replace" },
-                    "replacement": { "type": "string", "description": "Replacement text" }
-                },
-                "required": ["path", "target", "replacement"]
+                "path": { "type": "string", "description": "Relative path to file in workspace" },
+                "target": { "type": "string", "description": "Exact text substring to match and replace" },
+                "replacement": { "type": "string", "description": "Replacement text" }
             }),
-            Policy::Auto,
-        ));
-        registry.register(ToolSpec::native(
+            &["path", "target", "replacement"],
+        );
+        register(
             "run_command",
             "Run a shell command inside the workspace directory (e.g. 'cargo check', 'cargo test').",
             json!({
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "Command string to execute" }
-                },
-                "required": ["command"]
+                "command": { "type": "string", "description": "Command string to execute" }
             }),
-            Policy::Auto,
-        ));
-        registry.register(ToolSpec::native(
+            &["command"],
+        );
+        register(
             "list_dir",
             "List file and directory entries within a workspace directory.",
             json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Relative path, or empty for root" }
-                }
+                "path": { "type": "string", "description": "Relative path, or empty for root" }
             }),
-            Policy::Auto,
-        ));
+            &[],
+        );
         registry
     }
 
@@ -264,16 +248,23 @@ impl Registry {
             | "append_to_file"
             | "replace_file_content"
             | "list_dir" => {
-                let workspace = match susi_paths::native_path::encode(workspace) {
+                let native_path = match susi_paths::native_path::encode(workspace) {
                     Ok(path) => path,
                     Err(error) => return format!("tool '{name}' workspace: {error}"),
                 };
-                crate::tool_backend::call_text_in(
-                    &format!("worker_{name}"),
-                    &json!({"workspace": workspace, "arguments": args}),
+                let tool = format!("worker_{name}");
+                match crate::tool_backend::try_call_text_in(
+                    &tool,
+                    &json!({"workspace": native_path, "arguments": args}),
                     Path::new("."),
-                )
-                .unwrap_or_else(|error| format!("tool '{name}' provider failed: {error}"))
+                ) {
+                    Ok(Some(text)) => text,
+                    Ok(None) if name == "list_dir" => return standalone_list_dir(workspace, &args),
+                    Ok(None) => {
+                        standalone_file(workspace, name, &args).unwrap_or_else(|message| message)
+                    }
+                    Err(error) => format!("tool '{name}' provider failed: {error}"),
+                }
             }
             "run_command" => tool_run_command(workspace, &args),
             other => format!("unknown tool '{other}'"),
@@ -300,6 +291,142 @@ pub fn sanitize_path(workspace: &Path, rel: &str) -> Result<PathBuf, String> {
         }
     }
     Ok(workspace.join(clean_rel))
+}
+
+fn standalone_file(workspace: &Path, name: &str, args: &Value) -> Result<String, String> {
+    use std::fs;
+    use std::io::Write;
+    let field = |key: &str| {
+        args[key]
+            .as_str()
+            .ok_or_else(|| format!("missing '{key}' argument"))
+    };
+    let path = field("path")?;
+    if matches!(name, "write_to_file" | "append_to_file") {
+        let content = field("content")?;
+        let file = sanitize_path(workspace, path)?;
+        let refused = || {
+            format!(
+            "refused: '{path}' already exists, and write_to_file only creates files (overwriting a file \
+this call cannot reproduce in full loses the rest of it). To add to the end of it call \
+append_to_file; to change part of it call replace_file_content with the exact text to replace."
+        )
+        };
+        if name == "write_to_file" && file.exists() {
+            return Err(refused());
+        }
+        if let Some(parent) = file.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create parent directories: {error}"))?;
+        }
+        if name == "write_to_file" {
+            let result =
+                fs::File::create_new(&file).and_then(|mut file| file.write_all(content.as_bytes()));
+            match result {
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(refused())
+                }
+                Err(error) => return Err(format!("failed to write to '{path}': {error}")),
+                Ok(()) => {
+                    return Ok(format!(
+                        "successfully wrote {} bytes to '{path}'",
+                        content.len()
+                    ))
+                }
+            }
+        }
+        let existing = match fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(format!("failed to read '{path}': {error}")),
+        };
+        let addition = if existing.is_empty() || existing.ends_with(b"\n") {
+            content.to_owned()
+        } else {
+            format!("\n{content}")
+        };
+        fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(file)
+            .and_then(|mut file| file.write_all(addition.as_bytes()))
+            .map_err(|error| format!("failed to append to '{path}': {error}"))?;
+        return Ok(format!(
+            "successfully appended {} bytes to '{path}' ({} bytes before)",
+            content.len(),
+            existing.len()
+        ));
+    }
+    let edit = if name == "replace_file_content" {
+        Some((field("target")?, field("replacement")?))
+    } else {
+        None
+    };
+    let file = sanitize_path(workspace, path)?;
+    if !file.exists() {
+        return Err(format!("file '{path}' does not exist"));
+    }
+    let text =
+        fs::read_to_string(&file).map_err(|error| format!("failed to read '{path}': {error}"))?;
+    if let Some((target, replacement)) = edit {
+        match text.matches(target).count() {
+            0 => return Err(format!("target substring not found in '{path}'")),
+            1 => {},
+            count => return Err(format!("target matches {count} occurrences in '{path}'; make target more specific to match exactly once")),
+        }
+        fs::write(file, text.replace(target, replacement))
+            .map_err(|error| format!("failed to write '{path}': {error}"))?;
+        return Ok(format!("successfully replaced target in '{path}'"));
+    }
+    if text.is_empty() {
+        return Ok("(empty file)".into());
+    }
+    let total = text.lines().count();
+    let start = (args["start_line"].as_u64().unwrap_or(1) as usize)
+        .saturating_sub(1)
+        .min(total);
+    let end = args["end_line"]
+        .as_u64()
+        .map_or(total, |n| (n as usize).min(total));
+    if end < start {
+        return Err("invalid line range: end_line precedes start_line".into());
+    }
+    Ok(text
+        .lines()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .map(|(offset, line)| format!("{:>5}: {line}\n", offset + 1))
+        .collect())
+}
+
+fn standalone_list_dir(workspace: &Path, args: &Value) -> String {
+    let path = args["path"].as_str().unwrap_or_default().trim();
+    let directory = match sanitize_path(workspace, path) {
+        Ok(directory) => directory,
+        Err(error) => return error,
+    };
+    if !directory.exists() {
+        return format!("directory '{path}' does not exist");
+    }
+    let contents = match std::fs::read_dir(directory) {
+        Ok(contents) => contents,
+        Err(error) => return format!("failed to read directory: {error}"),
+    };
+    let mut names = Vec::new();
+    for entry in contents.flatten() {
+        let mut name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            name.push('/');
+        }
+        names.push(name);
+    }
+    names.sort();
+    if names.is_empty() {
+        "(empty directory)".into()
+    } else {
+        names.join("\n")
+    }
 }
 
 fn tool_run_command(workspace: &Path, args: &Value) -> String {
