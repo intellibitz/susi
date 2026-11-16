@@ -65,7 +65,7 @@ gates apply to release branches and snapshots. Verify the remote contains a comm
 claiming publication. Only refs/heads/main is a remote branch; handoffs use refs/agents/ and \
 release lines refs/candidates/release/. Release tags are immutable. Each commit carries \
 Task: T-<AGENT>-<n> or native Task: LOCAL-<name>. A reservation or compile is not acceptance: \
-close only after the entire acceptance check passes on the actual combined tree.
+close only after the entire acceptance check passes on the actual combined tree. Keep commits tidy.
 5. Tests are hermetic: private HOME/USERPROFILE/XDG/SUSI_HOME, ports, local remotes and \
 scratch configuration, no production state or real credentials. Clear child environments and \
 prove fixture routing before mutation. Never install an unqualified candidate as production. \

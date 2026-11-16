@@ -205,6 +205,13 @@ publication; retry a lost integration race against the new head.
   at most 25 lines in a change; new code goes into a focused module. Remove what
   nothing uses in the change that leaves it unused. Follow the crate's existing
   patterns; comments say why. Clear debt you meet in its own commit.
+- Keep commits tidy. Each commit is one whole change that builds and passes what
+  it affects, with its task and other trailers together in the final paragraph.
+  Its subject says what in at most 72 characters, with no trailing period; a
+  change over 100 lines has a body that says why, what it found and what it
+  leaves out. Commit only source: no build output, scratch, local state, blob of
+  1 MiB or more, or secret; rotate a committed secret at once. Never rewrite
+  published history; correct a published mistake with a new commit.
 - Return typed `Result<T, EaiError>` from I/O, state and IPC. Prefer infallible
   constructors; preserve poison recovery and pre-epoch timestamp fallback.
 - Keep the leaf dependency order `paths → error → config → core/sandbox →
