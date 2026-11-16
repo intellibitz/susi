@@ -642,14 +642,7 @@ fn gmcp_req_203_016_06_operations() {
     let ledger_sha = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
-    let evidence_dir = root.join(".agents/gmcp/evidence");
-    assert!(evidence_dir.is_dir(), ".agents/gmcp/evidence must exist");
-    let evidence_files: Vec<PathBuf> = std::fs::read_dir(&evidence_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
-        .collect();
+    let evidence_files = gmcp_evidence_files(root);
     assert!(!evidence_files.is_empty());
     for file in evidence_files {
         let records = newest_records(&std::fs::read_to_string(&file).unwrap());
@@ -1104,7 +1097,7 @@ fn gmcp_vc_203_016_mastery() {
     assert!(check_ev(&unlinked_txt, false).is_err());
 
     // Live VC-203-016 committed evidence must satisfy every single rule strictly.
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-016.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-016.jsonl"))
         .expect("VC-203-016 must retain an evidence artifact");
     let covered = check_ev(&evidence, true)
         .expect("committed VC-203-016.jsonl must pass full strict verification");

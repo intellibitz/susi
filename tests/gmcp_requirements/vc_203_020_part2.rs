@@ -673,17 +673,15 @@ fn gmcp_req_203_020_06_operations() {
     }
 
     let ledger_sha = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap()));
-    let ev_dir = root.join(".agents/gmcp/evidence");
     let mut ev_count = 0usize;
-    for entry in std::fs::read_dir(&ev_dir).unwrap() {
-        let path = entry.unwrap().path();
+    for path in gmcp_evidence_files(root) {
         if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             ev_count += 1;
             let records = newest_records(&std::fs::read_to_string(&path).unwrap());
             assert!(!records.is_empty() && records.iter().all(|r| r["exit"] == 0 && r["artifact_sha256"] == ledger_sha));
         }
     }
-    assert!(ev_count >= 16 && ev_dir.join("VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
+    assert!(ev_count >= 16 && gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl").is_file() && root.join(".agents/roadmap-verdicts/VC-203-020.json").is_file());
 
     let disk_bytes = adapter_tree_bytes(&sdk_tasks);
     assert!(
@@ -996,7 +994,7 @@ fn gmcp_vc_203_020_mastery() {
     }
     assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
 
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-020.jsonl")).unwrap();
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-020.jsonl")).unwrap();
     assert_eq!(check_ev(&evidence, true).expect("VC-203-020.jsonl valid").len(), 6);
 
     // 5. Roadmap, verdict, closed prerequisite tasks & clean working tree checks.

@@ -888,7 +888,7 @@ fn gmcp_req_203_004_06_operations() {
     let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-004.jsonl"))
         .expect("VC-203-004 must retain evidence");
     let record = newest_records(&evidence)
         .into_iter()
@@ -1047,7 +1047,7 @@ fn gmcp_vc_203_004_mastery() {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-004.jsonl"))
         .expect("VC-203-004 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
     let artifacts = evidence_artifacts(root, "VC-203-004");

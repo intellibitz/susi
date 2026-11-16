@@ -932,7 +932,7 @@ fn gmcp_vc_203_001_mastery() {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-001.jsonl"))
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-001.jsonl"))
         .expect("VC-203-001 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
     let artifacts = evidence_artifacts(root, "VC-203-001");

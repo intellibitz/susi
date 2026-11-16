@@ -880,14 +880,7 @@ fn gmcp_req_203_014_06_operations() {
     let ledger_sha = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
-    let evidence_dir = root.join(".agents/gmcp/evidence");
-    assert!(evidence_dir.is_dir(), ".agents/gmcp/evidence must exist");
-    let evidence_files: Vec<PathBuf> = std::fs::read_dir(&evidence_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
-        .collect();
+    let evidence_files = gmcp_evidence_files(root);
     assert!(!evidence_files.is_empty());
     for file in evidence_files {
         let records = newest_records(&std::fs::read_to_string(&file).unwrap());
@@ -1780,7 +1773,7 @@ fn gmcp_vc_203_014_mastery() {
     }
     assert!(check_ev(&format!("{good_text}\n{}", good_lines[0]), false).is_err());
 
-    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-014.jsonl")).unwrap();
+    let evidence = std::fs::read_to_string(gmcp_evidence_path(root, ".agents/gmcp/evidence/VC-203-014.jsonl")).unwrap();
     assert_eq!(check_ev(&evidence, true).expect("VC-203-014.jsonl valid").len(), 6);
 
     let roadmap_json: Value = serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap()).unwrap();

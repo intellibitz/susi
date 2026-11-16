@@ -77,11 +77,11 @@ Every interaction completes within its declared deadline or is cancelled with a 
 
 ## Fixtures
 
-Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-203-011.jsonl, keyed by row id; the tests consume them.
+Positive and negative fixtures live in `.agents/gmcp/fixtures/`; current run records live in .susi/records/gmcp/evidence/VC-203-011.jsonl, keyed by row id. The tests consume both.
 
 ## Evidence locations
 
-.agents/gmcp/evidence/VC-203-011.jsonl holds the retained evidence; the acceptance test binds this document to the ledger.
+.susi/records/gmcp/evidence/VC-203-011.jsonl holds the retained evidence; the acceptance test binds this document to the ledger.
 
 ## Ambiguities resolved
 
@@ -132,7 +132,7 @@ susi mcp status
 # 2. Run air-gapped standards drift detection against vendored MCP prompt/completion specs
 susi mcp ledger --drift --refetched .agents/gmcp/spec
 
-# 3. Verify VC-203-011 operations and re-record append-only evidence
+# 3. Verify VC-203-011 operations and refresh current local evidence
 cargo test --offline --locked --test gmcp_requirements gmcp_req_203_011_06_operations
 cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp
 cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp --mastery
@@ -140,7 +140,7 @@ cargo run --offline --locked -p xtask --features release-tooling --bin local-rel
 
 ### Incident triage
 
-Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte stdio limit startup refusal, `stdout` non-JSON frame leak, HTTP `Mcp-Name` validation bypass, or stale-cursor acceptance across `Change::Prompts` catalog mutations as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `stderr` diagnostics, failing request envelope or `config.json`, and latest `.agents/gmcp/evidence/VC-203-*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_011`.
+Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-byte stdio limit startup refusal, `stdout` non-JSON frame leak, HTTP `Mcp-Name` validation bypass, or stale-cursor acceptance across `Change::Prompts` catalog mutations as a release-blocking incident. Preserve the `susi mcp ledger --drift` JSON report, `stderr` diagnostics, failing request envelope or `config.json`, and latest `.susi/records/gmcp/evidence/VC-203-*.jsonl` proof records before remediation, then re-verify `gmcp_req_203_011`.
 
 ### Migration (re-pinning the prompt and completion standards)
 
@@ -151,7 +151,7 @@ Treat any `verified: false` drift finding (`hash_drift` or `unfetchable`), zero-
 
 ### Rollback
 
-All specifications, contract prose, ledger bindings, tests, and JSONL evidence chains are immutable, versioned Git artifacts. Revert a faulty prompt/completion schema or transport header change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, and run `gmcp_req_203_011_06_operations` plus the two-phase evidence recorder. Never delete or rewrite historical lines inside `.agents/gmcp/evidence/*.jsonl`.
+Specifications, contract prose, ledger bindings and tests are versioned Git artifacts; operational evidence uses local current snapshots. Revert a faulty prompt/completion schema or transport header change with `git revert <commit>`, re-validate `~/.susi/config.json` (`susi_config::validate::validate_dir`), verify `susi mcp ledger --drift --refetched .agents/gmcp/spec` passes cleanly, and run `gmcp_req_203_011_06_operations` plus the two-phase evidence recorder. Refresh local snapshots after the checks pass; optional history may be absent.
 
 ## Production guarantees and non-claims
 

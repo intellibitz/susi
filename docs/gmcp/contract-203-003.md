@@ -184,8 +184,8 @@ Existing fixtures this vector also binds:
 
 ## Evidence locations
 
-`.agents/gmcp/evidence/VC-203-003.jsonl` is this vector's append-only
-evidence artifact (convention: `.agents/gmcp/evidence/README.md`). Each
+`.susi/records/gmcp/evidence/VC-203-003.jsonl` is this vector's current local
+evidence snapshot (convention: `.agents/gmcp/evidence/README.md`). Each
 work package records its requirement id, check command, exit status,
 detail, timestamp, artifact hash, and identity.
 

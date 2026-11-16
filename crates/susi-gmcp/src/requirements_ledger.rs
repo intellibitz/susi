@@ -233,16 +233,16 @@ impl TraceAudit {
             (&trace.production_path, &mut self.missing_production),
             (&trace.evidence, &mut self.missing_evidence),
         ] {
-            let exists = if let Some(exists) = self.paths.get(path) {
-                *exists
-            } else {
-                let exists = confined_document(path).is_ok() && root.join(path).exists();
-                self.paths.insert(path.clone(), exists);
-                exists
-            };
-            if !exists {
-                *count += 1;
-            }
+            let exists = self.paths.entry(path.clone()).or_insert_with(|| {
+                confined_document(path).is_ok()
+                    && (root.join(path).exists()
+                        || path
+                            .strip_prefix(".agents/gmcp/evidence/")
+                            .is_some_and(|name| {
+                                root.join(".susi/records/gmcp/evidence").join(name).exists()
+                            }))
+            });
+            *count += usize::from(!*exists);
         }
     }
 }
