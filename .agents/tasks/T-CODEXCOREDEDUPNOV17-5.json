@@ -1,0 +1,30 @@
+{
+  "id": "T-CODEXCOREDEDUPNOV17-5",
+  "title": "Restore the public storage witness on standalone installations",
+  "goal": "Vision: V-6. Retain native Git storage audits and directed-deletion witness behavior in a clean core installation, keeping the authorized workflow provider authoritative when installed.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "storage_guard"
+    ]
+  },
+  "created_by": "CODEXCOREDEDUPNOV17",
+  "created_unix": 1794860549,
+  "scopes": [
+    "crates/susi-harness/src/storage_guard.rs",
+    "crates/susi-harness/src/tests/storage_guard.rs",
+    ".agents/tasks/T-CODEXCOREDEDUPNOV17-5.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reused the original Apache-2.0 guard and tests at 43664bd065, the wire Report, and git_governor::workflow_call_or. xtask storage/tap commands reexport this same public guard. The paired provider remains authoritative."
+  }
+}
