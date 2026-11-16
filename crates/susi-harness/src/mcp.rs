@@ -81,6 +81,9 @@ pub trait Transport: Send {
     /// carries it on the wire (HTTP's `MCP-Protocol-Version`) can send it.
     fn set_protocol_version(&mut self, _version: &str) {}
 
+    /// Set the deadline for subsequent messages.
+    fn set_timeout(&mut self, _timeout: Duration) {}
+
     /// Release any session owned by this transport.
     ///
     /// # Errors
@@ -251,6 +254,18 @@ impl<T: Transport> McpClient<T> {
             .collect()
     }
 
+    /// Change the deadline for subsequent MCP exchanges.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.transport.set_timeout(timeout);
+    }
+
+    /// Call once and preserve the MCP result, including structured content and
+    /// explicit tool errors. Transport errors remain errors; no call is replayed.
+    pub fn call_result(&mut self, name: &str, arguments: &Value) -> EaiResult<Value> {
+        self.initialize()?;
+        self.request("tools/call", json!({"name":name,"arguments":arguments}))
+    }
+
     /// Call one tool and return its text content.
     ///
     /// Non-text content is returned as its JSON form so a caller never gets an
@@ -260,8 +275,7 @@ impl<T: Transport> McpClient<T> {
     ///
     /// Returns the server's error or a transport error.
     pub fn call(&mut self, name: &str, arguments: &Value) -> EaiResult<String> {
-        self.initialize()?;
-        let result = self.request("tools/call", json!({"name": name, "arguments": arguments}))?;
+        let result = self.call_result(name, arguments)?;
         let is_error = result
             .get("isError")
             .and_then(Value::as_bool)
@@ -433,9 +447,19 @@ impl StdioTransport {
         }
         cmd.env("SUSI_UNATTENDED", "1");
         susi_paths::console::apply_non_interactive_env(&mut cmd);
-        let mut child = cmd
+        let child = cmd
             .spawn()
             .map_err(|error| EaiError::io(format!("mcp spawn {program}: {error}")))?;
+        Self::from_child(child)
+    }
+
+    /// Connect an already authorized child with piped stdin and stdout.
+    pub fn from_child(mut child: Child) -> EaiResult<Self> {
+        if child.stdin.is_none() || child.stdout.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(EaiError::internal("mcp: child has missing protocol pipes"));
+        }
         let stdin = child
             .stdin
             .take()
@@ -484,6 +508,10 @@ impl StdioTransport {
 }
 
 impl Transport for StdioTransport {
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout.max(Duration::from_millis(1));
+    }
+
     fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
         let line = serde_json::to_string(request)
             .map_err(|error| EaiError::internal(format!("mcp request: {error}")))?;
@@ -542,6 +570,7 @@ pub struct HttpSocketTransport {
     bearer: Option<crate::secrets::Credential>,
     session_id: Option<String>,
     protocol_version: Option<String>,
+    headers: Vec<(String, String)>,
 }
 
 impl HttpSocketTransport {
@@ -555,6 +584,7 @@ impl HttpSocketTransport {
             bearer: None,
             session_id: None,
             protocol_version: None,
+            headers: Vec::new(),
         }
     }
 
@@ -569,6 +599,33 @@ impl HttpSocketTransport {
     pub fn with_timeout_secs(mut self, timeout_secs: u64) -> Self {
         self.timeout_secs = timeout_secs.max(1);
         self
+    }
+
+    /// Add application headers without allowing protocol/framing overrides.
+    pub fn with_headers(mut self, headers: Vec<(String, String)>) -> EaiResult<Self> {
+        for (name, value) in &headers {
+            if name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+                || value.bytes().any(|byte| byte == b'\r' || byte == b'\n')
+                || matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "host"
+                        | "content-length"
+                        | "transfer-encoding"
+                        | "connection"
+                        | "content-type"
+                        | "accept"
+                        | "mcp-session-id"
+                        | "mcp-protocol-version"
+                )
+            {
+                return Err(EaiError::config("invalid or reserved MCP HTTP header"));
+            }
+        }
+        self.headers = headers;
+        Ok(self)
     }
 
     /// Send `Authorization: Bearer <token>` on every message.
@@ -626,6 +683,11 @@ impl HttpSocketTransport {
         if let Some(authorization) = authorization.as_deref() {
             headers.push(("authorization", authorization));
         }
+        headers.extend(
+            self.headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        );
         let call = susi_http_transport::http_call_with_body(
             "POST",
             &self.url,
@@ -643,6 +705,10 @@ impl HttpSocketTransport {
 }
 
 impl Transport for HttpSocketTransport {
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout_secs = timeout.as_secs().max(1);
+    }
+
     fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
         let call = self.post(request)?;
         let status = call.status;
@@ -702,6 +768,11 @@ impl Transport for HttpSocketTransport {
         if let Some(authorization) = authorization.as_deref() {
             headers.push(("authorization", authorization));
         }
+        headers.extend(
+            self.headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        );
         let call = susi_http_transport::http_call_with_body(
             "DELETE",
             &self.url,

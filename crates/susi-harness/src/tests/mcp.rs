@@ -128,6 +128,42 @@ fn mcp_surfaces_a_tool_result_error_instead_of_returning_success_text() {
     assert!(error.contains("tools/call 'read_file' failed"), "{error}");
     assert!(error.contains("permission denied"), "{error}");
 }
+
+#[test]
+fn raw_tool_result_preserves_structured_content_empty_text_and_errors() {
+    for result in [
+        json!({"content":[{"type":"text","text":""}],"structuredContent":{"text":""},"isError":false}),
+        json!({"content":[{"type":"text","text":"{\"kind\":\"Config\"}"}],"isError":true}),
+    ] {
+        let mut client = McpClient::new(Scripted::new(vec![
+            initialized(),
+            response(2, result.clone()),
+        ]));
+        assert_eq!(client.call_result("tool", &json!({})).unwrap(), result);
+        assert_eq!(client.transport.requests.len(), 2);
+    }
+}
+
+#[test]
+fn configured_http_headers_cannot_override_protocol_or_frame_messages() {
+    for (name, value) in [
+        ("MCP-Session-Id", "foreign"),
+        ("Content-Length", "0"),
+        ("Authorization", "Bearer bad\r\nInjected: true"),
+        ("bad header", "value"),
+    ] {
+        assert!(HttpSocketTransport::new("http://127.0.0.1:9090/mcp")
+            .with_headers(vec![(name.into(), value.into())])
+            .is_err());
+    }
+    let transport = HttpSocketTransport::new("http://127.0.0.1:9090/mcp")
+        .with_headers(vec![
+            ("Authorization".into(), "Bearer fixture".into()),
+            ("X-Client".into(), "fixture".into()),
+        ])
+        .unwrap();
+    assert_eq!(transport.headers.len(), 2);
+}
 #[test]
 fn stdio_skips_notifications_before_the_json_rpc_response() {
     let stream = concat!(
