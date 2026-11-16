@@ -1,0 +1,37 @@
+{
+  "id": "T-AGYE2EPILLARS-2",
+  "title": "Eliminate stdio child exit race in susi-harness mcp stdio transport test",
+  "goal": "Wait for stdin request line before printf and raise StdioTransport timeout in crates/susi-harness/src/tests/mcp.rs::stdio_transport_reads_a_response_from_the_reader_worker so parallel cargo runs never hit Broken pipe (os error 32).",
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "2",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mcp"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794805358,
+  "native_worker": "antigravity",
+  "owner": "antigravity",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Checked all StdioTransport::spawn call sites across crates/.",
+    "reason": "Reuses the existing IFS= read -r stdin synchronization pattern used by the sibling StdioTransport tests in crates/susi-harness/src/tests/mcp.rs."
+  },
+  "schema": "susi.task_record/v1",
+  "scopes": [
+    ".agents/tasks/T-AGYE2EPILLARS-2.json",
+    ".agents/tasks/done/T-AGYE2EPILLARS-2.json",
+    "crates/susi-harness/src/tests/mcp.rs"
+  ],
+  "status": "in_progress"
+}
