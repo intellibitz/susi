@@ -43,5 +43,6 @@
                    ".agents/tasks/done/T-ZCSETBACKUP1104-1.json",
                    ".agents/tasks/done/T-ZCVERSETUP1104-1.json",
                    "tests/task_record_schema_debt.json"
-               ]
+               ],
+    "implementation_commit":  "330f2218f7a855cb726863ab574dffd417160264"
 }
