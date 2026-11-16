@@ -3,7 +3,7 @@
   "title": "Share HTTP write delegation and token validation",
   "goal": "Vision: V-6. Reduce repeated AsyncWrite/Hyper Write forwarding and RFC token validation while preserving public APIs, byte acceptance, pin projection, dispatch and every test.",
   "size": "m",
-  "status": "ready_for_integration",
+  "status": "completed",
   "created_by": "CODEX100KHTTPWRITE",
   "scopes": [
     "crates/susi-http-transport/src/http_conn.rs",
@@ -43,5 +43,18 @@
     "source_parity": "/workspace/codex/core-100k-http-write-state/source-parity.json",
     "zero_doctests_not_counted_as_test_pass": true
   },
-  "updated_unix": 1794836268
+  "updated_unix": 1794836268,
+  "phase": "integrated_verified_published",
+  "closed": {
+    "at_unix": 1794836639,
+    "commit": "77d03701e0724468d008537e5254e9338b89fb95",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "77d03701e0724468d008537e5254e9338b89fb95"
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-http-write-integrated.json",
+  "integration_result": "72 runtime lines removed;48existing package tests,1194242tokencomparisons,methodbody/testtail parity,strictClippy,fmt/socket/task checks passed on integratedLinuxdevelopment tree. Source and evidence remoteverified. Complete307737-line goal remains open."
 }
