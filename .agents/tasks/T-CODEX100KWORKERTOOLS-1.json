@@ -1,0 +1,62 @@
+{
+  "id": "T-CODEX100KWORKERTOOLS-1",
+  "title": "Prove native six-tool contracts across a real MCP child",
+  "goal": "Vision: V-6. Establish test-only valid-object worker tool preservation over standard MCP before any production backend or removal; zero reduction credit.",
+  "size": "m",
+  "status": "ready_for_integration",
+  "created_by": "CODEX100KWORKERTOOLS",
+  "scopes": [
+    "Cargo.toml",
+    "tests/harness_worker_mcp_parity.rs"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "harness_worker_mcp_parity",
+      "--",
+      "--run"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing Registry::builtin/execute and six handler contracts, McpHost connect_duplex/list_tools_bounded/call_tool, workload_process spawn/Tree, test_env home isolation, prior direct-vs-harness_run parity fixture.",
+    "reason": "A custom harness=false test reexecutes its own binary and links the existing production libraries; no shipped fixture binary, nested Cargo invocation, dependency, handler copy, or production backend needed."
+  },
+  "created_unix": 1794834194,
+  "base": "2cf495799602d3cf7acfd39eff681cbcf99c4782",
+  "constraints": [
+    "Test and fixture only; no production behavior/implementation/counting boundary changes.",
+    "Native x86_64 Linux verification only; no Windows qualification claim.",
+    "No external Board/provider/network traffic; cleared child environments and owned private homes/resources.",
+    "Parent owns integration/publication; no pushes.",
+    "Max build jobs2, private compiler/target/home, monitor limited disk.",
+    "Preserve standard MCP arguments object semantics; characterize direct malformed/nonobject inputs separately without normalization."
+  ],
+  "evidence": {
+    "handoff": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-boundary-handoff.json",
+    "validation": "passed explicit custom harness:40 transported,17 local refusals,40 raw characterizations,10 wire rejections,one lost mutation/no replay; strict Clippy, formatting,diffcheck passed. Default invocation skipped; malformed --run invocation exits2.",
+    "report": "/workspace/codex/core-100k-boundary-state/harness-worker-tool-parity-evidence.json",
+    "fixture_root": "/workspace/codex/susi-core-100k-worker-tools/target/worker-mcp-parity/456777-1794835368511735763",
+    "source_sha256": "9844841904e7f5839c07aedaea83da8dd381859a59173a01216acfbbf79d40c4",
+    "runtime_lines_changed": 0,
+    "reduction_credit": 0,
+    "limits": [
+      "Windows/native platforms other than x86_64 Linux",
+      "production worker transport integration",
+      "large command output, command timeout and existing path-race behavior",
+      "full protocol conformance or release qualification",
+      "typed MCP isError mapping: native handlers return untyped strings",
+      "outer-suite forced termination is bounded by child self-expiry, not a demonstrated immediate nested-group cleanup",
+      "Existing native view_file reversed-range slice panic was neither changed nor transported; reversed-range behavior remains an explicit preservation gap."
+    ],
+    "tested_head": "79275ad60a2acea507689546e65d979d932c8656",
+    "optional_arguments": "MCP omission defaults to {}; positive case passed. Null/nonobjects rejected without normalization."
+  }
+}
