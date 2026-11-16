@@ -1,0 +1,42 @@
+{
+  "schema": "susi.protocol-gap-audit/v1",
+  "recorded_unix": 1794823427,
+  "susi_baseline": "a30aca7107633c3a7db471ec692403e821afaeb6",
+  "vision": "V-6",
+  "official_repository": "https://github.com/agentclientprotocol/agent-client-protocol.git",
+  "official_commit": "13b765828f961812f0c78ae577220e994209fa2f",
+  "official_commit_date": "2026-11-14T12:51:38+01:00",
+  "schema_path": "schema/v1/schema.json",
+  "schema_sha256": "e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21",
+  "protocol_version": 1,
+  "baseline_source_sha256": "5413ceeb493781d65594eb3d99af64f443022f732f962bed2d3c71ab6bc6add4",
+  "observations": [
+    {
+      "requirement": "integer protocolVersion and standard initialize reply",
+      "baseline": "dispatch_initialize parses strings only and returns protocol_version/agent_info/custom capabilities; integer1 is treated as missing"
+    },
+    {
+      "requirement": "session/new cwd and mcpServers, result sessionId",
+      "baseline": "dispatch_session_new uses workspace, ignores cwd/mcpServers and serializes session_id"
+    },
+    {
+      "requirement": "session/prompt session/update notifications and stopReason",
+      "baseline": "legacy output uses embedded events and stop_reason; stdio drops event callback"
+    },
+    {
+      "requirement": "idless cancellation can be processed during a running prompt",
+      "baseline": "serve_reader_writer dispatches prompts synchronously and replies even to notifications"
+    },
+    {
+      "requirement": "all agents support client-supplied stdio MCP servers",
+      "baseline": "no bridge found in ACP engine; blanket refusal or ignoring configs cannot qualify full v1"
+    }
+  ],
+  "verification_limits": [
+    "Existing27 live host checks pass but ACP portion targets legacy Susi extension; it is not normative v1 certification.",
+    "Official v1 uses stdio; custom HTTP transport does not itself establish the required lifecycle.",
+    "Agent Communication Protocol is distinct from Agent Client Protocol.",
+    "Read-only official schema/spec references are outside the production repository; no upstream implementation or dependencies imported.",
+    "No runtime/API/feature removed by this audit. Core size remains305301 until new measured source changes."
+  ]
+}

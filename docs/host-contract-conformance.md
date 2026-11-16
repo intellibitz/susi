@@ -15,6 +15,30 @@ port offset defaults to `SUSI_PORT_OFFSET`. An explicit `--token-file` that hold
 (warnings allowed), `1` a check failed, `2` bad usage. `--json` prints one
 machine-readable report.
 
+## Standards coverage
+
+A passing host-contract report verifies the checks listed here. It is not
+complete certification against every normative MCP, A2A or ACP requirement.
+The current `acp.*` checks exercise Susi's legacy ACP extension, including its
+string revision `2026-11-11`; they do not establish Agent Client Protocol v1
+interoperability. Agent Client Protocol and Agent Communication Protocol are
+separate protocols.
+
+The Agent Client Protocol v1 reference audited for Vision V-6 is
+[`13b765828f961812f0c78ae577220e994209fa2f`](https://github.com/agentclientprotocol/agent-client-protocol/tree/13b765828f961812f0c78ae577220e994209fa2f),
+released on 2026-11-14. Its `schema/v1/meta.json` specifies integer version 1;
+`schema/v1/schema.json` has SHA-256
+`e747a7bec3c02708b70885bf3cccac5c72fa421390dd7e85758fd61e33b1ae21`.
+At Susi `a30aca710`, known differences include the initialize response,
+`cwd`/`mcpServers` session creation, camelCase result fields,
+`session/update` notifications, and processing cancellation while a stdio
+prompt is running. Official v1 also requires support for client-supplied
+stdio MCP servers; an adapter that ignores or rejects every supplied server
+cannot establish that requirement. Existing Susi interfaces must remain
+compatible while these gaps are repaired. Validate method-specific named
+schema definitions and behavior; the generic JSON-RPC envelope alone does
+not validate a method's parameters.
+
 ## Checks
 
 | Id | Contract |
@@ -69,7 +93,8 @@ likewise internal: standard Bearer clients never need it.
 ## Scope
 
 The suite is black-box: standard library HTTP/1.1, UDP and JSON only, no Susi
-internals. It does not start or stop the host and never sends goals,
-credentials or model downloads. Two checks do more than read the host and run
-only when asked: `--inference` (one local, 1-token completion) and
-`--susi-bin` (starts and stops one `susi mcp serve` child).
+internals. It does not start or stop the host or download models. Authenticated
+ACP checks create and close a session. Optional checks include `--inference`
+(one local, 1-token completion), `--susi-bin` (starts and stops MCP and ACP
+stdio children), and a supplied signed UDP discovery probe. Record optional
+skips explicitly instead of reporting them as exercised behavior.
