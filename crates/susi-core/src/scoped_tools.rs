@@ -20,9 +20,20 @@ pub struct ScopedTool {
     pub required_actions: Vec<(String, String)>,
 }
 
+/// One owned tool attempt. The dispatcher reports its typed final result
+/// after authority, execution and cancellation checks. Implementations may
+/// use `Drop` to report an interrupted attempt when dispatch unwinds.
+pub trait ScopedToolObserver: Send {
+    fn finished(&mut self, outcome: &Result<String, String>);
+}
+
 /// An owned tool connection. Implementations keep credentials out of catalog rows.
 pub trait ScopedToolProvider: Send + Sync {
     fn tools(&self) -> &[ScopedTool];
+    /// Optional observation only; this grants no authority to execute.
+    fn observe_call(&self, _name: &str) -> Option<Box<dyn ScopedToolObserver>> {
+        None
+    }
     /// Refuse a permanently closed owner or otherwise unavailable connection.
     fn check(&self) -> Result<(), String>;
     /// Called only after the normal tool authority and evidence checks.
@@ -65,6 +76,12 @@ impl ToolScope {
 
     pub fn resolve(&self, name: &str) -> Option<&ScopedTool> {
         self.tools().iter().find(|tool| tool.name == name)
+    }
+
+    /// Unknown and legacy names never create an owned-tool observer.
+    pub fn observe_call(&self, name: &str) -> Option<Box<dyn ScopedToolObserver>> {
+        self.resolve(name)?;
+        self.provider.observe_call(name)
     }
 
     /// Pass the original turn token explicitly, even when a DAG child has
