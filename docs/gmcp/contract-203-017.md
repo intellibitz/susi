@@ -1,6 +1,6 @@
 # Contract GMCP-203-017-01 — Complete MCP client and host
 
-Status: **contract pinned** (requirement `GMCP-203-017-01`, vector `VC-203-017`)
+Status: **delivered** (requirements GMCP-203-017-01..06 + GMCP-203-017-M, vector VC-203-017)
 Baseline date: **2026-11-16**
 
 ## Normative clause
@@ -323,17 +323,19 @@ authorities pinned in `.agents/gmcp/sources.json` and vendored under `.agents/gm
 ## Evidence locations
 
 - **Contract & acceptance tests**: `docs/gmcp/contract-203-017.md`,
-  `tests/gmcp_requirements.rs`, and `tests/gmcp_requirements/vc_203_017.rs`
+  `tests/gmcp_requirements.rs`, `tests/gmcp_requirements/vc_203_017.rs`, and
+  `tests/gmcp_requirements/vc_203_017_part2.rs`
   (`gmcp_req_203_017_01_contract` through `gmcp_req_203_017_06_operations` and
   `gmcp_vc_203_017_mastery`).
 - **Pinned upstream corpus & ledger**: `.agents/gmcp/sources.json`,
   `.agents/gmcp/requirements-ledger.json` (`CLAIM-04`), and `.agents/gmcp/spec/`.
-- **Retained append-only evidence & verdict (strictly absent until `.M` Mastery)**:
+- **Retained append-only evidence & verdict**:
   `.agents/gmcp/evidence/VC-203-017.jsonl` and
-  `.agents/roadmap-verdicts/VC-203-017.json` **MUST NOT** exist during stages
-  `.01` through `.06` (`T-CODEXGMCPROADMAP-114`..`119`) and are minted only in
-  `T-CODEXGMCPROADMAP-120` (`[GMCP 203.017.M] Mastery`) once all stage `01..06`
-  checks and `gmcp_vc_203_017_mastery` pass on `HEAD`.
+  `.agents/roadmap-verdicts/VC-203-017.json` remained absent during stages
+  `.01` through `.06` (`T-CODEXGMCPROADMAP-114`..`119`) and are sealed in
+  `T-CODEXGMCPROADMAP-120` (`[GMCP 203.017.M] Mastery`) via two-phase
+  `scripts/gmcp-record-evidence.sh` + `--mastery` once all stage `01..06`
+  checks and `gmcp_vc_203_017_mastery` pass on the shipped runtime.
 
 ## Ambiguities resolved
 
