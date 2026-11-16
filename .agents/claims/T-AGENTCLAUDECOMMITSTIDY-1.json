@@ -8,5 +8,5 @@
   "task": "T-AGENTCLAUDECOMMITSTIDY-1",
   "agent": "AGENTCLAUDECOMMITSTIDY",
   "claimed_unix": 1794851560,
-  "lease_until_unix": 1794855160
+  "lease_until_unix": 1794855336
 }
