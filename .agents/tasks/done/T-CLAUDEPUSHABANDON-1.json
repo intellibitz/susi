@@ -18,12 +18,17 @@
   },
   "created_by": "CLAUDEPUSHABANDON",
   "created_unix": 1794833836,
-  "scopes": [
-    "xtask/src/push_policy.rs",
-    "xtask/tests/native_push_policy.rs"
-  ],
+  "closed": {
+    "at_unix": 1794833922,
+    "commit": "cba641ffe86ba40e33b82df5020ece648ab46567",
+    "by": "CLAUDEDENYSTALE"
+  },
   "limitations": [
     "Admits the namespace on the local transport check only; whether the remote accepts the push is the remote's own decision (a cloud session's storage refuses it).",
     "Main is unqualified development, not a release."
+  ],
+  "scopes": [
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
   ]
 }
