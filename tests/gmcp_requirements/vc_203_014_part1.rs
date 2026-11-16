@@ -358,7 +358,7 @@ fn gmcp_req_203_014_02_production() {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
             if matches!(name, "prod_echo" | "prod_wait") {
-                Ok(json!({ "exists": true }))
+                Ok(json!({ "exists": true}))
             } else {
                 PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
             }
@@ -382,17 +382,17 @@ fn gmcp_req_203_014_02_production() {
                     echo_runs.fetch_add(1, Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(20));
                     let msg = args.get("msg").and_then(Value::as_str).unwrap_or("");
-                    Ok(json!({ "text": format!("echo:{msg}") }))
+                    Ok(json!({ "text": format!("echo:{msg}")}))
                 }
                 "prod_wait" => {
                     for _ in 0..300 {
                         if susi_core::progress::is_cancelled() {
                             wait_cancelled.store(true, Ordering::Release);
-                            return Ok(json!({ "text": "cancelled" }));
+                            return Ok(json!({ "text": "cancelled"}));
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    Ok(json!({ "text": "finished" }))
+                    Ok(json!({ "text": "finished"}))
                 }
                 other => Err(format!("unexpected tool {other}")),
             })
@@ -468,20 +468,7 @@ fn gmcp_req_203_014_02_production() {
     );
 
     // 3. HTTP Mcp-Name mismatch on tasks/get must fail with 400 / -32020 HEADER_MISMATCH.
-    let bad_body = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "id": 9001,
-        "method": "tasks/get",
-        "params": {
-            "taskId": echo_handle.task_id,
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": { "io.modelcontextprotocol/tasks": {} }
-                }
-            }
-        }
-    }))
+    let bad_body = serde_json::to_string(&json!({ "jsonrpc": "2.0", "id": 9001, "method": "tasks/get", "params": { "taskId": echo_handle.task_id, "_meta": { "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/clientCapabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}}}}}}))
     .unwrap();
     let mut raw_stream = TcpStream::connect(("127.0.0.1", port1)).unwrap();
     raw_stream
@@ -624,25 +611,15 @@ fn gmcp_req_203_014_02_production() {
                     let roots: InputRequest =
                         serde_json::from_value(json!({"method": "roots/list"})).unwrap();
                     let r_ans = ctx.request_input("k-roots", roots).await?;
-                    let elicit: InputRequest = serde_json::from_value(json!({
-                        "method": "elicitation/create",
-                        "params": {"mode": "form", "message": "Confirm", "requestedSchema": {"type": "object"}}
-                    }))
+                    let elicit: InputRequest = serde_json::from_value(json!({ "method": "elicitation/create", "params": {"mode": "form", "message": "Confirm", "requestedSchema": {"type": "object"}}}))
                     .unwrap();
                     let e_ans = ctx.request_input("k-elicit", elicit).await?;
-                    let sample: InputRequest = serde_json::from_value(json!({
-                        "method": "sampling/createMessage",
-                        "params": {"messages": [{"role": "user", "content": {"type": "text", "text": "ping"}}], "maxTokens": 8}
-                    }))
+                    let sample: InputRequest = serde_json::from_value(json!({ "method": "sampling/createMessage", "params": {"messages": [{"role": "user", "content": {"type": "text", "text": "ping"}}], "maxTokens": 8}}))
                     .unwrap();
                     let s_ans = ctx.request_input("k-sample", sample).await?;
                     Ok(CallToolResult {
                         content: vec![ContentBlock::text("mrtr-complete")],
-                        structured_content: Some(json!({
-                            "roots": r_ans,
-                            "elicit": e_ans,
-                            "sample": s_ans,
-                        })),
+                        structured_content: Some(json!({ "roots": r_ans, "elicit": e_ans, "sample": s_ans})),
                         is_error: Some(false),
                         meta: None,
                         result_type: None,
@@ -676,12 +653,7 @@ fn gmcp_req_203_014_02_production() {
             serde_json::from_str::<Value>(&line).unwrap()
         }
         let mod_req = |id: i64, method: &str, mut params: Value| {
-            params["_meta"] = json!({
-                "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": { "io.modelcontextprotocol/tasks": {} }
-                }
-            });
+            params["_meta"] = json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/clientCapabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}}}});
             json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
         };
 
@@ -802,13 +774,7 @@ fn gmcp_req_203_014_03_integration() {
     let (_http_lock, _http_env, home) = gmcp_http_home_guard("014-int");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let tasks_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": { "io.modelcontextprotocol/tasks": {} }
-            }
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}}}})
     };
     let plain_modern_meta = |req_id: &str| -> Value {
         let mut meta = adapter_modern_meta()["_meta"].clone();
@@ -841,12 +807,7 @@ fn gmcp_req_203_014_03_integration() {
     ] {
         let mut params = extra;
         params["_meta"] = tasks_meta(id);
-        let frame = serde_json::to_vec(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params
-        }))
+        let frame = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params}))
         .unwrap();
         assert!(matches!(classify_envelope(&frame), GateVerdict::Forward));
         assert!(matches!(
@@ -857,12 +818,7 @@ fn gmcp_req_203_014_03_integration() {
 
         // `id: null` task RPC frames are rejected at the envelope gate (-32600);
         // bare no-`id` task RPC frames are NOT dropped as foreign notifications (`Forward` -> codec `-32600`).
-        let null_id = serde_json::to_vec(&json!({
-            "jsonrpc": "2.0",
-            "id": null,
-            "method": method,
-            "params": {"taskId": "tid-1"}
-        }))
+        let null_id = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": null, "method": method, "params": {"taskId": "tid-1"}}))
         .unwrap();
         assert!(matches!(
             classify_line(&null_id, &mut mod_era),
@@ -873,11 +829,7 @@ fn gmcp_req_203_014_03_integration() {
             Some(-32600)
         );
 
-        let no_id_val = json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": {"taskId": "tid-1"}
-        });
+        let no_id_val = json!({ "jsonrpc": "2.0", "method": method, "params": {"taskId": "tid-1"}});
         let no_id = serde_json::to_vec(&no_id_val).unwrap();
         assert!(
             matches!(
@@ -908,11 +860,7 @@ fn gmcp_req_203_014_03_integration() {
         classify_line(foreign_note, &mut mod_era),
         GateVerdict::Drop
     ));
-    let task_note = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/tasks",
-        "params": {"taskId": "tid-1", "status": "working", "createdAt": "t0", "lastUpdatedAt": "t0"}
-    }))
+    let task_note = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "method": "notifications/tasks", "params": {"taskId": "tid-1", "status": "working", "createdAt": "t0", "lastUpdatedAt": "t0"}}))
     .unwrap();
     assert!(matches!(
         classify_line(&task_note, &mut mod_era),
@@ -928,12 +876,7 @@ fn gmcp_req_203_014_03_integration() {
         ),
         GateVerdict::Forward
     ));
-    let leg_tasks_with_mod_meta = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tasks/get",
-        "params": {"taskId": "tid-1", "_meta": tasks_meta("2")}
-    }))
+    let leg_tasks_with_mod_meta = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tasks/get", "params": {"taskId": "tid-1", "_meta": tasks_meta("2")}}))
     .unwrap();
     assert!(matches!(
         classify_line(&leg_tasks_with_mod_meta, &mut leg_era),
@@ -953,12 +896,7 @@ fn gmcp_req_203_014_03_integration() {
     let mut cli_mod = StdioSession::spawn_raw(root, &cli_home);
     let cli_disc = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-disc",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-disc", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(30),
         )
         .expect("susi mcp serve must answer server/discover");
@@ -988,31 +926,13 @@ fn gmcp_req_203_014_03_integration() {
     // McpGatewayProxy policy boundary applies identically whether tasks capability is omitted or declared.
     let cli_pol_sync = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-pol-sync",
-                "method": "tools/call",
-                "params": {
-                    "name": "susi_restricted_probe",
-                    "arguments": {},
-                    "_meta": plain_modern_meta("cli-pol-sync")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-pol-sync", "method": "tools/call", "params": { "name": "susi_restricted_probe", "arguments": {}, "_meta": plain_modern_meta("cli-pol-sync")}}),
             Duration::from_secs(10),
         )
         .unwrap();
     let cli_pol_task = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-pol-task",
-                "method": "tools/call",
-                "params": {
-                    "name": "susi_restricted_probe",
-                    "arguments": {},
-                    "_meta": tasks_meta("cli-pol-task")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-pol-task", "method": "tools/call", "params": { "name": "susi_restricted_probe", "arguments": {}, "_meta": tasks_meta("cli-pol-task")}}),
             Duration::from_secs(10),
         )
         .unwrap();
@@ -1033,16 +953,7 @@ fn gmcp_req_203_014_03_integration() {
     cli_task_meta["progressToken"] = json!("cli-task-prog-1");
     let cli_created = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-ledger-task",
-                "method": "tools/call",
-                "params": {
-                    "name": "ledger_verify",
-                    "arguments": {},
-                    "_meta": cli_task_meta
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-ledger-task", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": cli_task_meta}}),
             Duration::from_secs(30),
         )
         .expect("CLI task-enabled tools/call must reply");
@@ -1061,15 +972,7 @@ fn gmcp_req_203_014_03_integration() {
         let pid = format!("cli-get-{poll_idx}");
         let snap = cli_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": pid,
-                    "method": "tasks/get",
-                    "params": {
-                        "taskId": cli_task_id,
-                        "_meta": tasks_meta(&format!("cli-get-{poll_idx}"))
-                    }
-                }),
+                &json!({ "jsonrpc": "2.0", "id": pid, "method": "tasks/get", "params": { "taskId": cli_task_id, "_meta": tasks_meta(&format!("cli-get-{poll_idx}"))}}),
                 Duration::from_secs(15),
             )
             .expect("CLI tasks/get must answer");
@@ -1097,15 +1000,7 @@ fn gmcp_req_203_014_03_integration() {
 
     // Subscribe to taskIds over `susi mcp serve` -> ack precedes terminal `notifications/tasks` replay;
     // `notifications/cancelled` closes only the subscription, never mutating the durable task.
-    cli_mod.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "cli-task-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"taskIds": [cli_task_id]},
-            "_meta": tasks_meta("cli-task-sub")
-        }
-    }));
+    cli_mod.send(&json!({ "jsonrpc": "2.0", "id": "cli-task-sub", "method": "subscriptions/listen", "params": { "notifications": {"taskIds": [cli_task_id]}, "_meta": tasks_meta("cli-task-sub")}}));
     let sub_deadline = Instant::now() + Duration::from_secs(10);
     let mut saw_cli_sub_ack = false;
     let mut saw_cli_task_note = false;
@@ -1132,26 +1027,14 @@ fn gmcp_req_203_014_03_integration() {
         }
     }
     assert!(saw_cli_sub_ack && saw_cli_task_note);
-    cli_mod.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "cli-task-sub"}
-    }));
+    cli_mod.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "cli-task-sub"}}));
     drop(cli_mod);
 
     // Restart `susi mcp serve` against the same home and prove durable task replay + terminal immutability.
     let mut cli_restarted = StdioSession::spawn_raw(root, &cli_home);
     let replayed = cli_restarted
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-replay-get",
-                "method": "tasks/get",
-                "params": {
-                    "taskId": cli_task_id,
-                    "_meta": tasks_meta("cli-replay-get")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-replay-get", "method": "tasks/get", "params": { "taskId": cli_task_id, "_meta": tasks_meta("cli-replay-get")}}),
             Duration::from_secs(30),
         )
         .expect("restarted susi mcp serve must answer tasks/get");
@@ -1162,15 +1045,7 @@ fn gmcp_req_203_014_03_integration() {
     );
     let cancel_after_restart = cli_restarted
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "cli-replay-cancel",
-                "method": "tasks/cancel",
-                "params": {
-                    "taskId": cli_task_id,
-                    "_meta": tasks_meta("cli-replay-cancel")
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "cli-replay-cancel", "method": "tasks/cancel", "params": { "taskId": cli_task_id, "_meta": tasks_meta("cli-replay-cancel")}}),
             Duration::from_secs(10),
         )
         .unwrap();
@@ -1232,7 +1107,7 @@ fn gmcp_req_203_014_03_integration() {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
             if matches!(name, "integ_echo" | "integ_soft_err" | "integ_wait") {
-                Ok(json!({ "exists": true }))
+                Ok(json!({ "exists": true}))
             } else {
                 PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
             }
@@ -1255,18 +1130,18 @@ fn gmcp_req_203_014_03_integration() {
                 "integ_echo" => {
                     echo_runs.fetch_add(1, Ordering::SeqCst);
                     let msg = args.get("msg").and_then(Value::as_str).unwrap_or("");
-                    Ok(json!({ "text": format!("echo:{msg}") }))
+                    Ok(json!({ "text": format!("echo:{msg}")}))
                 }
                 "integ_soft_err" => Err("Tool Execution Error: synthetic tool fault".into()),
                 "integ_wait" => {
                     for _ in 0..300 {
                         if susi_core::progress::is_cancelled() {
                             wait_cancelled.store(true, Ordering::Release);
-                            return Ok(json!({ "text": "cancelled" }));
+                            return Ok(json!({ "text": "cancelled"}));
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    Ok(json!({ "text": "done" }))
+                    Ok(json!({ "text": "done"}))
                 }
                 other => Err(format!("unexpected tool {other}")),
             })
@@ -1333,12 +1208,7 @@ fn gmcp_req_203_014_03_integration() {
     let auth_alice = format!("Bearer {tok_alice}");
 
     // NetGuard 401 unauthenticated + 403 bad Origin on HTTP `/mcp` tasks/get.
-    let task_get_probe = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tasks/get",
-        "params": {"taskId": "probe-id", "_meta": tasks_meta("1")}
-    })
+    let task_get_probe = json!({ "jsonrpc": "2.0", "id": 1, "method": "tasks/get", "params": {"taskId": "probe-id", "_meta": tasks_meta("1")}})
     .to_string();
     assert!(http_send(
         "POST",
@@ -1484,15 +1354,7 @@ fn gmcp_req_203_014_03_integration() {
     assert!(store.update_from_snapshot(&done_snap).unwrap());
 
     {
-        let sse_body = json!({
-            "jsonrpc": "2.0",
-            "id": "http-task-sub",
-            "method": "subscriptions/listen",
-            "params": {
-                "notifications": {"taskIds": [echo_handle.task_id]},
-                "_meta": tasks_meta("http-task-sub")
-            }
-        })
+        let sse_body = json!({ "jsonrpc": "2.0", "id": "http-task-sub", "method": "subscriptions/listen", "params": { "notifications": {"taskIds": [echo_handle.task_id]}, "_meta": tasks_meta("http-task-sub")}})
         .to_string();
         let mut s = TcpStream::connect(&addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -1656,11 +1518,7 @@ fn gmcp_req_203_014_03_integration() {
         let spawned = client.call(
             &format!("{tag}-call"),
             "tools/call",
-            json!({
-                "name": "integ_echo",
-                "arguments": {"msg": tag},
-                "_meta": tasks_meta(&format!("{tag}-call"))
-            }),
+            json!({ "name": "integ_echo", "arguments": {"msg": tag}, "_meta": tasks_meta(&format!("{tag}-call"))}),
         );
         assert_eq!(spawned["result"]["resultType"], "task", "{spawned}");
         let tid = spawned["result"]["taskId"].as_str().unwrap().to_string();
@@ -1713,10 +1571,7 @@ fn gmcp_req_203_014_03_integration() {
                 Box::pin(async move {
                     let r1: InputRequest =
                         serde_json::from_value(json!({"method": "roots/list"})).unwrap();
-                    let r2: InputRequest = serde_json::from_value(json!({
-                        "method": "elicitation/create",
-                        "params": {"mode": "form", "message": "Approve", "requestedSchema": {"type": "object"}}
-                    }))
+                    let r2: InputRequest = serde_json::from_value(json!({ "method": "elicitation/create", "params": {"mode": "form", "message": "Approve", "requestedSchema": {"type": "object"}}}))
                     .unwrap();
                     let (a1, a2) = tokio::try_join!(
                         ctx.request_input("k1", r1),
@@ -1777,12 +1632,7 @@ fn gmcp_req_203_014_03_integration() {
         // task-only tool and `tasks/get` fail closed with `-32601`.
         send_w(
             &mut wire,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "integ_echo", "arguments": {"msg": "disabled-sync"}, "_meta": tasks_meta("2")}
-            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "integ_echo", "arguments": {"msg": "disabled-sync"}, "_meta": tasks_meta("2")}}),
         )
         .await;
         let sync_when_off = recv_w(&mut wire).await;
@@ -1817,12 +1667,7 @@ fn gmcp_req_203_014_03_integration() {
         assert!(svc.extensions().write().set_enabled(TASKS_EXTENSION_ID, true));
         send_w(
             &mut wire,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 6,
-                "method": "tools/call",
-                "params": {"name": "integ_partial_mrtr", "arguments": {}, "_meta": tasks_meta("6")}
-            }),
+            json!({ "jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "integ_partial_mrtr", "arguments": {}, "_meta": tasks_meta("6")}}),
         )
         .await;
         let spawned = recv_w(&mut wire).await;
@@ -1851,16 +1696,7 @@ fn gmcp_req_203_014_03_integration() {
         // Partial update (`k1` + unknown `"stale"`): task stays `input_required` with only `k2` remaining.
         send_w(
             &mut wire,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 60,
-                "method": "tasks/update",
-                "params": {
-                    "taskId": tid,
-                    "inputResponses": {"k1": {"roots": []}, "stale": {"ignored": true}},
-                    "_meta": tasks_meta("60")
-                }
-            }),
+            json!({ "jsonrpc": "2.0", "id": 60, "method": "tasks/update", "params": { "taskId": tid, "inputResponses": {"k1": {"roots": []}, "stale": {"ignored": true}}, "_meta": tasks_meta("60")}}),
         )
         .await;
         let ack1 = recv_w(&mut wire).await;
@@ -1879,16 +1715,7 @@ fn gmcp_req_203_014_03_integration() {
         // Complete `k2` (+ replay already-answered `k1` which must be ignored cleanly).
         send_w(
             &mut wire,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 62,
-                "method": "tasks/update",
-                "params": {
-                    "taskId": tid,
-                    "inputResponses": {"k1": {"roots": ["replayed"]}, "k2": {"action": "accept"}},
-                    "_meta": tasks_meta("62")
-                }
-            }),
+            json!({ "jsonrpc": "2.0", "id": 62, "method": "tasks/update", "params": { "taskId": tid, "inputResponses": {"k1": {"roots": ["replayed"]}, "k2": {"action": "accept"}}, "_meta": tasks_meta("62")}}),
         )
         .await;
         assert_eq!(recv_w(&mut wire).await["result"]["resultType"], "complete");

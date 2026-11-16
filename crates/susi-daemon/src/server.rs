@@ -2359,6 +2359,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         Self::stop_daemons(global_dir, false).signalled
     }
 
+    #[cfg(any(target_os = "linux", test))]
     fn stop_systemd_units_with<FActive, FStop>(
         units: &[String],
         mut unit_is_active: FActive,

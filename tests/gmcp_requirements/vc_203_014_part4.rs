@@ -79,13 +79,13 @@ fn gmcp_req_203_014_06_operations() {
                     }
                     Ok(Value::Array(m))
                 }
-                topics::TOOLS_EXISTS if name == Some("ops_task_echo") => Ok(json!({ "exists": true })),
+                topics::TOOLS_EXISTS if name == Some("ops_task_echo") => Ok(json!({ "exists": true})),
                 topics::TOOLS_EXECUTE if name == Some("ops_task_echo") => {
                     let (args, runs) = (payload.get("args").cloned().unwrap_or(Value::Null), self.0.clone());
                     with_watched(&payload, || {
                         runs.fetch_add(1, Ordering::SeqCst);
                         std::thread::sleep(Duration::from_millis(15));
-                        Ok(json!({ "text": format!("ops:{}", args.get("msg").and_then(Value::as_str).unwrap_or("ok")) }))
+                        Ok(json!({ "text": format!("ops:{}", args.get("msg").and_then(Value::as_str).unwrap_or("ok"))}))
                     })
                 }
                 _ => PlaneBus::global().request_local_prefix(topic, payload),
@@ -99,13 +99,7 @@ fn gmcp_req_203_014_06_operations() {
     }
 
     let tasks_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": { TASKS_EXTENSION_ID: {} }
-            }
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": { "extensions": {TASKS_EXTENSION_ID: {}}}})
     };
 
     // ── 1. Inspectable CLI, MCP Tool, & Cross-Transport API State Parity ─────
@@ -176,12 +170,7 @@ fn gmcp_req_203_014_06_operations() {
     let mut stdio = StdioSession::spawn_raw(root, &home);
     let stdio_disc = stdio
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "ops014-stdio",
-                "method": "server/discover",
-                "params": adapter_modern_meta()
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "ops014-stdio", "method": "server/discover", "params": adapter_modern_meta()}),
             Duration::from_secs(120),
         )
         .expect("stdio server/discover must answer");
@@ -315,12 +304,7 @@ fn gmcp_req_203_014_06_operations() {
         writeln!(
             stdin,
             "{}",
-            json!({
-                "jsonrpc": "2.0",
-                "id": "ops014-zero-ping",
-                "method": "ping",
-                "params": adapter_modern_meta()
-            })
+            json!({ "jsonrpc": "2.0", "id": "ops014-zero-ping", "method": "ping", "params": adapter_modern_meta()})
         )
         .unwrap();
     }
@@ -360,24 +344,7 @@ fn gmcp_req_203_014_06_operations() {
     std::fs::create_dir_all(&mismatch_dir).unwrap();
     std::fs::write(
         mismatch_dir.join("tasks.json"),
-        json!([
-            1,
-            [[
-                "local:stdio",
-                {
-                    "taskId": "11111111-2222-4333-8444-555555555555",
-                    "status": "completed",
-                    "createdAt": "2026-11-15T00:00:00Z",
-                    "lastUpdatedAt": "2026-11-15T00:00:00Z",
-                    "ttlMs": 300000,
-                    "pollIntervalMs": 1000
-                },
-                serde_json::to_value(susi_gmcp::mcp::model::TaskPayload::Cancelled).unwrap(),
-                [],
-                1794700000000_u64,
-                1794700001000_u64
-            ]]
-        ])
+        json!([1, [[ "local:stdio", { "taskId": "11111111-2222-4333-8444-555555555555", "status": "completed", "createdAt": "2026-11-15T00:00:00Z", "lastUpdatedAt": "2026-11-15T00:00:00Z", "ttlMs": 300000, "pollIntervalMs": 1000}, serde_json::to_value(susi_gmcp::mcp::model::TaskPayload::Cancelled).unwrap(), [], 1794700000000_u64, 1794700001000_u64]]])
         .to_string(),
     )
     .unwrap();
@@ -508,16 +475,7 @@ fn gmcp_req_203_014_06_operations() {
                 "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
             ),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops014-http-info",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": trace_meta
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops014-http-info", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": trace_meta}}),
     );
     assert!(http_st.starts_with("HTTP/1.1 200"), "{http_st} {http_raw}");
     let info_res = http_frames
@@ -541,16 +499,7 @@ fn gmcp_req_203_014_06_operations() {
             ("Mcp-Method", "tools/call"),
             ("Mcp-Name", "ledger_verify"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops014-http-quiet",
-            "method": "tools/call",
-            "params": {
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": quiet_meta
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops014-http-quiet", "method": "tools/call", "params": { "name": "ledger_verify", "arguments": {}, "_meta": quiet_meta}}),
     );
     assert!(
         quiet_frames
@@ -563,11 +512,7 @@ fn gmcp_req_203_014_06_operations() {
     // and emits zero `notifications/progress` or `notifications/message` frames (`-0507`).
     let sub_store_dir = scratch.join("ops-sub-store");
     let sub_svc = GmcpService::open_durable(root.to_path_buf(), sub_store_dir).unwrap();
-    let sub_tool: Tool = serde_json::from_value(json!({
-        "name": "ops_sub_probe",
-        "description": "Subscription isolation probe",
-        "inputSchema": {"type": "object"}
-    }))
+    let sub_tool: Tool = serde_json::from_value(json!({ "name": "ops_sub_probe", "description": "Subscription isolation probe", "inputSchema": {"type": "object"}}))
     .unwrap();
     sub_svc
         .register_task_tool(
@@ -631,22 +576,10 @@ fn gmcp_req_203_014_06_operations() {
     let sub_spawn = dup_cli.call(
         "ops-sub-call",
         "tools/call",
-        json!({
-            "name": "ops_sub_probe",
-            "arguments": {},
-            "_meta": tasks_meta("ops-sub-call")
-        }),
+        json!({ "name": "ops_sub_probe", "arguments": {}, "_meta": tasks_meta("ops-sub-call")}),
     );
     let sub_tid = sub_spawn["result"]["taskId"].as_str().unwrap().to_string();
-    dup_cli.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "ops-sub-listen",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"taskIds": [sub_tid]},
-            "_meta": tasks_meta("ops-sub-listen")
-        }
-    }));
+    dup_cli.send(&json!({ "jsonrpc": "2.0", "id": "ops-sub-listen", "method": "subscriptions/listen", "params": { "notifications": {"taskIds": [sub_tid]}, "_meta": tasks_meta("ops-sub-listen")}}));
     for idx in 0..20 {
         let gid = format!("ops-sub-get-{idx}");
         let g = dup_cli.call(
@@ -679,11 +612,7 @@ fn gmcp_req_203_014_06_operations() {
         }
     }
     assert!(saw_ack && saw_task_note, "{sub_notes:?}");
-    dup_cli.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "ops-sub-listen"}
-    }));
+    dup_cli.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "ops-sub-listen"}}));
 
     // ── 4. Operational Diagnostics & Triage Error Codes ─────────────────────
     // `-32021` missing per-request tasks capability, `-32601` retired RPCs, `-32602` uniform invalid/terminal.
@@ -712,15 +641,7 @@ fn gmcp_req_203_014_06_operations() {
             ("Mcp-Method", "tasks/get"),
             ("Mcp-Name", "wrong-task-id"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops014-bad-hdr",
-            "method": "tasks/get",
-            "params": {
-                "taskId": ops_handle.task_id,
-                "_meta": tasks_meta("ops014-bad-hdr")
-            }
-        }),
+        &json!({ "jsonrpc": "2.0", "id": "ops014-bad-hdr", "method": "tasks/get", "params": { "taskId": ops_handle.task_id, "_meta": tasks_meta("ops014-bad-hdr")}}),
     );
     assert!(
         bad_hdr_st.starts_with("HTTP/1.1 400"),
@@ -1401,13 +1322,7 @@ fn gmcp_vc_203_014_mastery() {
 
     // ── 3b. Cross-transport server-directed creation, progress, SSE/stdio subscriptions & HTTP/Wire SDK ─
     let tasks_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": { TASKS_EXTENSION_ID: {} }
-            }
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": { "extensions": {TASKS_EXTENSION_ID: {}}}})
     };
     let plain_meta = |req_id: &str| -> Value {
         let mut meta = adapter_modern_meta()["_meta"].clone();
@@ -1425,21 +1340,13 @@ fn gmcp_vc_203_014_mastery() {
     let emb_sync = embedded.call(
         "m014-emb-sync",
         "tools/call",
-        json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": plain_meta("m014-emb-sync")
-        }),
+        json!({ "name": "ledger_verify", "arguments": {}, "_meta": plain_meta("m014-emb-sync")}),
     );
     assert_eq!(emb_sync["result"]["resultType"], "complete");
     let emb_task = embedded.call(
         "m014-emb-task",
         "tools/call",
-        json!({
-            "name": "ledger_verify",
-            "arguments": {},
-            "_meta": tasks_meta("m014-emb-task")
-        }),
+        json!({ "name": "ledger_verify", "arguments": {}, "_meta": tasks_meta("m014-emb-task")}),
     );
     assert_eq!(emb_task["result"]["resultType"], "task");
     let emb_tid = emb_task["result"]["taskId"].as_str().unwrap().to_string();
@@ -1492,12 +1399,7 @@ fn gmcp_vc_203_014_mastery() {
     cli_meta["progressToken"] = json!("m014-prog-1");
     let cli_created = cli_mod
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m014-cli-spawn",
-                "method": "tools/call",
-                "params": {"name": "ledger_verify", "arguments": {}, "_meta": cli_meta}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m014-cli-spawn", "method": "tools/call", "params": {"name": "ledger_verify", "arguments": {}, "_meta": cli_meta}}),
             Duration::from_secs(30),
         )
         .unwrap();
@@ -1511,12 +1413,7 @@ fn gmcp_vc_203_014_mastery() {
         let gid = format!("m014-cli-get-{idx}");
         let snap = cli_mod
             .request_verbatim(
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": gid,
-                    "method": "tasks/get",
-                    "params": {"taskId": cli_tid, "_meta": tasks_meta(&format!("m014-cli-get-{idx}"))}
-                }),
+                &json!({ "jsonrpc": "2.0", "id": gid, "method": "tasks/get", "params": {"taskId": cli_tid, "_meta": tasks_meta(&format!("m014-cli-get-{idx}"))}}),
                 Duration::from_secs(15),
             )
             .unwrap();
@@ -1532,15 +1429,7 @@ fn gmcp_vc_203_014_mastery() {
     }));
     cli_mod.pending.clear();
 
-    cli_mod.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "m014-cli-sub",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"taskIds": [cli_tid]},
-            "_meta": tasks_meta("m014-cli-sub")
-        }
-    }));
+    cli_mod.send(&json!({ "jsonrpc": "2.0", "id": "m014-cli-sub", "method": "subscriptions/listen", "params": { "notifications": {"taskIds": [cli_tid]}, "_meta": tasks_meta("m014-cli-sub")}}));
     let sub_deadline = Instant::now() + Duration::from_secs(10);
     let (mut saw_ack, mut saw_note) = (false, false);
     while Instant::now() < sub_deadline && !(saw_ack && saw_note) {
@@ -1562,12 +1451,7 @@ fn gmcp_vc_203_014_mastery() {
     let mut cli_restarted = StdioSession::spawn_raw(root, &cli_home);
     let replayed = cli_restarted
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "m014-cli-replay",
-                "method": "tasks/get",
-                "params": {"taskId": cli_tid, "_meta": tasks_meta("m014-cli-replay")}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "m014-cli-replay", "method": "tasks/get", "params": {"taskId": cli_tid, "_meta": tasks_meta("m014-cli-replay")}}),
             Duration::from_secs(30),
         )
         .unwrap();
@@ -1594,21 +1478,21 @@ fn gmcp_vc_203_014_mastery() {
                         Ok(Value::Array(m))
                     }
                     topics::TOOLS_EXISTS if matches!(name, "mastery_echo" | "mastery_wait") => {
-                        Ok(json!({ "exists": true }))
+                        Ok(json!({ "exists": true}))
                     }
                     topics::TOOLS_EXECUTE if matches!(name, "mastery_echo" | "mastery_wait") => {
                         let (args, cancelled) = (payload.get("args").cloned().unwrap_or(Value::Null), Arc::clone(&self.0));
                         susi_core::plane_bus::with_watched(&payload, || match name {
-                            "mastery_echo" => Ok(json!({ "text": format!("echo:{}", args["msg"].as_str().unwrap_or("")) })),
+                            "mastery_echo" => Ok(json!({ "text": format!("echo:{}", args["msg"].as_str().unwrap_or(""))})),
                             _ => {
                                 for _ in 0..300 {
                                     if susi_core::progress::is_cancelled() {
                                         cancelled.store(true, Ordering::Release);
-                                        return Ok(json!({ "text": "cancelled" }));
+                                        return Ok(json!({ "text": "cancelled"}));
                                     }
                                     std::thread::sleep(Duration::from_millis(10));
                                 }
-                                Ok(json!({ "text": "timeout" }))
+                                Ok(json!({ "text": "timeout"}))
                             }
                         })
                     }
@@ -1670,12 +1554,7 @@ fn gmcp_vc_203_014_mastery() {
     assert!(hstore.update_from_snapshot(&echo_done).unwrap());
 
     {
-        let bad_body = json!({
-            "jsonrpc": "2.0",
-            "id": "bad-mcp-name",
-            "method": "tasks/get",
-            "params": {"taskId": echo_h.task_id, "_meta": tasks_meta("bad-mcp-name")}
-        })
+        let bad_body = json!({ "jsonrpc": "2.0", "id": "bad-mcp-name", "method": "tasks/get", "params": {"taskId": echo_h.task_id, "_meta": tasks_meta("bad-mcp-name")}})
         .to_string();
         let mut s = TcpStream::connect(&http_addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();

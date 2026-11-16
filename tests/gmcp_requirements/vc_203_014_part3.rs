@@ -84,7 +84,7 @@ fn gmcp_req_203_014_05_interop() {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
             if matches!(name, "interop_echo" | "interop_soft_err" | "interop_wait") {
-                Ok(json!({ "exists": true }))
+                Ok(json!({ "exists": true}))
             } else {
                 PlaneBus::global().request_local_prefix(topics::TOOLS_EXISTS, payload)
             }
@@ -107,18 +107,18 @@ fn gmcp_req_203_014_05_interop() {
                 "interop_echo" => {
                     echo_runs.fetch_add(1, Ordering::SeqCst);
                     let msg = args.get("msg").and_then(Value::as_str).unwrap_or("");
-                    Ok(json!({ "text": format!("interop:{msg}") }))
+                    Ok(json!({ "text": format!("interop:{msg}")}))
                 }
                 "interop_soft_err" => Err("Tool Execution Error: synthetic soft tool fault".into()),
                 "interop_wait" => {
                     for _ in 0..300 {
                         if susi_core::progress::is_cancelled() {
                             wait_cancelled.store(true, Ordering::Release);
-                            return Ok(json!({ "text": "cancelled" }));
+                            return Ok(json!({ "text": "cancelled"}));
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    Ok(json!({ "text": "done" }))
+                    Ok(json!({ "text": "done"}))
                 }
                 other => Err(format!("unexpected tool {other}")),
             })
@@ -146,20 +146,10 @@ fn gmcp_req_203_014_05_interop() {
     );
 
     let tasks_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {
-                "extensions": { TASKS_EXTENSION_ID: {} }
-            }
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": { "extensions": {TASKS_EXTENSION_ID: {}}}})
     };
     let plain_modern_meta = |req_id: &str| -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28,
-            "io.modelcontextprotocol/requestId": req_id,
-            "io.modelcontextprotocol/clientCapabilities": {}
-        })
+        json!({ "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION_2026_07_28, "io.modelcontextprotocol/requestId": req_id, "io.modelcontextprotocol/clientCapabilities": {}})
     };
     let is_uuid_v4 = |s: &str| -> bool {
         let b = s.as_bytes();
@@ -201,11 +191,7 @@ fn gmcp_req_203_014_05_interop() {
     let direct_store = scratch.join("direct-svc-tasks");
     let direct_svc = GmcpService::open_durable(root.to_path_buf(), direct_store).unwrap();
     susi_gmcp::catalog::install(&direct_svc).expect("catalog install");
-    let mrtr_tool: Tool = serde_json::from_value(json!({
-        "name": "interop_mrtr",
-        "description": "Two-key MRTR task tool",
-        "inputSchema": {"type": "object"}
-    }))
+    let mrtr_tool: Tool = serde_json::from_value(json!({ "name": "interop_mrtr", "description": "Two-key MRTR task tool", "inputSchema": {"type": "object"}}))
     .unwrap();
     direct_svc
         .register_task_tool(
@@ -214,14 +200,7 @@ fn gmcp_req_203_014_05_interop() {
                 Box::pin(async move {
                     let r1: InputRequest =
                         serde_json::from_value(json!({"method": "roots/list"})).unwrap();
-                    let r2: InputRequest = serde_json::from_value(json!({
-                        "method": "elicitation/create",
-                        "params": {
-                            "mode": "form",
-                            "message": "Confirm interop",
-                            "requestedSchema": {"type": "object"}
-                        }
-                    }))
+                    let r2: InputRequest = serde_json::from_value(json!({ "method": "elicitation/create", "params": { "mode": "form", "message": "Confirm interop", "requestedSchema": {"type": "object"}}}))
                     .unwrap();
                     let (a1, a2) =
                         tokio::try_join!(ctx.request_input("k1", r1), ctx.request_input("k2", r2))?;
@@ -319,11 +298,7 @@ fn gmcp_req_203_014_05_interop() {
     let mrtr_spawn = ref_dup.call(
         "ref-mrtr-call",
         "tools/call",
-        json!({
-            "name": "interop_mrtr",
-            "arguments": {"tag": "ref-wire"},
-            "_meta": tasks_meta("ref-mrtr-call")
-        }),
+        json!({ "name": "interop_mrtr", "arguments": {"tag": "ref-wire"}, "_meta": tasks_meta("ref-mrtr-call")}),
     );
     assert_eq!(mrtr_spawn["result"]["resultType"], "task", "{mrtr_spawn}");
     let mrtr_tid = mrtr_spawn["result"]["taskId"].as_str().unwrap().to_string();
@@ -341,15 +316,7 @@ fn gmcp_req_203_014_05_interop() {
     );
 
     // Subscribe to task notifications before answering MRTR keys.
-    ref_dup.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "ref-sub-1",
-        "method": "subscriptions/listen",
-        "params": {
-            "notifications": {"taskIds": [mrtr_tid]},
-            "_meta": tasks_meta("ref-sub-1")
-        }
-    }));
+    ref_dup.send(&json!({ "jsonrpc": "2.0", "id": "ref-sub-1", "method": "subscriptions/listen", "params": { "notifications": {"taskIds": [mrtr_tid]}, "_meta": tasks_meta("ref-sub-1")}}));
 
     // Wait for `input_required` carrying both `k1` and `k2`.
     let mut saw_both_keys = false;
@@ -379,14 +346,7 @@ fn gmcp_req_203_014_05_interop() {
     let upd_1 = ref_dup.call(
         "ref-upd-1",
         "tasks/update",
-        json!({
-            "taskId": mrtr_tid,
-            "inputResponses": {
-                "k1": {"roots": [{"uri": "file:///workspace"}]},
-                "stale_ignored": {"ignored": true}
-            },
-            "_meta": tasks_meta("ref-upd-1")
-        }),
+        json!({ "taskId": mrtr_tid, "inputResponses": { "k1": {"roots": [{"uri": "file:///workspace"}]}, "stale_ignored": {"ignored": true}}, "_meta": tasks_meta("ref-upd-1")}),
     );
     assert_eq!(upd_1["result"]["resultType"], "complete", "{upd_1}");
     let after_p1 = ref_dup.call(
@@ -402,14 +362,7 @@ fn gmcp_req_203_014_05_interop() {
     let upd_2 = ref_dup.call(
         "ref-upd-2",
         "tasks/update",
-        json!({
-            "taskId": mrtr_tid,
-            "inputResponses": {
-                "k1": {"roots": [{"uri": "file:///tampered"}]},
-                "k2": {"action": "accept", "content": {"ok": true}}
-            },
-            "_meta": tasks_meta("ref-upd-2")
-        }),
+        json!({ "taskId": mrtr_tid, "inputResponses": { "k1": {"roots": [{"uri": "file:///tampered"}]}, "k2": {"action": "accept", "content": {"ok": true}}}, "_meta": tasks_meta("ref-upd-2")}),
     );
     assert_eq!(upd_2["result"]["resultType"], "complete", "{upd_2}");
 
@@ -466,11 +419,7 @@ fn gmcp_req_203_014_05_interop() {
         }
     }
     assert!(ack_pos.is_some() && completed_note, "{drain_notes:?}");
-    ref_dup.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": {"requestId": "ref-sub-1"}
-    }));
+    ref_dup.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "ref-sub-1"}}));
     drop(ref_dup);
     adapter_session_ended(&runtime, ref_dup_sess, "014-interop ref-dup");
 
@@ -636,19 +585,7 @@ fn gmcp_req_203_014_05_interop() {
 
             match method.as_str() {
                 "server/discover" => {
-                    let ans = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "protocolVersion": PROTOCOL_VERSION_2026_07_28,
-                            "supportedVersions": [PROTOCOL_VERSION_2026_07_28, "2025-11-25"],
-                            "serverInfo": {"name": "ref-ext-tasks-peer", "version": "1.0.0"},
-                            "capabilities": {
-                                "tools": {},
-                                "extensions": { TASKS_EXTENSION_ID: {} }
-                            }
-                        }
-                    });
+                    let ans = json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": PROTOCOL_VERSION_2026_07_28, "supportedVersions": [PROTOCOL_VERSION_2026_07_28, "2025-11-25"], "serverInfo": {"name": "ref-ext-tasks-peer", "version": "1.0.0"}, "capabilities": { "tools": {}, "extensions": {TASKS_EXTENSION_ID: {}}}}});
                     send_http(&mut stream, "200 OK", &ans.to_string());
                 }
                 "tools/call" => {
@@ -675,19 +612,7 @@ fn gmcp_req_203_014_05_interop() {
                     } else {
                         peer_tid
                     };
-                    let ans = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "resultType": "task",
-                            "taskId": tid,
-                            "status": "working",
-                            "createdAt": "2026-11-15T12:00:00Z",
-                            "lastUpdatedAt": "2026-11-15T12:00:00Z",
-                            "ttlMs": 15000,
-                            "pollIntervalMs": 10
-                        }
-                    });
+                    let ans = json!({ "jsonrpc": "2.0", "id": id, "result": { "resultType": "task", "taskId": tid, "status": "working", "createdAt": "2026-11-15T12:00:00Z", "lastUpdatedAt": "2026-11-15T12:00:00Z", "ttlMs": 15000, "pollIntervalMs": 10}});
                     send_http(&mut stream, "200 OK", &ans.to_string());
                 }
                 "tasks/get" => {
@@ -708,19 +633,7 @@ fn gmcp_req_203_014_05_interop() {
                         } else {
                             "working"
                         };
-                        let ans = json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "result": {
-                                "resultType": "complete",
-                                "taskId": tid,
-                                "status": st,
-                                "createdAt": "2026-11-15T12:00:00Z",
-                                "lastUpdatedAt": "2026-11-15T12:00:01Z",
-                                "ttlMs": 15000,
-                                "pollIntervalMs": 10
-                            }
-                        });
+                        let ans = json!({ "jsonrpc": "2.0", "id": id, "result": { "resultType": "complete", "taskId": tid, "status": st, "createdAt": "2026-11-15T12:00:00Z", "lastUpdatedAt": "2026-11-15T12:00:01Z", "ttlMs": 15000, "pollIntervalMs": 10}});
                         send_http(&mut stream, "200 OK", &ans.to_string());
                         continue;
                     }
@@ -735,32 +648,9 @@ fn gmcp_req_203_014_05_interop() {
                         continue;
                     }
                     let res_obj = if !mrtr_answered {
-                        json!({
-                            "resultType": "complete",
-                            "taskId": peer_tid,
-                            "status": "input_required",
-                            "createdAt": "2026-11-15T12:00:00Z",
-                            "lastUpdatedAt": "2026-11-15T12:00:01Z",
-                            "ttlMs": 15000,
-                            "pollIntervalMs": 10,
-                            "inputRequests": {
-                                "ask_root": {"method": "roots/list"}
-                            }
-                        })
+                        json!({ "resultType": "complete", "taskId": peer_tid, "status": "input_required", "createdAt": "2026-11-15T12:00:00Z", "lastUpdatedAt": "2026-11-15T12:00:01Z", "ttlMs": 15000, "pollIntervalMs": 10, "inputRequests": { "ask_root": {"method": "roots/list"}}})
                     } else {
-                        json!({
-                            "resultType": "complete",
-                            "taskId": peer_tid,
-                            "status": "completed",
-                            "createdAt": "2026-11-15T12:00:00Z",
-                            "lastUpdatedAt": "2026-11-15T12:00:02Z",
-                            "ttlMs": 15000,
-                            "pollIntervalMs": 10,
-                            "result": {
-                                "content": [{"type": "text", "text": "peer-mrtr-settled"}],
-                                "isError": false
-                            }
-                        })
+                        json!({ "resultType": "complete", "taskId": peer_tid, "status": "completed", "createdAt": "2026-11-15T12:00:00Z", "lastUpdatedAt": "2026-11-15T12:00:02Z", "ttlMs": 15000, "pollIntervalMs": 10, "result": { "content": [{"type": "text", "text": "peer-mrtr-settled"}], "isError": false}})
                     };
                     send_http(
                         &mut stream,
@@ -865,9 +755,7 @@ fn gmcp_req_203_014_05_interop() {
             assert_eq!(entries.len(), 1);
             assert_eq!(entries[0].key, "ask_root");
             assert_eq!(entries[0].method, "roots/list");
-            Ok(json!({
-                "ask_root": {"roots": [{"uri": "file:///client-root"}]}
-            }))
+            Ok(json!({ "ask_root": {"roots": [{"uri": "file:///client-root"}]}}))
         })
         .unwrap();
     assert_eq!(ir_invocations, 1);
@@ -945,11 +833,7 @@ fn gmcp_req_203_014_05_interop() {
         let pol = client.call(
             &format!("{tag}-pol"),
             "tools/call",
-            json!({
-                "name": "susi_restricted_probe",
-                "arguments": {},
-                "_meta": tasks_meta(&format!("{tag}-pol"))
-            }),
+            json!({ "name": "susi_restricted_probe", "arguments": {}, "_meta": tasks_meta(&format!("{tag}-pol"))}),
         );
         let policy_deny_sync =
             pol["result"]["resultType"] == "complete" && pol["result"]["isError"] == true;
@@ -957,11 +841,7 @@ fn gmcp_req_203_014_05_interop() {
         let sp = client.call(
             &format!("{tag}-spawn"),
             "tools/call",
-            json!({
-                "name": "ledger_verify",
-                "arguments": {},
-                "_meta": tasks_meta(&format!("{tag}-spawn"))
-            }),
+            json!({ "name": "ledger_verify", "arguments": {}, "_meta": tasks_meta(&format!("{tag}-spawn"))}),
         );
         let task_spawn_type = sp["result"]["resultType"]
             .as_str()
@@ -993,19 +873,12 @@ fn gmcp_req_203_014_05_interop() {
         let unknown_task = client.call(
             &format!("{tag}-unk"),
             "tasks/get",
-            json!({
-                "taskId": "00000000-0000-4000-8000-000000000099",
-                "_meta": tasks_meta(&format!("{tag}-unk"))
-            }),
+            json!({ "taskId": "00000000-0000-4000-8000-000000000099", "_meta": tasks_meta(&format!("{tag}-unk"))}),
         );
         let update_term = client.call(
             &format!("{tag}-updt"),
             "tasks/update",
-            json!({
-                "taskId": tid,
-                "inputResponses": {},
-                "_meta": tasks_meta(&format!("{tag}-updt"))
-            }),
+            json!({ "taskId": tid, "inputResponses": {}, "_meta": tasks_meta(&format!("{tag}-updt"))}),
         );
         let cancel_term = client.call(
             &format!("{tag}-cant"),
@@ -1516,12 +1389,7 @@ fn gmcp_req_203_014_05_interop() {
     let leg_aug = leg_dup.call(
         "reg-params-task",
         "tools/call",
-        json!({
-            "name": "interop_echo",
-            "arguments": {"msg": "no-force"},
-            "task": {"ttl": 5000},
-            "_meta": plain_modern_meta("reg-params-task")
-        }),
+        json!({ "name": "interop_echo", "arguments": {"msg": "no-force"}, "task": {"ttl": 5000}, "_meta": plain_modern_meta("reg-params-task")}),
     );
     assert_eq!(
         leg_aug["result"]["resultType"], "complete",
@@ -1537,13 +1405,7 @@ fn gmcp_req_203_014_05_interop() {
         PersistedTaskHandleStore::open(&bad_store),
         Err(WireError::Protocol(_))
     ));
-    let dup_entry = json!({
-        "version": 1,
-        "handles": [
-            {"addr": "127.0.0.1:9", "taskId": "dup-1", "protocolVersion": "2026-07-28", "status": "working", "createdAt": "t0", "lastUpdatedAt": "t0"},
-            {"addr": "127.0.0.1:9", "taskId": "dup-1", "protocolVersion": "2026-07-28", "status": "completed", "createdAt": "t0", "lastUpdatedAt": "t1"}
-        ]
-    });
+    let dup_entry = json!({ "version": 1, "handles": [{"addr": "127.0.0.1:9", "taskId": "dup-1", "protocolVersion": "2026-07-28", "status": "working", "createdAt": "t0", "lastUpdatedAt": "t0"}, {"addr": "127.0.0.1:9", "taskId": "dup-1", "protocolVersion": "2026-07-28", "status": "completed", "createdAt": "t0", "lastUpdatedAt": "t1"}]});
     std::fs::write(&bad_store, dup_entry.to_string()).unwrap();
     assert!(matches!(
         PersistedTaskHandleStore::open(&bad_store),

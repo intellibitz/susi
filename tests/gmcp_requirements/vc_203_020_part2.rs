@@ -496,62 +496,24 @@ fn gmcp_req_203_020_06_operations() {
     trace_meta["io.modelcontextprotocol/requestId"] = json!("ops020-http-info");
     trace_meta["io.modelcontextprotocol/logLevel"] = json!("info");
     trace_meta["vendor.ops/context"] = json!({"secret": token});
-    let (http_st, http_raw, http_frames) = http_post(
-        &[
-            ("MCP-Protocol-Version", "2026-07-28"),
-            ("Mcp-Method", "tools/call"),
-            ("Mcp-Name", "summarize_items"),
-            (
-                "traceparent",
-                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-            ),
-        ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops020-http-info",
-            "method": "tools/call",
-            "params": {
-                "name": "summarize_items",
-                "arguments": { "items": ["x"], "scope": { "namespace": "trace" } },
-                "_meta": trace_meta
-            }
-        }),
-    );
+    let info_hdrs = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "summarize_items"),
+        ("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
+    ];
+    let info_body = json!({"jsonrpc":"2.0","id":"ops020-http-info","method":"tools/call","params":{"name":"summarize_items","arguments":{"items":["x"],"scope":{"namespace":"trace"}},"_meta":trace_meta}});
+    let (http_st, http_raw, http_frames) = http_post(&info_hdrs, &info_body);
     assert!(http_st.starts_with("HTTP/1.1 200"), "{http_st} {http_raw}");
     assert!(http_frames.iter().any(|f| f["id"] == "ops020-http-info"));
-    assert!(http_frames
-        .iter()
-        .any(|f| f["method"] == "notifications/message"));
-    assert!(
-        !http_raw.contains(token),
-        "SSE telemetry must never leak Bearer token"
-    );
+    assert!(http_frames.iter().any(|f| f["method"] == "notifications/message"));
+    assert!(!http_raw.contains(token), "SSE telemetry must never leak Bearer token");
 
     let mut quiet_meta = adapter_modern_meta()["_meta"].clone();
     quiet_meta["io.modelcontextprotocol/requestId"] = json!("ops020-http-quiet");
-    let (_, quiet_raw, quiet_frames) = http_post(
-        &[
-            ("MCP-Protocol-Version", "2026-07-28"),
-            ("Mcp-Method", "tools/call"),
-            ("Mcp-Name", "summarize_items"),
-        ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "ops020-http-quiet",
-            "method": "tools/call",
-            "params": {
-                "name": "summarize_items",
-                "arguments": { "items": ["x"], "scope": { "namespace": "quiet" } },
-                "_meta": quiet_meta
-            }
-        }),
-    );
-    assert!(
-        quiet_frames
-            .iter()
-            .all(|f| f["method"] != "notifications/message"),
-        "omitted logLevel must suppress notifications/message: {quiet_raw}"
-    );
+    let quiet_body = json!({"jsonrpc":"2.0","id":"ops020-http-quiet","method":"tools/call","params":{"name":"summarize_items","arguments":{"items":["x"],"scope":{"namespace":"quiet"}},"_meta":quiet_meta}});
+    let (_, quiet_raw, quiet_frames) = http_post(&info_hdrs[..3], &quiet_body);
+    assert!(quiet_frames.iter().all(|f| f["method"] != "notifications/message"), "{quiet_raw}");
 
     // ── 4. Live migration, catalog rollback & host pack quarantine/unload ─
     let empty_obj: susi_gmcp::mcp::model::JsonObject =
@@ -668,210 +630,81 @@ fn gmcp_req_203_020_06_operations() {
     assert_eq!(unload_cli["active"], json!(pack_ext::DEFAULT_PACK_ID));
 
     // ── 5. Pinned VC-203-020 specs & automated standards drift detection ─
-    let sources: Value = serde_json::from_slice(
-        &std::fs::read(root.join(".agents/gmcp/sources.json")).expect("sources.json readable"),
-    )
-    .unwrap();
-    let pinned_020_docs = [
-        "schema/2026-07-28/schema.json",
-        "schema/2026-07-28/schema.ts",
-        "schema/2025-11-25/schema.json",
-        "docs/specification/2026-07-28/server/tools.mdx",
-        "docs/specification/2026-07-28/server/resources.mdx",
-        "docs/specification/2026-07-28/server/prompts.mdx",
-        "docs/specification/2026-07-28/server/discover.mdx",
-        "docs/specification/2026-07-28/server/utilities/completion.mdx",
-        "docs/specification/2026-07-28/basic/patterns/subscriptions.mdx",
-        "docs/specification/2026-07-28/basic/patterns/mrtr.mdx",
-        "docs/docs/2026-07-28/tutorials/security/local-server-security.mdx",
-        "ext-tasks/specification/2026-07-28/tasks.md",
-        "ext-apps/specification/2026-01-26/apps.mdx",
-        "ext-auth/specification/stable/enterprise-managed-authorization.mdx",
-    ];
-    for doc in &pinned_020_docs {
-        let entry = sources["files"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| f["document"] == *doc)
-            .unwrap_or_else(|| panic!("missing pinned sources entry for {doc}"));
-        let disk_sha = susi_paths::hex::encode(Sha256::digest(
-            std::fs::read(root.join(".agents/gmcp/spec").join(doc)).unwrap(),
-        ));
+    let sources: Value =
+        serde_json::from_slice(&std::fs::read(root.join(".agents/gmcp/sources.json")).unwrap()).unwrap();
+    let pinned_020_docs = "schema/2026-07-28/schema.json|schema/2026-07-28/schema.ts|schema/2025-11-25/schema.json|docs/specification/2026-07-28/server/tools.mdx|docs/specification/2026-07-28/server/resources.mdx|docs/specification/2026-07-28/server/prompts.mdx|docs/specification/2026-07-28/server/discover.mdx|docs/specification/2026-07-28/server/utilities/completion.mdx|docs/specification/2026-07-28/basic/patterns/subscriptions.mdx|docs/specification/2026-07-28/basic/patterns/mrtr.mdx|docs/docs/2026-07-28/tutorials/security/local-server-security.mdx|ext-tasks/specification/2026-07-28/tasks.md|ext-apps/specification/2026-01-26/apps.mdx|ext-auth/specification/stable/enterprise-managed-authorization.mdx";
+    for doc in pinned_020_docs.split('|') {
+        let entry = sources["files"].as_array().unwrap().iter().find(|f| f["document"] == doc).unwrap();
+        let disk_sha = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/spec").join(doc)).unwrap()));
         assert_eq!(entry["sha256"].as_str(), Some(disk_sha.as_str()), "{doc}");
     }
 
     let refetched = scratch.join("refetched-spec");
     copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
     let refetched_arg = refetched.to_str().unwrap();
-    let clean_a = susi_json(
-        root,
-        &home,
-        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
-    );
-    let clean_b = susi_json(
-        root,
-        &home,
-        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
-    );
-    assert_eq!(clean_a, clean_b);
-    assert_eq!(clean_a["verified"], json!(true));
+    let drift_args = ["mcp", "ledger", "--drift", "--refetched", refetched_arg];
+    let clean_a = susi_json(root, &home, &drift_args);
+    assert!(clean_a == susi_json(root, &home, &drift_args) && clean_a["verified"] == json!(true));
     assert!(clean_a["findings"].as_array().unwrap().is_empty());
 
-    for victim_rel in [
-        "docs/specification/2026-07-28/server/tools.mdx",
-        "docs/specification/2026-07-28/basic/patterns/mrtr.mdx",
-        "docs/docs/2026-07-28/tutorials/security/local-server-security.mdx",
-        "ext-tasks/specification/2026-07-28/tasks.md",
-        "schema/2026-07-28/schema.json",
-    ] {
+    let victims = "docs/specification/2026-07-28/server/tools.mdx|docs/specification/2026-07-28/basic/patterns/mrtr.mdx|docs/docs/2026-07-28/tutorials/security/local-server-security.mdx|ext-tasks/specification/2026-07-28/tasks.md|schema/2026-07-28/schema.json";
+    for victim_rel in victims.split('|') {
         let victim = refetched.join(victim_rel);
         let original = std::fs::read(&victim).unwrap();
         let mut altered = original.clone();
         altered.extend_from_slice(b"\n<!-- drifted vc-203-020 spec -->\n");
         std::fs::write(&victim, &altered).unwrap();
 
-        let drifted = susi_command(
-            root,
-            &home,
-            &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
-        )
-        .output()
-        .unwrap();
+        let drifted = susi_command(root, &home, &drift_args).output().unwrap();
         assert!(!drifted.status.success(), "{victim_rel}: drift must fail");
         let drift_report: Value = serde_json::from_slice(&drifted.stdout).unwrap();
         assert_eq!(drift_report["verified"], json!(false));
-        assert!(drift_report["findings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|f| f["document"] == victim_rel && f["kind"] == "hash_drift"));
-
+        assert!(drift_report["findings"].as_array().unwrap().iter().any(|f| f["document"] == victim_rel && f["kind"] == "hash_drift"));
         std::fs::write(&victim, &original).unwrap();
     }
-    assert_eq!(
-        susi_json(
-            root,
-            &home,
-            &["mcp", "ledger", "--drift", "--refetched", refetched_arg]
-        ),
-        clean_a
-    );
+    assert_eq!(susi_json(root, &home, &drift_args), clean_a);
 
     let missing_rel = "docs/specification/2026-07-28/server/discover.mdx";
     std::fs::remove_file(refetched.join(missing_rel)).unwrap();
-    let missing_out = susi_command(
-        root,
-        &home,
-        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
-    )
-    .output()
-    .unwrap();
+    let missing_out = susi_command(root, &home, &drift_args).output().unwrap();
     assert!(!missing_out.status.success());
     let missing_report: Value = serde_json::from_slice(&missing_out.stdout).unwrap();
     assert_eq!(missing_report["verified"], json!(false));
-    assert!(missing_report["findings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|f| f["document"] == missing_rel && f["kind"] == "unfetchable"));
+    assert!(missing_report["findings"].as_array().unwrap().iter().any(|f| f["document"] == missing_rel && f["kind"] == "unfetchable"));
 
     // Mutating a vendored standard in a repo copy invalidates `verify_pinned_ledger`.
     let tampered_repo = scratch.join("tampered-repo");
     std::fs::create_dir_all(tampered_repo.join("docs")).unwrap();
     std::fs::create_dir_all(tampered_repo.join(".agents/gmcp")).unwrap();
-    copy_tree(
-        &root.join(".agents/gmcp/spec"),
-        &tampered_repo.join(".agents/gmcp/spec"),
-    );
-    for rel in [
-        ".agents/gmcp/requirements-ledger.json",
-        ".agents/gmcp/sources.json",
-        "docs/gmcp-roadmap.md",
-    ] {
+    copy_tree(&root.join(".agents/gmcp/spec"), &tampered_repo.join(".agents/gmcp/spec"));
+    for rel in [".agents/gmcp/requirements-ledger.json", ".agents/gmcp/sources.json", "docs/gmcp-roadmap.md"] {
         std::fs::copy(root.join(rel), tampered_repo.join(rel)).unwrap();
     }
-    let tampered_tools =
-        tampered_repo.join(".agents/gmcp/spec/docs/specification/2026-07-28/server/tools.mdx");
+    let tampered_tools = tampered_repo.join(".agents/gmcp/spec/docs/specification/2026-07-28/server/tools.mdx");
     let mut t_bytes = std::fs::read(&tampered_tools).unwrap();
     t_bytes.push(b'\n');
     std::fs::write(&tampered_tools, t_bytes).unwrap();
-    assert!(
-        susi_gmcp::requirements_ledger::verify_pinned_ledger(&tampered_repo).is_err(),
-        "changed vendored spec must invalidate verify_pinned_ledger"
-    );
+    assert!(susi_gmcp::requirements_ledger::verify_pinned_ledger(&tampered_repo).is_err());
 
     // ── 6. Runbook bindings & reproducible append-only evidence checks ───
-    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-020.md"))
-        .expect("docs/gmcp/contract-203-020.md readable");
-    for required in [
-        "GMCP-203-020-01..06",
-        "## Operations and non-claims",
-        "## Operations and incident runbook",
-        "### Inspectable state",
-        "### Configuration validation",
-        "### Bounded metrics, logs and traces",
-        "### Diagnostics and incident triage",
-        "### Examples",
-        "### Incident triage",
-        "### Migration (SDK authoring, plugin API major upgrades, and re-pinning upstream specs)",
-        "### Rollback",
-        "### Production guarantees and non-claims",
-        "GmcpService::ops_snapshot()",
-        "SDK-001",
-        "SDK-018",
-        "HOST_PACK_API_MAJOR = 1",
-        "MAX_DEPTH = 64",
-        "MAX_NODES = 10_000",
-        "MAX_RESOURCE_BYTES = 8 MiB",
-        "DEFAULT_MAX_LINE_LENGTH = 16777216",
-        "DEFAULT_MAX_REQUEST_BODY_BYTES = 4194304",
-        "IntegrityFailed",
-        "PermissionDenied",
-        "IncompatibleCapability",
-        "SchemaRejected",
-        "hash_drift",
-        "unfetchable",
-    ] {
-        assert!(
-            contract.contains(required),
-            "contract-203-020.md missing required operational runbook clause `{required}`"
-        );
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-020.md")).unwrap();
+    let clauses = "GMCP-203-020-01..06|## Operations and non-claims|## Operations and incident runbook|### Inspectable state|### Configuration validation|### Bounded metrics, logs and traces|### Diagnostics and incident triage|### Examples|### Incident triage|### Migration (SDK authoring, plugin API major upgrades, and re-pinning upstream specs)|### Rollback|### Production guarantees and non-claims|GmcpService::ops_snapshot()|SDK-001|SDK-018|HOST_PACK_API_MAJOR = 1|MAX_DEPTH = 64|MAX_NODES = 10_000|MAX_RESOURCE_BYTES = 8 MiB|DEFAULT_MAX_LINE_LENGTH = 16777216|DEFAULT_MAX_REQUEST_BODY_BYTES = 4194304|IntegrityFailed|PermissionDenied|IncompatibleCapability|SchemaRejected|hash_drift|unfetchable";
+    for required in clauses.split('|') {
+        assert!(contract.contains(required), "missing `{required}`");
     }
 
+    let ledger_sha = susi_paths::hex::encode(Sha256::digest(std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap()));
     let ev_dir = root.join(".agents/gmcp/evidence");
     let mut ev_count = 0usize;
     for entry in std::fs::read_dir(&ev_dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             ev_count += 1;
-            let raw = std::fs::read_to_string(&path).unwrap();
-            let mut last_row: Option<Value> = None;
-            for line in raw.lines().filter(|l| !l.trim().is_empty()) {
-                let row: Value = serde_json::from_str(line).unwrap();
-                assert_eq!(row["exit"], json!(0));
-                assert!(row["requirement"]
-                    .as_str()
-                    .is_some_and(|s| s.starts_with("GMCP-203-")));
-                assert!(row["artifact_sha256"]
-                    .as_str()
-                    .is_some_and(|s| s.len() == 64));
-                last_row = Some(row);
-            }
-            let latest = last_row.expect("evidence jsonl must be non-empty");
-            assert!(latest["tested_commit"]
-                .as_str()
-                .is_some_and(|s| s.len() == 40));
-            assert!(latest["tested_artifacts"]
-                .as_str()
-                .is_some_and(|s| s.len() == 64));
+            let records = newest_records(&std::fs::read_to_string(&path).unwrap());
+            assert!(!records.is_empty() && records.iter().all(|r| r["exit"] == 0 && r["artifact_sha256"] == ledger_sha));
         }
     }
-    assert!(ev_count >= 15, "expected >= 15 mastered evidence JSONLs");
-    assert!(!ev_dir.join("VC-203-020.jsonl").exists());
-    assert!(!root
-        .join(".agents/roadmap-verdicts/VC-203-020.json")
-        .exists());
+    assert!(ev_count >= 15 && !ev_dir.join("VC-203-020.jsonl").exists() && !root.join(".agents/roadmap-verdicts/VC-203-020.json").exists());
 
     let disk_bytes = adapter_tree_bytes(&sdk_tasks);
     assert!(

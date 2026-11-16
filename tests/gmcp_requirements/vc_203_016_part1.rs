@@ -299,13 +299,7 @@ fn gmcp_req_203_016_03_integration() {
     let emb_disc = embedded.call(
         "integ016-emb",
         "server/discover",
-        json!({
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {},
-                "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}
-            }
-        }),
+        json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}}}),
     );
     assert_eq!(
         emb_disc["result"]["capabilities"]["extensions"],
@@ -315,13 +309,7 @@ fn gmcp_req_203_016_03_integration() {
     let emb_tools = embedded.call(
         "integ016-emb-tools",
         "tools/list",
-        json!({
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {},
-                "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}
-            }
-        }),
+        json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "vendor.integ/meta": {"hop": "embedded", "opaque": [1, 2]}}}),
     );
     assert!(
         emb_tools["result"]["tools"].is_array(),
@@ -348,13 +336,7 @@ fn gmcp_req_203_016_03_integration() {
     assert_eq!(stdio_disc["capabilities"]["extensions"], shipped_ext);
     let stdio_tools = stdio.request(
         "tools/list",
-        json!({
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {},
-                "vendor.integ/meta": {"hop": "stdio"}
-            }
-        }),
+        json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "vendor.integ/meta": {"hop": "stdio"}}}),
     );
     assert!(stdio_tools["tools"].is_array(), "stdio_tools={stdio_tools}");
     drop(stdio);
@@ -377,12 +359,7 @@ fn gmcp_req_203_016_03_integration() {
     let mut wire = susi_wire_client::mcp::Session::open_with_capabilities(
         &http_addr,
         Some(token),
-        &json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {},
-                "vendor.peer/integ": {"enabled": true}
-            }
-        }),
+        &json!({ "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.peer/integ": {"enabled": true}}}),
         Duration::from_secs(15),
     )
     .expect("Wire SDK HTTP session must open");
@@ -394,22 +371,14 @@ fn gmcp_req_203_016_03_integration() {
     let http_tools = wire
         .request(
             "tools/list",
-            &json!({
-                "_meta": {
-                    "vendor.integ/meta": {"hop": "http"}
-                }
-            }),
+            &json!({ "_meta": { "vendor.integ/meta": {"hop": "http"}}}),
             &mut |note| http_notices.push(note.clone()),
         )
         .expect("HTTP tools/list with unknown _meta key must succeed");
     assert!(http_tools["tools"].is_array(), "http_tools={http_tools}");
 
     // Content-model extension keys survive canonical wire round-trip untouched.
-    let block_wire = json!({
-        "type": "text",
-        "text": "extension payload",
-        "vendor.integ/hint": {"nested": [1, "a"], "flag": true}
-    });
+    let block_wire = json!({ "type": "text", "text": "extension payload", "vendor.integ/hint": {"nested": [1, "a"], "flag": true}});
     let canonical = CanonicalContentBlock::from_wire(&block_wire).unwrap();
     assert_eq!(canonical.to_wire(), block_wire);
 
@@ -620,11 +589,7 @@ fn gmcp_req_203_016_04_adversarial() {
         Err(ContentError::TooLarge)
     );
 
-    let wide = json!({
-        "type": "text",
-        "text": "ok",
-        "vendor.adv/wide": vec![1; 10_005],
-    });
+    let wide = json!({ "type": "text", "text": "ok", "vendor.adv/wide": vec![1; 10_005]});
     assert_eq!(
         CanonicalContentBlock::from_wire(&wide),
         Err(ContentError::TooLarge)
@@ -687,28 +652,14 @@ fn gmcp_req_203_016_04_adversarial() {
     let mut wire = StdioSession::spawn_raw(root, &home);
     let _init = wire
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "adv-init",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {},
-                    "clientInfo": {"name": "adv-016", "version": "1"}
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "adv-init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "adv-016", "version": "1"}}}),
             Duration::from_secs(60),
         )
         .expect("legacy initialize must answer");
     wire.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     let injected = wire
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "adv-era-leak",
-                "method": "ping",
-                "params": {"_meta": {"io.modelcontextprotocol/requestId": "forged"}}
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "adv-era-leak", "method": "ping", "params": {"_meta": {"io.modelcontextprotocol/requestId": "forged"}}}),
             Duration::from_secs(60),
         )
         .expect("injected modern _meta on legacy session must reject");
@@ -746,12 +697,7 @@ fn gmcp_req_203_016_04_adversarial() {
         }
     }
 
-    let oversized_body = json!({
-        "jsonrpc": "2.0",
-        "id": "adv-413",
-        "method": "ping",
-        "params": {"_meta": {"vendor.adv/pad": "x".repeat(2048)}}
-    })
+    let oversized_body = json!({ "jsonrpc": "2.0", "id": "adv-413", "method": "ping", "params": {"_meta": {"vendor.adv/pad": "x".repeat(2048)}}})
     .to_string();
     let raw_req = format!(
         "POST /mcp HTTP/1.1\r\nHost: {addr1}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\n\r\n{oversized_body}",
@@ -785,62 +731,27 @@ fn gmcp_req_203_016_04_adversarial() {
     for (case_name, manifest_json, extra_file) in [
         (
             "checksum-mismatch",
-            json!({
-                "id": "tamper-sha",
-                "name": "Tamper SHA",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "files": {"rules": "rules.json"},
-                "checksums": {"rules": format!("sha256:{}", "00".repeat(32))}
-            }),
+            json!({ "id": "tamper-sha", "name": "Tamper SHA", "version": "1.0.0", "apiVersion": "1", "files": {"rules": "rules.json"}, "checksums": {"rules": format!("sha256:{}", "00".repeat(32))}}),
             Some(("rules.json", payload.as_slice())),
         ),
         (
             "bad-ed25519-signature",
-            json!({
-                "id": "tamper-sig",
-                "name": "Tamper Sig",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "files": {"rules": "rules.json"},
-                "checksums": {"rules": format!("sha256:{good_sha}")},
-                "signatures": {"rules": "00".repeat(64)},
-                "signer": "11".repeat(32)
-            }),
+            json!({ "id": "tamper-sig", "name": "Tamper Sig", "version": "1.0.0", "apiVersion": "1", "files": {"rules": "rules.json"}, "checksums": {"rules": format!("sha256:{good_sha}")}, "signatures": {"rules": "00".repeat(64)}, "signer": "11".repeat(32)}),
             Some(("rules.json", payload.as_slice())),
         ),
         (
             "traversal-escape",
-            json!({
-                "id": "tamper-escape",
-                "name": "Tamper Escape",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "files": {"rules": "../secret.json"}
-            }),
+            json!({ "id": "tamper-escape", "name": "Tamper Escape", "version": "1.0.0", "apiVersion": "1", "files": {"rules": "../secret.json"}}),
             None,
         ),
         (
             "absolute-path",
-            json!({
-                "id": "tamper-abs",
-                "name": "Tamper Abs",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "permissions": ["filesystem.read"],
-                "files": {"rules": "/etc/passwd"}
-            }),
+            json!({ "id": "tamper-abs", "name": "Tamper Abs", "version": "1.0.0", "apiVersion": "1", "permissions": ["filesystem.read"], "files": {"rules": "/etc/passwd"}}),
             None,
         ),
         (
             "unknown-permission",
-            json!({
-                "id": "tamper-perm",
-                "name": "Tamper Perm",
-                "version": "1.0.0",
-                "apiVersion": "1",
-                "permissions": ["kernel.bypass"]
-            }),
+            json!({ "id": "tamper-perm", "name": "Tamper Perm", "version": "1.0.0", "apiVersion": "1", "permissions": ["kernel.bypass"]}),
             None,
         ),
     ] {
@@ -865,14 +776,7 @@ fn gmcp_req_203_016_04_adversarial() {
     let host_pack = cfg_dir.join("extensions").join("adv-host-pack");
     std::fs::write(
         host_pack.join("manifest.json"),
-        json!({
-            "id": "adv-host-pack",
-            "name": "Tampered",
-            "version": "1.0.0",
-            "apiVersion": "1",
-            "files": {"rules": "missing.json"},
-            "checksums": {"rules": "00".repeat(32)}
-        })
+        json!({ "id": "adv-host-pack", "name": "Tampered", "version": "1.0.0", "apiVersion": "1", "files": {"rules": "missing.json"}, "checksums": {"rules": "00".repeat(32)}})
         .to_string(),
     )
     .unwrap();
@@ -980,11 +884,7 @@ fn gmcp_req_203_016_05_interop() {
         if let Some(ext) = client_ext {
             caps["extensions"] = ext;
         }
-        let mut meta = json!({
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": caps,
-            "io.modelcontextprotocol/requestId": req_id,
-        });
+        let mut meta = json!({ "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": caps, "io.modelcontextprotocol/requestId": req_id});
         if let Some((k, v)) = extra {
             meta[k] = v;
         }
@@ -1045,16 +945,7 @@ fn gmcp_req_203_016_05_interop() {
     let emb_init = emb_client.call(
         "emb-init",
         "initialize",
-        json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {
-                "extensions": {
-                    "io.modelcontextprotocol/tasks": {},
-                    "vendor.example/client-unknown": {"probe": true, "nested": [1, 2]}
-                }
-            },
-            "clientInfo": {"name": "ext-embedded", "version": "1"}
-        }),
+        json!({ "protocolVersion": "2025-11-25", "capabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.example/client-unknown": {"probe": true, "nested": [1, 2]}}}, "clientInfo": {"name": "ext-embedded", "version": "1"}}),
     );
     assert_eq!(
         emb_init["result"]["capabilities"]["extensions"], direct_ext_json,
@@ -1064,17 +955,7 @@ fn gmcp_req_203_016_05_interop() {
     let emb_disc = emb_client.call(
         "emb-disc",
         "server/discover",
-        json!({
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2025-11-25",
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": {
-                        "vendor.example/discover-unknown": {"active": true}
-                    }
-                },
-                "vendor.example/trace": {"span": 7}
-            }
-        }),
+        json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": { "extensions": { "vendor.example/discover-unknown": {"active": true}}}, "vendor.example/trace": {"span": 7}}}),
     );
     assert_eq!(
         emb_disc["result"]["capabilities"]["extensions"], direct_ext_json,
@@ -1089,13 +970,7 @@ fn gmcp_req_203_016_05_interop() {
         let sock_init = sock_client.call(
             "sock-init",
             "initialize",
-            json!({
-                "protocolVersion": "2025-11-25",
-                "capabilities": {
-                    "extensions": {"vendor.example/socket-probe": {"ok": true}}
-                },
-                "clientInfo": {"name": "ext-socket", "version": "1"}
-            }),
+            json!({ "protocolVersion": "2025-11-25", "capabilities": { "extensions": {"vendor.example/socket-probe": {"ok": true}}}, "clientInfo": {"name": "ext-socket", "version": "1"}}),
         );
         assert_eq!(
             sock_init["result"]["capabilities"]["extensions"], direct_ext_json,
@@ -1110,21 +985,7 @@ fn gmcp_req_203_016_05_interop() {
     let mut stdio_leg = StdioSession::spawn_raw(root, &home);
     let stdio_init = stdio_leg
         .request_verbatim(
-            &json!({
-                "jsonrpc": "2.0",
-                "id": "stdio-init",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": {
-                        "extensions": {
-                            "io.modelcontextprotocol/tasks": {},
-                            "vendor.example/stdio-unknown": {"depth": 1}
-                        }
-                    },
-                    "clientInfo": {"name": "ext-stdio-leg", "version": "1"}
-                }
-            }),
+            &json!({ "jsonrpc": "2.0", "id": "stdio-init", "method": "initialize", "params": { "protocolVersion": "2025-11-25", "capabilities": { "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.example/stdio-unknown": {"depth": 1}}}, "clientInfo": {"name": "ext-stdio-leg", "version": "1"}}}),
             Duration::from_secs(120),
         )
         .expect("stdio initialize must answer");
@@ -1141,13 +1002,7 @@ fn gmcp_req_203_016_05_interop() {
     let mod_req_t0 = Instant::now();
     let stdio_mod_disc = stdio_mod.request(
         "server/discover",
-        json!({
-            "_meta": modern_meta(
-                "stdio-mod-disc",
-                Some(("vendor.example/custom-meta", json!({"trace": "mod-1"}))),
-                Some(json!({"vendor.example/modern-ext": {"flags": ["a", "b"]}}))
-            )
-        }),
+        json!({ "_meta": modern_meta( "stdio-mod-disc", Some(("vendor.example/custom-meta", json!({"trace": "mod-1"}))), Some(json!({"vendor.example/modern-ext": {"flags": ["a", "b"]}})))}),
     );
     within("request_ms", mod_req_t0.elapsed().as_millis());
     assert_eq!(
@@ -1212,12 +1067,7 @@ fn gmcp_req_203_016_05_interop() {
     let wire_gw = susi_wire_client::mcp::Session::open_with_capabilities(
         &http_addr,
         Some(token),
-        &json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {},
-                "vendor.example/wire-client-ext": {"version": 1}
-            }
-        }),
+        &json!({ "extensions": { "io.modelcontextprotocol/tasks": {}, "vendor.example/wire-client-ext": {"version": 1}}}),
         Duration::from_secs(15),
     )
     .expect("wire SDK must open session carrying client extension capabilities");
@@ -1260,18 +1110,7 @@ fn gmcp_req_203_016_05_interop() {
             ("MCP-Protocol-Version", "2026-07-28"),
             ("Mcp-Method", "server/discover"),
         ],
-        &json!({
-            "jsonrpc": "2.0",
-            "id": "http-mod-disc",
-            "method": "server/discover",
-            "params": {
-                "_meta": modern_meta(
-                    "http-mod-disc",
-                    Some(("vendor.example/http-meta", json!({"tenant": "t-1"}))),
-                    Some(json!({"vendor.example/stateless-client": {"v": 3}}))
-                )
-            }
-        })
+        &json!({ "jsonrpc": "2.0", "id": "http-mod-disc", "method": "server/discover", "params": { "_meta": modern_meta( "http-mod-disc", Some(("vendor.example/http-meta", json!({"tenant": "t-1"}))), Some(json!({"vendor.example/stateless-client": {"v": 3}})))}})
         .to_string(),
     );
     assert_eq!(
@@ -1288,15 +1127,7 @@ fn gmcp_req_203_016_05_interop() {
     let core_disc = susi_core::mcp_client::session_call(
         &http_addr,
         "server/discover",
-        &json!({
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2025-11-25",
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": {"vendor.example/core-client": {"ok": true}}
-                },
-                "vendor.example/core-meta": "ok"
-            }
-        }),
+        &json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": { "extensions": {"vendor.example/core-client": {"ok": true}}}, "vendor.example/core-meta": "ok"}}),
         Some(token),
     )
     .expect("susi_core::mcp_client server/discover must succeed");
@@ -1372,42 +1203,11 @@ fn gmcp_req_203_016_05_interop() {
                 if let Some(ext) = msg["params"]["capabilities"].get("extensions") {
                     seen_client_init_exts_srv.lock().unwrap().push(ext.clone());
                 }
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "protocolVersion": "2025-11-25",
-                        "capabilities": {
-                            "tools": {},
-                            "extensions": {
-                                "io.modelcontextprotocol/tasks": {"version": 1, "list": {}},
-                                "io.modelcontextprotocol/ui": {"version": 1, "mimeTypes": ["text/html"]},
-                                "vendor.peer/custom-caps": {"feature": "alpha", "nested": {"k": 9}}
-                            }
-                        },
-                        "serverInfo": {"name": "ref-ext-peer", "version": "2.0"}
-                    }
-                })
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": "2025-11-25", "capabilities": { "tools": {}, "extensions": { "io.modelcontextprotocol/tasks": {"version": 1, "list": {}}, "io.modelcontextprotocol/ui": {"version": 1, "mimeTypes": ["text/html"]}, "vendor.peer/custom-caps": {"feature": "alpha", "nested": {"k": 9}}}}, "serverInfo": {"name": "ref-ext-peer", "version": "2.0"}}})
             } else if method == "tools/call" {
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{
-                            "type": "text",
-                            "text": "peer-ext-ok",
-                            "vendor.peer/content-meta": {"confidence": 0.99}
-                        }],
-                        "isError": false,
-                        "_meta": {"vendor.peer/reply-tag": "preserved"}
-                    }
-                })
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": "peer-ext-ok", "vendor.peer/content-meta": {"confidence": 0.99}}], "isError": false, "_meta": {"vendor.peer/reply-tag": "preserved"}}})
             } else {
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {"code": -32601, "message": "method not found"}
-                })
+                json!({ "jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "method not found"}})
             };
             let reply = reply_json.to_string();
             let extra_hdr = if method == "initialize" {
@@ -1424,12 +1224,7 @@ fn gmcp_req_203_016_05_interop() {
     });
 
     {
-        let client_advertised = json!({
-            "extensions": {
-                "io.modelcontextprotocol/tasks": {"version": 1},
-                "vendor.susi/client-probe": {"mode": "verify"}
-            }
-        });
+        let client_advertised = json!({ "extensions": { "io.modelcontextprotocol/tasks": {"version": 1}, "vendor.susi/client-probe": {"mode": "verify"}}});
         let mut peer_wire = susi_wire_client::mcp::Session::open_with_capabilities(
             &peer_addr,
             None,
@@ -1551,11 +1346,7 @@ fn gmcp_req_203_016_05_interop() {
     let dyn_init = dyn_client.call(
         "dyn-init",
         "initialize",
-        json!({
-            "protocolVersion": "2026-07-28",
-            "capabilities": {},
-            "clientInfo": {"name": "dyn-ext", "version": "1"}
-        }),
+        json!({ "protocolVersion": "2026-07-28", "capabilities": {}, "clientInfo": {"name": "dyn-ext", "version": "1"}}),
     );
     assert_eq!(
         dyn_init["result"]["capabilities"]["extensions"][custom_id],
@@ -1620,16 +1411,7 @@ fn gmcp_req_203_016_05_interop() {
     );
 
     // 5b. Content/annotation/icon/resource unknown-extension round-trip invariance.
-    let wire_content = json!({
-        "type": "text",
-        "text": "hello extension",
-        "annotations": {
-            "audience": ["user"],
-            "priority": 0.5,
-            "vendor.example/annot": {"nested": [true, 42]}
-        },
-        "vendor.example/block-ext": {"flags": ["alpha", "omega"], "score": 3}
-    });
+    let wire_content = json!({ "type": "text", "text": "hello extension", "annotations": { "audience": ["user"], "priority": 0.5, "vendor.example/annot": {"nested": [true, 42]}}, "vendor.example/block-ext": {"flags": ["alpha", "omega"], "score": 3}});
     let parsed_block = CanonicalContentBlock::from_wire(&wire_content).unwrap();
     let round_tripped = serde_json::to_value(&parsed_block).unwrap();
     assert_eq!(
@@ -1640,11 +1422,7 @@ fn gmcp_req_203_016_05_interop() {
         round_tripped["annotations"]["vendor.example/annot"],
         wire_content["annotations"]["vendor.example/annot"]
     );
-    let icon_val = json!({
-        "src": "https://example.com/icon.png",
-        "mimeType": "image/png",
-        "vendor.example/icon-ext": {"theme": "dark"}
-    });
+    let icon_val = json!({ "src": "https://example.com/icon.png", "mimeType": "image/png", "vendor.example/icon-ext": {"theme": "dark"}});
     let icon: CanonicalIcon = serde_json::from_value(icon_val.clone()).unwrap();
     assert_eq!(
         serde_json::to_value(&icon).unwrap()["vendor.example/icon-ext"],
@@ -1653,11 +1431,7 @@ fn gmcp_req_203_016_05_interop() {
     let annot_val = json!({"audience": ["assistant"], "vendor.example/x": 1});
     let annot: CanonicalAnnotations = serde_json::from_value(annot_val.clone()).unwrap();
     assert_eq!(serde_json::to_value(&annot).unwrap()["vendor.example/x"], 1);
-    let res_val = json!({
-        "uri": "susi://tools",
-        "text": "ok",
-        "vendor.example/res-ext": {"etag": "v1"}
-    });
+    let res_val = json!({ "uri": "susi://tools", "text": "ok", "vendor.example/res-ext": {"etag": "v1"}});
     let res_c: CanonicalResourceContents = serde_json::from_value(res_val.clone()).unwrap();
     assert_eq!(
         serde_json::to_value(&res_c).unwrap()["vendor.example/res-ext"],
@@ -1698,15 +1472,7 @@ fn gmcp_req_203_016_05_interop() {
     // (R1) Legacy wire form `params.protocolVersion` on `server/discover` -> `-32602`
     //      across live stdio binary (`StdioSession::spawn_raw`) AND live HTTP `/mcp`,
     //      plus modern gate `-32602` on subsequent request missing `_meta`.
-    let legacy_discover_req = json!({
-        "jsonrpc": "2.0",
-        "id": "reg-legacy-disc",
-        "method": "server/discover",
-        "params": {
-            "protocolVersion": "2026-07-28",
-            "capabilities": {"extensions": {"io.modelcontextprotocol/tasks": {}}}
-        }
-    });
+    let legacy_discover_req = json!({ "jsonrpc": "2.0", "id": "reg-legacy-disc", "method": "server/discover", "params": { "protocolVersion": "2026-07-28", "capabilities": {"extensions": {"io.modelcontextprotocol/tasks": {}}}}});
     let legacy_disc_str = legacy_discover_req.to_string();
     let mut r1_stdio = StdioSession::spawn_raw(root, &home);
     let r1_stdio_ans = r1_stdio
@@ -1750,18 +1516,7 @@ fn gmcp_req_203_016_05_interop() {
 
     // (R2) Positive 2026-07-28 `_meta` with unknown vendor `_meta` + `clientCapabilities.extensions`
     //      passes both `classify_line` and `http_envelope_rejection`.
-    let positive_ext_req = json!({
-        "jsonrpc": "2.0",
-        "id": "reg-pos-ext",
-        "method": "server/discover",
-        "params": {
-            "_meta": modern_meta(
-                "reg-pos-ext",
-                Some(("vendor.example/extra-header", json!({"v": 1}))),
-                Some(json!({"vendor.example/unknown-cap": {"enabled": true}}))
-            )
-        }
-    });
+    let positive_ext_req = json!({ "jsonrpc": "2.0", "id": "reg-pos-ext", "method": "server/discover", "params": { "_meta": modern_meta( "reg-pos-ext", Some(("vendor.example/extra-header", json!({"v": 1}))), Some(json!({"vendor.example/unknown-cap": {"enabled": true}})))}});
     let positive_ext_bytes = serde_json::to_vec(&positive_ext_req).unwrap();
     let mut era_pos = EraState::default();
     assert!(matches!(
@@ -1777,20 +1532,12 @@ fn gmcp_req_203_016_05_interop() {
     for _ in 0..80 {
         deep = json!({"wrap": deep});
     }
-    let bad_ext_content = json!({
-        "type": "text",
-        "text": "ok",
-        "vendor.example/bomb": deep
-    });
+    let bad_ext_content = json!({ "type": "text", "text": "ok", "vendor.example/bomb": deep});
     assert_eq!(
         CanonicalContentBlock::from_wire(&bad_ext_content),
         Err(ContentError::TooLarge)
     );
-    let bad_envelope = serde_json::to_vec(&json!({
-        "jsonrpc": "2.0",
-        "id": "reg-bomb",
-        "result": {"content": [bad_ext_content]}
-    }))
+    let bad_envelope = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": "reg-bomb", "result": {"content": [bad_ext_content]}}))
     .unwrap();
     let mut era_env = EraState::default();
     assert!(matches!(
@@ -1802,12 +1549,7 @@ fn gmcp_req_203_016_05_interop() {
         Some(Some(-32600))
     );
 
-    let bad_mime_ext = json!({
-        "type": "image",
-        "data": "AAAA",
-        "mimeType": "not-a-mime",
-        "vendor.example/ext": {"keep": 1}
-    });
+    let bad_mime_ext = json!({ "type": "image", "data": "AAAA", "mimeType": "not-a-mime", "vendor.example/ext": {"keep": 1}});
     assert_eq!(
         CanonicalContentBlock::from_wire(&bad_mime_ext),
         Err(ContentError::BadMimeType("image"))
@@ -1843,28 +1585,12 @@ fn gmcp_req_203_016_05_interop() {
     let b_init = bound_client.call(
         "b-init",
         "initialize",
-        json!({
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "bounded-ext", "version": "1"}
-        }),
+        json!({ "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "bounded-ext", "version": "1"}}),
     );
     assert!(b_init["result"]["capabilities"]["extensions"].is_object());
     bound_client.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     let huge_val = "x".repeat(8192);
-    let oversized_msg = json!({
-        "jsonrpc": "2.0",
-        "id": "b-over",
-        "method": "server/discover",
-        "params": {
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2025-11-25",
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": {"vendor.example/huge": {"blob": huge_val}}
-                }
-            }
-        }
-    })
+    let oversized_msg = json!({ "jsonrpc": "2.0", "id": "b-over", "method": "server/discover", "params": { "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": { "extensions": {"vendor.example/huge": {"blob": huge_val}}}}}})
     .to_string();
     let mut line_bytes = oversized_msg.into_bytes();
     line_bytes.push(b'\n');
@@ -1910,12 +1636,7 @@ fn gmcp_req_203_016_05_interop() {
             let mut cli = susi_wire_client::mcp::Session::open_with_capabilities(
                 &addr_c,
                 Some(token),
-                &json!({
-                    "extensions": {
-                        "io.modelcontextprotocol/tasks": {},
-                        format!("vendor.fairness/client-{idx}"): {"slot": idx}
-                    }
-                }),
+                &json!({ "extensions": { "io.modelcontextprotocol/tasks": {}, format!("vendor.fairness/client-{idx}"): {"slot": idx}}}),
                 Duration::from_secs(15),
             )
             .expect("concurrent wire session open");
@@ -1926,13 +1647,7 @@ fn gmcp_req_203_016_05_interop() {
                 let disc = cli
                     .request(
                         "server/discover",
-                        &json!({
-                            "_meta": {
-                                "io.modelcontextprotocol/protocolVersion": "2025-11-25",
-                                "io.modelcontextprotocol/clientCapabilities": {},
-                                "vendor.fairness/step": step
-                            }
-                        }),
+                        &json!({ "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": {}, "vendor.fairness/step": step}}),
                         &mut |_| {},
                     )
                     .expect("concurrent server/discover");
