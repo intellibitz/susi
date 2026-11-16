@@ -270,36 +270,40 @@ fn server(root: &Path, mode: &str, behavior: &str) {
             "tools/call" if initialized => {
                 let name = params.get("name").and_then(Value::as_str);
                 let args = params.get("arguments");
-                if !params.is_object() || name.is_none() || !args.is_some_and(Value::is_object) {
-                    Err((-32602, "Invalid params: name and arguments object required"))
-                } else if registry.get(name.unwrap()).is_none() {
-                    Err((-32602, "Unknown tool"))
-                } else {
-                    let name = name.unwrap();
-                    let args = args.unwrap();
-                    append_call(root, &json!({"name":name,"arguments":args}));
-                    let text =
-                        registry.execute(&root.join("workspace"), name, &args.to_string(), &grants);
-                    if behavior == "lost" {
-                        assert_eq!(name, "append_to_file");
-                        // A real mutation completed. Keep the pipe open without a
-                        // reply; the parent's lease must stop this entire tree.
-                        let mut descendant = command(root, &["--descendant"])
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
-                            .unwrap();
-                        let ready = Instant::now() + Duration::from_secs(2);
-                        while !root.join("descendant.ready").exists() {
-                            assert!(Instant::now() < ready);
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        let _ = descendant.wait();
-                        return;
+                match (name, args.filter(|args| args.is_object())) {
+                    (Some(name), Some(_)) if registry.get(name).is_none() => {
+                        Err((-32602, "Unknown tool"))
                     }
-                    // Native handlers have a String contract, including errors.
-                    // Keep that text intact; do not invent a typed error mapping.
-                    Ok(json!({"content":[{"type":"text","text":text}],"isError":false}))
+                    (Some(name), Some(args)) => {
+                        append_call(root, &json!({"name":name,"arguments":args}));
+                        let text = registry.execute(
+                            &root.join("workspace"),
+                            name,
+                            &args.to_string(),
+                            &grants,
+                        );
+                        if behavior == "lost" {
+                            assert_eq!(name, "append_to_file");
+                            // A real mutation completed. Keep the pipe open without a
+                            // reply; the parent's lease must stop this entire tree.
+                            let mut descendant = command(root, &["--descendant"])
+                                .stdout(Stdio::null())
+                                .stderr(Stdio::null())
+                                .spawn()
+                                .unwrap();
+                            let ready = Instant::now() + Duration::from_secs(2);
+                            while !root.join("descendant.ready").exists() {
+                                assert!(Instant::now() < ready);
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            let _ = descendant.wait();
+                            return;
+                        }
+                        // Native handlers have a String contract, including errors.
+                        // Keep that text intact; do not invent a typed error mapping.
+                        Ok(json!({"content":[{"type":"text","text":text}],"isError":false}))
+                    }
+                    _ => Err((-32602, "Invalid params: name and arguments object required")),
                 }
             }
             "tools/list" | "tools/call" => Err((-32000, "Not initialized")),
