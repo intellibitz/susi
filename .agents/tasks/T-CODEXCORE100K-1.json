@@ -39,7 +39,8 @@
     "T-CODEX100KACPEVENTSCOPE-1",
     "T-CODEX100KACPEVENTE2E-1",
     "T-CODEX100KACPEVENTBRIDGE-1",
-    "T-CODEX100KMODELSHA1-1"
+    "T-CODEX100KMODELSHA1-1",
+    "T-CODEX100KWORKERTOOLS-1"
   ],
   "scopes": [
     ".agents/visions/V-6.json",
@@ -94,7 +95,8 @@
     ".agents/evidence/core-under-100k/2026-11-16-acp-typed-events-component.json",
     ".agents/evidence/core-under-100k/2026-11-16-acp-live-tool-events.json",
     ".agents/evidence/core-under-100k/2026-11-16-model-sha1.json",
-    ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json"
+    ".agents/evidence/core-under-100k/2026-11-16-tool-events-sha1-integrated.json",
+    ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json"
   ],
   "progress": {
     "runtime_rust": 301355,
@@ -118,5 +120,10 @@
     "reference_commit": "13b765828f961812f0c78ae577220e994209fa2f",
     "status": "Actual session-owned stdio MCP execution and live typed lifecycle verified with ten real CLI cases and pinned named-schema checks. Builtin lifecycle, forwarding MCP progress, and provider result continuation remain follow-ups; full ACP compliance not established.",
     "implementation_task": "T-CODEX100KACPEVENTBRIDGE-1"
+  },
+  "worker_protocol_followup": {
+    "status": "Test-only native six-tool valid-object transport proof passed on the integrated Linux tree. Production backend and raw-input/typed-error parity remain unqualified; no implementation removal or runtime reduction credit.",
+    "implementation_task": "T-CODEX100KWORKERTOOLS-1",
+    "evidence": ".agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json"
   }
 }

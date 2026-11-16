@@ -102,6 +102,21 @@ updates, and normal model continuation with tool results remain follow-up work.
 The current fulfillment path returns tool results through the agent response and evidence;
 it does not add a provider conversation loop.
 
+The separate opt-in `harness_worker_mcp_parity` custom test harness compares
+the six native harness tools with the same production handlers called through
+a real MCP child. Run it with
+`cargo test --offline --locked -p susi --test harness_worker_mcp_parity -- --run`;
+the default invocation explicitly skips. On Linux it verifies 40 transported
+text/file comparisons, 17 local authority refusals, 40 direct raw-input
+characterizations, and 10 invalid-wire rejections. A lost-reply mutation runs
+once, without replay or native fallback, and its owned descendant stops.
+Omitted MCP arguments are checked as an empty object; explicit nonobjects are
+rejected before handler dispatch. Native malformed/nonobject input semantics,
+typed MCP `isError` mapping, reversed file ranges, and a production worker
+backend remain unqualified. This is preservation evidence, not full MCP
+conformance or a runtime reduction. The integrated receipt is
+`.agents/evidence/core-under-100k/2026-11-16-worker-tool-transport.json`.
+
 ## Checks
 
 | Id | Contract |
