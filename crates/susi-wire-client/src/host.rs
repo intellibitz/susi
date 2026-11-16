@@ -571,9 +571,40 @@ struct HostedServer {
     task_store: Option<PersistedTaskHandleStore>,
 }
 
+struct ListBudget {
+    items: usize,
+    bytes: usize,
+}
+
+impl Write for ListBudget {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_sub(bytes.len())
+            .ok_or_else(|| std::io::Error::other("catalog byte limit exceeded"))?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 impl HostedServer {
     fn list_paginated(&mut self, method: &str, key: &str) -> Result<Vec<Value>, WireError> {
+        self.list_paginated_with_budget(method, key, None)
+    }
+
+    fn list_paginated_with_budget(
+        &mut self,
+        method: &str,
+        key: &str,
+        mut budget: Option<ListBudget>,
+    ) -> Result<Vec<Value>, WireError> {
         match &mut self.backend {
+            PeerBackend::Http(_, _) if budget.is_some() => Err(WireError::Protocol(
+                "bounded tool listing is only supported for duplex servers".into(),
+            )),
             PeerBackend::Http(s, _) => match (method, key) {
                 ("tools/list", _) => s.list_all_tools(),
                 ("resources/list", _) => s.list_all_resources(),
@@ -594,6 +625,16 @@ impl HostedServer {
                     let page = res.get(key).and_then(Value::as_array).ok_or_else(|| {
                         WireError::Protocol(format!("{method} response missing `{key}`"))
                     })?;
+                    if let Some(budget) = &mut budget {
+                        budget.items = budget.items.checked_sub(page.len()).ok_or_else(|| {
+                            WireError::Protocol(format!("{method} exceeded catalog item limit"))
+                        })?;
+                        for item in page {
+                            serde_json::to_writer(&mut *budget, item).map_err(|_| {
+                                WireError::Protocol(format!("{method} exceeded catalog byte limit"))
+                            })?;
+                        }
+                    }
                     items.extend(page.iter().cloned());
                     let cursor = res
                         .get("nextCursor")
@@ -830,6 +871,27 @@ impl McpHost {
     pub fn list_tools(&mut self, server_id: &str) -> Result<Vec<Value>, WireError> {
         self.srv_mut(server_id)?
             .list_paginated("tools/list", "tools")
+    }
+
+    /// List duplex tools within a cumulative item and serialized-definition budget.
+    /// Bytes are the sum of each tool's JSON encoding, excluding page envelopes
+    /// and array separators. Check each borrowed page before cloning its tools;
+    /// an exceeded budget stops pagination. The existing frame cap still applies.
+    /// HTTP servers are refused before listing; [`Self::list_tools`] is unchanged.
+    pub fn list_tools_bounded(
+        &mut self,
+        server_id: &str,
+        max_items: usize,
+        max_bytes: usize,
+    ) -> Result<Vec<Value>, WireError> {
+        self.srv_mut(server_id)?.list_paginated_with_budget(
+            "tools/list",
+            "tools",
+            Some(ListBudget {
+                items: max_items,
+                bytes: max_bytes,
+            }),
+        )
     }
 
     pub fn call_tool(

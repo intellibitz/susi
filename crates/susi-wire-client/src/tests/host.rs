@@ -25,6 +25,259 @@ fn counted_streams(
     }
 }
 
+struct RecordedWrite(Arc<Mutex<Vec<u8>>>);
+impl Write for RecordedWrite {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+struct CatalogFixture {
+    host: McpHost,
+    consumed: Arc<AtomicUsize>,
+    written: Arc<Mutex<Vec<u8>>>,
+    page_ends: Vec<usize>,
+}
+impl CatalogFixture {
+    fn new(pages: &[Value]) -> Self {
+        let mut input = initialized();
+        let page_ends = pages
+            .iter()
+            .enumerate()
+            .map(|(index, page)| {
+                input.push_str(&format!(
+                    "{}\n",
+                    json!({"jsonrpc":"2.0","id":index + 2,"result":page})
+                ));
+                input.len()
+            })
+            .collect();
+        let consumed = Arc::new(AtomicUsize::new(0));
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut streams = counted_streams(
+            CountedRead {
+                inner: Cursor::new(input),
+                consumed: Arc::clone(&consumed),
+            },
+            &Arc::new(AtomicUsize::new(0)),
+        );
+        streams.writer = Box::new(RecordedWrite(Arc::clone(&written)));
+        let mut host = McpHost::new();
+        host.connect_duplex("catalog", streams, HostPolicy::default())
+            .unwrap();
+        Self {
+            host,
+            consumed,
+            written,
+            page_ends,
+        }
+    }
+
+    fn requests(&self) -> Vec<Value> {
+        self.written
+            .lock()
+            .unwrap()
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<Value>(line).unwrap())
+            .filter(|value| value["method"] == "tools/list")
+            .collect()
+    }
+}
+
+#[test]
+fn bounded_catalog_accepts_exact_cumulative_encoded_bytes_and_legacy_parity() {
+    let tools = vec![
+        json!({"name":"café", "description":"quoted \"value\"\n", "inputSchema":{"type":"object"}}),
+        json!({"name":"second", "inputSchema":{"enum":[null,true,1,1.5,"\\"]}}),
+    ];
+    let bytes = tools
+        .iter()
+        .map(|tool| serde_json::to_vec(tool).unwrap().len())
+        .sum();
+    let pages = [
+        json!({"tools":[tools[0]],"next_cursor":"page-two"}),
+        json!({"tools":[tools[1]]}),
+    ];
+    let mut bounded = CatalogFixture::new(&pages);
+    assert_eq!(
+        bounded
+            .host
+            .list_tools_bounded("catalog", 2, bytes)
+            .unwrap(),
+        tools
+    );
+    let mut legacy = CatalogFixture::new(&pages);
+    assert_eq!(legacy.host.list_tools("catalog").unwrap(), tools);
+    assert_eq!(bounded.requests(), legacy.requests());
+    assert_eq!(bounded.requests()[1]["params"]["cursor"], "page-two");
+}
+
+#[test]
+fn bounded_catalog_limits_stop_before_the_next_page_without_partial_results() {
+    let tool = json!({"name":"tool", "inputSchema":{"type":"object"}});
+    let size = serde_json::to_vec(&tool).unwrap().len();
+    let pages = [
+        json!({"tools":[tool],"nextCursor":"second"}),
+        json!({"tools":[tool],"nextCursor":"must-not-request"}),
+        json!({"tools":[]}),
+    ];
+    for (items, bytes, last_page, error) in [
+        (0, usize::MAX, 0, "tools/list exceeded catalog item limit"),
+        (1, usize::MAX, 1, "tools/list exceeded catalog item limit"),
+        (
+            usize::MAX,
+            size - 1,
+            0,
+            "tools/list exceeded catalog byte limit",
+        ),
+        (
+            usize::MAX,
+            size * 2 - 1,
+            1,
+            "tools/list exceeded catalog byte limit",
+        ),
+    ] {
+        let mut fixture = CatalogFixture::new(&pages);
+        assert_eq!(
+            fixture
+                .host
+                .list_tools_bounded("catalog", items, bytes)
+                .unwrap_err()
+                .to_string(),
+            error
+        );
+        assert_eq!(fixture.requests().len(), last_page + 1);
+        assert_eq!(
+            fixture.consumed.load(Ordering::SeqCst),
+            fixture.page_ends[last_page]
+        );
+    }
+}
+
+#[test]
+fn bounded_catalog_zero_budget_accepts_empty_pages_and_limit_error_keeps_sync() {
+    let mut fixture = CatalogFixture::new(&[
+        json!({"tools":[],"nextCursor":"empty"}),
+        json!({"tools":[]}),
+    ]);
+    assert!(fixture
+        .host
+        .list_tools_bounded("catalog", 0, 0)
+        .unwrap()
+        .is_empty());
+    let mut fixture = CatalogFixture::new(&[
+        json!({"tools":[{"name":"too-large"}],"nextCursor":"unread"}),
+        json!({"tools":[{"name":"retry"}]}),
+    ]);
+    assert!(fixture.host.list_tools_bounded("catalog", 0, 0).is_err());
+    assert_eq!(
+        fixture.host.list_tools("catalog").unwrap(),
+        vec![json!({"name":"retry"})]
+    );
+    assert_eq!(fixture.requests()[1]["params"], json!({}));
+}
+
+#[test]
+fn bounded_catalog_preserves_shape_cursor_and_pagination_failures() {
+    for (pages, expected) in [
+        (
+            vec![json!({"tools":{}})],
+            "tools/list response missing `tools`".to_string(),
+        ),
+        (
+            vec![json!({"tools":[],"nextCursor":"same"}); 2],
+            "tools/list repeated pagination cursor \"same\"".to_string(),
+        ),
+        (
+            (0..MAX_PAGINATION_PAGES)
+                .map(|n| json!({"tools":[],"nextCursor":n.to_string()}))
+                .collect(),
+            format!("tools/list exceeded {MAX_PAGINATION_PAGES} pagination pages"),
+        ),
+    ] {
+        let mut fixture = CatalogFixture::new(&pages);
+        assert_eq!(
+            fixture
+                .host
+                .list_tools_bounded("catalog", 0, 0)
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert_eq!(fixture.requests().len(), pages.len());
+    }
+}
+
+#[test]
+fn bounded_catalog_refuses_http_without_a_list_request_and_legacy_still_lists() {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let server = std::thread::spawn(move || {
+        let mut methods = Vec::new();
+        for result in [
+            json!({"supportedVersions":["2026-07-28"],"capabilities":{}}),
+            json!({"tools":[{"name":"legacy-http"}]}),
+        ] {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((key, value)) = line.split_once(':') {
+                    if key.eq_ignore_ascii_case("content-length") {
+                        length = value.trim().parse().unwrap();
+                    }
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let request: Value = serde_json::from_slice(&body).unwrap();
+            methods.push(request["method"].clone());
+            let response = json!({"jsonrpc":"2.0","id":request["id"],"result":result});
+            write!(reader.get_mut(), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{response}").unwrap();
+        }
+        methods
+    });
+    let mut host = McpHost::new();
+    host.connect_http_2026_07_28(
+        "http",
+        HttpEndpoint {
+            addr: &addr,
+            bearer: None,
+            timeout: Duration::from_secs(2),
+        },
+        HostPolicy::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        host.list_tools_bounded("http", 100, 1000)
+            .unwrap_err()
+            .to_string(),
+        "bounded tool listing is only supported for duplex servers"
+    );
+    assert_eq!(
+        host.list_tools("http").unwrap(),
+        vec![json!({"name":"legacy-http"})]
+    );
+    assert_eq!(
+        server.join().unwrap(),
+        vec![json!("server/discover"), json!("tools/list")]
+    );
+}
+
 struct FailWrite {
     phase: usize,
     flushes: usize,
