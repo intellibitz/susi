@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENTCLAUDEMANDATETIDY-1",
+  "title": "Keep the contract tidy (commercial Mandate 90), in the active contract",
+  "goal": "Vision: V-15. Directive 2026-11-16: agents must keep mandates tidy. Core keeps its rules in one active contract, so the rule lands there: state each rule once and link it elsewhere, change it in place with no two current texts disagreeing, keep links, named commands and implementation-truth notes resolving and true, and keep agent rule files identical pointers. Pinned in tests/architecture_tests.rs. docs/ceo-mandate-80.md gains its implementation-truth section.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDEMANDATETIDY",
+  "created_unix": 1794845504,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inside Susi: core's active contract already says to review the contract in place (AGENTS.md Records section) and the self-build brief to update it in place; commercial Mandate 90 and its workflow mandates checker (susi-commercial-apps) already hold the rule with a tool. This extends the existing sentence; no new code."
+  }
+}
