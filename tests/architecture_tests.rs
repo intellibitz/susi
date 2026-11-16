@@ -2254,6 +2254,14 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "Keep every link and named command resolving",
         "every implementation-truth note true",
         "Agent rule files stay identical pointers that restate nothing",
+        "Keep documentation tidy",
+        "says what is true now and changes in the change that alters what it describes",
+        "correct or remove it when its subject goes",
+        "Keep one topic in one document, found through the documentation index",
+        "list every new document there",
+        "Keep every relative link and named command resolving",
+        "Dated records say their date and are listed as records",
+        "quoted upstream text keeps its words and links",
         "keep it tidy by appending closures rather than editing or deleting items",
         "Only the originating owner or an authorized decision may lift a stop",
         "no reply for two days",
@@ -2307,7 +2315,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
     assert!(
         flat("crates/susi-core/src/self_build.rs").contains("Link and revisit unfulfilled goals")
     );
-    assert!(flat("crates/susi-core/src/self_build.rs").contains("keep the contract tidy, in place"));
+    assert!(flat("crates/susi-core/src/self_build.rs").contains("keep the contract and docs tidy"));
     for path in ["AGENTS.md", "README.md", "CLAUDE.md", "GEMINI.md"] {
         let text = flat(path);
         assert!(text.contains("AGENTS.md") || path == "AGENTS.md");
