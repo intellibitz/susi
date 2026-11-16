@@ -1,0 +1,12 @@
+{
+  "branch": "claude-candidates-tidy",
+  "scopes": [
+    "AGENTS.md",
+    "tests/architecture_tests.rs",
+    "crates/susi-core/src/self_build.rs"
+  ],
+  "task": "T-AGENTCLAUDECANDIDATESTIDY-1",
+  "agent": "AGENTCLAUDECANDIDATESTIDY",
+  "claimed_unix": 1794855953,
+  "lease_until_unix": 1794859553
+}
