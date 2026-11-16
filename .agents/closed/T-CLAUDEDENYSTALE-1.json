@@ -1,7 +1,0 @@
-{
-  "branch": "claude-deny-stale",
-  "task": "T-CLAUDEDENYSTALE-1",
-  "agent": "CLAUDEDENYSTALE",
-  "head": "70bfca04469ea2e3bda995e74929cb100b09f24e",
-  "closed_unix": 1794833029
-}
