@@ -19,7 +19,6 @@ use crate::susi_core::mac_policy::{MacPolicy, PrivacyMode};
 use crate::susi_core::plane_bus::{daemon, gawd, gemi};
 use crate::susi_error::{EaiError, EaiResult};
 
-use super::args;
 use super::forward::{forwarded_tools, policy_workspace, pretty, required_str};
 use super::CoreTools;
 
@@ -376,17 +375,11 @@ impl CoreTools {
     }
 
     forwarded_tools! {
-        services_start(services_start_tool_attr, args::typed::<args::ServiceName>()),
-        "Clear an operator stop so the supervisor brings a leaf service back up, as `susi services start`. Args: name",
-        |arg, _workspace| service_control("start", arg);
+        services_start(arg, _workspace) => service_control("start", arg);
 
-        services_stop(services_stop_tool_attr, args::typed::<args::ServiceName>()),
-        "Stop a supervised leaf service and hold it down until services_start, as `susi services stop`. Args: name",
-        |arg, _workspace| service_control("stop", arg);
+        services_stop(arg, _workspace) => service_control("stop", arg);
 
-        services_restart(services_restart_tool_attr, args::typed::<args::ServiceName>()),
-        "Terminate a supervised leaf service so the daemon respawns it (works on Windows and Unix), as `susi services restart`. Args: name",
-        |arg, _workspace| service_control("restart", arg);
+        services_restart(arg, _workspace) => service_control("restart", arg);
     }
 
     pub fn commits_audit(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {

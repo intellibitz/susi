@@ -8,7 +8,6 @@ use crate::susi_core::plane_bus::{agents, gawd_hooks, tools as plane_tools};
 use crate::susi_core::task_manager::SwarmTaskManager;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
-use crate::tools::args;
 use crate::tools::forward::forwarded_tools;
 use crate::tools::helpers::external_agent_control;
 
@@ -279,21 +278,13 @@ impl CoreTools {
     }
 
     forwarded_tools! {
-        agents_status(agents_status_tool_attr, args::typed::<args::ExternalTaskStatus>()),
-        "Inspect an external task; refresh=true recovers cloud status after worker loss. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "status");
+        agents_status(arg, workspace) => external_agent_control(arg, workspace, "status");
 
-        agents_cancel(agents_cancel_tool_attr, args::typed::<args::ExternalTaskId>()),
-        "Request cancellation of a managed external agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "cancel");
+        agents_cancel(arg, workspace) => external_agent_control(arg, workspace, "cancel");
 
-        agents_logs(agents_logs_tool_attr, args::typed::<args::ExternalTaskLogs>()),
-        "Read the last 64 KiB of external agent output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "logs");
+        agents_logs(arg, workspace) => external_agent_control(arg, workspace, "logs");
 
-        agents_send(agents_send_tool_attr, args::typed::<args::ExternalTaskSend>()),
-        "Send a follow-up message to an existing cloud agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "send");
+        agents_send(arg, workspace) => external_agent_control(arg, workspace, "send");
     }
 
     pub fn frameworks_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -327,17 +318,11 @@ impl CoreTools {
     }
 
     forwarded_tools! {
-        frameworks_status(frameworks_status_tool_attr, args::typed::<args::ExternalTaskStatus>()),
-        "Inspect an agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "status");
+        frameworks_status(arg, workspace) => external_agent_control(arg, workspace, "status");
 
-        frameworks_cancel(frameworks_cancel_tool_attr, args::typed::<args::ExternalTaskId>()),
-        "Request cancellation of a managed agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "cancel");
+        frameworks_cancel(arg, workspace) => external_agent_control(arg, workspace, "cancel");
 
-        frameworks_logs(frameworks_logs_tool_attr, args::typed::<args::ExternalTaskLogs>()),
-        "Read the last 64 KiB of agent-framework output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        |arg, workspace| external_agent_control(arg, workspace, "logs");
+        frameworks_logs(arg, workspace) => external_agent_control(arg, workspace, "logs");
     }
 
     pub fn tasks_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -346,17 +331,11 @@ impl CoreTools {
     }
 
     forwarded_tools! {
-        tasks_pause(tasks_pause_tool_attr, args::typed::<args::SwarmTaskId>()),
-        "Pause a running task by task_id",
-        |arg, _workspace| task_control(arg, SwarmTaskManager::pause_task, "paused");
+        tasks_pause(arg, _workspace) => task_control(arg, SwarmTaskManager::pause_task, "paused");
 
-        tasks_resume(tasks_resume_tool_attr, args::typed::<args::SwarmTaskId>()),
-        "Resume a paused task by task_id",
-        |arg, _workspace| task_control(arg, SwarmTaskManager::resume_task, "resumed");
+        tasks_resume(arg, _workspace) => task_control(arg, SwarmTaskManager::resume_task, "resumed");
 
-        tasks_kill(tasks_kill_tool_attr, args::typed::<args::SwarmTaskId>()),
-        "Kill a running or stalled task by task_id",
-        |arg, _workspace| task_control(arg, SwarmTaskManager::kill_task, "killed");
+        tasks_kill(arg, _workspace) => task_control(arg, SwarmTaskManager::kill_task, "killed");
     }
 
     pub fn mcp_registry(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
