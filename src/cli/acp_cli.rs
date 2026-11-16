@@ -3,10 +3,10 @@
 //! `susi acp` / `susi acp serve` speaks newline-delimited JSON-RPC 2.0 over
 //! stdin/stdout (`AcpStdioTransport`) with zero boot/banner output on stdout.
 //! Integer initialization selects staged official v1; legacy Susi ACP callers
-//! keep their existing dialect. Supplied MCP servers remain unsupported in v1.
+//! keep their existing dialect. V1 MCP peers belong to their individual session.
 //! Agent Communication Protocol is a separate protocol. Lazy substrate composition
-//! runs on the first `session/prompt` turn so the
-//! initial protocol handshake completes in a few milliseconds.
+//! runs during supplied MCP setup or the first prompt;
+//! the initialize handshake completes before that composition.
 
 use crate::anyhow::Result;
 use std::io;
@@ -18,18 +18,45 @@ use susi_gawd::acp::{
 };
 use susi_gawd_a2a::executor::GawdAcpExecutor;
 
+#[path = "acp_mcp.rs"]
+mod session_mcp;
+
+fn wire_stdio_substrate() {
+    static WIRED: OnceLock<()> = OnceLock::new();
+    WIRED.get_or_init(|| {
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        susi_daemon::privacy::wire_mac_policy(&substrate);
+        susi_gawd::init_hooks();
+        susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
+    });
+}
+
 fn stdio_executor(workspace: &Path) -> GawdAcpExecutor {
-    let wired = OnceLock::new();
     GawdAcpExecutor::local(
         workspace,
         Arc::new(move |intent, path| {
-            wired.get_or_init(|| {
-                let substrate = susi_paths::SusiDirs::substrate_home();
-                susi_daemon::privacy::wire_mac_policy(&substrate);
-                susi_gawd::init_hooks();
-                susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
-            });
-            susi_core::plane_bus::gawd::solve_mission_for_acp(intent, path, susi::SUSI_VERSION)
+            wire_stdio_substrate();
+            susi_config::progress::with_sink(Some(Arc::new(|line| eprintln!("{line}"))), || {
+                if susi_core::scoped_tools::current().is_some() {
+                    let answer = susi_gawd::ama::SusiMasterAgent::new().solve_clean_with_model(
+                        intent,
+                        path,
+                        susi::SUSI_VERSION,
+                        None,
+                    );
+                    if answer.trim().is_empty() {
+                        Err("mission produced no result (empty GAWD answer)".into())
+                    } else {
+                        Ok(answer)
+                    }
+                } else {
+                    susi_core::plane_bus::gawd::solve_mission_for_acp(
+                        intent,
+                        path,
+                        susi::SUSI_VERSION,
+                    )
+                }
+            })
         }),
     )
 }
@@ -71,7 +98,7 @@ pub(crate) fn format_discovery_human(doc: &AcpDiscoveryDocument) -> String {
 fn serve_stdio(workspace: &Path) -> Result<()> {
     let engine = AcpEngine::new(
         AcpAdmissionPolicy::default(),
-        Arc::new(stdio_executor(workspace)),
+        Arc::new(session_mcp::SessionFactory::new(stdio_executor(workspace))),
     );
     let stdin = io::stdin();
     let stdout = io::stdout();

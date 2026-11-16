@@ -256,6 +256,16 @@ pub struct HardwareProfileDto {
     pub hostname: String,
 }
 fn req(topic: &str, payload: Value) -> Result<Value, String> {
+    if let Some(scope) = crate::scoped_tools::current() {
+        scope.check()?;
+        if ["gawd.", "gemi.", "tools.", "agents."]
+            .iter()
+            .any(|prefix| topic.starts_with(prefix))
+        {
+            // The tool owner is an in-process capability, never an IPC payload.
+            return PlaneBus::global().request_local_prefix(topic, payload);
+        }
+    }
     PlaneBus::global().request(topic, payload)
 }
 fn req_ok(topic: &str, payload: Value) -> Value {
@@ -1872,6 +1882,50 @@ mod facade_marshal_tests {
             _env: env,
             _env_lock: env_lock,
             _lock: lock,
+        }
+    }
+    #[test]
+    fn scoped_tools_pin_owner_requests_to_local_prefixes() {
+        use crate::scoped_tools::{with_scope, ScopedTool, ScopedToolProvider, ToolScope};
+        struct Owner;
+        impl ScopedToolProvider for Owner {
+            fn tools(&self) -> &[ScopedTool] {
+                &[]
+            }
+            fn check(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn call(
+                &self,
+                _: &str,
+                _: &Value,
+                _: &Path,
+                _: Option<&str>,
+                _: Option<crate::progress::Cancel>,
+                _: crate::progress::Cancel,
+            ) -> Result<String, String> {
+                unreachable!()
+            }
+        }
+        let _guard = wire();
+        let bus = PlaneBus::global();
+        let scope = ToolScope::new(
+            Arc::new(Owner),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        for topic in [
+            "gemi.scoped_probe",
+            "gawd.scoped_probe",
+            "agents.scoped_probe",
+            "tools.scoped_probe",
+        ] {
+            bus.register(topic, Arc::new(Embed)); // Represents an exact IPC/remote route.
+            assert!(req(topic, json!({})).unwrap().get("embedding").is_some());
+            let local = with_scope(Some(scope.clone()), || req(topic, json!({}))).unwrap();
+            assert!(
+                local.get("embedding").is_none(),
+                "{topic} escaped its owner process"
+            );
         }
     }
     #[test]

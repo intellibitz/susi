@@ -82,6 +82,7 @@ pub mod bounded_io;
 pub mod native_board;
 pub mod registry;
 pub mod registry_ipc;
+pub mod scoped_tools;
 pub mod self_build;
 pub mod service_table;
 pub mod substrate_hygiene;

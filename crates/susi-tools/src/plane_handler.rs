@@ -25,6 +25,9 @@ fn workspace_path(payload: &Value) -> PathBuf {
 
 impl PlaneHandler for ToolsPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+        if let Some(scope) = crate::susi_core::scoped_tools::current() {
+            scope.check()?;
+        }
         match topic {
             topics::TOOLS_EXISTS => {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");

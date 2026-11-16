@@ -362,6 +362,12 @@ fn decode_chunked_text(mut input: &str) -> String {
 }
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
+    stdio_command(config, false)
+        .spawn()
+        .map_err(|e| e.to_string())
+}
+
+fn stdio_command(config: &McpServerConfig, literal_environment: bool) -> Command {
     let mut command = Command::new(&config.command);
     susi_paths::console::without_window(&mut command)
         .args(&config.args)
@@ -389,7 +395,12 @@ fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, 
         }
     }
     susi_paths::console::apply_non_interactive_env(&mut command);
-    if let Some(env_keys) = config.extra.get("env_keys").and_then(Value::as_array) {
+    if let Some(env_keys) = config
+        .extra
+        .get("env_keys")
+        .filter(|_| !literal_environment)
+        .and_then(Value::as_array)
+    {
         for key in env_keys.iter().filter_map(Value::as_str) {
             if let Ok(value) = crate::susi_config::env_or_cloud_env(key) {
                 if !value.is_empty() {
@@ -400,7 +411,7 @@ fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, 
     }
     if let Some(env) = &config.env {
         for (k, v) in env {
-            if v.trim().is_empty() {
+            if !literal_environment && v.trim().is_empty() {
                 if let Ok(resolved) = crate::susi_config::env_or_cloud_env(k) {
                     if !resolved.is_empty() {
                         command.env(k, resolved);
@@ -412,14 +423,14 @@ fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, 
         }
     }
     if let Some(cwd) = config.extra.get("cwd").and_then(Value::as_str) {
-        if cwd.contains("{workspace}") {
+        if !literal_environment && cwd.contains("{workspace}") {
             let ws = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             command.current_dir(cwd.replace("{workspace}", &ws.to_string_lossy()));
         } else {
             command.current_dir(cwd);
         }
     }
-    command.spawn().map_err(|e| e.to_string())
+    command
 }
 
 fn read_jsonrpc_response(
@@ -754,6 +765,20 @@ pub fn spawn_authorized_stdio_peer(
     }
     authorize_transport(config, policy)?;
     spawn_stdio_command(config)
+}
+
+/// Prepare a client-supplied MCP peer for the caller's process containment.
+/// Unlike stored host configurations, empty values never resolve credentials
+/// from the host environment and cwd never expands a workspace template.
+pub fn authorized_stdio_command_literal(
+    config: &McpServerConfig,
+    policy: &MacPolicy,
+) -> Result<Command, String> {
+    if config.parse_http_url()?.is_some() {
+        return Err("stdio MCP requires an executable, not an HTTP URL".into());
+    }
+    authorize_transport(config, policy)?;
+    Ok(stdio_command(config, true))
 }
 
 #[cfg(test)]

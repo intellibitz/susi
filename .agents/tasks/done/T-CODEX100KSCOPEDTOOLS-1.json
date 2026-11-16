@@ -1,0 +1,77 @@
+{
+  "id": "T-CODEX100KSCOPEDTOOLS-1",
+  "title": "Carry session-owned tool authority through local mission workers",
+  "goal": "Vision: V-6. Wire a non-serializable session tool scope through local mission workers and normal gated tool dispatch, preserving legacy routing and avoiding persistent or cross-session registration. Part of T-CODEX100KACPBRIDGE-1; requires integrated root ACP wiring before publication.",
+  "size": "l",
+  "status": "completed",
+  "created_by": "CODEX100KSCOPEDTOOLS",
+  "created_unix": 1794827460,
+  "base_commit": "c92cb828197c2561bcc2384b133d377bfca2d0a2",
+  "scopes": [
+    "crates/susi-core/src/scoped_tools.rs",
+    "crates/susi-core/src/tests/scoped_tools.rs",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-core/src/parallel.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/plane_handler.rs",
+    "crates/susi-tools/src/tests/scoped_tools.rs",
+    "crates/susi-gawd-swarm/src/cancel_propagate.rs",
+    "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    ".agents/tasks/T-CODEX100KSCOPEDTOOLS-1.json",
+    "crates/susi-core/src/capture.rs"
+  ],
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-tools",
+      "scoped_tools"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing progress::with_cancel/current, EvidenceSession scoped dispatch, ToolRegistry MAC and per-mission authorization, local PlaneBus prefixes, std scoped parallel workers and cancellable runner. Parent audited existing MCP host and no existing per-session scoped registry exists.",
+    "reason": "Reuse current catalog/dispatch/authority paths with an opaque Arc context; no dependency, protocol credential serialization or globally registered session tool."
+  },
+  "coordination": "Scoped child implementation; parent integrates root ACP factory and GEMI wiring before main publication. No push or external Board messages. Board read item1708 had no stops or requests.",
+  "progress": "Implemented and locally verified scoped catalog/dispatch, local-only plane routes, explicit evidence/owner worker handoffs and cancellation of detached scoped workers. Parent must integrate actual ACP root wiring before publication; no standalone feature completion claim. Follow-up: carry narrower current cancellation through scoped parallel-map and both recovery worker boundaries; preserve unscoped worker behavior. Follow-up: explicitly carry the existing watched progress sink through parallel, cancellable and recovery workers for scoped and unscoped requests, keeping protocol diagnostics off stdout. Follow-up: capture scoped MCP results directly in the explicitly carried root mission ledger while retaining actual worker invocation workspace for MAC/provider. Initialize scoped mission authority from the bound root workspace even when a builtin dispatches first; no fresh session, token reset or budget.",
+  "validation": {
+    "scoped_core_tests": 8,
+    "scoped_tools_tests": 5,
+    "plane_tests": 37,
+    "registry_tests": 14,
+    "cancel_propagate_tests": 12,
+    "cloud_recovery_tests": 17,
+    "clippy": "cargo clippy --offline --locked -p susi-core -p susi-tools -p susi-gawd-swarm --lib -- -D warnings passed",
+    "format": "cargo fmt --all --check passed",
+    "fixtures": "Tools tests use env-cleared child processes in private temporary roots; no paid/external calls or Board posts.",
+    "handoff_followup": "Scoped core 7 and cloud recovery 17 pass; affected core/swarm library clippy -D warnings passed. Regression observes exact child-token identity on parallel workers, child cancellation without parent cancellation, parent refusal while child remains live, and unscoped workers retaining prior behavior.",
+    "sink_followup": "Scoped core 8, cancellation 12 and recovery 17 tests pass; core/swarm clippy -D warnings and fmt pass. Parallel and cancellable tests verify sink handoff with and without scoped tools, plus restoration/unwatched behavior.",
+    "bound_ledger_followup": "Tools registry 14 and core capture-related 19 tests pass; core/tools library clippy -D warnings and fmt pass. Different-worker-workspace regression proves actual provider workspace, original mission id/grant revocation, root egress restriction despite permissive worker declaration, and owned MCP receipt only in root ledger. Builtin receipt behavior and receipt wire shape remain unchanged."
+  },
+  "limitations": "Root integration owns real MCP child transport, admission-policy checks, shared rate/spend budgets and shipped ACP end-to-end tests. This slice adds required session isolation; no size reduction or full ACP conformance claim.",
+  "phase": "integrated_verified_published",
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open.",
+  "parent_acceptance": {
+    "command": "cargo test --offline --locked -p susi-tools scoped_tools",
+    "passed": 5,
+    "seconds": 0.02,
+    "log": "/workspace/codex/core-100k-state/logs/acp-scoped-tools-accept.log"
+  }
+}

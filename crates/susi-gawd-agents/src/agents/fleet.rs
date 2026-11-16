@@ -15,6 +15,34 @@ pub use crate::susi_core::{
 
 use super::native::*;
 
+// Watched missions report through their caller's progress transport, including
+// ACP prompts without MCP tools. Ordinary CLI diagnostics remain on stdout.
+macro_rules! fleet_diagnostic {
+    ($($args:tt)*) => {
+        if let Some(sink) = crate::susi_core::progress::current() {
+            sink(&format!($($args)*));
+        } else if crate::susi_core::scoped_tools::current().is_some() {
+            eprintln!($($args)*);
+        } else {
+            println!($($args)*);
+        }
+    };
+}
+
+#[test]
+fn watched_fleet_diagnostics_use_the_progress_sink_without_session_tools() {
+    let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = lines.clone();
+    let sink: crate::susi_core::progress::Sink = Arc::new(move |line| {
+        captured.lock().unwrap().push(line.to_string());
+    });
+    assert!(crate::susi_core::scoped_tools::current().is_none());
+    crate::susi_core::progress::with_sink(Some(sink), || {
+        fleet_diagnostic!("fleet {}", 2);
+    });
+    assert_eq!(*lines.lock().unwrap(), ["fleet 2"]);
+}
+
 // `AgentMetaRegistry`'s data-persistence methods (list/register/re-rank)
 // live in `susi_agents::registry` now - it's what `gemi`/`gmcp` actually
 // need, and it has no dependency on any concrete agent struct. These two
@@ -592,9 +620,10 @@ impl GawdAgentFleet {
                     results.push((name, res));
                 }
                 Err(e) => {
-                    println!(
+                    fleet_diagnostic!(
                         "- [Swarm Dispatch] Governance veto from {}: {} — aborting swarm dispatch.",
-                        name, e
+                        name,
+                        e
                     );
                     let _ = std::io::stdout().flush();
                     let failure = format!("[GOVERNANCE_BLOCK] {}", e);
@@ -620,7 +649,7 @@ impl GawdAgentFleet {
             .map(|e| e.name.as_str())
             .collect();
         if !deferred.is_empty() {
-            println!(
+            fleet_diagnostic!(
                 "- [Mission Scheduler] {} agents deferred (cap {}): {}",
                 deferred.len(),
                 cap,
@@ -631,7 +660,7 @@ impl GawdAgentFleet {
 
         let agents_len = agents.len();
 
-        println!(
+        fleet_diagnostic!(
             "- [Swarm Dispatch] Initializing thread-parallel execution for {} agents...",
             agents_len
         );
@@ -729,9 +758,9 @@ impl GawdAgentFleet {
             if !res.trim().is_empty() && !res.contains("Query reflex audited") {
                 let line_count = res.lines().count();
                 if line_count > 1 {
-                    println!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {}µs)", name, line_count, duration_us);
+                    fleet_diagnostic!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {}µs)", name, line_count, duration_us);
                 } else {
-                    println!(
+                    fleet_diagnostic!(
                         "- [Swarm Flux Trace] {}: {} (Latency: {}µs)",
                         name,
                         res.trim(),

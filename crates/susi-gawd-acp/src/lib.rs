@@ -365,8 +365,47 @@ pub struct AcpExecutorOutput {
     pub blocks: Vec<AcpContentBlock>,
     pub tool_calls: Vec<AcpToolCallMeta>,
 }
+/// Literal environment entry for an ACP-supplied stdio MCP server.
+#[derive(Clone, Deserialize)]
+pub struct AcpMcpEnvVar {
+    pub name: String,
+    pub value: String,
+}
+/// Validated stdio MCP descriptor. Values are not logged or stored in history.
+#[derive(Clone, Deserialize)]
+pub struct AcpMcpStdioServer {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: Vec<AcpMcpEnvVar>,
+}
+/// Private-to-execution session setup, preserving exact cwd and selected policy.
+#[derive(Clone)]
+pub struct AcpSessionSpec {
+    pub cwd: String,
+    pub mcp_servers: Vec<AcpMcpStdioServer>,
+    pub admission: AcpAdmissionPolicy,
+}
 /// Pluggable turn execution strategy behind [`AcpEngine`].
 pub trait AcpTurnExecutor: Send + Sync {
+    /// Construct an independently owned executor for negotiated v1 only. Setup
+    /// runs outside engine locks and must observe cancellation, rolling back any
+    /// partial resources on error. Returning None retains the global executor.
+    fn create_session_executor(
+        &self,
+        spec: &AcpSessionSpec,
+        _cancelled: Arc<AtomicBool>,
+    ) -> Result<Option<Arc<dyn AcpTurnExecutor>>, String> {
+        if spec.mcp_servers.is_empty() {
+            Ok(None)
+        } else {
+            Err("This ACP executor does not support supplied MCP servers".into())
+        }
+    }
+    /// Revoke a returned session executor exactly once on close/eviction/rollback.
+    /// This must be nonblocking: signal independent resource controls without
+    /// waiting for ongoing turn I/O. Existing executor implementations need no hook.
+    fn close_session(&self) {}
     fn execute_turn(
         &self,
         ctx: &AcpTurnContext,
@@ -459,7 +498,9 @@ impl AcpAdmissionPolicy {
         self.max_history_bytes = max_bytes.max(64);
         self
     }
-    fn policy(&self) -> &MacPolicy {
+    /// The exact selected policy, including an embedding caller's custom policy.
+    #[must_use]
+    pub fn policy(&self) -> &MacPolicy {
         match &self.mac_policy {
             Some(custom) => custom.as_ref(),
             None => MacPolicy::global(),
@@ -546,12 +587,20 @@ impl AcpAdmissionPolicy {
         Ok(admitted)
     }
 }
+struct SessionExecutor(Arc<dyn AcpTurnExecutor>);
+impl Drop for SessionExecutor {
+    fn drop(&mut self) {
+        self.0.close_session();
+    }
+}
 struct SessionEntry {
     summary: AcpSessionSummary,
     metadata: Value,
     pre_cancelled: bool,
     next_msg_seq: u64,
     messages: VecDeque<AcpSessionMessage>,
+    executor: Option<SessionExecutor>,
+    pending_publication: bool,
 }
 impl SessionEntry {
     fn new(summary: AcpSessionSummary, metadata: Value) -> Self {
@@ -561,6 +610,8 @@ impl SessionEntry {
             pre_cancelled: false,
             next_msg_seq: 1,
             messages: VecDeque::new(),
+            executor: None,
+            pending_publication: false,
         }
     }
     #[allow(clippy::too_many_arguments)]
@@ -662,6 +713,7 @@ struct TurnRequestSpec {
 struct PreparedTurn {
     ctx: AcpTurnContext,
     cancel_flag: Arc<AtomicBool>,
+    executor: Arc<dyn AcpTurnExecutor>,
 }
 #[derive(Default)]
 struct EngineState {
@@ -669,6 +721,27 @@ struct EngineState {
     sessions: BTreeMap<String, SessionEntry>,
     active_cancellations: BTreeMap<String, Arc<AtomicBool>>,
     turn_cancellations: BTreeMap<(String, String), Arc<AtomicBool>>,
+    pending_sessions: usize,
+}
+impl EngineState {
+    fn busy_sessions(&self) -> usize {
+        self.sessions
+            .values()
+            .filter(|entry| entry.pending_publication || entry.summary.active_turn_id.is_some())
+            .count()
+    }
+}
+struct PendingSession<'a> {
+    engine: &'a AcpEngine,
+    held: bool,
+}
+impl Drop for PendingSession<'_> {
+    fn drop(&mut self) {
+        if self.held {
+            let mut state = self.engine.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending_sessions = state.pending_sessions.saturating_sub(1);
+        }
+    }
 }
 /// Core stateful ACP protocol engine shared across HTTP, A2A port 9094, and stdio.
 pub struct AcpEngine {
@@ -901,6 +974,16 @@ impl AcpEngine {
         self.create_session(params, workspace)
     }
     fn create_session(&self, params: &Value, workspace: Option<String>) -> Result<Value, RpcErr> {
+        let entry = self.session_entry(params, workspace)?;
+        let mut retired = Vec::new();
+        self.publish_session(entry, &mut retired, None)
+        // Retired entries close after publish_session releases the engine lock.
+    }
+    fn session_entry(
+        &self,
+        params: &Value,
+        workspace: Option<String>,
+    ) -> Result<SessionEntry, RpcErr> {
         let requested_caps = extract_string_list(params.get("capabilities"))?;
         let resource = workspace.as_deref().unwrap_or("*");
         let admitted_capabilities = self
@@ -935,32 +1018,80 @@ impl AcpEngine {
                 self.admission.max_history_bytes,
             );
         }
-        let snapshot_summary = entry.summary.clone();
+        Ok(entry)
+    }
+    fn reserve_session(&self) -> Result<PendingSession<'_>, RpcErr> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.pending_sessions.saturating_add(state.busy_sessions())
+            >= self.admission.max_sessions
+        {
+            return Err((
+                ACP_ERR_CAPABILITY_REFUSED,
+                "maximum pending or active ACP sessions reached".into(),
+            ));
+        }
+        state.pending_sessions += 1;
+        Ok(PendingSession {
+            engine: self,
+            held: true,
+        })
+    }
+    // Return every retired owner to the caller: no executor hook/drop runs under
+    // the engine lock, or a transport admission lock held by that caller.
+    fn publish_session(
+        &self,
+        entry: SessionEntry,
+        retired: &mut Vec<SessionEntry>,
+        reservation: Option<&mut PendingSession<'_>>,
+    ) -> Result<Value, RpcErr> {
+        let snapshot = match serde_json::to_value(&entry.summary) {
+            Ok(value) => value,
+            Err(error) => {
+                retired.push(entry);
+                return Err((JSONRPC_INTERNAL_ERROR, error.to_string()));
+            }
+        };
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        while guard.sessions.len() >= self.admission.max_sessions {
+        let other_pending = guard
+            .pending_sessions
+            .saturating_sub(usize::from(reservation.is_some()));
+        while guard.sessions.len().saturating_add(other_pending) >= self.admission.max_sessions {
             let Some(oldest) = guard.order.pop_front() else {
+                if other_pending > 0 {
+                    retired.push(entry);
+                    return Err((
+                        ACP_ERR_CAPABILITY_REFUSED,
+                        "maximum pending ACP sessions reached".into(),
+                    ));
+                }
                 break;
             };
             let is_busy = guard
                 .sessions
                 .get(&oldest)
-                .is_some_and(|s| s.summary.active_turn_id.is_some());
+                .is_some_and(|s| s.pending_publication || s.summary.active_turn_id.is_some());
             if is_busy {
                 guard.order.push_back(oldest);
+                retired.push(entry);
                 return Err((
                     ACP_ERR_CAPABILITY_REFUSED,
                     "maximum concurrent active ACP sessions reached".to_owned(),
                 ));
             }
-            guard.sessions.remove(&oldest);
+            retired.extend(guard.sessions.remove(&oldest));
             guard.active_cancellations.remove(&oldest);
             guard
                 .turn_cancellations
                 .retain(|(sid, _), _| sid != &oldest);
         }
+        if let Some(reservation) = reservation {
+            guard.pending_sessions -= 1;
+            reservation.held = false;
+        }
+        let session_id = entry.summary.session_id.clone();
         guard.order.push_back(session_id.clone());
         guard.sessions.insert(session_id, entry);
-        serde_json::to_value(snapshot_summary).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
+        Ok(snapshot)
     }
     fn dispatch_session_load(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
@@ -1018,12 +1149,12 @@ impl AcpEngine {
     fn dispatch_session_close(&self, params: &Value) -> Result<Value, (i64, String)> {
         let session_id = extract_session_id(params)?;
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.sessions.remove(session_id).is_none() {
-            return Err((
+        let removed = guard.sessions.remove(session_id).ok_or_else(|| {
+            (
                 ACP_ERR_NOT_FOUND,
                 format!("ACP session not found: {session_id}"),
-            ));
-        }
+            )
+        })?;
         guard.order.retain(|item| item != session_id);
         if let Some(cancel_flag) = guard.active_cancellations.remove(session_id) {
             cancel_flag.store(true, Ordering::SeqCst);
@@ -1031,6 +1162,8 @@ impl AcpEngine {
         guard
             .turn_cancellations
             .retain(|(sid, _), _| sid != session_id);
+        drop(guard);
+        drop(removed);
         Ok(json!({"session_id":session_id,"closed":true}))
     }
     fn dispatch_cancel(&self, params: &Value) -> Result<Value, (i64, String)> {
@@ -1122,7 +1255,7 @@ impl AcpEngine {
             record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
             (AcpStopReason::Cancelled, AcpExecutorOutput::default())
         } else {
-            let exec_res = self.executor.execute_turn_with_cancel_token(
+            let exec_res = prepared.executor.execute_turn_with_cancel_token(
                 &ctx,
                 Arc::clone(&cancel_flag),
                 &mut |chunk| {
@@ -1177,6 +1310,9 @@ impl AcpEngine {
     }
     fn prepare_turn_context(&self, spec: TurnRequestSpec) -> Result<PreparedTurn, RpcErr> {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let setup_capacity_full = guard.pending_sessions > 0
+            && guard.pending_sessions.saturating_add(guard.busy_sessions())
+                >= self.admission.max_sessions;
         let entry = guard.sessions.get_mut(&spec.session_id).ok_or_else(|| {
             (
                 ACP_ERR_NOT_FOUND,
@@ -1195,7 +1331,20 @@ impl AcpEngine {
                 }
             }
         }
+        if setup_capacity_full
+            && !entry.pending_publication
+            && entry.summary.active_turn_id.is_none()
+        {
+            return Err((
+                ACP_ERR_CAPABILITY_REFUSED,
+                "maximum pending or active ACP sessions reached".into(),
+            ));
+        }
         let was_pre_cancelled = entry.pre_cancelled;
+        let executor = entry
+            .executor
+            .as_ref()
+            .map_or_else(|| Arc::clone(&self.executor), |owned| Arc::clone(&owned.0));
         entry.pre_cancelled = false;
         entry.summary.active_turn_id = Some(spec.turn_id.clone());
         let prior_history: Vec<AcpSessionMessage> = entry.messages.iter().cloned().collect();
@@ -1227,6 +1376,7 @@ impl AcpEngine {
         Ok(PreparedTurn {
             ctx,
             cancel_flag: flag,
+            executor,
         })
     }
     fn abort_failed_turn(&self, session_id: &str, turn_id: &str) {

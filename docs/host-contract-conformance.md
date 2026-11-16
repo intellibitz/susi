@@ -33,15 +33,44 @@ At Susi `a30aca710`, known differences include the initialize response,
 `cwd`/`mcpServers` session creation, camelCase result fields,
 `session/update` notifications, and processing cancellation while a stdio
 prompt is running. The staged `susi acp serve` adapter now selects v1 when
-`initialize.protocolVersion` is an integer. It supports absolute `cwd`, empty
-`mcpServers`, camelCase responses, text/resource-link prompts, message updates,
+`initialize.protocolVersion` is an integer. It supports absolute `cwd`, supplied
+stdio `mcpServers`, camelCase responses, text/resource-link prompts, message updates,
 and cooperative cancellation while reading continues. Existing string-version
 stdio clients, HTTP serialization and the original transport API retain their
 legacy behavior.
 
-Official v1 also requires support for client-supplied stdio MCP servers.
-The staged adapter explicitly refuses nonempty `mcpServers`; this requirement
-remains unmet. Resource links are passed to the text executor as references,
+Client-supplied stdio MCP servers now belong to individual sessions. Their
+absolute executable, arguments, cwd and environment values remain literal;
+environment entries retain client order and native OS name semantics;
+configuration and credentials are not installed in the global tool catalog.
+The real GAWD/GEMI path sees and invokes the session's tools through existing
+permission, evidence and inference-spend controls. Caller-declared inference
+tools retain caller ownership. Session setup is asynchronous and bounded, so
+a stalled MCP initialization does not block cancellation of another turn.
+An empty `mcpServers` list keeps the normal executor, launches no session peers
+and grants no additional authority.
+
+At most 16 servers, 1,024 tools and 2 MiB of serialized tool definitions are
+accepted per session; catalog limits apply before accumulating each page.
+The separate MCP frame limit remains 16 MiB. Child ownership uses existing
+Unix process groups and Windows Jobs. Cancellation and timeouts abort active
+MCP I/O and close affected peers; idle session peers can remain alive. Failed
+setup and connection/session closure stop owned peers. Final reaping runs
+outside engine locks. Process execution permission is not filesystem confinement: the MCP
+child keeps the original session cwd while GAWD workers may use isolated
+checkouts, and deliberately escaping Unix descendants are not contained.
+
+Nine isolated Linux tests run the shipped `susi acp serve` command, real
+Rust MCP children and a deterministic loopback inference provider. They
+exercise fresh same-cwd A/B/A calls, exact results and owning mission receipts,
+revocation, cancellation during a tool call, startup/EOF/deadline cleanup,
+ordinary descendants, ordered environment aliases, and both legacy and v1
+stdout purity. Evidence is in
+`.agents/evidence/core-under-100k/2026-11-16-acp-session-mcp.json` and
+`.agents/evidence/core-under-100k/2026-11-16-acp-integrated.json`.
+Native Windows execution is not established by those tests.
+
+Resource links are passed to the text executor as references,
 without fetching their URIs. Required input fields and supported content are
 checked, but optional client metadata is not fully schema-validated.
 Method-specific named-schema checks validate sampled actual wire values;
@@ -53,7 +82,10 @@ or partial streaming. Output closure signals active turns without waiting on
 output locks. Generic blocking I/O and an executor that ignores cancellation
 can still delay shutdown; these tests do not establish bounded total shutdown.
 Neither this adapter nor the legacy `acp.*` host checks establish complete ACP
-v1 compliance.
+v1 compliance. Typed `tool_call`/`tool_call_update` lifecycle notifications and
+normal model continuation with tool results remain follow-up work. The current
+fulfillment path returns tool results through the agent response and evidence;
+it does not add a provider conversation loop.
 
 ## Checks
 

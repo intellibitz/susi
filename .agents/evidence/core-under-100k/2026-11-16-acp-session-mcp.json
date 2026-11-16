@@ -1,0 +1,83 @@
+{
+  "task": "T-CODEX100KACPBRIDGE-1",
+  "vision": "V-6",
+  "source_commit": "43150d0f0f3916c13abb8265c9831f08320f0e21",
+  "checked_utc": "2026-11-16 11:54 UTC",
+  "result": "Actual client-supplied stdio MCP tools are available and executable in their owning ACP v1 session through the shipped susi acp serve command.",
+  "goal_met": false,
+  "full_acp_compliance_claimed": false,
+  "ordered_environment_follow_up": {
+    "checked_utc": "2026-11-16 12:05 UTC",
+    "problem": "ACP environment entries were collected into an unordered HashMap. On Windows distinct case aliases name the same environment variable, so map iteration could choose a nondeterministic value.",
+    "fix": "Prepare the existing authorized literal Command with no descriptor environment map, then apply the original ordered ACP entries directly with Command::env. Platform-native alias handling determines the final value; no ASCII-only restriction or stored-host-config behavior change.",
+    "selected_actual_cli_command": "cargo test --offline --locked -p susi --test acp_mcp_bridge supplied_mcp_ -- --ignored --nocapture",
+    "selected_actual_cli_passed": 2,
+    "selected_actual_cli_seconds": 17.03,
+    "suite_cases_available": 9,
+    "assertions": "Two actual MCP sessions reverse ASCII case-alias order; Unix retains distinct keys, Windows assertions require the last supplied alias value. A Unicode environment name and Unicode/dollar/newline value round-trip exactly. Existing fresh same-cwd A/B/A tool execution, results and evidence still pass.",
+    "strict_root_and_e2e_clippy_passed": true,
+    "native_host": "x86_64-unknown-linux-gnu",
+    "native_windows_executed": false,
+    "runtime_lines_added": 2,
+    "new_separate_test_lines": 79
+  },
+  "size": {
+    "main_before": 305517,
+    "complete_socket_rust": 307527,
+    "runtime_rust": 301073,
+    "vendor_facade_rust": 6454,
+    "runtime_growth_including_inline_tests": 2010,
+    "remaining_to_remove": 207528,
+    "measurement": "cargo test --offline --locked -p susi --test lean_core_ceilings repository_size_is_reported -- --nocapture",
+    "exclusions_or_ceilings_changed": false,
+    "interpretation": "Correctness growth for a mandatory stdio-MCP gap; no source-size reduction or under-100k acceptance claim."
+  },
+  "implementation": [
+    "Session-owned typed MCP descriptors preserve absolute cwd, executable, argv and literal environment values. Empty values do not resolve host credentials; no session configurations or tools enter persistent config or global tool registries.",
+    "Reuse existing McpHost/DuplexStreams and authorized command preparation; reuse harness Unix process groups and Windows suspended kill-on-close Jobs. No new dependency or external source.",
+    "Explicit tool scope, cancellation, progress and mission-evidence ownership cross local worker boundaries. GAWD/GEMI/tool traffic with an owner stays in process. Worker workspaces retain the bound mission ledger and root egress authority.",
+    "All admitted session schemas reach model requests. Genuine caller-owned tools retain caller ownership. Dispatch preserves host and mission MAC, evidence, egress and existing inference spend/rate paths; the adapter does not construct fresh financial budgets.",
+    "Setup/turn deadlines, original turn cancellation, narrower worker cancellation, session closure and detached-turn revocation govern bounded pipe workers. Nonblocking close signals owners; destruction/connection exit waits for direct-child reaping outside engine locks.",
+    "Session catalog limits are1024 tool definitions and2MiB of their serialized JSON across at most16 peers. Duplex collection checks limits before accumulating each page. The existing16MiB individual-frame cap remains separate. Legacy host listing is unchanged."
+  ],
+  "integrated_checks": {
+    "actual_cli_command": "cargo test --offline --locked -p susi --test acp_mcp_bridge -- --ignored --nocapture",
+    "actual_cli_passed": 8,
+    "actual_cli_failed": 0,
+    "actual_cli_seconds": 21.89,
+    "managed_io_command": "cargo test --offline --locked -p susi --bin susi cli::acp_cli::session_mcp::tests -- --nocapture",
+    "managed_io_passed": 5,
+    "strict_clippy": "cargo clippy --offline --locked -p susi --bin susi --test acp_mcp_bridge -- -D warnings",
+    "strict_clippy_passed": true,
+    "cargo_fmt_all_check_passed": true,
+    "git_diff_check_passed": true,
+    "native_host": "x86_64-unknown-linux-gnu",
+    "cold_root_compile_seconds": 52.79,
+    "cold_compile_is_warm_pipeline_evidence": false
+  },
+  "actual_cli_assertions": [
+    "Real separately compiled Rust MCP child and deterministic loopback model provider; no executor/authorization mocks, paid calls or inherited provider credentials.",
+    "Actual schema and tools/call, exact newline/dollar/backslash environment values, exact original cwd, fresh calls across two live same-cwd sessions in A/B/A order.",
+    "Exact tool outputs reach the correct ACP session/update. Output hashes match tool receipts linked to the owning persisted mission graph; stale or cross-session receipts cannot satisfy a later turn.",
+    "An empty third session receives no private catalog; session server configuration and literal environment are not persisted globally.",
+    "Both official-v1 and legacy empty-MCP prompts run the real executor and retain pure NDJSON stdout.",
+    "A permission revoked after the model receives schemas prevents actual MCP dispatch.",
+    "Cancellation interrupts an actual blocked tools/call; pending-initialization EOF, initialization deadline, ordinary EOF and parent exit stop owned children and ordinary descendants retaining pipes. Direct children are reaped."
+  ],
+  "companion_worker_checks": {
+    "acp_factory_tests": 29,
+    "wire_client_tests": 55,
+    "gemi_scoped_facade_tests": 6,
+    "legacy_tool_cases": 21,
+    "core_tool_worker_checks": "Scoped ownership/cancellation, plane37, registry14, capture19, cancellation12, recovery17 and affected-library strict Clippy passed in isolated worker worktrees; parent will repeat integrated affected suites."
+  },
+  "independent_review": "Source review confirmed contained child ownership, literal command semantics, terminal cancellation versus transient EINTR, bounded pipe queues, nonblocking close, final reaping and early catalog bounds. Parent subsequently found the Windows ordered-environment edge addressed by the follow-up above; native Windows execution remains pending.",
+  "known_limits_and_follow_up": [
+    "Do not claim full ACP compliance. Typed tool_call/tool_call_update lifecycle notifications and normal provider result-continuation remain concrete follow-up work.",
+    "The initial E2E expectation requiring a subsequent provider role=tool request exceeded this slice and the existing GEMI fulfillment behavior. It was replaced with stronger exact ACP-result/hash/owning-evidence assertions; no new inference loop or fresh spend budget was introduced.",
+    "Native Windows execution remains unverified; the production path reuses the existing Windows Job primitive and is source-portable. Only the native Linux host was built and tested.",
+    "Unix process-group containment covers ordinary descendants; process.exec authority is not a filesystem sandbox and does not prevent a deliberately escaping setsid descendant.",
+    "A cancelled or timed-out MCP connection fails closed; names never fall back to another session or global tool. Arbitrary external effects already performed before cancellation cannot be undone.",
+    "The overall fewer-than100000-line goal remains open; measured correctness growth is included honestly."
+  ]
+}

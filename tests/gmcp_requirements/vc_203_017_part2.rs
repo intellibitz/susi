@@ -254,7 +254,6 @@ fn gmcp_req_203_017_05_interop() {
         mcp::{
             model::{CallToolResult, ClientCapabilities, ContentBlock, ReadResourceResult, Resource, Tool},
             task_manager::TaskExit,
-            ServiceExt,
         },
         protocol::{GmcpService, McpGatewayProxy},
         sdk::{
@@ -431,6 +430,7 @@ fn main() {
     #[cfg(unix)]
     {
         use std::os::unix::net::{UnixListener, UnixStream};
+        use susi_gmcp::mcp::ServiceExt;
         let sock_path = home.join("delta.sock");
         let uds_lis = UnixListener::bind(&sock_path).expect("bind uds");
         let uds_svc = svc_a.clone();

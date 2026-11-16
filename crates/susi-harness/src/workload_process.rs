@@ -6,13 +6,13 @@ use std::process::Child;
 use std::process::Command;
 
 #[cfg(windows)]
-pub(crate) use winapi::process_job::{spawn, Job as Tree};
+pub use winapi::process_job::{spawn, Job as Tree};
 
 #[cfg(unix)]
-pub(crate) struct Tree(Option<u32>);
+pub struct Tree(Option<u32>);
 
 #[cfg(unix)]
-pub(crate) fn spawn(command: &mut Command) -> io::Result<(Child, Tree)> {
+pub fn spawn(command: &mut Command) -> io::Result<(Child, Tree)> {
     use std::os::unix::process::CommandExt;
     let child = command.process_group(0).spawn()?;
     let tree = Tree(Some(child.id()));
@@ -30,7 +30,7 @@ impl Drop for Tree {
 
 /// Stop remaining descendants before reaping a Unix group leader, so a
 /// reused PID can never direct cleanup at an unrelated process group.
-pub(crate) fn try_wait(
+pub fn try_wait(
     tree: &mut Option<Tree>,
     child: &mut Child,
 ) -> io::Result<Option<std::process::ExitStatus>> {
@@ -51,10 +51,10 @@ pub(crate) fn try_wait(
 }
 
 #[cfg(not(any(unix, windows)))]
-pub(crate) struct Tree;
+pub struct Tree;
 
 #[cfg(not(any(unix, windows)))]
-pub(crate) fn spawn(_: &mut Command) -> io::Result<(Child, Tree)> {
+pub fn spawn(_: &mut Command) -> io::Result<(Child, Tree)> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "no workload process containment on this platform",

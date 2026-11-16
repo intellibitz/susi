@@ -1,0 +1,93 @@
+{
+  "id": "T-CODEX100KMCPCATALOG-1",
+  "title": "Bound duplex MCP catalog accumulation for ACP session setup",
+  "goal": "Vision: V-6. Preserve existing MCP host APIs while providing an additive bounded tool catalog operation for the coordinated ACP supplied-server bridge.",
+  "size": "s",
+  "status": "completed",
+  "created_by": "CODEX100KMCPCATALOG",
+  "created_unix": 1794829404,
+  "base_commit": "e4961ad436313742b35c7792c44e00b1c05369c0",
+  "scopes": [
+    "crates/susi-wire-client/src/host.rs",
+    "crates/susi-wire-client/src/tests/host.rs",
+    ".agents/tasks/T-CODEX100KMCPCATALOG-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing HostedServer duplex pagination and MAX_PAGINATION_PAGES, capped frame reader, wire-client tests, commercial core-client pagination adapter, locked serde_json serialization writer API.",
+    "reason": "Reuse the existing pagination loop and stream borrowed definitions into a byte-budget writer before cloning a page. No new dependency, copied code, alternate host or post-collection limit."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-j",
+      "2",
+      "-p",
+      "susi-wire-client",
+      "--lib"
+    ]
+  },
+  "contract": {
+    "api": "McpHost::list_tools_bounded(&mut self, server_id: &str, max_items: usize, max_bytes: usize) -> Result<Vec<Value>, WireError>",
+    "bytes": "Sum of serialized individual tool definition UTF-8 bytes; excludes envelopes, array brackets and separators.",
+    "transport": "Duplex only; explicit HTTP refusal before listing. Existing list_tools and other paginated APIs unchanged."
+  },
+  "limitations": [
+    "The existing per-frame16MiB acquisition cap remains independent; this addition bounds retained catalog data, not total process memory or I/O deadlines.",
+    "Parent owns coordinated publication with the ACP bridge; no push or external board post."
+  ],
+  "phase": "integrated_verified_published",
+  "validation": {
+    "crate_tests": {
+      "command": "cargo test --offline --locked -j2 -p susi-wire-client --lib",
+      "passed": 55,
+      "retained": 50,
+      "added": 5
+    },
+    "clippy": "cargo clippy --offline --locked -j2 -p susi-wire-client --all-targets -- -D warnings passed",
+    "format": "cargo fmt -p susi-wire-client --check and git diff --check passed",
+    "coverage": [
+      "Exact cumulative item/encoded-byte boundary including escaped and non-ASCII text; legacy duplex parity and cursor ordering",
+      "First/second page item/byte overflow stops before next read/request and returns no partial list",
+      "Zero-budget empty pagination; budget refusal keeps the connection synchronized for a later legacy request",
+      "Malformed list, repeated cursor and pagination-page ceiling unchanged",
+      "Actual loopback HTTP bounded refusal occurs before tools/list; subsequent legacy HTTP listing succeeds"
+    ],
+    "target": "/workspace/codex/susi-core-100k-mcpcatalog-target",
+    "susi_home": "/workspace/codex/susi-core-100k-mcpcatalog-state/home",
+    "jobs": 2,
+    "read_only_board_check": {
+      "last_item": 1710,
+      "findings": [],
+      "stops": [],
+      "requests": [],
+      "note": "Read-only native workflow helper succeeded after an initial unavailable-command/credential-free target attempt; parent also reported scope clear. Scoped source edit preceded this final successful retry. No external board writes."
+    },
+    "independent_review": "review_gemi read-only source and tests review: no blockers; existing assertions untouched; checked subtraction and pre-clone page validation verified."
+  },
+  "source_delta": {
+    "runtime_physical_lines_net": 62,
+    "test_physical_lines_net": 253,
+    "all_rust_physical_lines_net": 315,
+    "note": "Additive correctness bound for coordinated ACP bridge. No reduction claimed; no tests removed/moved or dependencies changed."
+  },
+  "handoff": {
+    "owner": "parent /root and bridge owner /root/acp_mcp_design",
+    "status": "Verified API awaits coherent ACP caller integration; parent owns publication."
+  },
+  "integrated_verification": ".agents/evidence/core-under-100k/2026-11-16-acp-integrated.json",
+  "closed": {
+    "at_unix": 1794831592,
+    "commit": "7f0434ddc01383366b8a5b0f95c21b67cb183477",
+    "by": "CODEXCORE100KIMPLEMENTATION"
+  },
+  "publication": {
+    "remote": "origin",
+    "ref": "refs/heads/main",
+    "verified_head": "7f0434ddc01383366b8a5b0f95c21b67cb183477"
+  },
+  "integration_result": "Coherent bridge and upstream Unix interop repair accepted and published together. Nine actual ACP CLI tests plus affected suites and final workspace check pass. This closes only the scoped component task; full ACP compliance and complete core below100k remain open."
+}

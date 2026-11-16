@@ -313,8 +313,23 @@ impl GemiEngine {
     ) -> String {
         let requested_model = Self::normalize_requested_model(requested_model);
         let _model_reads = crate::models::ModelReadWindow::enter();
+        let scope = crate::susi_core::scoped_tools::current();
+        if let Some(Err(error)) = scope.as_ref().map(|scope| scope.check()) {
+            return format!("[FAIL] Session tool scope: {error}");
+        }
+        let (chat_request, owned_tools) = if let Some(scope) = scope.as_ref() {
+            crate::local_tool_calls::scoped_chat_request(
+                chat_request,
+                &crate::susi_core::plane_bus::tools::list_tools(),
+                scope.tools(),
+                prompt,
+            )
+        } else {
+            (chat_request, false)
+        };
         let provider_chat = chat_request.as_ref();
-        if allow_reflex && chat_request.is_none() {
+        // Session tools change the meaning of an otherwise identical prompt.
+        if allow_reflex && scope.is_none() && chat_request.is_none() {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
                 // Record the serve on the mission's evidence session so the
@@ -350,6 +365,29 @@ impl GemiEngine {
             meta(provider);
         };
         let meta = &tagged_meta;
+        // Providers return one complete response through this callback. Keep
+        // internally owned calls off the stream until normal tool dispatch has
+        // produced their results; caller-owned markers remain unchanged.
+        let provider_callback = |text: String| {
+            if owned_tools {
+                let (prose, calls) = crate::local_tool_calls::extract_owned_tool_calls(&text);
+                if !calls.is_empty() {
+                    if !prose.is_empty() {
+                        callback(prose);
+                    }
+                    return;
+                }
+            }
+            callback(text);
+        };
+        let finish_provider = |text: String| {
+            let text = if owned_tools {
+                Self::fulfill_tool_calls(&text, workspace, callback, true)
+            } else {
+                text
+            };
+            Self::verify_axiomatic_alignment(&text, workspace).unwrap_or(text)
+        };
 
         let global_config =
             crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
@@ -425,7 +463,7 @@ impl GemiEngine {
                     Some(workspace),
                     Some(&esc.provider),
                     provider_chat,
-                    callback,
+                    &provider_callback,
                     meta,
                 );
                 if esc_ladder.step_downs() > 0 {
@@ -433,10 +471,7 @@ impl GemiEngine {
                 }
                 esc_ladder.persist();
                 if let Some(text) = escalated {
-                    return match Self::verify_axiomatic_alignment(&text, workspace) {
-                        Ok(v) => v,
-                        Err(_) => text,
-                    };
+                    return finish_provider(text);
                 }
             }
         }
@@ -452,7 +487,7 @@ impl GemiEngine {
                 Some(workspace),
                 requested_model,
                 provider_chat,
-                callback,
+                &provider_callback,
                 meta,
             )
         };
@@ -461,10 +496,7 @@ impl GemiEngine {
                 callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
             }
             ladder.persist();
-            return match Self::verify_axiomatic_alignment(&text, workspace) {
-                Ok(v) => v,
-                Err(_) => text,
-            };
+            return finish_provider(text);
         }
 
         // Only announce failover when the provider cascade was actually in
@@ -559,12 +591,16 @@ impl GemiEngine {
         });
         // Tools the caller supplied are the caller's to run: their calls go
         // back to it instead of through core's tool executor.
-        let caller_tools = chat
-            .as_ref()
-            .and_then(|c| c.get("tools"))
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|t| !t.is_empty());
-        let prompt = if needs_tools {
+        let caller_tools = !owned_tools
+            && chat
+                .as_ref()
+                .and_then(|c| c.get("tools"))
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|t| !t.is_empty());
+        let prompt = if owned_tools {
+            engine_prompt = crate::local_tool_calls::prompt_with_owned_tools(prompt, chat.as_ref());
+            engine_prompt.as_str()
+        } else if needs_tools {
             engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
             engine_prompt.as_str()
         } else {
@@ -581,8 +617,9 @@ impl GemiEngine {
         // must be withheld before it reaches the client (the post-hoc
         // `fulfill_emitted_tool_calls` below can only fix the returned text,
         // not what already streamed).
-        let stream_filter =
-            std::cell::RefCell::new(crate::local_tool_calls::ToolCallStreamFilter::default());
+        let stream_filter = std::cell::RefCell::new(
+            crate::local_tool_calls::ToolCallStreamFilter::with_owned_calls(owned_tools),
+        );
         let filtered_callback = |delta: String| {
             let out = stream_filter.borrow_mut().feed(&delta);
             if !out.is_empty() {
@@ -657,7 +694,11 @@ impl GemiEngine {
                 if caller_tools {
                     return crate::local_tool_calls::caller_tool_reply(res);
                 }
-                let text = Self::fulfill_emitted_tool_calls(res, workspace, callback);
+                let text = if owned_tools {
+                    Self::fulfill_tool_calls(res, workspace, callback, true)
+                } else {
+                    Self::fulfill_emitted_tool_calls(res, workspace, callback)
+                };
                 return match Self::verify_axiomatic_alignment(&text, workspace) {
                     Ok(v) => v,
                     Err(_) => text,
@@ -692,13 +733,13 @@ impl GemiEngine {
                 Some(workspace),
                 requested_model,
                 chat.as_ref(),
-                callback,
+                &provider_callback,
                 meta,
             );
             ladder.steps.extend(provider_ladder.steps);
             if let Some(text) = answer {
                 ladder.persist();
-                return Self::verify_axiomatic_alignment(&text, workspace).unwrap_or(text);
+                return finish_provider(text);
             }
         }
 
@@ -972,7 +1013,29 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        let (prose, calls) = crate::local_tool_calls::extract_tool_calls(text);
+        Self::fulfill_tool_calls(text, workspace, callback, false)
+    }
+
+    fn fulfill_tool_calls(
+        text: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        owned: bool,
+    ) -> String {
+        let scope = owned
+            .then(crate::susi_core::scoped_tools::current)
+            .flatten();
+        if owned && scope.is_none() {
+            return "[FAIL] Session tool scope is unavailable".into();
+        }
+        if let Some(Err(error)) = scope.as_ref().map(|scope| scope.check()) {
+            return format!("[FAIL] Session tool scope: {error}");
+        }
+        let (prose, calls) = if owned {
+            crate::local_tool_calls::extract_owned_tool_calls(text)
+        } else {
+            crate::local_tool_calls::extract_tool_calls(text)
+        };
         if calls.is_empty() {
             return text.to_string();
         }
@@ -984,6 +1047,9 @@ impl GemiEngine {
         let mut out = prose.trim().to_string();
         let mut executed = 0usize;
         for call in &calls {
+            if let Some(Err(error)) = scope.as_ref().map(|scope| scope.check()) {
+                return format!("[FAIL] Session tool scope: {error}");
+            }
             // A model's reply never downloads a model: `scout_model` and the
             // other download tools run only on the user's explicit request
             // (CEO decision 2026-11-04, "No, ask first").
@@ -1393,6 +1459,10 @@ impl MissionPlanner {
 #[cfg(test)]
 #[path = "../tests/runtime.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/scoped_runtime.rs"]
+mod scoped_tests;
 
 #[cfg(test)]
 mod reflex_allowed_tests {
