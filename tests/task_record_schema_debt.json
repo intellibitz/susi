@@ -26,13 +26,6 @@
                     ".agents/tasks/T-STEP1NATIVECOMMAND-1.json":  "962ccf3cf54a48dcb524b527750061a5d74500baa26909d01a7bf771a60f494d",
                     ".agents/tasks/T-STEP1RUSTENTRY-1.json":  "c387225009b8d9dbb835a72a5cb5843e72b80af6481069bf3d0a11d7f864b51b",
                     ".agents/tasks/T-STEP1UNICODE-1.json":  "e74489e1d822ae348a3b69e585c8baaebf957180ad75e1dedd294a425c684d38",
-                    ".agents/tasks/T-VERSIONPATH-1.json":  "d339c0d7a5413f0e90367f9b2813e4a2f06a610346a372896a338ea75fc16ab0",
-                    ".agents/tasks/done/T-VENDORMODELSSUITESB4T1104-1.json":  "47da4b5c847debcc915cbfacda8cd5954abaf4dc323c2c7faf7dd675a6b13a6b",
-                    ".agents/tasks/done/T-XTLOCALBUILD1104-1.json":  "2e6a0b41f6ede17ac14ed621eb9834f81b9dc34a712c2c0744e57f7d06c2e2c4",
-                    ".agents/tasks/done/T-XTROUTER1104-1.json":  "34a9b913cdadef712d645c45944dd4f33db5154a951e5407de25717c6aac0edb",
-                    ".agents/tasks/done/T-ZCKEYRINGEXP1104-1.json":  "1c67a953c5fb46b307a785a3dc90c62d30614711731c70aa1dfb1672b68a8d2f",
-                    ".agents/tasks/done/T-ZCKEYROT1104-1.json":  "58f09e0595ec60aa6e8a2faa99e452f71497f210f1690e116c7add450c0d8250",
-                    ".agents/tasks/done/T-ZCSETBACKUP1104-1.json":  "184febc9ab73b59dbd546e7de11ce7c78da4d375e45cd1fa4f0d93342573bdba",
-                    ".agents/tasks/done/T-ZCVERSETUP1104-1.json":  "f1531dc16339d6dfd9a44667db0071f7d533775287ace6b7004aa967145e2e32"
+                    ".agents/tasks/T-VERSIONPATH-1.json":  "d339c0d7a5413f0e90367f9b2813e4a2f06a610346a372896a338ea75fc16ab0"
                 }
 }

@@ -1,22 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ZCKEYRINGEXP1104-1",
-  "agent": "ZCKEYRINGEXP1104",
-  "scope": [
-    "crates/susi-config/src/keyring_storage.rs",
-    "crates/susi-config/src/explain.rs"
-  ],
-  "summary": "test(susi-config): inline unit test suites for keyring_storage & explain",
-  "started_at": "2026-11-04T08:58:00Z",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-config",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ZCKEYRINGEXP1104-1",
+    "title":  "test(susi-config): inline unit test suites for keyring_storage \u0026 explain",
+    "goal":  "Add inline unit test suites covering keyring_storage and explain in crates/susi-config.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCKEYRINGEXP1104",
+    "created_unix":  1793763032,
+    "authored":  true,
+    "base_commit":  "14b3b972cf45486efa96c88a4de837ec4404225c",
+    "implementation_commit":  "be3fc3349bc9316bf4cdb129fd6bc8dc05e2023a",
+    "verified_commit":  "84fa4b16d08dc1969824f00b9ba8f2bc09d9c34b",
+    "notes":  "Implemented in be3fc3349bc9316bf4cdb129fd6bc8dc05e2023a and closed in 84fa4b16d08dc1969824f00b9ba8f2bc09d9c34b; keyring_storage.rs was later retired during Lean Core consolidation while crates/susi-config/src/explain.rs remains active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-config/src/explain.rs",
+                  "target":  "crates/susi-config/src/explain.rs",
+                  "why":  "Added inline #[cfg(test)] suites directly atop ConfigOrigin and ConfigLayer in crates/susi-config.",
+                  "reused_symbols":  [
+                                         "susi_config::explain::ConfigOrigin",
+                                         "susi_config::explain::ConfigLayer"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ZCKEYRINGEXP1104-1.json",
+                   "crates/susi-config/src/explain.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793763060,
+                   "commit":  "84fa4b16d08dc1969824f00b9ba8f2bc09d9c34b",
+                   "by":  "ZCKEYRINGEXP1104"
+               }
 }

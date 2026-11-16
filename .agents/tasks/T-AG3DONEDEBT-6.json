@@ -1,0 +1,47 @@
+{
+    "schema":  "susi.task_record/v1",
+    "id":  "T-AG3DONEDEBT-6",
+    "title":  "Normalize final 7 legacy closed 1104 task records and clear all done/ schema debt",
+    "goal":  "Reconcile git-verified historical provenance (base_commit, implementation_commit, verified_commit, closed) and surviving Core scopes across the final 7 legacy .agents/tasks/done/T-*1104-1.json records (T-VENDORMODELSSUITESB4T1104-1 through T-ZCVERSETUP1104-1) and remove their 7 entries from tests/task_record_schema_debt.json (31 -\u003e 24, leaving zero done/ entries in schema debt).",
+    "size":  "m",
+    "state":  "open",
+    "status":  "implemented",
+    "deps":  [
+                 "T-AG3DONEDEBT-5"
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "task_records"
+                           ]
+               },
+    "created_by":  "AG3HOUSEKEEP",
+    "created_unix":  1794799018,
+    "authored":  true,
+    "base_commit":  "afbb7efc1e1c28f217a1608e5c0b9d2edef24b71",
+    "notes":  "Phase 1 normalizes T-VENDORMODELSSUITESB4T1104-1, T-XTLOCALBUILD1104-1, T-XTROUTER1104-1, T-ZCKEYRINGEXP1104-1, T-ZCKEYROT1104-1, T-ZCSETBACKUP1104-1, and T-ZCVERSETUP1104-1 in .agents/tasks/done/ and shrinks tests/task_record_schema_debt.json from 31 to 24 entries (0 done/ entries remaining), leaving all 24 open .agents/tasks/T-*.json entries untouched.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "tests/task_records.rs, tests/task_record_schema_debt.json, and .agents/tasks/done/T-*1104-1.json in Susi Core and susi-dev-workflow in Susi Commercial Apps",
+                  "target":  "tests/task_records.rs",
+                  "why":  "Normalized the final 7 legacy closed task records directly to the existing susi.task_record/v1 schema enforced by tests/task_records.rs (using susi_paths::hex::encode) without altering test harness code.",
+                  "reused_symbols":  [
+                                         "susi_paths::hex::encode"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/T-AG3DONEDEBT-6.json",
+                   ".agents/tasks/done/T-VENDORMODELSSUITESB4T1104-1.json",
+                   ".agents/tasks/done/T-XTLOCALBUILD1104-1.json",
+                   ".agents/tasks/done/T-XTROUTER1104-1.json",
+                   ".agents/tasks/done/T-ZCKEYRINGEXP1104-1.json",
+                   ".agents/tasks/done/T-ZCKEYROT1104-1.json",
+                   ".agents/tasks/done/T-ZCSETBACKUP1104-1.json",
+                   ".agents/tasks/done/T-ZCVERSETUP1104-1.json",
+                   "tests/task_record_schema_debt.json"
+               ]
+}

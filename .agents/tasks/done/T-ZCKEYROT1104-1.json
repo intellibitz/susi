@@ -1,22 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ZCKEYROT1104-1",
-  "agent": "ZCKEYROT1104",
-  "scope": [
-    "crates/susi-config/src/key_rotation.rs",
-    "crates/susi-config/src/rekey_schedule.rs"
-  ],
-  "summary": "Add inline unit test suites to key_rotation.rs and rekey_schedule.rs (VC-201-077)",
-  "started_at": "2026-11-04T08:43:31Z",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-config",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ZCKEYROT1104-1",
+    "title":  "Add inline unit test suites to key_rotation.rs and rekey_schedule.rs (VC-201-077)",
+    "goal":  "Add inline unit test suites covering key_rotation and rekey_schedule in crates/susi-config (VC-201-077).",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCKEYROT1104",
+    "created_unix":  1793762466,
+    "authored":  true,
+    "base_commit":  "ac46bf8f1dbb34ebacea051fcf2108701b4d54dd",
+    "implementation_commit":  "9b824adbd9ae5cf6b84808104f2bd6f990e0d0ec",
+    "verified_commit":  "3225ee15bc2dcb745d9d6cc7b323b47277eefce1",
+    "notes":  "Implemented in 9b824adbd9ae5cf6b84808104f2bd6f990e0d0ec and closed in 3225ee15bc2dcb745d9d6cc7b323b47277eefce1; rekey_schedule.rs was later retired during Lean Core consolidation while crates/susi-config/src/key_rotation.rs remains active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-config/src/key_rotation.rs",
+                  "target":  "crates/susi-config/src/key_rotation.rs",
+                  "why":  "Added inline #[cfg(test)] suites directly atop DEFAULT_MAX_AGE_DAYS and KeyAges in crates/susi-config.",
+                  "reused_symbols":  [
+                                         "susi_config::key_rotation::DEFAULT_MAX_AGE_DAYS",
+                                         "susi_config::key_rotation::KeyAges"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ZCKEYROT1104-1.json",
+                   "crates/susi-config/src/key_rotation.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793762497,
+                   "commit":  "3225ee15bc2dcb745d9d6cc7b323b47277eefce1",
+                   "by":  "ZCKEYROT1104"
+               }
 }

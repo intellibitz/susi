@@ -1,24 +1,51 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-XTLOCALBUILD1104-1",
-  "title": "test(xtask): un-gate conventional_windows_path and harden local_build and extension_watch unit tests (D-OS-6, D-OS-8)",
-  "status": "done", "completed_at": "2026-11-04T02:17:30Z",
-  "created_at": "2026-11-04T02:17:00Z",
-  "owner": "gemini",
-  "touch": [
-    "xtask/src/local_build.rs",
-    "xtask/src/extension_watch.rs"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "xtask",
-      "--bin",
-      "xtask"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-XTLOCALBUILD1104-1",
+    "title":  "test(xtask): un-gate conventional_windows_path and harden local_build and extension_watch unit tests (D-OS-6, D-OS-8)",
+    "goal":  "Un-gate conventional_windows_path across OS targets and harden unit tests in xtask/src/{local_build,extension_watch}.rs.",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "xtask"
+                           ]
+               },
+    "created_by":  "XTLOCALBUILD1104",
+    "created_unix":  1793758620,
+    "authored":  true,
+    "base_commit":  "69a0480d2de0655da30555b909cbc2c60333eea9",
+    "implementation_commit":  "0e469c15dbbf7c026644b6af59811dc84ea402be",
+    "verified_commit":  "0e469c15dbbf7c026644b6af59811dc84ea402be",
+    "notes":  "Landed and closed in squash merge 0e469c15dbbf7c026644b6af59811dc84ea402be (#1394, legacy owner gemini) across xtask/src/{extension_watch,local_build}.rs.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "xtask/src/local_build.rs, xtask/src/extension_watch.rs",
+                  "target":  "xtask/src/local_build.rs",
+                  "why":  "Hardened cross-OS path and extension-watch tests directly atop local_build::run and extension_watch::diff_new_official.",
+                  "reused_symbols":  [
+                                         "xtask::local_build::run",
+                                         "xtask::extension_watch::diff_new_official"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-XTLOCALBUILD1104-1.json",
+                   "xtask/src/extension_watch.rs",
+                   "xtask/src/local_build.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793758793,
+                   "commit":  "0e469c15dbbf7c026644b6af59811dc84ea402be",
+                   "by":  "XTLOCALBUILD1104"
+               }
 }

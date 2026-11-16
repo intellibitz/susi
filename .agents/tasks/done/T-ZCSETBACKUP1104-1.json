@@ -1,22 +1,49 @@
 {
-  "schema": "susi/task/v1",
-  "id": "T-ZCSETBACKUP1104-1",
-  "agent": "ZCSETBACKUP1104",
-  "scope": [
-    "crates/susi-config/src/setting_registry.rs",
-    "crates/susi-config/src/state_backup.rs"
-  ],
-  "summary": "test(susi-config): inline unit test suites for setting_registry & state_backup (VC-201-061, D-OS-8)",
-  "started_at": "2026-11-04T09:07:00Z",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-config",
-      "--lib"
-    ]
-  }
+    "schema":  "susi.task_record/v1",
+    "id":  "T-ZCSETBACKUP1104-1",
+    "title":  "test(susi-config): inline unit test suites for setting_registry \u0026 state_backup (VC-201-061, D-OS-8)",
+    "goal":  "Add inline unit test suites covering setting_registry and state_backup in crates/susi-config (VC-201-061, D-OS-8).",
+    "size":  "s",
+    "state":  "closed",
+    "status":  "done",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "ZCSETBACKUP1104",
+    "created_unix":  1793763574,
+    "authored":  true,
+    "base_commit":  "f671eca090df9406455bbc1d7e91c277c7543bf4",
+    "implementation_commit":  "0d30ce2d191d2dfd36f98048852009c8db330f71",
+    "verified_commit":  "f53ac29258792d542b514f41ff2637551025dcf7",
+    "notes":  "Implemented in 0d30ce2d191d2dfd36f98048852009c8db330f71 and closed in f53ac29258792d542b514f41ff2637551025dcf7; state_backup.rs migrated to Susi Commercial Apps during Lean Core consolidation while crates/susi-config/src/setting_registry.rs remains active in Core.",
+    "reuse":  {
+                  "decision":  "existing",
+                  "searched":  "crates/susi-config/src/setting_registry.rs",
+                  "target":  "crates/susi-config/src/setting_registry.rs",
+                  "why":  "Added inline #[cfg(test)] suites directly atop SettingEntry and SETTING_REGISTRY in crates/susi-config.",
+                  "reused_symbols":  [
+                                         "susi_config::setting_registry::SettingEntry",
+                                         "susi_config::setting_registry::SETTING_REGISTRY"
+                                     ]
+              },
+    "scopes":  [
+                   ".agents/tasks/done/T-ZCSETBACKUP1104-1.json",
+                   "crates/susi-config/src/setting_registry.rs"
+               ],
+    "closed":  {
+                   "at_unix":  1793763607,
+                   "commit":  "f53ac29258792d542b514f41ff2637551025dcf7",
+                   "by":  "ZCSETBACKUP1104"
+               }
 }
