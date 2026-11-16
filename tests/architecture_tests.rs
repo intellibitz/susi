@@ -3271,6 +3271,7 @@ fn core_is_published_one_way_and_free_to_fork() {
         "docs/ceo-agent-mandate.md",
         "docs/ceo-mandate-74.md",
         "docs/lean-core.md",
+        "crates/susi-core/src/self_build.rs",
     ] {
         let text = flat(path);
         assert!(
