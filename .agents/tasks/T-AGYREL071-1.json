@@ -1,0 +1,45 @@
+{
+    "id": "T-AGYREL071-1",
+    "feature_id": "F-CORE-RELEASE-0.21.71-1",
+    "title": "Prepare Susi Core v0.21.71 release bump on snapshot v0-21-71-rc1",
+    "goal": "Bump Susi Core version metadata from 0.21.70 to 0.21.71 across the 12 allowed release bump files atop snapshot v0-21-71-rc1 (main 4a3d93513ca923c2e1ae4595ff28b64bf70fb45c) for exact-tree Linux x86_64 release qualification.",
+    "state": "in-progress",
+    "status": "in-progress",
+    "owner": "ANTIGRAVITY",
+    "created_by": "ANTIGRAVITY",
+    "created_unix": 1794823902,
+    "updated_unix": 1794823902,
+    "size": "s",
+    "deps": [],
+    "base": "4a3d93513ca923c2e1ae4595ff28b64bf70fb45c",
+    "scopes": [
+        ".agents/evidence.json",
+        ".agents/identity.json",
+        ".agents/roadmap.json",
+        ".agents/tasks/T-AGYREL071-1.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "README.md",
+        "crates/susi-daemon/Cargo.toml",
+        "crates/susi-gawd/Cargo.toml",
+        "crates/susi-gemi/Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-harness/Cargo.toml",
+        "crates/susi-server/Cargo.toml"
+    ],
+    "accept": {
+        "cmd": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "susi",
+            "--test",
+            "release_records"
+        ]
+    },
+    "limitations": [
+        "Windows x86_64 reference build and qualification are owed on an x86_64-pc-windows-msvc host."
+    ]
+}
