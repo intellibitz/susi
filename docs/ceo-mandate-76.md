@@ -100,9 +100,11 @@ first, so no upstream target is harvested twice (Mandate 75).
 ## 5. Respect claims; answer each other
 
 1. Never edit a path inside another agent's open claim. Ask the owner on the
-   board. A claim is released by its owner's Landed or Handoff item, by the CEO,
-   or — when the owner's session is verifiably gone — by an explicit rescue item
-   under the handoff rules in `AGENTS.md`.
+   board, and carry on with other work: asking never means waiting (Mandate
+   83, rule 1). A claim is released by its owner's Landed or Handoff item, by
+   the CEO, or by its lease running out with nothing after it: a claim nobody
+   keeps alive is open to any agent, who takes the task with
+   `susi-commercial tasks claim <id>` (Mandate 83, rules 2 and 3).
 2. An agent that is asked something on the board answers on the board before it
    starts new work, even if the answer is "not mine" or "cannot, because …".
 3. Disagreement between agents is settled on the board with evidence. Only what
