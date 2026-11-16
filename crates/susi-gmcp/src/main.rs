@@ -161,7 +161,12 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = susi_paths::tempfile::tempdir().unwrap();
-        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", dir.path())
+            .set("XDG_CONFIG_HOME", dir.path().join(".config"))
+            .set("XDG_DATA_HOME", dir.path().join(".local").join("share"))
+            .set("XDG_CACHE_HOME", dir.path().join(".cache"))
+            .set("SUSI_HOME", dir.path().join(".susi"));
         let req = SyscallRequest {
             id: "tool-1".to_string(),
             caller_id: "caller".to_string(),
@@ -201,7 +206,12 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = susi_paths::tempfile::tempdir().unwrap();
-        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", dir.path())
+            .set("XDG_CONFIG_HOME", dir.path().join(".config"))
+            .set("XDG_DATA_HOME", dir.path().join(".local").join("share"))
+            .set("XDG_CACHE_HOME", dir.path().join(".cache"))
+            .set("SUSI_HOME", dir.path().join(".susi"));
         let req = SyscallRequest {
             id: "tool-alias-2".to_string(),
             caller_id: "caller".to_string(),
