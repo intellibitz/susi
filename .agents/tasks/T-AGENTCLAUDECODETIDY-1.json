@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENTCLAUDECODETIDY-1",
+  "title": "Keep code tidy (commercial Mandate 93), in the active contract",
+  "goal": "Vision: V-18. Directive 2026-11-16: agents must keep code tidy. The rule lands in core's active contract beside the panic-path and lint-allowance rules: rustfmt and Clippy -D warnings on what a change affects before publishing; no new debt (allowances say why, markers name their task, no commented-out code); a file over 2,000 lines grows by at most 25 lines; nothing dead; follow the crate's patterns; clear debt you meet in its own commit. Clippy's dbg_macro is denied workspace-wide. Pinned in tests/architecture_tests.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "AGENTCLAUDECODETIDY",
+  "created_unix": 1794849609,
+  "reuse": {
+    "decision": "dependency",
+    "searched": "Inside Susi: the active contract already denies panic-path macros and requires inline lint justifications; crates/susi-gawd/src/bloat_audit.rs inventories oversized functions, unwraps, clones and markers over the socket; the commercial workflow code verb (susi-commercial-apps Mandate 93) reports markers, dead source and the change's growth and allowances. The pinned toolchain's rustfmt and Clippy hold formatting and lints; dbg_macro is denied here instead of new code."
+  }
+}
