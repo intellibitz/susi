@@ -97,6 +97,27 @@ fn main() {{
     Package::open(&dir, &digest_bytes(manifest.as_bytes())).unwrap()
 }
 
+#[test]
+fn selected_legacy_core_keeps_its_startup_without_a_commercial_binding() {
+    let scratch = fixture_root();
+    let legacy = package(&scratch, "LEGACY");
+    let root = scratch.join("SusiLocal/production");
+    legacy.stage(&root).unwrap();
+    put(
+        &root.join(ACTIVE),
+        &Selection {
+            current: legacy.release.clone(),
+            previous: None,
+            dispatcher: "b".repeat(64),
+        },
+    )
+    .unwrap();
+    let entry = root.join("entry/susi.exe");
+    start_selected(&entry, false).unwrap();
+    start_selected(&entry, true).unwrap();
+    fs::remove_dir_all(scratch).unwrap();
+}
+
 fn ok(_: &Path) -> Result<()> {
     Ok(())
 }

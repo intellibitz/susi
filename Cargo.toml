@@ -155,29 +155,17 @@ path = "tests/harness_worker_mcp_parity.rs"
 harness = false
 
 [dependencies]
-susi-daemon = { path = "crates/susi-daemon", default-features = false }
-susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
 susi-sandbox-client = { workspace = true }
-susi-gemi = { workspace = true }
-susi-gmcp = { workspace = true }
-susi-harness = { workspace = true }
-susi-gawd-a2a = { workspace = true }
-susi-gawd = { workspace = true }
-susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
 susi-cli-defs = { workspace = true }
-susi-wire-client = { workspace = true }
-susi-leaf-services = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
-tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
-tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-windows-runtime = { workspace = true }
 
@@ -195,18 +183,9 @@ idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 native-tls = { path = "vendor/native-tls" }
 hashbrown = { path = "vendor/hashbrown" }
-# CPU inference is portable. Metal remains an explicit platform feature.
-# CUDA/MKL are retired: their foreign implementation/license requirements
-# fail the product gates. Unknown feature requests fail instead of falling back.
+# Concrete model/tool feature selection belongs to the commercial runtime.
 [features]
 default = []
-metal = ["susi-gemi/metal"]
-# Bulk specialist tools (browser, full-text index, embeddings, syn AST).
-tools-rich = ["susi-daemon/tools-rich", "susi-gmcp/tools-rich"]
-# Built-in Candle local model engine. Off in the default protocol socket.
-local-engine = ["susi-gemi/local-engine", "susi-daemon/local-engine"]
-# Opt-in bundle of the pieces the default core leaves out.
-plugins = ["tools-rich", "local-engine"]
 
 [profile.release]
 # Optimized builds: `cargo local-build production` and the installer's

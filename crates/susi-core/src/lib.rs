@@ -90,11 +90,9 @@ pub mod worktree_isolation;
 
 // Top-level exports for the fundamental susi-core types
 pub use acp::{
-    AcpAdmissionPolicy, AcpCapabilities, AcpContentBlock, AcpDiscoveryDocument, AcpEngine,
-    AcpExecutorOutput, AcpHistoryBounds, AcpInferenceMessage, AcpMessageRole, AcpSessionMessage,
-    AcpSessionSummary, AcpSocketClient, AcpSocketServer, AcpStdioTransport, AcpStopReason,
-    AcpToolCallMeta, AcpTurnContext, AcpTurnEvent, AcpTurnExecutor, AcpTurnResult,
-    ACP_PROTOCOL_VERSION, ACP_SESSION_ID_HEADER,
+    AcpCapabilities, AcpContentBlock, AcpDiscoveryDocument, AcpHistoryBounds, AcpInferenceMessage,
+    AcpMessageRole, AcpSessionMessage, AcpSessionSummary, AcpSocketClient, AcpStopReason,
+    AcpToolCallMeta, AcpTurnEvent, AcpTurnResult, ACP_PROTOCOL_VERSION, ACP_SESSION_ID_HEADER,
 };
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
 pub use agent_types::{
