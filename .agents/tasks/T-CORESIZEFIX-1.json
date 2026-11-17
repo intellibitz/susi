@@ -1,7 +1,7 @@
 {
   "id": "T-CORESIZEFIX-1",
-  "title": "Lend a session scope over the plane bus and bound IPC waits by bus_timeout_ms",
-  "goal": "Vision: V-10. Prerequisite for moving pillar implementations out of core (Mandate 84, rule 5). (1) Under a session ToolScope, plane_bus req sends gawd./gemi./tools./agents. topics only to the in-process prefix handler, so an implementation another process serves on the bus is unreachable from a scoped session. Lend the scope instead of forcing in-process: serve a one-off topic scope.<nonce> that answers {name,args} through ToolScope::call, name it in the payload as scope_topic, close it when the request returns, and route remotely when another process serves the topic. The lent topic carries no credential; it only reaches tools the scope already holds. (2) plane_bus_ipc post sets no read timeout, so a hung peer hangs the caller: honour a payload bus_timeout_ms (milliseconds the caller waits from sending; the bus_ prefix keeps it apart from topic fields named timeout_ms or deadline_ms) as the read timeout, refuse a request whose time is already spent without running it, answer 'plane bus: deadline exceeded' on expiry, and keep the route, since a slow peer is not a dead one. The plug-host side of both already speaks this contract.",
+  "title": "Bound plane-bus IPC waits by bus_timeout_ms",
+  "goal": "Vision: V-10. Prerequisite for moving pillar implementations out of core (Mandate 84, rule 5): core will wait on pillar work another process serves. plane_bus_ipc post sets no read timeout, so a hung peer hangs the caller. Honour a payload bus_timeout_ms (milliseconds the caller waits from sending; the bus_ prefix keeps it apart from topic fields named timeout_ms or deadline_ms) as the read timeout; answer 'plane bus: deadline exceeded' on expiry without pruning the route, since a slow peer is not a dead one; and refuse a request whose time is already spent without running it. Session scopes are out of scope: they stay in-process (scoped_tools_pin_owner_requests_to_local_prefixes); a scoped chain moves as one unit or returns tool_calls to its caller.",
   "size": "m",
   "deps": [],
   "accept": {
@@ -19,8 +19,8 @@
   "created_unix": 1794903661,
   "reuse": {
     "decision": "existing",
-    "searched": "core plane_bus req/req_watched/with_watched (the progress and cancel streams this extends), scoped_tools ToolScope::call (the authority the lent topic answers through), plane_bus_ipc post/remote/prune_stale_route_file (where the deadline and the slow-versus-dead distinction go)."
+    "searched": "core plane_bus_ipc post/remote/prune_stale_route_file/serve_conn (where the timeout and the slow-versus-dead distinction go); the plug-host side already speaks bus_timeout_ms."
   },
-  "limitations": "Changes the rule that scoped tools never cross IPC: the lent topic sits behind the bus secret like every bus topic, and reaches only the tools the scope already holds, for as long as the request runs. Windows x86_64 first; Linux run before any pillar deletion that relies on it. Core's GEMI stream facade drains chunks only after the request returns, so streamed text is buffered either way; live delivery is out of scope here.",
-  "progress": "Not started. The plug-host side is proven against core's wire format."
+  "limitations": "Core is at its ceiling (291,809 lines on 2026-11-17), so the change is offset by deleting unreferenced code in the same task. Windows x86_64 first.",
+  "progress": "Narrowed from scope lending plus timeout to the timeout only, after surveying the scope's users."
 }
