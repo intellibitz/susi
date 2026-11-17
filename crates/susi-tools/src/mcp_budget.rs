@@ -39,10 +39,11 @@ fn via_plug(
         ));
     }
     payload["lease_ms"] = json!(lease.as_millis() as u64);
+    payload["budget_policy"] = json!("core_transport_v1");
     payload["handshake_ms"] = json!(handshake.as_millis() as u64);
     payload["bus_timeout_ms"] = json!((lease + handshake + BUS_SLACK).as_millis() as u64);
     let resp = bus.request(topic, payload)?;
-    match resp.get("error").and_then(Value::as_str) {
+    match resp["error"].as_str() {
         Some(err) => Err(err.to_owned()),
         None => Ok(resp),
     }
@@ -60,8 +61,8 @@ pub fn call_blocking_result(
     }
     let payload = json!({ "config": config, "name": name, "arguments": arguments });
     let resp = via_plug(TOPIC_MCP_CALL, payload, lease, handshake)?;
-    resp.get("result")
-        .and_then(Value::as_str)
+    resp["result"]
+        .as_str()
         .map(str::to_owned)
         .ok_or_else(|| "MCP plug host answered without a `result`".to_string())
 }
@@ -79,17 +80,15 @@ pub fn list_tools_blocking(
         lease,
         handshake,
     )?;
-    let tools = resp
-        .get("tools")
-        .and_then(Value::as_array)
+    let tools = resp["tools"]
+        .as_array()
         .ok_or_else(|| "MCP plug host answered without a `tools` array".to_string())?;
     Ok(tools
         .iter()
         .filter_map(|item| {
-            let name = item.get("name").and_then(Value::as_str)?;
-            let desc = item
-                .get("description")
-                .and_then(Value::as_str)
+            let name = item["name"].as_str()?;
+            let desc = item["description"]
+                .as_str()
                 .map_or_else(|| format!("MCP tool '{name}'"), str::to_owned);
             Some((name.to_owned(), desc))
         })
