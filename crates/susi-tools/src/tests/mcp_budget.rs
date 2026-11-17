@@ -22,6 +22,7 @@ struct Plug;
 
 impl PlaneHandler for Plug {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+        assert_eq!(payload["budget_policy"], "core_transport_v1");
         if topic == TOPIC_MCP_LIST_TOOLS {
             return Ok(json!({"tools": [
                 {"name": "a", "description": "A"},
