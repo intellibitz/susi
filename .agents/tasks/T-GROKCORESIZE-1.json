@@ -24,5 +24,26 @@
     "searched": "Core forwarding in crates/susi-config/src/vault_exec.rs and src/cli/tasks_cli.rs (eval-corpus); plane dispatch in crates/susi-daemon/src/plane_handler.rs."
   },
   "limitations": "Linux evidence above is for the deletion-only tree at f9c857b43; public facades were restored after board 2795 so Rust consumers keep the original types and signatures, raising the measured count from 287,873 to 288,256. Windows re-verified the facade tree. The pre-existing gossip AddrInUse flake is not part of this change. CachyOS was offline; Linux was run on SusiCoreSizeVault / cloud Ubuntu 24.04. Stays out of harness, T-CORESIZEFIX-1, Codex areas, and the GEMI pillar.",
-  "progress": "Windows-green with public daemon facades restored (board 2795/2799). COMPLETE_SOCKET_CEILING 289,216 -> 288,256 (960-line net cut after retaining typed contracts). Linux pass (CORESIZEVAULT / cloud Ubuntu 24.04, rustc 1.99.0, board 2794) was on refs/agents/grok-coresize-1 f9c857b43 merged with fa4131e80 (deletion-only tree, 287,873): susi-daemon-runtime lib 143/143, architecture_tests 61/61, lean_core_ceilings 3 passed/1 ignored, fmt clean, clippy -D warnings clean, cargo core-size 287,873 (goal unmet). susi-daemon lib 195 passed, 1 failed: gossip::tests::host_only_scopes_the_socket_to_loopback_and_back AddrInUse at gossip.rs:656. PROVEN PRE-EXISTING on origin/main fa4131e80 (fails 5/5 under parallel; passes alone and with --test-threads=1). gossip.rs/server.rs byte-identical; T-GROKCORESIZE-1 does not touch UDP binding. Cause: test drops loopback socket on ephemeral port P then rebinds 0.0.0.0:P; parallel UDP tests binding :0 can grab P. One-off server::tests::test_global_lock_is_mutually_exclusive EAGAIN race also noted (server.rs identical)."
+  "progress": "Windows-green with public daemon facades restored (board 2795/2799). COMPLETE_SOCKET_CEILING 289,216 -> 288,256 (960-line net cut after retaining typed contracts). Linux pass (CORESIZEVAULT / cloud Ubuntu 24.04, rustc 1.99.0, board 2794) was on refs/agents/grok-coresize-1 f9c857b43 merged with fa4131e80 (deletion-only tree, 287,873): susi-daemon-runtime lib 143/143, architecture_tests 61/61, lean_core_ceilings 3 passed/1 ignored, fmt clean, clippy -D warnings clean, cargo core-size 287,873 (goal unmet). susi-daemon lib 195 passed, 1 failed: gossip::tests::host_only_scopes_the_socket_to_loopback_and_back AddrInUse at gossip.rs:656. PROVEN PRE-EXISTING on origin/main fa4131e80 (fails 5/5 under parallel; passes alone and with --test-threads=1). gossip.rs/server.rs byte-identical; T-GROKCORESIZE-1 does not touch UDP binding. Cause: test drops loopback socket on ephemeral port P then rebinds 0.0.0.0:P; parallel UDP tests binding :0 can grab P. One-off server::tests::test_global_lock_is_mutually_exclusive EAGAIN race also noted (server.rs identical).",
+  "native_worker": "grok-coresize-1",
+  "scopes": [
+    ".agents/tasks/T-GROKCORESIZE-1.json",
+    "crates/susi-daemon-runtime/src/context_adapters.rs",
+    "crates/susi-daemon-runtime/src/lib.rs",
+    "crates/susi-daemon-runtime/src/os_provision.rs",
+    "crates/susi-daemon/src/ambient.rs",
+    "crates/susi-daemon/src/lib.rs",
+    "crates/susi-daemon/src/plane_handler.rs",
+    "crates/susi-daemon/src/plug_forward.rs",
+    "crates/susi-daemon/src/privacy.rs",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-daemon/src/service_control.rs",
+    "crates/susi-daemon/tests/public_daemon_api_contract.rs",
+    "src/cli/acp_cli.rs",
+    "src/cli/ambient_cli.rs",
+    "src/cli/context_graph_cli.rs",
+    "src/cli/privacy_cli.rs",
+    "src/cli/services_cli.rs",
+    "tests/lean_core_ceilings.rs"
+  ]
 }
