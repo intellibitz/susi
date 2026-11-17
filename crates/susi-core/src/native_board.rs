@@ -1312,29 +1312,6 @@ pub fn post_item(
     }
 }
 
-/// Post a key-value entry to the remote `/v1/blackboard/post` HTTP bridge.
-pub fn post_blackboard_http(
-    target: &BoardTarget,
-    req: &BlackboardPostRequest,
-) -> Result<BlackboardEntry, String> {
-    match target {
-        BoardTarget::Http { base_url, token } => {
-            let url = format!("{base_url}/v1/blackboard/post");
-            let body = serde_json::to_vec(req).map_err(|e| e.to_string())?;
-            let (status_code, bytes) = http_call("POST", &url, token.as_deref(), Some(&body))?;
-            if !(200..300).contains(&status_code) {
-                return Err(parse_http_error(status_code, &bytes, &url));
-            }
-            serde_json::from_slice::<BlackboardEntry>(&bytes)
-                .map_err(|e| format!("invalid /v1/blackboard/post response: {e}"))
-        }
-        BoardTarget::Git { .. } => Err(
-            "remote HTTP blackboard requires SUSI_BOARD_URL (Git targets store refs/board/items/* only)"
-                .to_owned(),
-        ),
-    }
-}
-
 /// Convenience helper for agent runtimes: verify collaborative board access
 /// (`check_board`) AND post a validated draft onto the Susi Native Board.
 /// Fails closed if the board is unreachable or blocked.

@@ -798,20 +798,11 @@ pub mod gemi {
         ) -> String {
             Self::deep(prompt, workspace, Some(model), None, None, None)
         }
-        /// Deep reasoning with the request's declared capability
-        /// (`"tools"`, …) — the recovery ladder threads `susi.requires`
-        /// here so non-streaming missions apply the same capability gate
-        /// and tool-schema injection the streaming path does.
-        pub fn generate_reasoning_deep_full(
-            prompt: &str,
-            workspace: &Path,
-            model: Option<&str>,
-            requires: Option<&str>,
-        ) -> String {
-            Self::generate_reasoning_deep_full_chat(prompt, workspace, model, requires, None)
-        }
-        /// Non-streaming deep reasoning with the complete caller
-        /// conversation, preserving the plain prompt fallback.
+        /// Non-streaming deep reasoning with the request's declared
+        /// capability (`"tools"`, …) and the complete caller conversation,
+        /// preserving the plain prompt fallback. The recovery ladder threads
+        /// `susi.requires` here so non-streaming missions apply the same
+        /// capability gate and tool-schema injection the streaming path does.
         pub fn generate_reasoning_deep_full_chat(
             prompt: &str,
             workspace: &Path,
