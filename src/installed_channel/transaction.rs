@@ -341,7 +341,7 @@ fn version_output(exe: &Path) -> Result<String> {
     command.env_clear().current_dir(&scratch).arg("--version");
     #[cfg(windows)]
     {
-        let system = susi_harness::channel_bindings::windows_root()?;
+        let system = susi::channel_bindings::windows_root()?;
         let drive = Path::new(&system)
             .ancestors()
             .last()
@@ -694,9 +694,9 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
     }
     let register = |root: &Path| -> Result<()> {
         #[cfg(windows)]
-        if susi_harness::channel_bindings::register(root)? {
+        if susi::channel_bindings::register(root)? {
             winapi::environment::notify_environment_changed()?;
-            susi_harness::channel_bindings::notification_complete(root)?;
+            susi::channel_bindings::notification_complete(root)?;
         }
         #[cfg(not(windows))]
         {
@@ -720,7 +720,7 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
             return Err("installed dispatcher digest mismatch".into());
         }
         #[cfg(windows)]
-        susi_harness::channel_bindings::verify(&root)?;
+        susi::channel_bindings::verify(&root)?;
         if version_output(&entry)? != version_output(&current.executable())? {
             return Err("ordinary entry point launches a different version".into());
         }

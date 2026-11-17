@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[path = "../crates/susi-harness/src/channel_bindings/shell_link.rs"]
+#[path = "../src/channel_bindings/shell_link.rs"]
 mod shell_link;
 
 fn hex(data: &[u8]) -> String {

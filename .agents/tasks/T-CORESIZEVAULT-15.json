@@ -19,6 +19,6 @@
     "decision": "existing",
     "searched": "The forwarding pattern of the vault move (crates/susi-config/src/vault_exec.rs run_commercial, commercial_executable) and the plug-host bus topics; core's own channel_bindings module (moved, not rewritten)."
   },
-  "limitations": "Scoped sessions keep gawd.*, gemi.*, tools.* and agents.* topics in-process (core plane_bus.rs req, board 2552): any harness path a scoped session reaches needs the scope lent over the bus first (core task from commercial T-CORESIZEVAULT-15). Pillar code: Linux pass before the deletion (SusiCoreSizeVault, board 2549).",
-  "progress": "Not started."
+  "limitations": "No scope is lent over the plane bus (board 2588, replacing 2552): core's plane_bus req keeps gawd.*, gemi.*, tools.* and agents.* in-process for a scoped session, so any harness path inside that scoped chain (ACP session handling in src/cli/acp_mcp.rs, the mission engine, tool execution) moves as one unit with it, or the moved code returns tool_calls to its caller as GEMI does. Calls on other topics (for example ecosystem_hub.*) reach the plug host with or without a scope. Pillar code: Linux pass before the deletion (SusiCoreSizeVault, board 2549).",
+  "progress": "(1) done: channel_bindings (962 lines) moved from crates/susi-harness into the core library (src/channel_bindings.rs, #[doc(hidden)]), installed channel and entry test re-pointed; count unchanged. (2) and (3) not started."
 }

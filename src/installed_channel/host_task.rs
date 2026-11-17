@@ -24,7 +24,7 @@ fn xml_path(path: &Path) -> Result<String> {
 }
 
 fn scheduler(args: &[&std::ffi::OsStr]) -> Result<()> {
-    let root = susi_harness::channel_bindings::windows_root()?;
+    let root = susi::channel_bindings::windows_root()?;
     let system = root.join("System32");
     let mut command = Command::new(system.join("schtasks.exe"));
     command

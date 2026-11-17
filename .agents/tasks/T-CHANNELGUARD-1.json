@@ -18,9 +18,9 @@
     "src/cli/install_cli.rs",
     "src/cli/mission_cli.rs",
     "crates/susi-harness/src/lib.rs",
-    "crates/susi-harness/src/channel_bindings.rs",
+    "src/channel_bindings.rs",
     ".agents/tasks/T-CHANNELGUARD-1.json",
-    "crates/susi-harness/src/channel_bindings/",
+    "src/channel_bindings/",
     "crates/susi-config/src/lib.rs",
     "crates/susi-config/src/windows_environment.rs",
     "tests/installed_windows_entry.rs"

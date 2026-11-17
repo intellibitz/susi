@@ -25,12 +25,14 @@
 
 #![warn(missing_docs)]
 
-/// Engine hooks for extension points
 // The composition root depends on the real leaf crates rather than
 // vendored IPC clients — `susi::susi_error` stays reachable for API
 // stability via this re-export.
 pub use susi_error;
 
+#[cfg(windows)]
+#[doc(hidden)] // The installed channel's own launch bindings, not a public API.
+pub mod channel_bindings;
 pub mod hooks;
 
 /// Error types and handling

@@ -861,6 +861,7 @@ dependencies = [
  "susi-vendor-tracing",
  "susi-vendor-wasmtime",
  "susi-vendor-winapi",
+ "susi-vendor-windows-registry",
  "susi-windows-runtime",
  "susi-wire-client",
 ]
