@@ -58,6 +58,7 @@ pub mod protocol_json;
 pub mod secret_ref;
 pub mod setting_registry;
 pub mod state_migration;
+pub mod storage_guard;
 mod types;
 pub mod validate;
 pub mod vault_exec;
@@ -66,6 +67,7 @@ pub mod versioned_store;
 #[cfg(windows)]
 #[cfg(windows)]
 pub mod windows_model_identity;
+pub mod workflow_wire;
 pub mod workload_process;
 pub mod zc_debt_report;
 pub mod zc_path;

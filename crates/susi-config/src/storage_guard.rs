@@ -24,7 +24,7 @@
 //! [`DIRECTED`] on the remote's own `main`, one `<object> <ref> <date> <task>`
 //! line per ref. A recorded ref that is gone at a listed object is accepted
 //! and its retained copy dropped; a listed ref that exists again is reported.
-use crate::git_governor::{caller_wire_path, workflow_call_or};
+use crate::workflow_wire::{wire_path as caller_wire_path, workflow_call_or_with};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -260,10 +260,20 @@ fn directed(root: &Path, main: &str, findings: &mut Vec<String>) -> Directed {
 
 /// Audit protected remote refs with the configured workflow provider or this clone's native witness.
 pub fn audit(root: &Path, remote: &str) -> Result<Report> {
+    audit_with(root, remote, try_call)
+}
+
+/// A provider call: the workflow tool's MCP result, `None` when no provider claims it.
+pub type ProviderCall =
+    fn(&str, &serde_json::Value, Option<&Path>) -> susi_error::EaiResult<Option<serde_json::Value>>;
+
+/// [`audit`] through `call` (the harness passes its own MCP client).
+pub fn audit_with(root: &Path, remote: &str, call: ProviderCall) -> Result<Report> {
     let repo = caller_wire_path(root).map_err(|error| error.to_string())?;
-    workflow_call_or(
+    workflow_call_or_with(
         "storage_audit",
         &json!({"repo":repo,"remote":remote}),
+        call,
         || audit_native(root, remote).map_err(EaiError::process),
     )
     .map_err(|error| {
@@ -425,10 +435,15 @@ fn compare(
 /// be read, never changes the command's result, and is `None` when nothing is
 /// wrong. `SUSI_NO_STORAGE_GUARD=1` skips it.
 pub fn witness(root: &Path, remote: &str) -> Option<String> {
+    witness_with(root, remote, try_call)
+}
+
+/// [`witness`] through `call`.
+pub fn witness_with(root: &Path, remote: &str, call: ProviderCall) -> Option<String> {
     if std::env::var_os("SUSI_NO_STORAGE_GUARD").is_some_and(|value| value == "1") {
         return None;
     }
-    match audit(root, remote) {
+    match audit_with(root, remote, call) {
         Ok(report) if report.findings.is_empty() => None,
         Ok(report) => Some(format!(
             "{}\n{}\nPublished history was lost on the storage remote. This did not block your command; repair it as printed above.",
@@ -437,6 +452,26 @@ pub fn witness(root: &Path, remote: &str) -> Option<String> {
         )),
         Err(error) => Some(format!("storage guard could not check {remote}: {error}")),
     }
+}
+
+/// The workflow tool over the shared MCP session (`storage_audit` carries a cwd: stdio only).
+fn try_call(
+    name: &str,
+    arguments: &serde_json::Value,
+    cwd: Option<&Path>,
+) -> susi_error::EaiResult<Option<serde_json::Value>> {
+    #[cfg(test)]
+    if let Some(result) = tests::fixture::dispatch(name, arguments, cwd) {
+        return result.map(Some);
+    }
+    let client = crate::mcp_client::ClientInfo {
+        name: "susi-storage-guard",
+        version: env!("CARGO_PKG_VERSION"),
+    };
+    Ok(
+        crate::mcp_session::try_call_reply_with_info(name, arguments, cwd, client)?
+            .map(|reply| reply.result),
+    )
 }
 
 #[cfg(test)]
