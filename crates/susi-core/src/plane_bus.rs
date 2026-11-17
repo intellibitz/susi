@@ -85,7 +85,8 @@ pub mod topics {
     pub const GEMI_PULSE_REASON: &str = "gemi.pulse.reason";
     pub const GEMI_CODING_CATALOG: &str = "gemi.coding.catalog";
     /// `susi top --json`'s unified operator state for a workspace.
-    pub const GEMI_OPERATOR_SNAPSHOT: &str = "gemi.operator.snapshot";
+    /// Served by Susi Commercial Apps (`susi top`); outside `gemi.`, so scoped sessions reach it.
+    pub const OPERATOR_SNAPSHOT: &str = "ecosystem_hub.operator.snapshot.v1";
     /// `susi ecosystem start <id>`: start an installed local AI engine.
     pub const GEMI_ECOSYSTEM_START: &str = "gemi.ecosystem.start";
     /// `susi ecosystem kb <list|show|search|check>`: the cloud-AI-ecosystem
@@ -932,7 +933,7 @@ pub mod gemi {
     /// The unified operator state (`susi top --json`) for the repository
     /// containing `workspace`.
     pub fn operator_snapshot(workspace: &Path) -> Result<Value, String> {
-        req(topics::GEMI_OPERATOR_SNAPSHOT, workspace_payload(workspace))
+        req(topics::OPERATOR_SNAPSHOT, workspace_payload(workspace))
     }
     /// `susi ecosystem start <id>`: the engine's start message.
     pub fn ecosystem_start(id: &str) -> Result<String, String> {
