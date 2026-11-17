@@ -126,7 +126,7 @@ fn plane_backed_tools_forward_the_server_workspace() {
     let _isolated = crate::test_isolation::enter_isolated_home();
     let bus = PlaneBus::global();
     for topic in [
-        topics::GEMI_OPERATOR_SNAPSHOT,
+        topics::OPERATOR_SNAPSHOT,
         topics::GAWD_PLAN_AUTONOMOUS,
         topics::GAWD_PULSE_INGEST,
     ] {
@@ -137,7 +137,7 @@ fn plane_backed_tools_forward_the_server_workspace() {
 
     let snapshot: serde_json::Value =
         serde_json::from_str(&CoreTools::operator_snapshot(&json!({}), &ws).unwrap()).unwrap();
-    assert_eq!(snapshot["topic"], topics::GEMI_OPERATOR_SNAPSHOT);
+    assert_eq!(snapshot["topic"], topics::OPERATOR_SNAPSHOT);
     assert_eq!(snapshot["payload"]["workspace"], ws_text);
 
     let plan: serde_json::Value = serde_json::from_str(

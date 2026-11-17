@@ -168,7 +168,7 @@ fn dispatch_local_report(
     use cli::defs::{AuditCommands, Commands};
     let cwd = || env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match command {
-        Some(Commands::Top(args)) => Ok(cli::top_cli::execute(args, &cwd())),
+        Some(Commands::Top(args)) => Ok(cli::top_cli::execute(args)),
         Some(Commands::Status { json }) => {
             let global_dir = susi_paths::SusiDirs::config_dir();
             let _ = std::fs::create_dir_all(&global_dir);
