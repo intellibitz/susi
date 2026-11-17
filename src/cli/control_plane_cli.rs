@@ -77,7 +77,10 @@ pub(crate) fn dispatch(
             run_plane(PlanePrep::None, || extensions_cli::execute(action))
         }
         Some(Auto { action }) => in_workspace(PlanePrep::Substrate, action, auto_cli::execute),
-        Some(Setup { action }) => run_plane(PlanePrep::None, || setup_cli::execute(action)),
+        // Served by Susi Commercial Apps: its exit code is this command's.
+        Some(Setup { action }) => {
+            std::process::ExitCode::from(u8::try_from(setup_cli::execute(action)).unwrap_or(1))
+        }
         Some(Workflow { args }) => run_plane(PlanePrep::None, || workflow_cli::execute(&args)),
         Some(Harness { action }) => in_workspace(PlanePrep::None, action, harness_cli::execute),
         Some(Tasks { action }) => in_workspace(PlanePrep::None, action, tasks_cli::execute),
