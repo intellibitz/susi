@@ -45,6 +45,18 @@ impl AmbientStart {
     }
 }
 
+/// `susi ambient start` / MCP `ambient_start`: start the indexer and report
+/// truthfully what happened (`ambient`: started, already_running or
+/// refused_internal_path).
+pub fn start_report(workspace: &Path) -> serde_json::Value {
+    let outcome = start(workspace);
+    serde_json::json!({
+        "ambient": outcome.as_str(),
+        "workspace": workspace.display().to_string(),
+        "interval_secs": INTERVAL_SECS,
+    })
+}
+
 /// Start ambient indexing for `workspace` and say what happened.
 pub fn start(workspace: &Path) -> AmbientStart {
     if internal_path(workspace, &internal_roots()) {

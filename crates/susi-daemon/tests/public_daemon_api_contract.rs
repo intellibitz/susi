@@ -30,6 +30,8 @@ fn public_daemon_operations_keep_their_callable_signatures() {
     let _: fn(&Path) -> AmbientStart = ambient::start;
     let _: fn(&Path) -> AmbientPulseReport = ambient::pulse;
     let _: fn() -> Vec<CloudInventory> = os_provision::probe_all;
+    let _: fn(&serde_json::Value) -> Result<serde_json::Value, String> = os_provision::dispatch;
+    let _: fn(&Path) -> serde_json::Value = ambient::start_report;
     let _: fn(CloudKind) -> Result<String, String> = os_provision::list_nodes;
     let _: fn(CloudKind, &str) -> Result<String, String> = os_provision::apply_manifest;
     let _: fn(Option<&Path>, Option<&str>) -> usize = context_adapters::sample_os_context_once;
@@ -52,6 +54,11 @@ fn fresh_workspace_reports_one_changed_file_and_starts_once() {
     let report = ambient::pulse(&path);
     let first = ambient::start(&path);
     let second = ambient::start(&path);
+    // start_report is the reporting wrapper over the same process-wide start.
+    let started = ambient::start_report(&path);
+    assert_eq!(started["ambient"], "already_running");
+    assert_eq!(started["workspace"], path.display().to_string());
+    assert_eq!(started["interval_secs"], 15);
     let _ = std::fs::remove_dir_all(&path);
     assert_eq!(
         (report.files_changed, first, second),
@@ -81,4 +88,41 @@ fn probe_all_does_not_treat_a_missing_plug_host_as_unavailable_inventory() {
             "{row:?}"
         );
     }
+}
+
+#[test]
+fn dispatch_keeps_its_default_action_and_diagnostics() {
+    use serde_json::json;
+    let err = |v: serde_json::Value| os_provision::dispatch(&v).unwrap_err();
+    assert_eq!(
+        os_provision::dispatch(&json!({})).map(|v| v["inventory"].as_array().map(Vec::len)),
+        Ok(Some(5))
+    );
+    assert!(err(json!({"action": "explode"})).contains("unknown provision action"));
+    assert!(err(json!({"action": "   "})).contains("unknown provision action"));
+    assert!(err(json!({"action": "delete"})).contains("expected probe, list or apply"));
+    assert!(err(json!({"action": "list"})).contains("requires kind"));
+    assert!(err(json!({"action": "list", "kind": "not-a-cloud"})).contains("unknown cloud kind"));
+    assert!(err(json!({"action": "apply"})).contains("apply requires kind"));
+    assert!(err(json!({"action": "apply", "kind": "kubernetes"})).contains("requires manifest"));
+    assert!(
+        err(json!({"action": "apply", "kind": "kubernetes", "manifest": "   "}))
+            .contains("requires manifest")
+    );
+    assert!(
+        err(json!({"action": "apply", "kind": "kubernetes", "manifest": "m.yaml"}))
+            .contains("absolute")
+    );
+    let missing = std::env::temp_dir().join(format!(
+        "susi-nonexistent-manifest-{}.yaml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&missing);
+    let msg = err(
+        json!({"action": "apply", "kind": "kubernetes", "manifest": missing.to_string_lossy()}),
+    );
+    assert!(
+        msg.contains("read "),
+        "expected file read error, got: {msg}"
+    );
 }

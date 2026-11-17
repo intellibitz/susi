@@ -1,0 +1,34 @@
+{
+  "id": "T-GROKCORESIZE-6",
+  "title": "Restore os_provision::dispatch and ambient::start_report as published Rust entry points (board 2919)",
+  "goal": "Vision: V-9. Mandate 84 repair of T-GROKCORESIZE-3. Board 2919 (CORESIZEPLUG17): removing a public Rust function breaks downstream callers even with no in-repo caller. Restore both with their old diagnostics, default action and local side effects, and pin both signatures and behaviours in crates/susi-daemon/tests/public_daemon_api_contract.rs. Lands only together with an offsetting core cut so COMPLETE_SOCKET_CEILING never rises.",
+  "size": "s",
+  "deps": [
+    "T-GROKCORESIZE-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--test",
+      "public_daemon_api_contract"
+    ]
+  },
+  "created_by": "GROKCORESIZE6",
+  "created_unix": 1794930998,
+  "reuse": {
+    "decision": "existing",
+    "searched": "The removed code at 7a11c556a~1 is restored byte-for-byte; the dispatch tests move from the old inline module into the public contract fixture."
+  },
+  "limitations": "Adds 39 counted lines (288,040 -> 288,079 measured on Windows). Not landable alone under Mandate 84 (core never grows); held on refs/agents/grok-coresize-4 until an offsetting cut rides with it.",
+  "scopes": [
+    ".agents/tasks/T-GROKCORESIZE-6.json",
+    "crates/susi-daemon/src/ambient.rs",
+    "crates/susi-daemon-runtime/src/os_provision.rs",
+    "crates/susi-daemon/tests/public_daemon_api_contract.rs"
+  ]
+}
