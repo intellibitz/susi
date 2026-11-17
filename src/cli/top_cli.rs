@@ -1,33 +1,25 @@
-//! Unified operator control surface CLI (`susi top`, VC-201-099).
+//! Unified operator control surface CLI (`susi top`, VC-201-099). Since
+//! 2026-11-17 (Mandate 84) Susi Commercial Apps serves it: this forwards to
+//! `susi-commercial top` with the same flags, in this working directory.
 
-use std::path::Path;
 use std::process::ExitCode;
-use susi_gemi::operator_report::{
-    render_operator_dimension, render_operator_state, sample_operator_state,
-};
 
 pub use susi_cli_defs::top::*;
 
-/// Execute `susi top`.
-pub fn execute(args: TopArgs, cwd: &Path) -> ExitCode {
-    let state = sample_operator_state(cwd);
+/// Execute `susi top` by forwarding to `susi-commercial top`.
+pub fn execute(args: TopArgs) -> ExitCode {
+    let mut forwarded = vec!["top".to_string()];
     if args.json {
-        match serde_json::to_string_pretty(&state) {
-            Ok(json) => println!("{json}"),
-            Err(e) => {
-                eprintln!("Failed to serialize operator state to JSON: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else if let Some(dimension) = args.filter {
-        let dimension = dimension.to_lowercase();
-        let Some(report) = render_operator_dimension(&state, &dimension) else {
-            eprintln!("Unknown filter dimension: '{dimension}'. Choose from: workload, resources, providers, config, federation, evidence.");
-            return ExitCode::FAILURE;
-        };
-        print!("{report}");
-    } else {
-        print!("{}", render_operator_state(&state));
+        forwarded.push("--json".to_string());
     }
-    ExitCode::SUCCESS
+    if let Some(filter) = args.filter {
+        forwarded.extend(["--filter".to_string(), filter]);
+    }
+    match susi_config::vault_exec::run_commercial(&forwarded, &[]) {
+        Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+        Err(e) => {
+            eprintln!("susi top is served by Susi Commercial Apps (`susi-commercial top`): {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

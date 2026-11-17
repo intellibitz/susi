@@ -430,11 +430,6 @@ impl PlaneHandler for GemiPlaneHandler {
                 }
                 crate::models::eco_query::explain(id, dir.as_deref())
             }
-            topics::GEMI_OPERATOR_SNAPSHOT => {
-                let ws = workspace_path(&payload);
-                serde_json::to_value(crate::operator_report::sample_operator_state(&ws))
-                    .map_err(|e| e.to_string())
-            }
             topics::GEMI_TELEMETRY_SAMPLE => {
                 let snap = telemetry::sample();
                 serde_json::to_value(snap).map_err(|e| e.to_string())
