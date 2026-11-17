@@ -17,7 +17,16 @@ pub fn wire_mac_policy(_substrate: &Path) {
 
 /// Persist privacy mode for subsequent boots.
 pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
-    set_privacy_mode(mode.as_str()).map(|_| ())
+    // A wired policy's `set_mode` owns the one atomic write of the sticky
+    // file (a second, plain write there reopened the torn-read window).
+    // An unwired policy (substrate key unavailable, forced local_only)
+    // still records the operator's choice for the next boot.
+    let policy = MacPolicy::global();
+    if !policy.persists_mode() {
+        let path = susi_paths::SusiDirs::substrate_home().join("privacy_mode");
+        crate::susi_config::atomic_write_bytes(&path, mode.as_str().as_bytes())?;
+    }
+    policy.set_mode(mode)
 }
 
 /// `susi privacy mode <mode>` / MCP `privacy_mode`: persist the mode and
