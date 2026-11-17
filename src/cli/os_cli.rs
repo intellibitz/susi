@@ -946,10 +946,15 @@ mod capabilities_revoke_tests {
                 payload: serde_json::Value,
             ) -> std::result::Result<serde_json::Value, String> {
                 assert_eq!(topic, topics::DAEMON_HARNESS);
-                let mut res = susi_daemon::harness_ops::dispatch_with_authority(
-                    &payload,
-                    Some(&self.authority),
-                )?;
+                // The sibling's `daemon.harness` (served by susi-plug-host since the
+                // harness moved to Susi Commercial Apps) revokes as that handler does.
+                assert_eq!(payload["action"], "revoke_delegation");
+                let id = payload["id"].as_str().ok_or("id is required")?;
+                let mut res = serde_json::json!({
+                    "id": id,
+                    "revoked": self.authority.revoke(id),
+                    "cancelled_runs": [],
+                });
                 if res.get("revoked").and_then(serde_json::Value::as_bool) == Some(true) {
                     res["cancelled_runs"] = serde_json::json!(["mission-under-envelope"]);
                 } else if res
@@ -966,7 +971,9 @@ mod capabilities_revoke_tests {
         let dir = std::env::temp_dir().join(format!(
             "susi-sibling-revoke-{}-{}",
             std::process::id(),
-            susi_harness::operator::now_unix_ms()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos())
         ));
         let bus_root = dir.join("bus");
 

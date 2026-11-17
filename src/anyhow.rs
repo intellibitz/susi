@@ -41,35 +41,6 @@ where
 
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub(crate) trait Context<T> {
-    fn context<C: fmt::Display>(self, ctx: C) -> Result<T>;
-    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> Result<T>;
-}
-
-impl<T, E: fmt::Display> Context<T> for std::result::Result<T, E> {
-    fn context<C: fmt::Display>(self, ctx: C) -> Result<T> {
-        self.map_err(|err| Error {
-            msg: format!("{ctx}: {err}"),
-        })
-    }
-
-    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> Result<T> {
-        self.map_err(|err| Error {
-            msg: format!("{}: {err}", f()),
-        })
-    }
-}
-
-impl<T> Context<T> for Option<T> {
-    fn context<C: fmt::Display>(self, ctx: C) -> Result<T> {
-        self.ok_or_else(|| Error::msg(ctx))
-    }
-
-    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> Result<T> {
-        self.ok_or_else(|| Error::msg(f()))
-    }
-}
-
 macro_rules! cli_anyhow {
     ($fmt:literal $($arg:tt)*) => {
         $crate::anyhow::Error::msg(format!($fmt $($arg)*))
@@ -93,7 +64,7 @@ pub(crate) use cli_bail as bail;
 
 #[cfg(test)]
 mod tests {
-    use super::{anyhow, bail, Context, Error, Result};
+    use super::{anyhow, bail, Error, Result};
 
     fn sample_bail(flag: bool) -> Result<&'static str> {
         if flag {
@@ -103,21 +74,7 @@ mod tests {
     }
 
     #[test]
-    fn error_from_std_context_option_and_macros_format_cleanly() {
-        let io_res: std::io::Result<()> = Err(std::io::Error::other("disk full"));
-        assert_eq!(
-            io_res.context("write config").map_err(|e| e.to_string()),
-            Err(String::from("write config: disk full"))
-        );
-
-        let none_val: Option<u32> = None;
-        assert_eq!(
-            none_val
-                .with_context(|| "missing budget")
-                .map_err(|e| e.to_string()),
-            Err(String::from("missing budget"))
-        );
-
+    fn errors_and_macros_format_cleanly() {
         let expr_err = anyhow!(String::from("custom failure"));
         assert_eq!(expr_err.to_string(), "custom failure");
         assert_eq!(Error::msg("plain").to_string(), "plain");

@@ -483,6 +483,26 @@ pub fn run_commercial(args: &[String], envs: &[(&str, &str)]) -> Result<i32, Str
     Ok(status.code().unwrap_or(1))
 }
 
+/// [`run_commercial`] in `cwd`, for verbs that act on the caller's workspace.
+pub fn run_commercial_in(
+    args: &[String],
+    cwd: &Path,
+    envs: &[(&str, &std::ffi::OsStr)],
+) -> Result<i32, String> {
+    let program = commercial_executable()
+        .ok_or_else(|| "susi-commercial is not installed here".to_string())?;
+    let status = Command::new(&program)
+        .args(args)
+        .envs(envs.iter().copied())
+        .current_dir(cwd)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| format!("failed to run `{}`: {e}", program.display()))?;
+    Ok(status.code().unwrap_or(1))
+}
+
 /// Asks the installed `susi-commercial vault auto-sync --json` to refresh the sealed vault
 /// from the enrolled KeePassXC database (no prompt, output captured). `Ok(None)` when it is
 /// not installed.

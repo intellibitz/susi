@@ -1,0 +1,23 @@
+{
+  "id": "T-CORESIZEFIX-6",
+  "title": "Forward susi setup and the setup MCP tools to Susi Commercial Apps",
+  "goal": "Vision: V-10. Mandate 84 (non-pillar features move too; zero-config onboarding is the commercial product's). Commercial carries susi-config setup_workflow.rs (VC-201-069) at e37e6285 with susi-commercial setup and ecosystem_hub.setup.v1. Core's susi setup forwards its parsed subcommand and flags to susi-commercial setup (naming it when it is not installed); GMCP's setup_plan and setup_apply tools keep their names, schemas and error class and request ecosystem_hub.setup.v1 over the plane bus; core deletes setup_workflow.rs and the CLI body, and tests/zc_fresh_home.rs, tests/zc_setup_workflow.rs and the module's mastery tests, which commercial carries.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "setup_forward"
+    ]
+  },
+  "created_by": "CORESIZEFIX",
+  "created_unix": 1794934583,
+  "reuse": {
+    "decision": "existing",
+    "searched": "commercial susi_ecosystem_hub::{setup_workflow, setup_cli, setup_plug} (e37e6285, the moved code); core's susi peers forward and the fleet_cluster facade with its {error, kind} mapping as the patterns; nothing new is built in core."
+  },
+  "limitations": "Lands after the commercial verb and plug host registration (held by the harness move's claim on src/main.rs and the plug host) and a side-by-side run against the old build. Windows x86_64 first; Linux pass before landing."
+}
