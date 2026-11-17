@@ -3,7 +3,7 @@
 //! `restart` SIGTERMs a supervised pid; the daemon's supervisor notices
 //! the death on its next probe and respawns it.
 
-use crate::anyhow::{bail, Result};
+use crate::anyhow::{Result, bail};
 use std::path::Path;
 use susi_core::service_table;
 
@@ -76,14 +76,12 @@ fn status(json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Operator control of a supervised service: the same `daemon.services.control`
-/// topic the MCP `services_*` tools use, served by `susi-plug-host`.
+/// Operator control of a supervised service: one implementation with the
+/// MCP `services_*` tools (`susi_daemon::service_control`), which forwards
+/// to `susi-plug-host` on `daemon.services.control`.
 fn control(action: &str, name: &str) -> Result<()> {
-    let report = susi_daemon::plug_forward::call(
-        susi_core::plane_bus::daemon::services_control(action, name),
-        susi_core::plane_bus::topics::DAEMON_SERVICES_CONTROL,
-    )
-    .map_err(crate::anyhow::Error::msg)?;
+    let report =
+        susi_daemon::service_control::control(action, name).map_err(crate::anyhow::Error::msg)?;
     println!("{}", report["message"].as_str().unwrap_or_default());
     Ok(())
 }
@@ -93,7 +91,7 @@ fn restart(name: &str) -> Result<()> {
 }
 
 /// Terminate a supervised pid AND mark the row stopped so the monitor
-/// leaves it down (`daemon.services.control` stop).
+/// leaves it down (`susi_daemon::service_control::stop`).
 fn stop(name: &str) -> Result<()> {
     control("stop", name)
 }
