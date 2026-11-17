@@ -38,8 +38,6 @@ fn native_environment_credentials_are_masked() -> Result<(), Box<dyn std::error:
     child
         .args(["--exact", "native_environment_credentials_are_masked"])
         .env_clear()
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
         .env("SUSI_HOME", &home)
         .env("TMPDIR", &home)
         .env("TEMP", &home)
@@ -49,6 +47,7 @@ fn native_environment_credentials_are_masked() -> Result<(), Box<dyn std::error:
         .env("FIXTURE_NATIVE_SECRET", native("fixture-native-credential"))
         .env("FIXTURE_API_KEY", "fixture-normal-credential")
         .env(native("FIXTURE_TOKEN"), "fixture-key-credential");
+    susi_paths::test_env::isolate_home(&mut child, &home);
     if let Some(system) = std::env::var_os("SystemRoot") {
         child.env("SystemRoot", system);
     }

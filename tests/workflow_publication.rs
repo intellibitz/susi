@@ -132,7 +132,7 @@ fi
 "#;
     let mut command = Command::new(bash);
     susi_paths::console::without_window(&mut command);
-    let output = command
+    command
         .args([
             "-c",
             script,
@@ -144,7 +144,6 @@ fi
         .current_dir(&fixture.0)
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("GIT_CONFIG_GLOBAL", &config)
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -157,9 +156,9 @@ fi
         .env("SUSI_AGENT", "FIXTURE")
         .env("SUSI_TASK_REMOTE", "origin")
         .env("SUSI_QUEUE_TRANSPORT", "git")
-        .env("SUSI_CLOUD_SESSION", "false")
-        .output()
-        .unwrap();
+        .env("SUSI_CLOUD_SESSION", "false");
+    susi_paths::test_env::isolate_home(&mut command, &home);
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "publication case {existing_branch}/{completion} failed:\n{}\n{}",

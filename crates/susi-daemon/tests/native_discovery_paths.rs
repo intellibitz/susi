@@ -68,8 +68,6 @@ fn catalog_reports_preserve_native_pack_paths() -> Result<(), Box<dyn std::error
             .args(["--exact", "catalog_reports_preserve_native_pack_paths"])
             .env_clear()
             .current_dir(root.path())
-            .env("HOME", root.path())
-            .env("USERPROFILE", root.path())
             .env("SUSI_HOME", &home)
             .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("TMPDIR", root.path())
@@ -77,6 +75,7 @@ fn catalog_reports_preserve_native_pack_paths() -> Result<(), Box<dyn std::error
             .env("TMP", root.path())
             .env("PATH", root.path().join("no-tools"))
             .env("SUSI_NATIVE_DISCOVERY_CHILD", mode);
+        susi_paths::test_env::isolate_home(&mut child, root.path());
         if let Some(system) = std::env::var_os("SystemRoot") {
             child.env("SystemRoot", system);
         }

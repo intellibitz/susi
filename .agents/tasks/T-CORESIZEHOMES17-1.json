@@ -1,0 +1,42 @@
+{
+  "id": "T-CORESIZEHOMES17-1",
+  "title": "Repair isolated child homes in native-path and publication tests",
+  "goal": "Reuse the existing test_env::isolate_home helper in the three callers reported by the full public gate while preserving native path and credential fixtures.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-error",
+      "--test",
+      "child_home_isolation",
+      "--test",
+      "native_discovery_paths",
+      "--test",
+      "native_environment",
+      "--test",
+      "workflow_publication"
+    ]
+  },
+  "created_by": "CORESIZEHOMES17",
+  "created_unix": 1794928668,
+  "native_worker": "coresize-homes17",
+  "scopes": [
+    "crates/susi-daemon/tests/native_discovery_paths.rs",
+    "crates/susi-error/tests/native_environment.rs",
+    "tests/workflow_publication.rs",
+    ".agents/tasks/T-CORESIZEHOMES17-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi_paths::test_env::isolate_home and the three existing child process fixtures reported by child_home_isolation. The helper preserves caller-set XDG and instance settings and disables registry environment fallback."
+  },
+  "limitations": "Test isolation repair only. Core size remains above99999 and this task does not certify a release."
+}
