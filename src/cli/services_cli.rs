@@ -76,13 +76,14 @@ fn status(json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Operator control of a supervised service: one implementation with the
-/// MCP `services_*` tools (`susi_daemon::service_control`), which keeps the
-/// supervised-only and daemon-running guards and terminates with the
-/// platform's own process tool on every OS.
+/// Operator control of a supervised service: the same `daemon.services.control`
+/// topic the MCP `services_*` tools use, served by `susi-plug-host`.
 fn control(action: &str, name: &str) -> Result<()> {
-    let report =
-        susi_daemon::service_control::control(action, name).map_err(crate::anyhow::Error::msg)?;
+    let report = susi_daemon::plug_forward::call(
+        susi_core::plane_bus::daemon::services_control(action, name),
+        susi_core::plane_bus::topics::DAEMON_SERVICES_CONTROL,
+    )
+    .map_err(crate::anyhow::Error::msg)?;
     println!("{}", report["message"].as_str().unwrap_or_default());
     Ok(())
 }
@@ -92,7 +93,7 @@ fn restart(name: &str) -> Result<()> {
 }
 
 /// Terminate a supervised pid AND mark the row stopped so the monitor
-/// leaves it down (`susi_daemon::service_control::stop`).
+/// leaves it down (`daemon.services.control` stop).
 fn stop(name: &str) -> Result<()> {
     control("stop", name)
 }

@@ -27,7 +27,6 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub mod blackboard;
 pub mod boot_trace;
-pub mod context_adapters;
 pub mod eco_drift_alerts;
 pub mod eco_probe_scheduler;
 pub mod engine_watchdog;
