@@ -1,0 +1,32 @@
+{
+  "id": "T-CORESIZEVAULT-11",
+  "title": "Check susi-commercial answers a verb before core forwards to it",
+  "goal": "Vision: V-6. Prerequisite for pillar moves (CEO decision, Susi Board 2470): vault_exec::run_commercial forwards susi keys vault verbs and susi tasks eval-corpus to whatever susi-commercial it finds, and an older installed binary that lacks the verb answers with its own usage error. Before forwarding, ask the installed binary whether it answers the verb (for example a capability listing it prints), and when it does not, name the command and the version needed instead of running it. Add vault_exec_checks_the_verb_before_forwarding.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "vault_exec::tests::vault_exec_checks_the_verb_before_forwarding"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794892934,
+  "scopes": [
+    ".agents/tasks/T-CORESIZEVAULT-11.json",
+    "crates/susi-config/src/vault_exec.rs",
+    "src/cli/keys_cli.rs",
+    "src/cli/tasks_cli.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "vault_exec::commercial_executable and run_commercial already find and run the binary; the check extends them."
+  },
+  "limitations": "Needs the commercial binary to report the verbs it answers; coordinate the listing with the commercial side (commercial T-CORESIZEVAULT-16 rebuilds the shared binary).",
+  "progress": "Not started; filed as a prerequisite for pillar moves."
+}
