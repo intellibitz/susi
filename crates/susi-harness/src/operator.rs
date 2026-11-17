@@ -761,7 +761,8 @@ pub fn run_recursive(
 /// (`crate::storage_guard`): lost history becomes a note, never a failure.
 fn witness_storage(repo: &std::path::Path, remote: &str, dry_run: bool, notes: Notes<'_>) {
     if !dry_run {
-        if let Some(note) = crate::storage_guard::witness(repo, remote) {
+        let call = crate::tool_backend::try_call_result;
+        if let Some(note) = crate::storage_guard::witness_with(repo, remote, call) {
             notes(note);
         }
     }

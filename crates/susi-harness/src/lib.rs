@@ -102,7 +102,7 @@ pub mod rsi_scorecard;
 pub mod scheduler;
 pub mod secrets;
 pub mod smart;
-pub mod storage_guard;
+pub use susi_config::storage_guard;
 pub mod supervisor;
 pub(crate) mod tool_backend;
 
