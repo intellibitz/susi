@@ -1,0 +1,31 @@
+{
+  "id": "T-GROKCORESIZE-3",
+  "title": "Remove the daemon front-door code the commercial plug host already serves",
+  "goal": "Vision: V-9. Mandate 84, follow-up to T-GROKCORESIZE-1. Of the five daemon front doors, delete the core implementations that no core caller uses because susi-plug-host serves their plane topics (os_provision::dispatch for daemon.os.provision, ambient::start_report for daemon.ambient.start) together with their core-only tests, then re-pin COMPLETE_SOCKET_CEILING to the measured value. Public Rust contracts pinned by crates/susi-daemon/tests/public_daemon_api_contract.rs and the infallible local behaviours (ambient start/pulse, OS sampling, probe_all, privacy persist) stay in core per board 2817/2829/2833/2834/2835. No stubs and no lost function: the commercial DaemonHandlersPlug serves both and tests/daemon_handlers_plug.rs covers the same assertions.",
+  "size": "s",
+  "deps": [
+    "T-GROKCORESIZE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "GROKCORESIZE3",
+  "created_unix": 1794928767,
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi-commercial-apps src/daemon_handlers.rs (dispatch_provision, start_report) and tests/daemon_handlers_plug.rs already serve and test both; rg finds no core caller of either."
+  },
+  "scopes": [
+    ".agents/tasks/T-GROKCORESIZE-3.json",
+    "crates/susi-daemon-runtime/src/os_provision.rs",
+    "crates/susi-daemon/src/ambient.rs",
+    "tests/lean_core_ceilings.rs"
+  ]
+}
