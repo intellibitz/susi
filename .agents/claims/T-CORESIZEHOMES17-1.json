@@ -1,0 +1,14 @@
+{
+  "branch": "local-agent/coresize-homes17",
+  "scopes": [
+    "crates/susi-daemon/tests/native_discovery_paths.rs",
+    "crates/susi-error/tests/native_environment.rs",
+    "tests/workflow_publication.rs",
+    "tests/top_forward.rs",
+    ".agents/tasks/T-CORESIZEHOMES17-1.json"
+  ],
+  "task": "T-CORESIZEHOMES17-1",
+  "agent": "CORESIZEHOMES17",
+  "claimed_unix": 1794929199,
+  "lease_until_unix": 1794932799
+}
