@@ -1,5 +1,5 @@
 {
-  "evidence": "crates/susi-gawd-swarm/src/parallel_admission.rs (AdmissionController, LocalCapacity, Ticket, Backpressure), crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs (vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission).",
+  "evidence": "Since 2026-11-17 (T-CORESIZEVAULT-4, Mandate 84) these run in intellibitz/susi-commercial-apps: crates/susi-frontier-lab/src/migrated/mod.rs (migrated::parallel_admission) and crates/susi-frontier-lab/src/migrated/susi-gawd-swarm_vc_202_009_mastery.rs; core's unreached copy was removed. As recorded before the move: crates/susi-gawd-swarm/src/parallel_admission.rs (AdmissionController, LocalCapacity, Ticket, Backpressure), crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs (vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission).",
   "missing": null,
   "recorded_by": "CODEX",
   "recorded_unix": 1791229000,

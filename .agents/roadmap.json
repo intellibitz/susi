@@ -535,7 +535,7 @@
       "id": "VC-201-043",
       "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
       "priority": "P0",
-      "progress": "DELIVERED: production AdmissionController (persisted_default) derives limits from measured host capacity; the nvidia-smi accelerator probe plus AccelPool headroom rule gates admit and probe; unmeasured VRAM fails closed with SUSI_ADMIT_* operator escapes; concurrent reservations release on Ticket drop and persist across controller reload. Mastery: vc_201_043_mastery (5 tests). Residuals: NVIDIA-only probe, logical reservations, fixed 5% headroom.",
+      "progress": "DELIVERED: production AdmissionController (persisted_default) derives limits from measured host capacity; the nvidia-smi accelerator probe plus AccelPool headroom rule gates admit and probe; unmeasured VRAM fails closed with SUSI_ADMIT_* operator escapes; concurrent reservations release on Ticket drop and persist across controller reload. Mastery: vc_201_043_mastery (5 tests). Residuals: NVIDIA-only probe, logical reservations, fixed 5% headroom. Moved 2026-11-17: controller and suite run in susi-commercial-apps susi-frontier-lab (T-CORESIZEVAULT-4); core keeps accel_reserve.",
       "type": "LOCAL_HOSTING",
       "vector": "Reserve accelerator memory before model admission"
     },
@@ -1390,7 +1390,7 @@
       "id": "VC-202-009",
       "mastery_target": "Missions and their leaf workers are admitted under CPU, GPU, memory and disk quotas, scheduled without starvation or oversubscription, and queued or preempted with observable reasons - so six agents plus their builds cannot starve the machine or each other.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-009.json, T-DEEPSEEK-255): crates/susi-gawd-swarm/src/parallel_admission.rs's AdmissionController/LocalCapacity/Ticket/Backpressure admit missions under CPU/GPU/memory/disk quotas, with a fair queue that prevents starvation and idempotent readmission (crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs: vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission).",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-009.json, T-DEEPSEEK-255): crates/susi-gawd-swarm/src/parallel_admission.rs's AdmissionController/LocalCapacity/Ticket/Backpressure admit missions under CPU/GPU/memory/disk quotas, with a fair queue that prevents starvation and idempotent readmission (crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs: vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission). Moved 2026-11-17: the controller and this suite run in susi-commercial-apps susi-frontier-lab (T-CORESIZEVAULT-4).",
       "type": "OPERATIONS",
       "vector": "Mission admission and resource arbitration"
     },

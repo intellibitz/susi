@@ -42,8 +42,6 @@ pub mod joint_consensus;
 pub mod mission_persist;
 pub mod mission_resume;
 pub mod node_enrollment;
-pub mod parallel_admission;
-pub mod parallel_dispatch;
 pub mod peer_registry;
 pub mod quorum_durable;
 pub mod resource_schedule;
@@ -173,17 +171,11 @@ mod vc_201_033_tests;
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_043_mastery.rs"]
-mod vc_201_043_mastery_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_052_mastery.rs"]
 mod vc_201_052_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_007_mastery.rs"]
 mod vc_202_007_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_202_009_mastery.rs"]
-mod vc_202_009_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_014_mastery.rs"]
 mod vc_202_014_mastery_tests;
