@@ -1,0 +1,24 @@
+{
+  "id": "T-CORESIZEFIX-2",
+  "title": "Remove core code nothing calls that Susi Commercial Apps now carries",
+  "goal": "Vision: V-10. Mandate 84. susi-gawd-agents cloud_budget.rs and cloud_intent.rs, susi-gmcp mcp_probe.rs and mcp_profile.rs (with their tests), and susi-core model_health.rs have no caller in core outside their own tests. Susi Commercial Apps carries them with their tests (commercial T-CORESIZEFIX-5). Remove them here, re-point the VC-201-086 and VC-202-020 verdicts, and lower COMPLETE_SOCKET_CEILING.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEFIX",
+  "created_unix": 1794910673,
+  "reuse": {
+    "decision": "existing",
+    "searched": "a survey of core modules whose only callers are entry points or nothing; these five have no caller outside their own tests."
+  },
+  "limitations": "Lands after the MCP fallback deletion (core T-CORESIZEVAULT-14) so the ceiling is lowered from its value. Windows x86_64 first.",
+  "progress": "Started."
+}
