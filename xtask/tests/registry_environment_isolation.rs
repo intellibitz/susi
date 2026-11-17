@@ -32,7 +32,6 @@ fn scrubbed_grandchildren_preserve_the_callers_registry_opt_out() {
         .parent()
         .expect("repository");
     for file in [
-        "crates/susi-config/src/setup_workflow.rs",
         "crates/susi-tools/src/mcp_budget.rs",
         "xtask/src/installed_delivery.rs",
         "xtask/src/bin/local-release.rs",

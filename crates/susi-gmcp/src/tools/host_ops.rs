@@ -259,28 +259,19 @@ impl CoreTools {
     // ── 4. Onboarding ──────────────────────────────────────────────────
 
     pub fn setup_plan(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let home = susi_paths::SusiDirs::config_dir();
-        pretty(&crate::susi_config::setup_workflow::SetupPlan::detect(
-            &home,
-        ))
+        // The plug sends the plan pretty-printed in its field order, as this tool printed it.
+        let answer = setup_report(serde_json::json!({ "action": "plan" }))?;
+        answer["pretty"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| EaiError::protocol("setup plan answer carries no pretty text"))
     }
 
     pub fn setup_apply(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        use crate::susi_config::setup_workflow::{ConsentKind, SetupPlan};
         let cloud = optional_bool(arg, "cloud")?;
-        let home = susi_paths::SusiDirs::config_dir();
-        let mut plan = SetupPlan::detect(&home);
-        if cloud {
-            plan.grant_consent(ConsentKind::CloudApiKey);
-        }
-        let summary = plan.apply(&home).map_err(EaiError::config)?;
-        pretty(&serde_json::json!({
-            "hardware": plan.hardware,
-            "engines": plan.engines,
-            "keys_present": plan.keys_present,
-            "agents": plan.agents,
-            "summary": summary,
-        }))
+        pretty(&setup_report(
+            serde_json::json!({ "action": "apply", "cloud": cloud }),
+        )?)
     }
 
     pub fn ecosystem_scan(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -439,6 +430,28 @@ pub(super) fn cluster_report(
             "{action} is served by Susi Commercial Apps (fleet.cluster.v1): {e}"
         ))
     })?;
+    plug_answer(answer)
+}
+
+/// The zero-config setup plan (VC-201-069): Susi Commercial Apps serves it
+/// on this topic since the setup workflow moved there (Mandate 84).
+const SETUP_TOPIC: &str = "ecosystem_hub.setup.v1";
+
+/// The setup plan or apply answer for `payload` (`{action, cloud}`).
+fn setup_report(payload: serde_json::Value) -> EaiResult<serde_json::Value> {
+    let answer = crate::susi_core::plane_bus::PlaneBus::global()
+        .request(SETUP_TOPIC, payload)
+        .map_err(|e| {
+            EaiError::config(format!(
+                "setup is served by Susi Commercial Apps ({SETUP_TOPIC}): {e}"
+            ))
+        })?;
+    plug_answer(answer)
+}
+
+/// A plug's answer, or its `{error, kind}` refusal in the error class the
+/// tool raised before the move.
+fn plug_answer(answer: serde_json::Value) -> EaiResult<serde_json::Value> {
     let refusal = answer
         .as_object()
         .filter(|o| o.len() == 2)

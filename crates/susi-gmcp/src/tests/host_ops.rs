@@ -321,3 +321,34 @@ fn commit_and_peer_tools_validate_arguments() {
             .contains("port")
     );
 }
+
+/// Stands in for Susi Commercial Apps on `ecosystem_hub.setup.v1`.
+struct Setup;
+impl PlaneHandler for Setup {
+    fn handle(
+        &self,
+        _topic: &str,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        Ok(match payload["action"].as_str() {
+            Some("apply") if payload["cloud"] == true => {
+                json!({"error": "cloud consent needs a key", "kind": "config"})
+            }
+            Some("plan") => json!({"pretty": payload.to_string()}),
+            _ => json!({"sent": payload}),
+        })
+    }
+}
+
+#[test]
+fn setup_tools_forward_to_the_setup_topic_and_keep_their_error_class() {
+    PlaneBus::global().register("ecosystem_hub.setup.v1", Arc::new(Setup));
+    let ws = Path::new(".");
+    let plan = doc(CoreTools::setup_plan(&json!({}), ws));
+    assert_eq!(plan, json!({"action": "plan"}));
+    let applied = doc(CoreTools::setup_apply(&json!({}), ws));
+    assert_eq!(applied["sent"], json!({"action": "apply", "cloud": false}));
+    let refused = CoreTools::setup_apply(&json!({"cloud": true}), ws).unwrap_err();
+    assert!(matches!(refused, EaiError::Config(..)), "{refused}");
+    assert!(CoreTools::setup_apply(&json!({"cloud": "yes"}), ws).is_err());
+}
