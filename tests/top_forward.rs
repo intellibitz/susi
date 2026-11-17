@@ -19,15 +19,8 @@ fn susi_top_without_susi_commercial_names_the_command_that_serves_it() -> TestRe
         }
     }
     // No PATH entry and an empty home: no susi-commercial anywhere.
-    for key in [
-        "HOME",
-        "USERPROFILE",
-        "SUSI_HOME",
-        "LOCALAPPDATA",
-        "APPDATA",
-    ] {
-        command.env(key, &home);
-    }
+    susi_paths::test_env::isolate_home(&mut command, &home);
+    command.env("SUSI_HOME", &home);
     let out = command
         .args(["top", "--json"])
         .env("PATH", &home)

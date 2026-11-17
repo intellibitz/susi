@@ -1,7 +1,7 @@
 {
   "id": "T-CORESIZEHOMES17-1",
-  "title": "Repair isolated child homes in native-path and publication tests",
-  "goal": "Reuse the existing test_env::isolate_home helper in the three callers reported by the full public gate while preserving native path and credential fixtures.",
+  "title": "Repair isolated child homes in native path, publication and top-forward tests",
+  "goal": "Reuse the existing test_env::isolate_home helper in all four callers reported by the public guard while preserving native path, credential, publication and absent-commercial fixtures.",
   "size": "s",
   "deps": [],
   "accept": {
@@ -22,7 +22,9 @@
       "--test",
       "native_environment",
       "--test",
-      "workflow_publication"
+      "workflow_publication",
+      "--test",
+      "top_forward"
     ]
   },
   "created_by": "CORESIZEHOMES17",
@@ -32,11 +34,13 @@
     "crates/susi-daemon/tests/native_discovery_paths.rs",
     "crates/susi-error/tests/native_environment.rs",
     "tests/workflow_publication.rs",
-    ".agents/tasks/T-CORESIZEHOMES17-1.json"
+    ".agents/tasks/T-CORESIZEHOMES17-1.json",
+    "tests/top_forward.rs"
   ],
   "reuse": {
     "decision": "existing",
-    "searched": "susi_paths::test_env::isolate_home and the three existing child process fixtures reported by child_home_isolation. The helper preserves caller-set XDG and instance settings and disables registry environment fallback."
+    "searched": "susi_paths::test_env::isolate_home and the four existing child process fixtures reported by child_home_isolation. The helper preserves caller-set XDG and instance settings and disables registry environment fallback."
   },
-  "limitations": "Test isolation repair only. Core size remains above99999 and this task does not certify a release."
+  "limitations": "Test isolation repair only. Core size remains above99999 and this task does not certify a release.",
+  "progress": "Windows acceptance passed11 tests across child_home_isolation, lean_core_ceilings, top_forward, native_discovery_paths and native_environment. GNU/Linux acceptance passed16 tests including5 workflow_publication cases. The explicit size goal and3 pre-existing extended publication cases remain separately gated. Formatting and strict targeted Clippy passed. Actual runtime remains288151. GNU required installing jq in the isolated WSL test environment for the existing publication fixture."
 }
