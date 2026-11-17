@@ -3,7 +3,7 @@
 //! `restart` SIGTERMs a supervised pid; the daemon's supervisor notices
 //! the death on its next probe and respawns it.
 
-use crate::anyhow::{Result, bail};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 use susi_core::service_table;
 
