@@ -10,11 +10,10 @@
     "cmd": [
       "cargo",
       "test",
+      "--offline",
       "--locked",
       "--test",
-      "lean_core_ceilings",
-      "--",
-      "--nocapture"
+      "lean_core_ceilings"
     ]
   },
   "created_by": "GROKCORESIZE1",
