@@ -204,7 +204,8 @@ impl IpcPlaneBus {
         (owned, out_secret)
     }
 
-    pub(crate) fn prepare_rendezvous(&self) {
+    /// Prepare this process's shared rendezvous before publishing capabilities.
+    pub fn prepare_rendezvous(&self) {
         let dir = self.current_rendezvous();
         let _ = self.ensure_slot(&dir);
     }
@@ -251,7 +252,7 @@ impl IpcPlaneBus {
     }
 
     /// Already-bound listener tag without triggering lazy listener bind.
-    pub(crate) fn bound_endpoint_tag(&self) -> String {
+    pub fn bound_endpoint_tag(&self) -> String {
         self.endpoint
             .get()
             .map(ToString::to_string)
@@ -600,7 +601,7 @@ fn invoke(h: Arc<dyn PlaneHandler>, topic: &str, payload: Value) -> Result<Value
 }
 
 /// Topic/prefix → filename. Dots are already filename-safe; encode the rest.
-pub(crate) fn enc(key: &str) -> String {
+pub fn enc(key: &str) -> String {
     susi_paths::encode_file_component(key)
 }
 
@@ -771,7 +772,7 @@ fn read_routes_manifest(path: &Path) -> Option<RouteManifest> {
 }
 
 /// Sorted route or capability manifests in a single owned rendezvous directory.
-pub(crate) fn manifest_paths(dir: &Path, prefix: &str) -> Vec<PathBuf> {
+pub fn manifest_paths(dir: &Path, prefix: &str) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };

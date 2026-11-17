@@ -24,6 +24,95 @@ use winapi::um::{
 /// Closing this non-inheritable job handle terminates its remaining members.
 pub struct Job(OwnedHandle);
 
+impl Job {
+    /// Create an unnamed, non-inheritable kill-on-close job.
+    pub fn new() -> io::Result<Self> {
+        create()
+    }
+
+    /// Borrow a live child handle while assigning it to this live job.
+    #[allow(unsafe_code)]
+    pub fn assign(&self, child: &Child) -> io::Result<()> {
+        // SAFETY: both handles are borrowed from live Rust owners; neither is
+        // closed or transferred by AssignProcessToJobObject.
+        if unsafe {
+            AssignProcessToJobObject(self.0.as_raw_handle().cast(), child.as_raw_handle().cast())
+        } == 0
+        {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// End the job's processes while retaining ownership of its handle.
+    #[allow(unsafe_code)]
+    pub fn terminate(&self, exit_code: u32) -> io::Result<()> {
+        // SAFETY: the borrowed handle remains valid for this entire call.
+        if unsafe {
+            winapi::um::jobapi2::TerminateJobObject(self.0.as_raw_handle().cast(), exit_code)
+        } == 0
+        {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+fn open_process(pid: u32, access: u32) -> io::Result<OwnedHandle> {
+    // SAFETY: integer inputs only. A non-null return is a newly owned handle.
+    let raw = unsafe { winapi::um::processthreadsapi::OpenProcess(access, 0, pid) };
+    if raw.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(unsafe { OwnedHandle::from_raw_handle(raw.cast()) })
+    }
+}
+
+/// Process creation time in 100 ns ticks, used to reject reused parent PIDs.
+#[allow(unsafe_code)]
+pub fn created_at(pid: u32) -> io::Result<u64> {
+    use winapi::shared::minwindef::FILETIME;
+    let process = open_process(pid, winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION)?;
+    let blank = || FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let (mut creation, mut exit, mut kernel, mut user) = (blank(), blank(), blank(), blank());
+    // SAFETY: query handle is live; four distinct initialized FILETIME values
+    // provide writable storage of the exact size required by the OS.
+    if unsafe {
+        winapi::um::processthreadsapi::GetProcessTimes(
+            process.as_raw_handle().cast(),
+            &mut creation,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
+
+/// Terminate one process by a newly opened, privately owned handle.
+#[allow(unsafe_code)]
+pub fn terminate_process(pid: u32, exit_code: u32) -> io::Result<()> {
+    let process = open_process(pid, winapi::um::winnt::PROCESS_TERMINATE)?;
+    // SAFETY: the handle stays open until the call returns.
+    if unsafe {
+        winapi::um::processthreadsapi::TerminateProcess(process.as_raw_handle().cast(), exit_code)
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[allow(unsafe_code)]
 fn create() -> io::Result<Job> {
     // SAFETY: null selects default attributes and an unnamed, non-inheritable

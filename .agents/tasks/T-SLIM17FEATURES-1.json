@@ -1,0 +1,28 @@
+{
+  "id": "T-SLIM17FEATURES-1",
+  "title": "Forward complete provider CLI families to commercial without changing command contracts",
+  "goal": "Vision: V-10. Replace brain/openweight/frontier/openrouter/models and six cloud-key handler implementations with argv forwarding to the verified commercial destination, preserving core Clap parsing, output, caller cwd/env/stdin and exit codes.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--bin",
+      "susi",
+      "provider_forward"
+    ]
+  },
+  "created_by": "SLIM17FEATURES",
+  "created_unix": 1794936518,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Existing core CLI parsers stay; original handler implementations are harvested into commercial susi-gemi::provider_cli at e7e655e0 with inherited-argv entry point. Existing vault_exec::commercial_executable resolves the suite."
+  },
+  "limitations": [
+    "Requires paired commercial provider_cli module and root dispatcher integration before publication.",
+    "Core forwarding: 3 tests passed on Windows and native Linux. Strict Windows binary Clippy passed. Destination: 52 original-executable cases passed on both OSes.",
+    "Official complete socket metric: 282228 from 282657, net reduction429. Root owns serialized exact ceiling update."
+  ]
+}

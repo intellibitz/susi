@@ -189,7 +189,9 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-const COMPLETE_SOCKET_CEILING: usize = 282_657;
+// Final merge with origin/main's storage-guard relocation: 282,657 -> 280,791.
+// The earlier branch-only 280,723 measurement preceded that concurrent change.
+const COMPLETE_SOCKET_CEILING: usize = 280_791;
 /// The CEO's limit: strictly below 100,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 99_999;
 

@@ -278,6 +278,39 @@ fn is_worktree_clean(path: &Path) -> Result<bool, String> {
     Ok(status.is_empty())
 }
 
+/// Discover repository layout once per operation; ownership and refs remain
+/// separate live checks. Unusual newline-containing native paths retain the
+/// original individual queries instead of being misparsed as record separators.
+fn git_layout(path: &Path) -> Result<(bool, PathBuf, PathBuf), String> {
+    let output = git_out(
+        path,
+        &[
+            "rev-parse",
+            "--is-bare-repository",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+    )?;
+    let fields: Vec<_> = output.lines().collect();
+    let (bare, git_dir, common_dir) = match fields.as_slice() {
+        [bare @ ("true" | "false"), git_dir, common_dir] => (
+            *bare == "true",
+            (*git_dir).to_owned(),
+            (*common_dir).to_owned(),
+        ),
+        _ => (
+            git_out(path, &["rev-parse", "--is-bare-repository"])? == "true",
+            git_out(path, &["rev-parse", "--git-dir"])?,
+            git_out(path, &["rev-parse", "--git-common-dir"])?,
+        ),
+    };
+    Ok((
+        bare,
+        resolve_git_path(path, &git_dir),
+        resolve_git_path(path, &common_dir),
+    ))
+}
+
 /// Check cross-platform whether `pid` on `host` is still alive.
 #[must_use]
 pub fn process_is_alive(pid: u32, host: &str) -> bool {
@@ -301,17 +334,13 @@ pub fn is_primary_checkout(path: &Path) -> Result<bool, String> {
     if !path.exists() {
         return Err(format!("workspace does not exist: {}", path.display()));
     }
-    let bare = git_out(path, &["rev-parse", "--is-bare-repository"])?;
-    if bare == "true" {
+    let (bare, git_dir, common_dir) = git_layout(path)?;
+    if bare {
         return Err(format!(
             "bare repository {} cannot be used as an agent worktree",
             path.display()
         ));
     }
-    let raw_git_dir = git_out(path, &["rev-parse", "--git-dir"])?;
-    let raw_common = git_out(path, &["rev-parse", "--git-common-dir"])?;
-    let git_dir = resolve_git_path(path, &raw_git_dir);
-    let common_dir = resolve_git_path(path, &raw_common);
     Ok(git_dir == common_dir)
 }
 
@@ -336,16 +365,14 @@ pub fn require_isolated_worktree(
     if !path.exists() {
         return Err(format!("worktree path does not exist: {}", path.display()));
     }
-    let bare = git_out(path, &["rev-parse", "--is-bare-repository"])?;
-    if bare == "true" {
+    let (bare, git_dir, common_dir) = git_layout(path)?;
+    if bare {
         return Err(format!(
             "bare repository {} cannot run agent work; provision an isolated worktree",
             path.display()
         ));
     }
     let worktree_root = resolve_git_path(path, &git_out(path, &["rev-parse", "--show-toplevel"])?);
-    let git_dir = resolve_git_path(path, &git_out(path, &["rev-parse", "--git-dir"])?);
-    let common_dir = resolve_git_path(path, &git_out(path, &["rev-parse", "--git-common-dir"])?);
 
     if git_dir == common_dir {
         return Err(format!(
@@ -564,7 +591,13 @@ pub fn acquire_isolated_worktree(
     role_or_task: &str,
     require_fresh: bool,
 ) -> Result<ProvisionedWorktree, String> {
-    if !require_fresh {
+    // An active in-process lease can never be reused. Skip only that doomed
+    // reuse attempt; provisioning still resolves the live repository and HEAD
+    // and takes a new exclusive owner lock. Recheck below for concurrent claims.
+    let already_active = active_in_process_leases()
+        .lock()
+        .is_ok_and(|set| set.contains(&normalize_path(workspace)));
+    if !require_fresh && !already_active {
         if let Ok(id) = require_isolated_worktree(workspace, Some(agent)) {
             let already_active = active_in_process_leases()
                 .lock()
@@ -740,5 +773,35 @@ mod tests {
         }
         // A record without an owner identity is still refused.
         assert!(serde_json::from_str::<WorktreeOwner>(r#"{"pid":7,"branch":"b"}"#).is_err());
+    }
+
+    #[test]
+    fn batched_discovery_preserves_bare_repository_refusal() {
+        let fx = RepoFixture::new("bare-discovery");
+        let bare = fx.root.join("bare.git");
+        git(
+            &fx.root,
+            &["init", "--quiet", "--bare", bare.to_str().unwrap()],
+        );
+        assert!(is_primary_checkout(&bare)
+            .unwrap_err()
+            .contains("bare repository"));
+        assert!(require_isolated_worktree(&bare, Some("codex"))
+            .unwrap_err()
+            .contains("bare repository"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn batched_discovery_preserves_native_newline_paths() {
+        let fx = RepoFixture::new("native\nnewline-discovery");
+        assert!(is_primary_checkout(&fx.primary).unwrap());
+        let mut worktree =
+            provision_agent_worktree(&fx.primary, "codex", "native-path", None).unwrap();
+        worktree.set_cleanup_on_drop(true);
+        let identity = require_isolated_worktree(worktree.path(), Some("codex")).unwrap();
+        assert_eq!(identity.git_dir, worktree.git_dir);
+        assert_eq!(identity.common_dir, worktree.common_dir);
+        assert_eq!(identity.worktree_root, worktree.path);
     }
 }
