@@ -43,7 +43,6 @@ pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
 pub mod local_ecosystem;
-pub mod model_cache;
 pub mod model_license;
 pub mod open_weight;
 pub use model_license::ModelReadWindow;
