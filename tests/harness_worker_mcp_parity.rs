@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use susi_config::workload_process::{self, Tree};
 use susi_harness::tools::{Policy, Registry};
-use susi_harness::workload_process::{self, Tree};
 use susi_paths::http_body::read_line_capped;
 use susi_wire_client::host::{DuplexStreams, HostPolicy, McpHost};
 

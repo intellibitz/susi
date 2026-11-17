@@ -479,13 +479,13 @@ impl Lease {
 }
 
 struct Process {
-    child: Mutex<Option<(Child, Option<susi_harness::workload_process::Tree>)>>,
+    child: Mutex<Option<(Child, Option<susi_config::workload_process::Tree>)>>,
     stop: AtomicBool,
     owner: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Process {
-    fn own(child: Child, tree: susi_harness::workload_process::Tree) -> io::Result<Arc<Self>> {
+    fn own(child: Child, tree: susi_config::workload_process::Tree) -> io::Result<Arc<Self>> {
         let process = Arc::new(Self {
             child: Mutex::new(Some((child, Some(tree)))),
             stop: AtomicBool::new(false),
@@ -502,7 +502,7 @@ impl Process {
                 let mut slot = owned.child.lock().unwrap_or_else(|e| e.into_inner());
                 match slot
                     .as_mut()
-                    .map(|(child, tree)| susi_harness::workload_process::try_wait(tree, child))
+                    .map(|(child, tree)| susi_config::workload_process::try_wait(tree, child))
                 {
                     None | Some(Ok(Some(_))) => {
                         slot.take();
@@ -599,7 +599,7 @@ impl Server {
         lease.check().map_err(|e| e.to_string())?;
         let executable = command.get_program().to_string_lossy().into_owned();
         let (mut child, tree) =
-            susi_harness::workload_process::spawn(&mut command).map_err(|e| e.to_string())?;
+            susi_config::workload_process::spawn(&mut command).map_err(|e| e.to_string())?;
         let input = child.stdin.take();
         let output = child.stdout.take();
         let process = Process::own(child, tree).map_err(|e| e.to_string())?;

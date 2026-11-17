@@ -67,6 +67,7 @@ pub mod versioned_store;
 #[cfg(windows)]
 #[cfg(windows)]
 pub mod windows_model_identity;
+pub mod workload_process;
 pub mod zc_debt_report;
 pub mod zc_path;
 
