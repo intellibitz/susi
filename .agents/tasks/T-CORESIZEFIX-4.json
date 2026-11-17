@@ -1,0 +1,23 @@
+{
+  "id": "T-CORESIZEFIX-4",
+  "title": "Pin the measured socket ceiling after the susi top cut",
+  "goal": "Vision: V-10. Mandate 84. With core's susi top cut (f0c785938) and the daemon handler cut on main, core measures 288,151 complete-socket lines against a pinned 288,877; lower COMPLETE_SOCKET_CEILING to the measured number so the cuts stay won.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEFIX",
+  "created_unix": 1794928037,
+  "reuse": {
+    "decision": "existing",
+    "searched": "tests/lean_core_ceilings.rs pins the ceiling and prints the measured number; nothing to build."
+  },
+  "limitations": "Measured on Windows x86_64 at core main 4d7f6b741 plus nothing else; the ceiling only goes down."
+}
