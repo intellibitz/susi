@@ -23,7 +23,7 @@ pub fn spawn(command: &mut Command) -> io::Result<(Child, Tree)> {
 impl Drop for Tree {
     fn drop(&mut self) {
         if let Some(pid) = self.0.take() {
-            let _ = susi_config::process_probe::kill_child_group(pid);
+            let _ = crate::process_probe::kill_child_group(pid);
         }
     }
 }
@@ -36,11 +36,11 @@ pub fn try_wait(
 ) -> io::Result<Option<std::process::ExitStatus>> {
     #[cfg(unix)]
     if let Some(guard) = tree {
-        if !susi_config::process_probe::child_exited_unreaped(child)? {
+        if !crate::process_probe::child_exited_unreaped(child)? {
             return Ok(None);
         }
         if let Some(pid) = guard.0 {
-            susi_config::process_probe::kill_child_group(pid)?;
+            crate::process_probe::kill_child_group(pid)?;
             guard.0 = None;
         }
         return child.wait().map(Some);

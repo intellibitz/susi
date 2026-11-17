@@ -859,7 +859,7 @@ fn run_piped_with(
         return revoked();
     }
     let spawned = if subscription.is_some() {
-        crate::workload_process::spawn(&mut command).map(|(child, tree)| (child, Some(tree)))
+        susi_config::workload_process::spawn(&mut command).map(|(child, tree)| (child, Some(tree)))
     } else {
         command.spawn().map(|child| (child, None))
     };
@@ -906,7 +906,7 @@ fn run_piped_with(
                 next_check = Instant::now() + LEASE_INTERVAL;
             }
         }
-        match crate::workload_process::try_wait(&mut tree, &mut child) {
+        match susi_config::workload_process::try_wait(&mut tree, &mut child) {
             Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(error) => {
