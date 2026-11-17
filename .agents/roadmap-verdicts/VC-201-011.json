@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-011",
   "verdict": "delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_011_mastery.rs — transition table holds, kill-and-resume reloads durable per-experiment records (restart_forgets_everything), failed isolation legs exit via Isolated->Rejected, re-proposing a live id wedges nothing, and the lifecycle is consumed by production: crates/susi-gawd/src/eval_separation.rs advance_experiment (the susi tasks eval-corpus path) proposes, isolates, evaluates, rejects and promotes each candidate's experiment under .susi/experiments/, surviving a fresh load (production_path_persists_the_lifecycle).",
+  "evidence": "Since 2026-11-17 (T-CORESIZEVAULT-5, Mandate 84) this runs in intellibitz/susi-commercial-apps crates/susi-frontier-lab/src/rsi_eval (its tests under rsi_eval/tests), reached by susi-commercial tasks eval-corpus, to which core susi tasks eval-corpus forwards; core removed its copy. As recorded before the move: crates/susi-gawd/src/tests/vc_201_011_mastery.rs — transition table holds, kill-and-resume reloads durable per-experiment records (restart_forgets_everything), failed isolation legs exit via Isolated->Rejected, re-proposing a live id wedges nothing, and the lifecycle is consumed by production: crates/susi-gawd/src/eval_separation.rs advance_experiment (the susi tasks eval-corpus path) proposes, isolates, evaluates, rejects and promotes each candidate's experiment under .susi/experiments/, surviving a fresh load (production_path_persists_the_lifecycle).",
   "missing": "",
   "tracked_by": [],
   "recorded_by": "DEEPSEEK",

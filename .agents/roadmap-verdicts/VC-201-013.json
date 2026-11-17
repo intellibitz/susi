@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-013",
   "verdict": "delivered",
-  "evidence": "crates/susi-gawd/src/patch_cycle.rs (apply_patch_cycle isolate path, stage_candidate, promote_into) and crates/susi-gawd/src/cloud_rsi.rs (apply_plan always isolates model-authored patches by brief.task_id); pinned by crates/susi-gawd/src/tests/vc_201_013_mastery.rs",
+  "evidence": "Since 2026-11-17 (T-CORESIZEVAULT-5, Mandate 84) this runs in intellibitz/susi-commercial-apps crates/susi-frontier-lab/src/rsi_eval (its tests under rsi_eval/tests), reached by susi-commercial tasks eval-corpus, to which core susi tasks eval-corpus forwards; core removed its copy. As recorded before the move: crates/susi-gawd/src/patch_cycle.rs (apply_patch_cycle isolate path, stage_candidate, promote_into) and crates/susi-gawd/src/cloud_rsi.rs (apply_plan always isolates model-authored patches by brief.task_id); pinned by crates/susi-gawd/src/tests/vc_201_013_mastery.rs",
   "missing": "The fence is a filesystem-namespace boundary, not a syscall sandbox: a candidate's declared test command runs with its cwd inside the fence but could still write absolute paths outside it. In the autonomous path (cloud_rsi::apply_plan) the command is susi-declared verify argv and only the model-authored file set is untrusted, which the fence fully confines; a malicious-command sandbox would be a separate feature. Fenced workspaces under root/patches are retained as evidence and never auto-cleaned.",
   "tracked_by": [],
   "recorded_by": "DEEPSEEK",

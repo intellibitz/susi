@@ -66,16 +66,9 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod audit_evidence;
 pub mod bloat_audit;
-pub mod cloud_rsi;
 pub mod compliance;
 pub mod cross_platform_service;
-pub mod dev_canary;
-pub mod eval_contamination;
-pub mod eval_receipt;
-pub mod eval_separation;
 pub mod evolution;
-pub mod experiment_lifecycle;
-pub mod experiment_memory;
 pub mod genome_distiller;
 pub mod intent_ladder;
 pub mod kernel_loader;
@@ -88,9 +81,6 @@ pub mod reflex_trainer;
 pub mod reflex_verify;
 pub mod release_qualify;
 pub mod repo_gate;
-pub mod rsi_corpus;
-pub mod rsi_promotion;
-pub mod scorecard;
 pub mod self_validation;
 pub mod telemetry;
 
@@ -98,26 +88,11 @@ pub mod telemetry;
 #[path = "tests/native_verifier.rs"]
 mod native_verifier;
 #[cfg(test)]
-#[path = "tests/rsi_corpus.rs"]
-mod rsi_corpus_tests;
+#[path = "tests/self_build_contract.rs"]
+mod self_build_contract_tests;
 #[cfg(test)]
 #[path = "tests/vc_200_002.rs"]
 mod vc_200_002_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_001_mastery.rs"]
-mod vc_201_001_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_003_mastery.rs"]
-mod vc_201_003_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_003.rs"]
-mod vc_201_003_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_004.rs"]
-mod vc_201_004_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_005_mastery.rs"]
-mod vc_201_005_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_007_mastery.rs"]
 mod vc_201_007_mastery_tests;
@@ -125,17 +100,11 @@ mod vc_201_007_mastery_tests;
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_011_mastery.rs"]
-mod vc_201_011_mastery_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_013_mastery.rs"]
 mod vc_201_013_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_015_mastery.rs"]
 mod vc_201_015_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_018.rs"]
-mod vc_201_018_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;

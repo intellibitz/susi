@@ -1,0 +1,23 @@
+{
+  "id": "T-CORESIZEVAULT-5",
+  "title": "Move the RSI eval cluster to Susi Commercial Apps; forward susi tasks eval-corpus",
+  "goal": "Vision: V-6. susi-gawd's eval/RSI cluster (eval_separation, cloud_rsi, rsi_corpus, experiment_lifecycle, eval_contamination, rsi_promotion, experiment_memory, scorecard, dev_canary, eval_receipt) is reached only from susi tasks eval-corpus. Commercial T-CORESIZEVAULT-8 (740e681f) serves susi-commercial tasks eval-corpus from core's current sources with identical stdout, stderr, exit codes and repository files on side-by-side fixtures. Forward the verb, delete the cluster and its tests (keeping the self-build contract test), re-point roadmap evidence, pin the ceiling (Mandate 84; CEO decision: moving to commercial is not loss).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "vault_exec"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794885367,
+  "reuse": {"decision": "existing", "searched": "Destination: susi-commercial-apps susi-frontier-lab/src/rsi_eval carries core's current sources (commercial T-CORESIZEVAULT-8, 740e681f); forwarding reuses vault_exec's commercial executable lookup, generalised as run_commercial."},
+  "limitations": "Without susi-commercial installed, susi tasks eval-corpus names that command and exits 1. Core alone also wrote SUSI_HOME config.json and error_metrics.jsonl through its own redaction seeding and error telemetry; the commercial run does not. The kept self-build contract test (VC-201-018) was already red on main before this change. Proven on Windows x86_64.",
+  "progress": "Cluster deleted with its tests; eval-corpus forwards; forwarded and direct runs identical on 3 fixtures; 8 roadmap verdicts re-pointed; complete socket 298,400 -> 294,499 (-3,901), ceiling pinned."
+}

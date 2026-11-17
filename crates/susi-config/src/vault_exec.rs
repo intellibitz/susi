@@ -457,9 +457,22 @@ pub fn forwarded_database(explicit: Option<PathBuf>) -> Result<Option<PathBuf>, 
 /// code; `envs` reach only the child. `Err` (naming the command) when it is not installed.
 pub fn run_commercial_vault(args: &[String], envs: &[(&str, &str)]) -> Result<i32, String> {
     let verb = args.first().map_or("status", String::as_str);
-    let program = commercial_executable().ok_or_else(|| moved_verb_message(verb))?;
+    let mut forwarded = Vec::with_capacity(args.len() + 1);
+    forwarded.push("vault".to_string());
+    forwarded.extend_from_slice(args);
+    if commercial_executable().is_none() {
+        return Err(moved_verb_message(verb));
+    }
+    run_commercial(&forwarded, envs)
+}
+
+/// Runs `susi-commercial <args>` (a capability that moved out of core, Mandate 84) on this
+/// process's terminal and working directory and returns its exit code; `envs` reach only
+/// the child. `Err` when `susi-commercial` is not installed or cannot start.
+pub fn run_commercial(args: &[String], envs: &[(&str, &str)]) -> Result<i32, String> {
+    let program = commercial_executable()
+        .ok_or_else(|| "susi-commercial is not installed here".to_string())?;
     let status = Command::new(&program)
-        .arg("vault")
         .args(args)
         .envs(envs.iter().copied())
         .stdin(Stdio::inherit())

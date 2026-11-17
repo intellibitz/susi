@@ -1,9 +1,9 @@
-//! `susi tasks`: in open core only the RSI eval-corpus run. The shared task
-//! queue (`.agents/tasks/`, claims as git refs, gated closes) moved to Susi
-//! Commercial Apps in the lean-core program and is `susi-commercial tasks`;
-//! every queue verb is refused here with that command named.
+//! `susi tasks`: the shared task queue (`.agents/tasks/`, claims as git refs, gated
+//! closes) moved to Susi Commercial Apps in the lean-core program and is
+//! `susi-commercial tasks`; every queue verb is refused here with that command named.
+//! `susi tasks eval-corpus` (the RSI eval-corpus run) is served there too (Mandate 84)
+//! and forwards to `susi-commercial tasks eval-corpus` with the same arguments.
 use crate::anyhow::{bail, Result};
-use crate::cli_json::print_json;
 use std::path::Path;
 
 pub use susi_cli_defs::tasks::*;
@@ -17,23 +17,37 @@ pub(crate) fn moved_message(verb: Option<&str>) -> String {
     )
 }
 
-pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
+/// What `susi tasks eval-corpus` says when `susi-commercial` is not installed.
+fn eval_corpus_moved_message() -> String {
+    "`susi tasks eval-corpus` is served by Susi Commercial Apps: install it and run \
+     `susi-commercial tasks eval-corpus` (or `susi tasks eval-corpus`, which forwards to it)"
+        .to_string()
+}
+
+fn eval_corpus_args(corpus: &Path, input: &Path) -> Vec<String> {
+    vec![
+        "tasks".to_string(),
+        "eval-corpus".to_string(),
+        "--corpus".to_string(),
+        corpus.to_string_lossy().into_owned(),
+        "--input".to_string(),
+        input.to_string_lossy().into_owned(),
+    ]
+}
+
+pub fn execute(action: Option<TaskCommands>, _cwd: &Path) -> Result<()> {
     match action {
         Some(TaskCommands::EvalCorpus { corpus, input }) => {
-            let root = susi_daemon::host_views::repo_root(cwd);
-            let corpus_json = std::fs::read_to_string(&corpus)
-                .map_err(|e| crate::anyhow::anyhow!("{}: {e}", corpus.display()))?;
-            let corpus = susi_gawd::rsi_corpus::RsiCorpus::from_json(&corpus_json)
-                .map_err(|e| crate::anyhow::anyhow!("corpus {}: {e}", corpus.display()))?;
-            let input_json = std::fs::read_to_string(&input)
-                .map_err(|e| crate::anyhow::anyhow!("{}: {e}", input.display()))?;
-            let run_input: susi_gawd::eval_separation::EvalRunInput =
-                serde_json::from_str(&input_json)
-                    .map_err(|e| crate::anyhow::anyhow!("{}: {e}", input.display()))?;
-            let evidence =
-                susi_gawd::eval_separation::evaluate_and_record(&root, &corpus, &run_input)?;
-            print_json(&evidence)?;
-            Ok(())
+            if susi_config::vault_exec::commercial_executable().is_none() {
+                bail!(eval_corpus_moved_message());
+            }
+            // The child prints the evidence JSON or its error and resolves the repository
+            // root from the same working directory, exactly as this verb did in core.
+            match susi_config::vault_exec::run_commercial(&eval_corpus_args(&corpus, &input), &[]) {
+                Ok(0) => Ok(()),
+                Ok(code) => std::process::exit(code),
+                Err(e) => bail!(e),
+            }
         }
         Some(TaskCommands::Moved(words)) => bail!(moved_message(words.first().map(String::as_str))),
         None => bail!(moved_message(None)),
@@ -42,7 +56,8 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::moved_message;
+    use super::{eval_corpus_args, eval_corpus_moved_message, moved_message};
+    use std::path::Path;
 
     #[test]
     fn a_queue_verb_is_refused_naming_the_commercial_command() {
@@ -53,5 +68,21 @@ mod tests {
             !msg.contains("rebuild"),
             "a refusal never asks for a rebuild"
         );
+    }
+
+    #[test]
+    fn eval_corpus_forwards_its_arguments_and_names_the_command_when_absent() {
+        assert_eq!(
+            eval_corpus_args(Path::new("c.json"), Path::new("i.json")),
+            [
+                "tasks",
+                "eval-corpus",
+                "--corpus",
+                "c.json",
+                "--input",
+                "i.json"
+            ]
+        );
+        assert!(eval_corpus_moved_message().contains("`susi-commercial tasks eval-corpus`"));
     }
 }
