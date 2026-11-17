@@ -20,5 +20,5 @@
     "searched": "a survey of core modules whose only callers are entry points or nothing; these five have no caller outside their own tests."
   },
   "limitations": "Lands after the MCP fallback deletion (core T-CORESIZEVAULT-14) so the ceiling is lowered from its value. Windows x86_64 first.",
-  "progress": "Started."
+  "progress": "Removed; commercial carries the five modules with their tests. Core is 2,205 counted lines smaller; the ceiling is left to the open CORESIZEPROTOCOL17 claim."
 }

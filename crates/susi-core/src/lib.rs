@@ -60,7 +60,6 @@ pub mod manifold;
 pub mod mcp_client;
 pub mod memory_provenance;
 pub mod mission_trace;
-pub mod model_health;
 pub mod net_guard;
 pub mod parallel;
 pub mod pattern;

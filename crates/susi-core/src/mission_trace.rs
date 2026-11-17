@@ -48,9 +48,9 @@ pub struct ModelCallCost {
     /// `provider|task_class` provenance strings where available.
     pub model: String,
     pub tokens: u64,
-    /// Millionths of a currency unit — same unit as
-    /// `susi_gawd_agents::cloud_budget::Micros`, so a trace's total is
-    /// directly comparable to the budget ledger it drew from.
+    /// Millionths of a currency unit, the unit cloud budget ledgers count
+    /// in, so a trace's total is directly comparable to the budget it drew
+    /// from.
     pub cost_micros: u64,
 }
 

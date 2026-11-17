@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-086",
   "verdict": "delivered",
-  "evidence": "crates/susi-gmcp/src/mcp_probe.rs; crates/susi-gmcp/src/mcp_profile.rs; crates/susi-gmcp/src/tests/vc_201_086_mastery.rs",
+  "evidence": "Since 2026-11-17 (T-CORESIZEFIX-2, Mandate 84) this runs in intellibitz/susi-commercial-apps: crates/susi-ecosystem-hub/src/mcp_probe.rs; crates/susi-ecosystem-hub/src/mcp_profile.rs; crates/susi-ecosystem-hub/src/tests/vc_201_086_mastery.rs (cargo test -p susi-ecosystem-hub vc_201_086). Core removed its copy, which nothing in core called. As recorded before the move: crates/susi-gmcp/src/mcp_probe.rs; crates/susi-gmcp/src/mcp_profile.rs; crates/susi-gmcp/src/tests/vc_201_086_mastery.rs",
   "missing": "",
   "tracked_by": [
     "T-DEVIN20261002053148-39"
