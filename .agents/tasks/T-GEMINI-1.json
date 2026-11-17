@@ -1,0 +1,23 @@
+{
+  "id": "T-GEMINI-1",
+  "title": "Continuous 10-minute integration and synchronization loop (Mandate 80)",
+  "goal": "Review ready work for safe integration every ten minutes; synchronize source, tests, mandates and docs.",
+  "vision": "V-1",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": ["echo", "Integration loop active"]
+  },
+  "created_by": "GEMINI",
+  "created_unix": 1794750000,
+  "reuse": {
+    "decision": "existing",
+    "searched": "AGENTS.md, docs/ceo-mandate-80.md",
+    "source": "Mandate 80",
+    "reason": "CEO directed to join the other agents and execute 10-minute merge/pull integration loops."
+  },
+  "scopes": [
+    ".agents/tasks"
+  ],
+  "closed": null
+}
