@@ -1,0 +1,32 @@
+{
+  "id": "T-GROKCORESIZE-9",
+  "title": "Remove truth.rs and mission_trace.rs from susi-core once their last core callers are gone (about 2,900 lines)",
+  "goal": "Vision: V-9, Mandate 84. After SLIM17ROOT's GAWD core removal (board 3076) and the GEMI/daemon chain moves land, delete crates/susi-core/src/truth.rs (1,024) and mission_trace.rs (1,876), their bench/test users, and re-pin COMPLETE_SOCKET_CEILING to the measured value. Commercial destination: T-GROKCORESIZE-10.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "GROKCORESIZE9",
+  "created_unix": 1794942537,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Deletion only; destinations are commercial susi-gawd-swarm::truth and susi-sovereign-rag context_store::mission_trace."
+  },
+  "limitations": "Blocked until no core crate references susi_core::truth / mission_trace: today GAWD core copies (susi-gawd-swarm, susi-gawd), GEMI (spend_tracker, pulse, engines/brain), susi-daemon crown.rs and the susi-core re-export/bench/test. Nothing is deleted until those are gone from core main. Cross-repo dependency on commercial T-GROKCORESIZE-10 is tracked here in prose (the task tool resolves deps within one repo).",
+  "scopes": [
+    ".agents/tasks/T-GROKCORESIZE-9.json",
+    "crates/susi-core/src/truth.rs",
+    "crates/susi-core/src/mission_trace.rs",
+    "crates/susi-core/benches/evidence_verify.rs",
+    "crates/susi-core/src/tests/vc_201_074_mastery.rs"
+  ]
+}
