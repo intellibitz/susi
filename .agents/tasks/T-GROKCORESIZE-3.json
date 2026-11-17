@@ -27,5 +27,7 @@
     "crates/susi-daemon-runtime/src/os_provision.rs",
     "crates/susi-daemon/src/ambient.rs",
     "tests/lean_core_ceilings.rs"
-  ]
+  ],
+  "progress": "Windows-green on Fury16 (rustc 1.99.0 msvc): susi-daemon lib 204 passed/5 ignored, susi-daemon-runtime lib 159 passed, architecture_tests 60 passed, lean_core_ceilings 3 passed/1 ignored, cargo fmt --check clean (susi-daemon, susi-daemon-runtime, susi), clippy --all-targets -D warnings clean on susi-daemon and susi-daemon-runtime. Measured complete socket 288,151 -> 288,040 (-111; runtime_rust 281,586 + vendor_facade 6,454); COMPLETE_SOCKET_CEILING 288,151 -> 288,040. cargo core-size reports 288,040 (goal unmet).",
+  "limitations": "Small slice: the remaining five daemon front doors (ambient start/pulse, OS sampling, probe_all, privacy persist/set, services control facades) stay because public_daemon_api_contract.rs pins them and boards 2817/2829/2833/2834/2835 require their local behaviour without a plug host; deleting more needs a contract decision. Linux run for this exact tree is pending at landing time (CachyOS offline); the deleted code is unreferenced in core and its behaviour is served and tested in commercial. Pre-existing on main, not this change: gossip host_only AddrInUse flake (board 2897), child_home_isolation (board 2888/2913)."
 }
