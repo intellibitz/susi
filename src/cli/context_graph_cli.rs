@@ -27,9 +27,11 @@ pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result
             }
             serde_json::json!({"ingested": count})
         }
-        ContextGraphCommands::SampleOs { user } => {
-            susi_daemon::context_adapters::sample_os_report(Some(workspace), user.as_deref())
-        }
+        ContextGraphCommands::SampleOs { user } => susi_daemon::plug_forward::call(
+            susi_core::plane_bus::daemon::context_sample_os(workspace, user.as_deref()),
+            susi_core::plane_bus::topics::DAEMON_CONTEXT_SAMPLE_OS,
+        )
+        .map_err(crate::anyhow::Error::msg)?,
         ContextGraphCommands::Show { limit } => graph.workspace_show(workspace, limit),
         ContextGraphCommands::Related { node, depth } => {
             let node_id = susi_core::context_graph::NodeId(node);

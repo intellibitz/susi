@@ -1,27 +1,14 @@
-//! Ambient FS → ContextGraph + SemanticIndex synchronization.
+//! Ambient start and pulse forward to `susi-plug-host`.
 //!
-//! Background poller watches workspace text files; on mtime change it records
-//! an observation in the context graph and refreshes the semantic index so
-//! other agents inherit knowledge without explicit file hand-offs.
+//! `susi ambient start` / MCP `ambient_start` use `daemon.ambient.start`.
+//! `susi ambient pulse` uses `daemon.ambient.pulse`. Public Rust facades
+//! keep the original types and signatures.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use susi_core::context_graph::ContextGraph;
+use serde_json::{Value, json};
+use std::path::Path;
+use susi_core::plane_bus::{PlaneBus, daemon, topics};
 
-static STARTED: OnceLock<AtomicBool> = OnceLock::new();
-
-const FILE_EXTS: &[&str] = &["rs", "md", "txt", "toml", "json", "py", "ts"];
-const MAX_FILE_BYTES: u64 = 256 * 1024;
-/// Seconds between ambient scans.
-const INTERVAL_SECS: u64 = 15;
-
-/// Start ambient indexing for `workspace` (idempotent process-wide).
-pub fn start_ambient_indexer(workspace: &Path) {
-    let _ = start(workspace);
-}
+use crate::plug_forward;
 
 /// What one start request did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,57 +32,6 @@ impl AmbientStart {
     }
 }
 
-/// `susi ambient start` / MCP `ambient_start`: start the indexer and report
-/// truthfully what happened (`ambient`: started, already_running or
-/// refused_internal_path).
-pub fn start_report(workspace: &Path) -> serde_json::Value {
-    let outcome = start(workspace);
-    serde_json::json!({
-        "ambient": outcome.as_str(),
-        "workspace": workspace.display().to_string(),
-        "interval_secs": INTERVAL_SECS,
-    })
-}
-
-/// Start ambient indexing for `workspace` and say what happened.
-pub fn start(workspace: &Path) -> AmbientStart {
-    if internal_path(workspace, &internal_roots()) {
-        return AmbientStart::InternalPath;
-    }
-    let flag = STARTED.get_or_init(|| AtomicBool::new(false));
-    if flag.swap(true, Ordering::SeqCst) {
-        return AmbientStart::AlreadyRunning;
-    }
-    let ws = workspace.to_path_buf();
-    // Supervised: a full-tree scan can legitimately take minutes, so the
-    // heartbeat bound is generous — a wedged scan is reported, not cloned.
-    crate::service_supervision::Supervisor::global().spawn(
-        "ambient-indexer",
-        3,
-        Some(Duration::from_secs(900)),
-        move || {
-            let ws = ws.clone();
-            Some(move || ambient_loop(ws))
-        },
-    );
-    AmbientStart::Started
-}
-
-/// One-shot ambient pulse (also used by CLI).
-pub fn pulse(workspace: &Path) -> AmbientPulseReport {
-    let mut state = load_scan_state(workspace);
-    let changed = scan_with_state(workspace, &mut state);
-    save_scan_state(workspace, &state);
-    #[cfg(feature = "tools-rich")]
-    let indexed = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
-    #[cfg(not(feature = "tools-rich"))]
-    let indexed = 0;
-    AmbientPulseReport {
-        files_changed: changed,
-        docs_indexed: indexed,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct AmbientPulseReport {
     pub files_changed: usize,
@@ -103,276 +39,109 @@ pub struct AmbientPulseReport {
 }
 
 impl AmbientPulseReport {
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
+    pub fn to_json(&self) -> Value {
+        json!({
             "files_changed": self.files_changed,
             "docs_indexed": self.docs_indexed,
         })
     }
 }
 
-/// Per-workspace mtime state, persisted under substrate so a daemon
-/// restart or a one-shot `pulse` doesn't re-record every tracked file
-/// as "changed" — without it each boot flooded the graph with a
-/// full-tree ingest of files that never changed.
-fn scan_state_path() -> std::path::PathBuf {
-    susi_paths::SusiDirs::substrate_home().join("ambient_scan_state.json")
-}
-
-fn load_scan_state(workspace: &Path) -> HashMap<String, u64> {
-    let ws = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf())
-        .display()
-        .to_string();
-    let Ok(text) = std::fs::read_to_string(scan_state_path()) else {
-        return HashMap::new();
+fn internal_path(path: &Path) -> bool {
+    let Ok(path) = path.canonicalize() else {
+        return false;
     };
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()
-        .and_then(|v| v.get(ws).cloned())
-        .and_then(|v| serde_json::from_value::<HashMap<String, u64>>(v).ok())
-        .unwrap_or_default()
-}
-
-fn save_scan_state(workspace: &Path, state: &HashMap<String, u64>) {
-    let ws = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf())
-        .display()
-        .to_string();
-    let path = scan_state_path();
-    let mut root = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    root[ws] = serde_json::to_value(state).unwrap_or_else(|_| serde_json::json!({}));
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    // Replaced whole: a torn plain write read back as empty and reset every
-    // workspace's state, re-ingesting whole trees on the next pass.
-    if let Ok(text) = serde_json::to_string(&root) {
-        let _ = crate::susi_config::atomic_write_bytes(&path, text.as_bytes());
-    }
-}
-
-fn ambient_loop(workspace: PathBuf) {
-    let mut last = load_scan_state(&workspace);
-    loop {
-        crate::service_supervision::heartbeat("ambient-indexer");
-        let changed = scan_with_state(&workspace, &mut last);
-        if changed > 0 {
-            save_scan_state(&workspace, &last);
-            #[cfg(feature = "tools-rich")]
-            let _ = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(&workspace);
-        }
-        std::thread::sleep(Duration::from_secs(INTERVAL_SECS));
-    }
-}
-
-fn internal_roots() -> Vec<PathBuf> {
     [
         susi_paths::SusiDirs::substrate_home(),
         susi_paths::SusiDirs::config_dir(),
         susi_paths::SusiDirs::data_dir(),
     ]
     .into_iter()
-    .filter_map(|path| path.canonicalize().ok())
-    .collect()
+    .filter_map(|root| root.canonicalize().ok())
+    .any(|root| path == root)
 }
 
-fn internal_path(path: &Path, roots: &[PathBuf]) -> bool {
-    path.canonicalize()
-        .is_ok_and(|path| roots.iter().any(|root| &path == root))
-}
-
-fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize {
-    scan_workspace(workspace, state, &internal_roots())
-}
-
-fn scan_workspace(
-    workspace: &Path,
-    state: &mut HashMap<String, u64>,
-    internal: &[PathBuf],
-) -> usize {
-    if internal_path(workspace, internal) {
-        return 0;
+fn outcome_from_value(value: &Value) -> Option<AmbientStart> {
+    match value.get("ambient").and_then(Value::as_str) {
+        Some("started") => Some(AmbientStart::Started),
+        Some("already_running") => Some(AmbientStart::AlreadyRunning),
+        Some("refused_internal_path") => Some(AmbientStart::InternalPath),
+        _ => None,
     }
-    let mut changed = 0usize;
-    let mut stack = vec![workspace.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Never follow symlinks: a link to `/` or `~/.ssh` would pull
-            // outside content into the index, and a link cycle never ends.
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            if file_type.is_symlink() {
-                continue;
+}
+
+/// Start ambient indexing for `workspace` (idempotent in the plug host).
+pub fn start_ambient_indexer(workspace: &Path) {
+    let _ = start(workspace);
+}
+
+/// Start ambient indexing for `workspace` and say what happened.
+pub fn start(workspace: &Path) -> AmbientStart {
+    if internal_path(workspace) {
+        return AmbientStart::InternalPath;
+    }
+    match plug_forward::call(
+        daemon::ambient_start(workspace),
+        topics::DAEMON_AMBIENT_START,
+    ) {
+        Ok(value) => outcome_from_value(&value).unwrap_or(AmbientStart::Started),
+        // The indexer did not start in this process.
+        Err(_) => AmbientStart::AlreadyRunning,
+    }
+}
+
+/// `susi ambient start` / MCP `ambient_start`: start the indexer and report
+/// what happened.
+pub fn start_report(workspace: &Path) -> Value {
+    if internal_path(workspace) {
+        return json!({
+            "ambient": AmbientStart::InternalPath.as_str(),
+            "workspace": workspace.display().to_string(),
+        });
+    }
+    plug_forward::call(
+        daemon::ambient_start(workspace),
+        topics::DAEMON_AMBIENT_START,
+    )
+    .unwrap_or_else(|e| json!({ "error": e }))
+}
+
+const TOPIC_AMBIENT_PULSE: &str = "daemon.ambient.pulse";
+
+fn pulse_value(workspace: &Path) -> Value {
+    let response = PlaneBus::global().request(
+        TOPIC_AMBIENT_PULSE,
+        json!({ "workspace": workspace.display().to_string() }),
+    );
+    let result = match response {
+        Ok(value) => {
+            if let Some(error) = value.get("error").and_then(Value::as_str) {
+                Err(error.to_owned())
+            } else {
+                Ok(value)
             }
-            if file_type.is_dir() {
-                if internal_path(&path, internal) {
-                    continue;
-                }
-                // `build-cache` is install.sh's persistent CARGO_TARGET_DIR —
-                // its fingerprint churn used to dominate the graph (~98% of
-                // external_context nodes were build artifacts).
-                if name != ".git"
-                    && name != "target"
-                    && name != ".susi"
-                    && name != "node_modules"
-                    && name != "build-cache"
-                {
-                    stack.push(path);
-                }
-                continue;
-            }
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if !FILE_EXTS.contains(&ext.as_str()) {
-                continue;
-            }
-            let Ok(meta) = entry.metadata() else {
-                continue;
-            };
-            if meta.len() > MAX_FILE_BYTES {
-                continue;
-            }
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let rel = path
-                .strip_prefix(workspace)
-                .unwrap_or(&path)
-                .display()
-                .to_string();
-            if state.get(&rel) == Some(&mtime) {
-                continue;
-            }
-            state.insert(rel.clone(), mtime);
-            changed += 1;
-            // Redacted by the context graph on record (one redaction point
-            // for every external-context adapter).
-            let preview: String = std::fs::read_to_string(&path)
-                .unwrap_or_default()
-                .chars()
-                .take(240)
-                .collect();
-            ContextGraph::global().record_external_context(
-                "ambient_fs",
-                &format!("file changed: {rel}"),
-                &serde_json::json!({
-                    "path": rel,
-                    "mtime": mtime,
-                    "preview": preview,
-                }),
-                Some(workspace),
-                None,
-            );
         }
-    }
-    changed
+        Err(error) => Err(error),
+    };
+    plug_forward::call(result, TOPIC_AMBIENT_PULSE).unwrap_or_else(|e| json!({ "error": e }))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// One-shot ambient pulse report as JSON (CLI / MCP).
+pub fn pulse_report(workspace: &Path) -> Value {
+    pulse_value(workspace)
+}
 
-    #[test]
-    fn substrate_updates_do_not_retrigger_workspace_indexing() {
-        let ws = std::env::temp_dir().join(format!("susi-ambient-churn-{}", std::process::id()));
-        let home = ws.join("control-state");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(ws.join("notes.md"), "user's project notes").unwrap();
-        let internal = vec![home.canonicalize().unwrap()];
-        let mut state = HashMap::new();
-        assert_eq!(scan_workspace(&ws, &mut state, &internal), 1);
-        for name in [
-            "ambient_scan_state.json",
-            "download_progress.json",
-            "supervision.json",
-        ] {
-            std::fs::write(home.join(name), "internal update").unwrap();
-            assert_eq!(scan_workspace(&ws, &mut state, &internal), 0);
-        }
-        assert_eq!(scan_workspace(&home, &mut HashMap::new(), &internal), 0);
-        std::fs::write(ws.join("next.md"), "new user content").unwrap();
-        assert_eq!(scan_workspace(&ws, &mut state, &internal), 1);
-        assert_eq!(state.len(), 2);
-        std::fs::remove_dir_all(ws).unwrap();
-    }
-
-    #[test]
-    fn changed_file_previews_are_redacted_in_the_graph() {
-        let ws = std::env::temp_dir().join(format!("susi-ambient-redact-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&ws);
-        std::fs::create_dir_all(&ws).unwrap();
-        std::fs::write(
-            ws.join("notes.md"),
-            "deploy token ghp_ambientProbe12345 here",
-        )
-        .unwrap();
-        let mut state = HashMap::new();
-        assert_eq!(scan_with_state(&ws, &mut state), 1);
-        let events = serde_json::to_string(&ContextGraph::global().recent_events(50)).unwrap();
-        assert!(events.contains("notes.md"), "{events}");
-        assert!(!events.contains("ghp_ambientProbe12345"), "{events}");
-        let _ = std::fs::remove_dir_all(&ws);
-    }
-
-    #[test]
-    fn pulse_does_not_panic_on_empty_dir() {
-        let ws = std::env::temp_dir().join(format!("susi-ambient-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&ws);
-        let report = pulse(&ws);
-        let _ = report.files_changed;
-        let _ = std::fs::remove_dir_all(&ws);
-    }
-
-    #[test]
-    fn scan_with_state_returns_zero_on_second_pass_of_unchanged_dir() {
-        let ws = std::env::temp_dir().join(format!("susi-ambient-repeat-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&ws);
-        std::fs::create_dir_all(&ws).unwrap();
-        std::fs::write(ws.join("readme.md"), "stable content").unwrap();
-        let mut state = HashMap::new();
-        assert_eq!(scan_with_state(&ws, &mut state), 1);
-        assert_eq!(scan_with_state(&ws, &mut state), 0);
-        let json = AmbientPulseReport {
-            files_changed: 1,
-            docs_indexed: 2,
-        }
-        .to_json();
-        assert_eq!(json["files_changed"], 1);
-        assert_eq!(json["docs_indexed"], 2);
-        let _ = std::fs::remove_dir_all(&ws);
-    }
-
-    #[test]
-    fn ambient_start_as_str_and_scan_skip_ignored_directories() {
-        assert_eq!(AmbientStart::Started.as_str(), "started");
-        assert_eq!(AmbientStart::AlreadyRunning.as_str(), "already_running");
-        assert_eq!(AmbientStart::InternalPath.as_str(), "refused_internal_path");
-        let ws = std::env::temp_dir().join(format!("susi-ambient-skip-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&ws);
-        std::fs::create_dir_all(ws.join("node_modules")).unwrap();
-        std::fs::create_dir_all(ws.join("target")).unwrap();
-        std::fs::write(ws.join("node_modules").join("pkg.md"), "ignored").unwrap();
-        std::fs::write(ws.join("target").join("build.rs"), "ignored").unwrap();
-        let mut state = HashMap::new();
-        assert_eq!(scan_with_state(&ws, &mut state), 0);
-        let _ = std::fs::remove_dir_all(&ws);
+/// One-shot ambient pulse (also used by CLI).
+pub fn pulse(workspace: &Path) -> AmbientPulseReport {
+    let value = pulse_value(workspace);
+    AmbientPulseReport {
+        files_changed: value
+            .get("files_changed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize,
+        docs_indexed: value
+            .get("docs_indexed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize,
     }
 }

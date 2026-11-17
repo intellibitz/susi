@@ -17,11 +17,13 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             );
         }
         PrivacyCommands::Mode { mode } => {
-            // The one mode-change path the socket's `privacy_mode` also takes:
-            // refuses an unknown mode, persists the sticky file a running
-            // daemon reads per operation, and pins inference routing to local
-            // under local_only and host_only.
-            let report = susi_daemon::privacy::set_privacy_mode(&mode)?;
+            // Mode changes are served by `susi-plug-host` on
+            // `daemon.privacy.mode` (sticky file + routing preference).
+            let report = susi_daemon::plug_forward::call(
+                susi_core::plane_bus::daemon::privacy_mode(&mode),
+                susi_core::plane_bus::topics::DAEMON_PRIVACY_MODE,
+            )
+            .map_err(crate::anyhow::Error::msg)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         PrivacyCommands::Grant {

@@ -1,37 +1,32 @@
 //! The `daemon.` plane: capabilities implemented in this composition-root
 //! crate, reachable from the MCP tools in `susi-gmcp` (which cannot depend
-//! on the daemon) over the in-process plane bus. Each topic calls the same
-//! library function its CLI command calls (zero-UI plan B4 groups 1, 3, 4,
-//! 5, 7, 8 and 9 and the host views); the facade is
-//! `susi_core::plane_bus::daemon`.
+//! on the daemon) over the in-process plane bus. Each remaining in-process
+//! topic calls the same library function its CLI command calls; the facade
+//! is `susi_core::plane_bus::daemon`.
+//!
+//! The first-increment feature topics (`daemon.privacy.mode`,
+//! `daemon.ambient.start`, `daemon.services.control`, `daemon.os.provision`,
+//! `daemon.context.sample_os`) are served by `susi-plug-host`. Exact topic
+//! registrations outrank this prefix, so a running plug host wins. When the
+//! host is absent this prefix names that command instead of handling them
+//! in-process.
 
 use serde_json::{Value, json};
 use std::sync::Arc;
 use susi_core::plane_bus::{PlaneBus, PlaneHandler, topics, workspace_path};
 
-struct DaemonPlaneHandler;
+use crate::plug_forward;
 
-fn str_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
-    payload.get(key).and_then(|v| v.as_str())
-}
+struct DaemonPlaneHandler;
 
 impl PlaneHandler for DaemonPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
         match topic {
-            topics::DAEMON_PRIVACY_MODE => {
-                let mode = str_field(&payload, "mode").ok_or("mode is required")?;
-                crate::privacy::set_privacy_mode(mode).map_err(|e| e.to_string())
-            }
-            topics::DAEMON_AMBIENT_START => {
-                Ok(crate::ambient::start_report(&workspace_path(&payload)))
-            }
-            topics::DAEMON_CONTEXT_SAMPLE_OS => {
-                let ws = workspace_path(&payload);
-                Ok(crate::context_adapters::sample_os_report(
-                    Some(&ws),
-                    str_field(&payload, "user"),
-                ))
-            }
+            topics::DAEMON_PRIVACY_MODE
+            | topics::DAEMON_AMBIENT_START
+            | topics::DAEMON_CONTEXT_SAMPLE_OS
+            | topics::DAEMON_OS_PROVISION
+            | topics::DAEMON_SERVICES_CONTROL => Err(plug_forward::absent(topic)),
             topics::DAEMON_ECOSYSTEM_SCAN => {
                 if payload.get("cached").and_then(|v| v.as_bool()) == Some(true) {
                     let text = crate::discovery_pipeline::last_ecosystem_scan()?;
@@ -45,12 +40,6 @@ impl PlaneHandler for DaemonPlaneHandler {
                 Ok(crate::substrate_status::report(&workspace_path(&payload)))
             }
             topics::DAEMON_CROWN_VERIFY => Ok(crate::crown::report(&workspace_path(&payload))),
-            topics::DAEMON_OS_PROVISION => crate::os_provision::dispatch(&payload),
-            topics::DAEMON_SERVICES_CONTROL => {
-                let action = str_field(&payload, "action").ok_or("action is required")?;
-                let name = str_field(&payload, "name").ok_or("name is required")?;
-                crate::service_control::control(action, name)
-            }
             topics::DAEMON_PROVIDERS => crate::provider_ops::dispatch(&payload),
             topics::DAEMON_ADAPTERS => crate::adapter_ops::dispatch(&payload),
             topics::DAEMON_HARNESS => crate::harness_ops::dispatch(&payload),
@@ -70,52 +59,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn handler_refuses_missing_arguments_and_unknown_topics() {
+    fn moved_feature_topics_name_the_plug_host_when_this_prefix_handles_them() {
         let h = DaemonPlaneHandler;
-        assert!(
-            h.handle(topics::DAEMON_PRIVACY_MODE, json!({}))
-                .unwrap_err()
-                .contains("mode")
-        );
-        assert!(
-            h.handle(topics::DAEMON_SERVICES_CONTROL, json!({"action": "start"}))
-                .unwrap_err()
-                .contains("name")
-        );
+        for topic in [
+            topics::DAEMON_PRIVACY_MODE,
+            topics::DAEMON_AMBIENT_START,
+            topics::DAEMON_CONTEXT_SAMPLE_OS,
+            topics::DAEMON_OS_PROVISION,
+            topics::DAEMON_SERVICES_CONTROL,
+        ] {
+            let err = h.handle(topic, json!({})).unwrap_err();
+            assert!(err.contains("susi-plug-host"), "{topic}: {err}");
+        }
         let unknown = h.handle("daemon.nope", json!({})).unwrap();
         assert!(unknown["error"].as_str().unwrap().contains("unhandled"));
     }
 
     #[test]
-    fn provision_and_services_route_to_their_modules() {
+    fn substrate_status_returns_a_structured_payload() {
         let h = DaemonPlaneHandler;
-        assert!(
-            h.handle(topics::DAEMON_OS_PROVISION, json!({"action": "explode"}))
-                .unwrap_err()
-                .contains("unknown provision action")
-        );
-        assert!(
-            h.handle(
-                topics::DAEMON_SERVICES_CONTROL,
-                json!({"action": "start", "name": "not-a-service"})
-            )
-            .unwrap_err()
-            .contains("unknown service")
-        );
-    }
-
-    #[test]
-    fn context_sample_os_and_substrate_status_return_structured_payloads() {
-        let h = DaemonPlaneHandler;
-        let sample = h
-            .handle(
-                topics::DAEMON_CONTEXT_SAMPLE_OS,
-                json!({"workspace": ".", "user": "plane-test"}),
-            )
-            .expect("context sample should succeed");
-        assert_eq!(sample["os"].as_str(), Some(std::env::consts::OS));
-        assert!(sample["sampled"].as_u64().is_some());
-
         let status = h
             .handle(topics::DAEMON_SUBSTRATE_STATUS, json!({"workspace": "."}))
             .expect("substrate status should succeed");
@@ -137,13 +99,8 @@ mod tests {
     }
 
     #[test]
-    fn handler_refuses_missing_service_action_and_routes_providers_validation() {
+    fn handler_routes_providers_validation() {
         let h = DaemonPlaneHandler;
-        assert!(
-            h.handle(topics::DAEMON_SERVICES_CONTROL, json!({"name": "gmcp"}))
-                .unwrap_err()
-                .contains("action is required")
-        );
         assert!(
             h.handle(topics::DAEMON_PROVIDERS, json!({}))
                 .unwrap_err()
