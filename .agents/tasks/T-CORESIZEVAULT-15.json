@@ -1,0 +1,24 @@
+{
+  "id": "T-CORESIZEVAULT-15",
+  "title": "Prepare core for susi-harness to leave: keep channel_bindings in core and forward harness callers",
+  "goal": "Vision: V-9. Core half of relocating susi-harness (35,259 runtime lines) to susi-commercial-apps (commercial T-CORESIZEVAULT-21; decisions 2470, 2506). (1) The installed channel (src/installed_channel/transaction.rs, host_task.rs) uses susi_harness::channel_bindings (windows_root, register, notification_complete, verify): move that module into a core crate that stays (susi-paths or the installed channel itself). (2) Route every other caller (src/cli/harness_cli.rs, susi-daemon harness_ops, crown and composition, src/cli/acp_mcp.rs, os_cli, catalog_plane_cli, susi-gmcp harness_tools, susi-cli-defs harness) through forwarding to susi-commercial harness verbs or plane-bus topics served by the plug host, an installation without it naming the command. (3) After commercial's copy passes side by side on Windows and Linux, delete crates/susi-harness and lower COMPLETE_SOCKET_CEILING.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794905307,
+  "reuse": {
+    "decision": "existing",
+    "searched": "The forwarding pattern of the vault move (crates/susi-config/src/vault_exec.rs run_commercial, commercial_executable) and the plug-host bus topics; core's own channel_bindings module (moved, not rewritten)."
+  },
+  "limitations": "Scoped sessions keep gawd.*, gemi.*, tools.* and agents.* topics in-process (core plane_bus.rs req, board 2552): any harness path a scoped session reaches needs the scope lent over the bus first (core task from commercial T-CORESIZEVAULT-15). Pillar code: Linux pass before the deletion (SusiCoreSizeVault, board 2549).",
+  "progress": "Not started."
+}
