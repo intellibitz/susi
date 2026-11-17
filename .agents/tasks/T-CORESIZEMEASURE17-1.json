@@ -1,0 +1,29 @@
+{
+  "id": "T-CORESIZEMEASURE17-1",
+  "title": "Record the verified public core size in Mandate 84",
+  "goal": "Vision V-6. Refresh the measured snapshot in the public mandate from the ordinary size suite and the explicit 99,999-line acceptance check.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEMEASURE17",
+  "created_unix": 1794926574,
+  "native_worker": "coresize-measure17",
+  "scopes": [
+    ".agents/tasks/T-CORESIZEMEASURE17-1.json",
+    "docs/ceo-mandate-84.md"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Mandate 84 section 4 and the existing lean_core_ceilings test and core-size alias."
+  },
+  "limitations": "The size check establishes the physical line count. Capability parity requires separate behavior and conformance evidence.",
+  "progress": "Measured public 4de036347. Three size-suite tests passed and the strict acceptance test reported 189,217 lines remaining."
+}

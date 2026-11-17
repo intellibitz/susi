@@ -104,16 +104,18 @@ continues `V-6`, which the CEO set earlier the same day.
 
 ## 4. Implementation truth
 
-- **Not met today.** At `origin/main` on 2026-11-17 the complete socket is
-  291,422 lines (284,968 first-party runtime and 6,454 facades); 191,423 lines
-  must still go. Reported beside it: 136,981 test lines, 72,685 tooling lines,
-  216,164 lines of third-party `vendor/` source. Of the runtime, the pillar
-  crates are 132,598 lines and the socket crates 158,824. Core's outbound MCP
+- **Measured on public `main` at `4de036347` on 2026-11-17.** The complete
+  socket has 289,216 physical Rust lines, including 282,762 first-party runtime
+  lines and 6,454 vendor facade lines. Reaching 99,999 requires removing
+  189,217 lines. The pillar crates account for 130,496 lines and the remaining
+  socket crates for 158,720. The same run reports 136,578 test lines, 72,685
+  tooling lines and 216,164 lines of third-party `vendor/` source separately.
+  Core's outbound MCP
   client transport has moved to the Susi Commercial Apps plug host
   (`ecosystem_hub.mcp.call`); core authorizes and forwards the call.
 - **Enforced:** `repository_size_is_reported_and_unsafe_baselines_do_not_multiply`
   in `tests/lean_core_ceilings.rs` fails when the complete socket exceeds
-  `COMPLETE_SOCKET_CEILING`, pinned at 291,422. The suite runs in the ordinary
+  `COMPLETE_SOCKET_CEILING`, pinned at 289,216 at that revision. The suite runs in the ordinary
   test run and in core's fast release pipeline (`xtask/src/fast_release.rs`),
   so a core that grew cannot be released until the growth is paid for. A
   compile-time check keeps the ceiling from being pinned below 99,999.
