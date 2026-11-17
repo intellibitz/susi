@@ -13,6 +13,58 @@ const PREFIX: &str = "cargo test --locked --test gmcp_requirements ";
 const LOCAL: &str = ".susi/records/gmcp/evidence";
 const LEGACY: &str = ".agents/gmcp/evidence";
 const MAX_EVIDENCE_BYTES: u64 = 16 * 1024 * 1024;
+const RUNTIME_REPOSITORY: &str = "https://github.com/intellibitz/susi-commercial-apps.git";
+const RUNTIME_ARTIFACTS: [&str; 11] = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "build.rs",
+    "rust-toolchain.toml",
+    ".cargo",
+    "src",
+    "crates",
+    "config",
+    "providers",
+    "tests",
+    "vendor",
+];
+
+#[derive(Debug, Default, PartialEq)]
+struct Options {
+    runtime: Option<PathBuf>,
+    mastery: bool,
+    vectors: Vec<String>,
+}
+
+fn options(args: &[String]) -> Result<Options> {
+    let mut result = Options::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--mastery" if !result.mastery => result.mastery = true,
+            "--runtime-checkout" if result.runtime.is_none() => {
+                result.runtime = Some(PathBuf::from(
+                    args.next().ok_or("--runtime-checkout requires a path")?,
+                ));
+            }
+            word if word.starts_with('-') => return Err("unknown or duplicate GMCP option".into()),
+            _ => result.vectors.push(arg.clone()),
+        }
+    }
+    Ok(result)
+}
+
+fn runtime_digest(root: &Path, revision: &str) -> Result<String> {
+    let mut args = vec!["ls-tree", "-r", "--full-tree", revision, "--"];
+    args.extend(RUNTIME_ARTIFACTS);
+    let tree = git(root, &args)?;
+    if tree.is_empty() {
+        return Err("empty commercial runtime source tree".into());
+    }
+    Ok(Sha256::digest(tree)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
 
 // Only absence permits a legacy fallback. Corrupt or redirected local state
 // must not silently select older proof from source.
@@ -228,6 +280,7 @@ fn clean(root: &Path) -> Result<()> {
     Ok(())
 }
 pub fn run(root: &Path, args: &[String]) -> Result<()> {
+    let options = options(args)?;
     clean(root)?;
     let gitdir = String::from_utf8(git(
         root,
@@ -244,8 +297,30 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
     let head = String::from_utf8(git(root, &["rev-parse", "HEAD"])?)?
         .trim()
         .to_owned();
-    let mastery = args.first().is_some_and(|arg| arg == "--mastery");
-    let mut vectors: Vec<String> = args[usize::from(mastery)..].to_vec();
+    let mastery = options.mastery;
+    let mut vectors = options.vectors;
+    let runtime = options.runtime.map(fs::canonicalize).transpose()?;
+    let runtime_binding = runtime
+        .as_deref()
+        .map(|path| -> Result<(String, String)> {
+            clean(path)?;
+            if !path
+                .join("crates/susi-cli-runtime/tests/gmcp_requirements.rs")
+                .is_file()
+            {
+                return Err("runtime checkout does not own the GMCP test target".into());
+            }
+            let commit = String::from_utf8(git(path, &["rev-parse", "HEAD"])?)?
+                .trim()
+                .to_owned();
+            let digest = runtime_digest(path, &commit)?;
+            Ok((commit, digest))
+        })
+        .transpose()?;
+    let test_root = runtime.as_ref().map_or_else(
+        || root.to_path_buf(),
+        |path| path.join("crates/susi-cli-runtime"),
+    );
     let directory = local_directory(root, false)?;
     if !git(root, &["ls-files", "--", LOCAL])?.is_empty() {
         return Err("local GMCP evidence must not be tracked source".into());
@@ -290,8 +365,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let mut source = fs::read_to_string(root.join("tests/gmcp_requirements.rs"))?;
-    let split_dir = root.join("tests/gmcp_requirements");
+    let mut source = fs::read_to_string(test_root.join("tests/gmcp_requirements.rs"))?;
+    let split_dir = test_root.join("tests/gmcp_requirements");
     if split_dir.is_dir() {
         let mut extra = Vec::new();
         for entry in fs::read_dir(&split_dir)? {
@@ -387,10 +462,15 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
     let mut command =
         super::isolated_command(Path::new("cargo"), &target.join("gmcp-evidence-home"))?;
     super::compiler_env::apply_checked(&mut command)?;
+    if runtime.is_some() {
+        command.args(["test", "-p", "susi-cli-runtime"]);
+        command.env("SUSI_CORE_CHECKOUT", fs::canonicalize(root)?);
+    } else {
+        command.arg("test");
+    }
     let output = command
-        .current_dir(root)
+        .current_dir(runtime.as_deref().unwrap_or(root))
         .args([
-            "test",
             "--offline",
             "--locked",
             "--test",
@@ -420,6 +500,14 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
     if String::from_utf8(git(root, &["rev-parse", "HEAD"])?)?.trim() != head {
         return Err("HEAD changed during GMCP tests; nothing recorded".into());
     }
+    if let (Some(runtime), Some((commit, digest))) = (&runtime, &runtime_binding) {
+        clean(runtime)?;
+        if String::from_utf8(git(runtime, &["rev-parse", "HEAD"])?)?.trim() != commit
+            || runtime_digest(runtime, commit)? != *digest
+        {
+            return Err("commercial source changed during GMCP tests; nothing recorded".into());
+        }
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
@@ -445,6 +533,12 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
             .collect();
         for record in records {
             let mut value = json!({"requirement":record["requirement"],"check":record["check"],"exit":0,"detail":record["detail"],"recorded_unix":now,"artifact_sha256":ledger_sha,"identity":identity,"tested_commit":head,"tested_artifacts":digest});
+            if let Some((commit, digest)) = &runtime_binding {
+                value["runtime_repository"] = json!(RUNTIME_REPOSITORY);
+                value["runtime_commit"] = json!(commit);
+                value["runtime_artifacts_sha256"] = json!(digest);
+                value["target"] = json!(host);
+            }
             if mastery {
                 value["requirements_sha256"] = json!(inputs);
             }
@@ -484,6 +578,36 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paired_source_options_are_explicit_and_reject_ambiguous_inputs() {
+        let words = |args: &[&str]| {
+            args.iter()
+                .map(|word| (*word).to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            options(&words(&[
+                "--runtime-checkout",
+                "commercial checkout",
+                "VC-203-001",
+                "--mastery"
+            ]))
+            .unwrap(),
+            Options {
+                runtime: Some(PathBuf::from("commercial checkout")),
+                mastery: true,
+                vectors: vec!["VC-203-001".into()]
+            }
+        );
+        for args in [
+            vec!["--runtime-checkout"],
+            vec!["--mastery", "--mastery"],
+            vec!["--runtime-checkout", "one", "--runtime-checkout", "two"],
+            vec!["--unknown"],
+        ] {
+            assert!(options(&words(&args)).is_err());
+        }
+    }
     #[test]
     fn chain_and_test_selection_fail_closed() {
         let first = json!({"requirement":"r","recorded_unix":1,"identity":"a","artifact_sha256":"x","check":format!("{PREFIX}gmcp_req_x")});
@@ -662,5 +786,90 @@ fn gmcp_vc_203_001_mastery() {
         assert!(run(&root, &["VC-203-001".into()]).is_err());
         assert!(!local.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn paired_recording_executes_the_commercial_owner_and_binds_both_real_histories() {
+        let core = recorder_fixture();
+        let runtime = recorder_fixture();
+        let package = runtime.join("crates/susi-cli-runtime");
+        fs::create_dir_all(package.join("tests")).unwrap();
+        fs::create_dir_all(package.join("src")).unwrap();
+        fs::write(package.join("src/lib.rs"), "// runtime implementation\n").unwrap();
+        fs::write(
+            package.join("Cargo.toml"),
+            "[package]\nname = \"susi-cli-runtime\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            runtime.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/susi-cli-runtime\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(package.join("tests/gmcp_requirements.rs"), r#"#[test]
+fn gmcp_req_203_001_01_contract() {
+    let core = std::path::PathBuf::from(std::env::var_os("SUSI_CORE_CHECKOUT").unwrap());
+    assert_eq!(std::fs::read_to_string(core.join("fixture.txt")).unwrap(), "ready");
+}
+#[test]
+fn gmcp_vc_203_001_mastery() {
+    let core = std::path::PathBuf::from(std::env::var_os("SUSI_CORE_CHECKOUT").unwrap());
+    let proof = std::fs::read_to_string(core.join(".susi/records/gmcp/evidence/VC-203-001.jsonl")).unwrap();
+    assert!(proof.contains("\"runtime_commit\":"));
+}
+"#).unwrap();
+        let mut cargo = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut cargo).unwrap();
+        assert!(cargo
+            .current_dir(&runtime)
+            .args(["generate-lockfile", "--offline"])
+            .status()
+            .unwrap()
+            .success());
+        git(&runtime, &["add", "."]).unwrap();
+        git(&runtime, &["commit", "-m", "commercial fixture owner"]).unwrap();
+        let args = vec![
+            "--runtime-checkout".into(),
+            runtime.to_str().unwrap().into(),
+            "VC-203-001".into(),
+        ];
+        run(&core, &args).unwrap();
+        let path = core.join(LOCAL).join("VC-203-001.jsonl");
+        let records = newest(&fs::read_to_string(&path).unwrap()).unwrap();
+        let proof = records
+            .iter()
+            .find(|record| record["requirement"] == "GMCP-203-001-01")
+            .unwrap();
+        let commit = String::from_utf8(git(&runtime, &["rev-parse", "HEAD"]).unwrap()).unwrap();
+        assert_eq!(proof["runtime_commit"], commit.trim());
+        assert_eq!(proof["runtime_repository"], RUNTIME_REPOSITORY);
+        assert_eq!(
+            proof["runtime_artifacts_sha256"],
+            runtime_digest(&runtime, commit.trim()).unwrap()
+        );
+        let mut mastery = args.clone();
+        mastery.push("--mastery".into());
+        run(&core, &mastery).unwrap();
+        let before = fs::read(&path).unwrap();
+        fs::write(
+            package.join("src/lib.rs"),
+            "// uncommitted runtime change\n",
+        )
+        .unwrap();
+        assert!(run(&core, &args).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        git(&runtime, &["add", "."]).unwrap();
+        git(&runtime, &["commit", "-m", "changed runtime fixture"]).unwrap();
+        assert_ne!(
+            runtime_digest(&runtime, "HEAD").unwrap(),
+            proof["runtime_artifacts_sha256"]
+        );
+        fs::write(core.join("fixture.txt"), "fails").unwrap();
+        git(&core, &["add", "."]).unwrap();
+        git(&core, &["commit", "-m", "failing normative fixture"]).unwrap();
+        assert!(run(&core, &args).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(core).unwrap();
+        fs::remove_dir_all(runtime).unwrap();
     }
 }
