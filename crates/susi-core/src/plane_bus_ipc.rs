@@ -22,7 +22,7 @@
 use crate::susi_core::plane_bus::PlaneHandler;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -66,6 +66,10 @@ const NO_HANDLER: &str = "plane bus: no handler for topic";
 /// Response field a serving copy sets — beside the `err` older callers
 /// read — when its dispatch has no handler for the topic at all.
 const MISS_FIELD: &str = "miss";
+/// Payload key: milliseconds the caller waits from sending (the IPC read
+/// bound); a request whose time is already spent is refused unrun.
+const TIMEOUT_FIELD: &str = "bus_timeout_ms";
+pub const DEADLINE_EXCEEDED: &str = "plane bus: deadline exceeded";
 
 fn no_handler(topic: &str) -> String {
     format!("{NO_HANDLER} '{topic}' (composition root must register planes)")
@@ -391,8 +395,15 @@ impl IpcPlaneBus {
         })) else {
             return Remote::Answered(Err("bus request failed to serialize".to_string()));
         };
-        let Some(resp) = post(ep, "/handle", &body, secret) else {
-            return Remote::Unreachable;
+        let wait = payload
+            .get(TIMEOUT_FIELD)
+            .and_then(Value::as_u64)
+            .map(Duration::from_millis);
+        let resp = match post(ep, "/handle", &body, secret, wait) {
+            Ok(resp) => resp,
+            // Took the request but did not answer in time: slow, not dead, so the route stays.
+            Err(true) => return Remote::Answered(Err(format!("{DEADLINE_EXCEEDED}: '{topic}'"))),
+            Err(false) => return Remote::Unreachable,
         };
         let v: Value = match serde_json::from_str(&resp) {
             Ok(v) => v,
@@ -549,7 +560,7 @@ impl IpcPlaneBus {
             } else if let Ok(ep) = addr.parse::<SocketAddr>() {
                 let (_, secret) = self.ensure_slot(&self.current_rendezvous());
                 let body = json!({ "id": id, "chunk": chunk }).to_string();
-                let _ = post(ep, "/stream", &body, &secret);
+                let _ = post(ep, "/stream", &body, &secret, None);
             }
         } else if let Some(tx) = self.streams.read().get(stream_id) {
             let _ = tx.send(chunk);
@@ -578,6 +589,9 @@ enum Remote {
 }
 
 fn invoke(h: Arc<dyn PlaneHandler>, topic: &str, payload: Value) -> Result<Value, String> {
+    if payload.get(TIMEOUT_FIELD).and_then(Value::as_u64) == Some(0) {
+        return Err(format!("{DEADLINE_EXCEEDED} before '{topic}' ran"));
+    }
     let h = Arc::clone(&h);
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
         h.handle(topic, payload)
@@ -818,17 +832,27 @@ fn prune_stale_route_file(path: &Path, ep: SocketAddr, missed_topic: Option<&str
 }
 
 /// POST one JSON body over HTTP/1.0; returns the response body.
-fn post(addr: SocketAddr, path: &str, body: &str, secret: &str) -> Option<String> {
-    let mut stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).ok()?;
+/// `Err(true)` when the peer took the request but sent no answer within `wait`.
+fn post(
+    addr: SocketAddr,
+    path: &str,
+    body: &str,
+    secret: &str,
+    wait: Option<Duration>,
+) -> Result<String, bool> {
+    let mut stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|_| false)?;
+    let _ = stream.set_read_timeout(wait.map(|w| w.max(Duration::from_millis(1))));
     let req = format!(
         "POST {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n{BUS_KEY_HEADER}: {secret}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
         body.len(),
         body
     );
-    stream.write_all(req.as_bytes()).ok()?;
+    stream.write_all(req.as_bytes()).map_err(|_| false)?;
     let mut buf = String::new();
-    stream.read_to_string(&mut buf).ok()?;
-    buf.split("\r\n\r\n").nth(1).map(str::to_string)
+    let slow = |e: std::io::Error| matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut);
+    stream.read_to_string(&mut buf).map_err(slow)?;
+    let answer = buf.split("\r\n\r\n").nth(1);
+    answer.map(str::to_string).ok_or(false)
 }
 
 fn any_slot_matches(slots: &RwLock<HashMap<PathBuf, RendezvousSlot>>, presented: &str) -> bool {
@@ -1555,7 +1579,8 @@ mod tests {
         let ep = copy.endpoint().unwrap();
         let ask = |topic: &str| -> Value {
             let body = json!({ "topic": topic, "payload": {} }).to_string();
-            serde_json::from_str(&post(ep, "/handle", &body, &copy.secret()).unwrap()).unwrap()
+            serde_json::from_str(&post(ep, "/handle", &body, &copy.secret(), None).unwrap())
+                .unwrap()
         };
         let miss = ask("test.none");
         assert_eq!(miss[MISS_FIELD], json!("test.none"));

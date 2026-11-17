@@ -12,7 +12,7 @@
       "-p",
       "susi-core",
       "--test",
-      "plane_bus_scope_deadline"
+      "plane_bus_timeout"
     ]
   },
   "created_by": "CORESIZEFIX",
@@ -22,5 +22,5 @@
     "searched": "core plane_bus_ipc post/remote/prune_stale_route_file/serve_conn (where the timeout and the slow-versus-dead distinction go); the plug-host side already speaks bus_timeout_ms."
   },
   "limitations": "Core is at its ceiling (291,809 lines on 2026-11-17), so the change is offset by deleting unreferenced code in the same task. Windows x86_64 first.",
-  "progress": "Narrowed from scope lending plus timeout to the timeout only, after surveying the scope's users."
+  "progress": "plane_bus_ipc post takes the payload's bus_timeout_ms as its read bound; a timed-out peer answers 'plane bus: deadline exceeded' and keeps its route; a spent request is refused before its handler runs. Offset by removing two unreferenced functions (generate_reasoning_deep_full, post_blackboard_http): core is 7 lines smaller."
 }
