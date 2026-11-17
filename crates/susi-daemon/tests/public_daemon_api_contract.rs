@@ -93,7 +93,7 @@ fn probe_all_does_not_treat_a_missing_plug_host_as_unavailable_inventory() {
 #[test]
 fn dispatch_keeps_its_default_action_and_diagnostics() {
     use serde_json::json;
-    let err = |v: serde_json::Value| os_provision::dispatch(&v).unwrap_err();
+    let err = |v: serde_json::Value| os_provision::dispatch(&v).err().unwrap_or_default();
     assert_eq!(
         os_provision::dispatch(&json!({})).map(|v| v["inventory"].as_array().map(Vec::len)),
         Ok(Some(5))
