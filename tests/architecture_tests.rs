@@ -805,51 +805,6 @@ fn architecture_md_exists() {
     );
 }
 
-/// BT-01 as sequenced in zero-UI plan A9: core ships no extension pack, so
-/// the manifest schema the host admits is checked on a fixture created inside
-/// the test, through the host's own author-side admission check.
-#[test]
-fn extension_pack_manifest_schema_on_an_in_test_fixture() {
-    let dir = std::env::temp_dir().join(format!(
-        "susi_arch_pack_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let manifest = |api: &str| {
-        serde_json::json!({
-            "id": "acme-pack",
-            "name": "Acme",
-            "version": "1.0.0",
-            "apiVersion": api,
-            "capabilities": ["catalog.cloud_vendors"],
-            "permissions": [],
-            "files": {"cloud-vendors.json": "cloud-vendors.json"},
-        })
-        .to_string()
-    };
-    std::fs::write(dir.join("manifest.json"), manifest("1")).unwrap();
-    std::fs::write(
-        dir.join("cloud-vendors.json"),
-        r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
-    )
-    .unwrap();
-    let (admitted, digests) = susi_sandbox_client::extensions::validate_pack_dir(&dir)
-        .expect("fixture pack is admissible");
-    assert_eq!(admitted.id, "acme-pack");
-    assert_eq!(admitted.api_version, "1");
-    assert!(digests.contains_key("manifest.json"));
-    assert!(digests.contains_key("cloud-vendors.json"));
-    std::fs::write(dir.join("manifest.json"), manifest("2")).unwrap();
-    let err = susi_sandbox_client::extensions::validate_pack_dir(&dir)
-        .expect_err("an incompatible apiVersion major is refused");
-    assert!(err.contains("incompatible"), "{err}");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 #[test]
 fn reachability_from_core_stays_downward() {
     // From susi-core, BFS of reverse edges must not reach feature crates

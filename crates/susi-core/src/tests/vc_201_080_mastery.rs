@@ -3,8 +3,6 @@
 //! stop at admission, scopes enforcement, and rejects tampered files.
 
 use crate::emergency_stop::{EmergencyStopBus, RunningTask};
-use crate::task_manager::{SwarmTaskManager, TaskStatus};
-use std::sync::atomic::Ordering;
 
 fn task(id: &str, cancellable: bool, external: bool, scope: &str) -> RunningTask {
     RunningTask::new(id, cancellable, external, scope)
@@ -128,44 +126,4 @@ fn vc_201_080_mastery_nominal_stop_holds() {
         .unwrap()
         .rejects_new_work());
     let _ = std::fs::remove_file(&path);
-}
-
-/// Verification: EmergencyStopBus is wired into production task admission (SwarmTaskManager).
-#[test]
-fn vc_201_080_mastery_production_caller_wired() {
-    let mgr = SwarmTaskManager::global();
-    let test_scope = "isolated-estop-test-scope";
-
-    // Before stop: task registers normally and runs
-    let handle_before = mgr.register_task_scoped("job1", "test intent", Some(test_scope));
-    assert_eq!(
-        TaskStatus::from(handle_before.status.load(Ordering::Acquire)),
-        TaskStatus::Running
-    );
-    assert!(!handle_before.is_cancelled());
-
-    // Apply emergency stop to test_scope on global bus
-    EmergencyStopBus::global()
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .apply_stop(test_scope, "operator test halt");
-
-    // After stop: registering task in stopped scope immediately marks it killed and cancelled
-    let handle_after = mgr.register_task_scoped("job2", "test intent 2", Some(test_scope));
-    assert!(
-        handle_after.is_cancelled(),
-        "task in stopped scope must start cancelled"
-    );
-    assert_eq!(
-        TaskStatus::from(handle_after.status.load(Ordering::Acquire)),
-        TaskStatus::Killed,
-        "task in stopped scope must have status Killed"
-    );
-
-    // Clean up global stop
-    EmergencyStopBus::global()
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .status
-        .stop = None;
 }

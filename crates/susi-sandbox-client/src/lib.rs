@@ -150,7 +150,6 @@ pub mod manager;
 pub mod placement_audit;
 
 pub use manager::SandboxManager;
-pub use susi_config::extensions;
 pub use susi_config::versioned_store;
 pub use susi_config::VersionedJsonStore;
 

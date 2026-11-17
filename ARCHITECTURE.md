@@ -92,6 +92,17 @@ in `susi-commercial-apps`. That repository also owns `susi-daemon-runtime`,
 `susi-leaf-services` and `susi-adapters-llm`. Its `susi-agent-runtime` owns the
 broker, capture, context graph, evidence, mission trace, parallel execution,
 pattern matching, receipt archive, registry, registry IPC, truth and verification.
+The commercial agent runtime also owns transactions, intent planning and buses,
+telemetry, mission task management, memory provenance, service supervision tables,
+worktree orchestration, board transport, adapter upgrades and the pulse queue.
+Core retains the board schema and validation used by native publication checks.
+Commercial `susi-config-runtime` owns cloud eligibility/quota, extension packs,
+external peer discovery, resource admission, state migration and operator-facing
+configuration explanation/validation. It re-exports the native `SusiConfig`;
+configuration identity, socket security, credentials and storage protections stay
+with their single native owner. Native filesystem metrics needed by build tooling
+and the checkout's self-build contract also remain in core.
+
 The native `susi-core` keeps the shared wire types and generic dispatch contracts;
 commercial owners reuse those types rather than compiling a second contract copy.
 

@@ -30,8 +30,6 @@ pub use susi_abi;
 pub mod a2a_wire;
 /// Compatibility path for the GAWD Agent Client Protocol.
 pub use susi_gawd_acp as acp;
-pub mod adapter_upgrade;
-pub mod agent_tx;
 pub mod agent_types;
 pub mod audit_export;
 pub mod bus;
@@ -40,12 +38,8 @@ pub mod commit_log;
 pub mod delegation;
 pub mod egress;
 pub mod emergency_stop;
-pub mod intent_bus;
-pub mod intent_plan;
 pub use susi_config::mac_policy;
-pub mod manifold;
 pub mod mcp_client;
-pub mod memory_provenance;
 pub mod net_guard;
 pub mod pillars;
 pub use susi_config::plain_http;
@@ -53,7 +47,6 @@ pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub use susi_config::progress;
 pub mod provider;
-pub mod queue;
 pub mod untrusted_content;
 pub mod zc_egress_allowlist;
 pub use crate::susi_error::redact;
@@ -62,11 +55,6 @@ pub mod bounded_io;
 pub mod native_board;
 pub mod scoped_tools;
 pub mod self_build;
-pub mod service_table;
-pub mod substrate_hygiene;
-pub mod task_manager;
-pub mod telemetry;
-pub mod worktree_isolation;
 
 // Top-level exports for the fundamental susi-core types
 pub use acp::{
@@ -74,22 +62,15 @@ pub use acp::{
     AcpMessageRole, AcpSessionMessage, AcpSessionSummary, AcpSocketClient, AcpStopReason,
     AcpToolCallMeta, AcpTurnEvent, AcpTurnResult, ACP_PROTOCOL_VERSION, ACP_SESSION_ID_HEADER,
 };
-pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
 pub use agent_types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
     MissionBlackboard, SwarmBlackboard,
 };
-pub use intent_bus::{IntentBus, IntentKind, IntentMatch, IntentMessage};
 pub use mac_policy::{CapabilityToken, MacPolicy, PrivacyMode};
 pub use net_guard::{NetGuard, RateLimiter};
 pub use plane_bus::agents::AgentMetaRegistry;
 pub use plane_bus::{PlaneBus, PlaneHandler};
 pub use provider::Provider;
-pub use task_manager::{
-    IntentTelemetryProfile, SwarmTaskManager, TaskHandle, TaskRecord, TaskStatus,
-    TelemetryHistoryStore,
-};
-pub use telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
 
 #[cfg(test)]
 #[path = "tests/audit_action_choke_point.rs"]
@@ -109,15 +90,6 @@ mod vc_201_074_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_080_mastery.rs"]
 mod vc_201_080_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_081_mastery.rs"]
-mod vc_201_081_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_089_mastery.rs"]
-mod vc_201_089_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_089.rs"]
-mod vc_201_089_tests;
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

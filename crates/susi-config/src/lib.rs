@@ -28,17 +28,12 @@
 
 pub use susi_error;
 
-pub mod accel_reserve;
-pub mod cloud_eligibility;
 pub mod cloud_env;
-pub mod cloud_quota;
 pub mod cluster_key;
 mod config;
 pub mod credential;
 pub mod desired_state;
 pub mod disk_space;
-pub mod explain;
-pub mod extensions;
 pub mod file_lock;
 pub mod host_metrics;
 mod json_util;
@@ -56,11 +51,8 @@ pub mod process_probe;
 pub mod progress;
 pub mod protocol_json;
 pub mod secret_ref;
-pub mod setting_registry;
-pub mod state_migration;
 pub mod storage_guard;
 mod types;
-pub mod validate;
 pub mod vault_exec;
 pub mod vault_store;
 pub mod versioned_store;
@@ -69,8 +61,6 @@ pub mod versioned_store;
 pub mod windows_model_identity;
 pub mod workflow_wire;
 pub mod workload_process;
-pub mod zc_debt_report;
-pub mod zc_path;
 
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay
@@ -291,7 +281,6 @@ pub use desired_state::{
     parse_desired_state, round_trip_desired_state, validate_desired_state, DesiredRef,
     DesiredState, DESIRED_STATE_SCHEMA,
 };
-pub use explain::{explain_key, explain_key_global, ConfigLayer, ConfigOrigin, ExplainedSetting};
 pub use json_util::{
     atomic_replace_file, atomic_replace_unsynced, atomic_write_bytes, atomic_write_json_pretty,
     clear_json_override, confined_workspace_join, create_private_dir, file_node,
@@ -302,40 +291,17 @@ pub use json_util::{
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
 pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
-pub use state_migration::{migrate_state_dir, MigrationReport};
 pub use types::*;
-pub use validate::{
-    apply_fixes, validate_dir, validate_settings, ConfigFix, ConfigIssue, ConfigIssueKind,
-    ConfigValidationReport,
-};
 pub use vault_store::{SealedVault, VaultConfig};
 pub use versioned_store::VersionedJsonStore;
 
 #[cfg(test)]
 #[path = "tests/cluster_key.rs"]
 mod cluster_key_tests;
-#[cfg(test)]
-#[path = "tests/extensions.rs"]
-mod extensions_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_076_mastery.rs"]
-mod vc_201_076_mastery_tests;
 
-#[cfg(test)]
-#[path = "tests/state_migration.rs"]
-mod state_migration_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_061_mastery.rs"]
 mod vc_201_061_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_062_mastery.rs"]
-mod vc_201_062_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_065_mastery.rs"]
-mod vc_201_065_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_065.rs"]
-mod vc_201_065_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_066_mastery.rs"]
 mod vc_201_066_mastery_tests;
