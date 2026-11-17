@@ -20,5 +20,5 @@
     "searched": "The forwarding pattern of the vault move (crates/susi-config/src/vault_exec.rs run_commercial, commercial_executable) and the plug-host bus topics; core's own channel_bindings module (moved, not rewritten)."
   },
   "limitations": "Scoped sessions keep gawd.*, gemi.*, tools.* and agents.* topics in-process (core plane_bus.rs req, board 2552): any harness path a scoped session reaches needs the scope lent over the bus first (core task from commercial T-CORESIZEVAULT-15). Pillar code: Linux pass before the deletion (SusiCoreSizeVault, board 2549).",
-  "progress": "Not started."
+  "progress": "(1) done: channel_bindings (962 lines) moved from crates/susi-harness into the core library (src/channel_bindings.rs, #[doc(hidden)]), installed channel and entry test re-pointed; count unchanged. (2) and (3) not started."
 }

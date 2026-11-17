@@ -181,6 +181,9 @@ tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-windows-runtime = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-registry = { package = "susi-vendor-windows-registry", path = "crates/susi-vendor-windows-registry" }
+
 [build-dependencies]
 susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
