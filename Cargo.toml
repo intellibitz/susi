@@ -149,11 +149,6 @@ sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 
-[[test]]
-name = "harness_worker_mcp_parity"
-path = "tests/harness_worker_mcp_parity.rs"
-harness = false
-
 [dependencies]
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }

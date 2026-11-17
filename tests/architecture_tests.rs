@@ -1106,6 +1106,41 @@ fn every_non_facade_crate_has_tests() {
         let mut text = String::new();
         let mut files = Vec::new();
         rust_files(&crate_dir.join("src"), &mut files);
+        if [
+            "susi-daemon",
+            "susi-gawd",
+            "susi-gawd-agents",
+            "susi-gawd-swarm",
+            "susi-gemi",
+            "susi-gemi-models",
+            "susi-tools",
+        ]
+        .contains(&name.as_str())
+        {
+            assert_eq!(
+                files,
+                [crate_dir.join("src/lib.rs")],
+                "{name} must remain a pure protocol facade"
+            );
+            let source = std::fs::read_to_string(&files[0]).unwrap();
+            let statements = source
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    !line.is_empty() && !line.starts_with("//") && !line.starts_with("#![")
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(!statements.is_empty(), "{name} must export its protocol");
+            assert!(
+                statements
+                    .split(';')
+                    .filter(|part| !part.trim().is_empty())
+                    .all(|part| part.trim().starts_with("pub use ")),
+                "{name} contains implementation and needs original tests"
+            );
+            continue;
+        }
         rust_files(&crate_dir.join("tests"), &mut files);
         for f in files {
             text.push_str(&std::fs::read_to_string(&f).unwrap());
@@ -1280,7 +1315,7 @@ fn dev_builds_never_install_the_release_binary() {
         .unwrap_or(usize::MAX);
     let local = body.find("local_delivery_cli::execute").unwrap();
     let install = body.find("install_cli::execute").unwrap();
-    let runtime = body.find("match dispatch(cli.command)").unwrap();
+    let runtime = body.find("cli::runtime_forward::execute").unwrap();
     assert!(
         local < isolate && install < isolate && isolate < runtime,
         "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
@@ -1301,30 +1336,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
     let root = workspace_root();
     let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
 
-    for (rel, needle) in [
-        (
-            "crates/susi-gawd-agents/src/external/mod.rs",
-            "self_build::brief_task",
-        ),
-        (
-            "crates/susi-gawd-agents/src/external_peers.rs",
-            "self_build::brief_task",
-        ),
-        (
-            "crates/susi-gawd-swarm/src/dag.rs",
-            "self_build::brief_task",
-        ),
-        (
-            "crates/susi-gawd/src/patch_cycle.rs",
-            "repo_gate::run_repository_gate",
-        ),
-    ] {
-        assert!(
-            non_test(&read(rel)).contains(needle),
-            "{rel} must route through `{needle}` (Mandate 48)"
-        );
-    }
-
+    // Application code-writing paths are checked by commercial ownership_guards.
     let delivery = read("src/cli/local_delivery_cli.rs");
     assert!(delivery.contains("xtask/bootstrap/susi-dev.rs"));
     assert!(delivery.contains("bootstrap::run(args)"));
@@ -1468,16 +1480,10 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
             "actual combined release tree",
             "xtask/src/bin/local-workflow.rs",
         ),
-        (55, "return exit 2", "src/cli/intent_guard.rs"),
         (
             56,
             "rank healthy providers ahead of recent failures",
             "config/cost-tiers.json",
-        ),
-        (
-            57,
-            "max_budget_usd",
-            "crates/susi-gemi-models/src/cloud_credentials.rs",
         ),
         (
             58,
@@ -1504,6 +1510,14 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
         assert!(
             root.join(artifact).exists(),
             "Mandate {id} names enforcement `{artifact}` which does not exist"
+        );
+    }
+    // These owners moved to the commercial runtime; its ownership guard checks
+    // their enforcement artifacts while the native constitution remains pinned.
+    for (id, phrase) in [(55, "return exit 2"), (57, "max_budget_usd")] {
+        assert!(
+            text_of(id).contains(phrase),
+            "Mandate {id} must state `{phrase}`"
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
@@ -2163,22 +2177,11 @@ fn historical_evidence_is_not_shipped_or_generated_back_into_source() {
     let schema: serde_json::Value =
         serde_json::from_str(&read(".agents/schemas/evidence.schema.json")).unwrap();
     assert_eq!(schema["properties"]["entries"]["minItems"], 0);
-    for path in [
-        "build.rs",
-        "crates/susi-gawd-agents/build.rs",
-        "crates/susi-gawd-agents/src/self_core.rs",
-    ] {
-        assert!(
-            !read(path).contains(".agents/evidence.json"),
-            "{path}: history became a build input"
-        );
-    }
-    let ingestion = read("crates/susi-gawd/src/compliance.rs");
     assert!(
-        !ingestion.contains(".agents/evidence.json"),
-        "runtime history returned to source"
+        !read("build.rs").contains(".agents/evidence.json"),
+        "build.rs: history became a build input"
     );
-    assert!(ingestion.contains("susi_paths::workspace_state_dir(workspace)"));
+    // Moved build/runtime readers are checked by commercial ownership_guards.
 }
 
 /// Current entry points carry generic requirements. Historical ledgers are
@@ -2945,12 +2948,7 @@ fn enterprise_capabilities_live_in_commercial_apps() {
             "enterprise capability belongs in susi-commercial-apps: {rel}"
         );
     }
-    let handler = std::fs::read_to_string(root.join("crates/susi-gawd/src/plane_handler.rs"))
-        .expect("read GAWD plane handler");
-    assert!(
-        handler.contains("MULTI_TENANT_COMMERCIAL") && !handler.contains("tenant_isolation"),
-        "tenant-scoped plane requests must fail closed in the open substrate"
-    );
+    // The relocated handler contract is checked by commercial ownership_guards.
 }
 
 // ---------------------------------------------------------------------------

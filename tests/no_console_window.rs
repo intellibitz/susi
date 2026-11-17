@@ -536,11 +536,7 @@ const SELF_ALIAS: (&str, &str) = ("crates/susi-core/src/lib.rs", "susi_core");
 
 /// `include!` with a computed path reads code no scan can see. The exact
 /// recorded sites: `(file, count, what it includes)`. A new one fails.
-const GENERATED_INCLUDES: [(&str, usize, &str); 1] = [(
-    "crates/susi-gawd-agents/src/self_core.rs",
-    1,
-    "OUT_DIR/generated_axioms.rs, written by crates/susi-gawd-agents/build.rs (scanned)",
-)];
+const GENERATED_INCLUDES: [(&str, usize, &str); 0] = [];
 
 /// For each token, whether it is inside a `use` or `extern crate` item.
 fn import_items(tokens: &[Token]) -> Vec<Option<usize>> {
@@ -1116,7 +1112,8 @@ fn the_scan_reaches_test_build_and_tool_sources() {
         "tests/no_console_window.rs",
         "xtask/src/main.rs",
         "crates/susi-paths/src/console.rs",
-        "crates/susi-daemon/src/runtime_admin.rs",
+        "crates/susi-core/src/bounded_cmd.rs",
+        "src/cli/runtime_forward.rs",
     ] {
         assert!(files.contains(&expected), "{expected} must be scanned");
     }
