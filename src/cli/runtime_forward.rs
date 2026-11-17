@@ -5,8 +5,11 @@ use std::process::{Command, ExitCode, Stdio};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(crate) fn execute(words: &[OsString]) -> ExitCode {
-    match run(words) {
+pub(crate) fn execute(
+    words: &[OsString],
+    prepare_instance: impl FnOnce() -> std::io::Result<()>,
+) -> ExitCode {
+    match run(words, prepare_instance) {
         Ok(status) => status,
         Err(error) => {
             eprintln!("Could not run the Susi command: {error}");
@@ -15,7 +18,10 @@ pub(crate) fn execute(words: &[OsString]) -> ExitCode {
     }
 }
 
-fn run(words: &[OsString]) -> Result<ExitCode> {
+fn run(
+    words: &[OsString],
+    prepare_instance: impl FnOnce() -> std::io::Result<()>,
+) -> Result<ExitCode> {
     #[cfg(windows)]
     let paired = super::install_cli::installed_channel::paired_runtime()?;
     #[cfg(windows)]
@@ -36,6 +42,22 @@ fn run(words: &[OsString]) -> Result<ExitCode> {
     if program.canonicalize()? == launcher.canonicalize()? {
         return Err("the commercial runtime resolves to the public core launcher".into());
     }
+    // Keep the same admitted image pinned while its parser handles help and
+    // errors before allocating any instance or consuming the caller's stdin.
+    let mut parser = Command::new(&program);
+    parser
+        .arg("core-parse")
+        .args(words)
+        .env("SUSI_CORE_BIN", &launcher)
+        .env("SUSI_COMMERCIAL_BIN", &program)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut parser)?.wait()?;
+    if status.code() != Some(64) {
+        return Ok(ExitCode::from(status.code().unwrap_or(1) as u8));
+    }
+    prepare_instance()?;
     let mut command = Command::new(&program);
     command
         .arg("core-runtime")

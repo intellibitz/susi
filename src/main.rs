@@ -177,9 +177,6 @@ fn run() -> std::process::ExitCode {
             }
         };
     }
-    if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
-        eprintln!("Unable to isolate development instance: {error}");
-        return std::process::ExitCode::FAILURE;
-    }
-    cli::runtime_forward::execute(&words)
+    let prepare_instance = || dev_instance::isolate_if_dev_build(&get_home_dir());
+    cli::runtime_forward::execute(&words, prepare_instance)
 }

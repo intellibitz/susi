@@ -1377,7 +1377,6 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
             ".agents/schemas/evidence.schema.json",
         ),
         (52, "SUSI_HOME", "src/dev_instance.rs"),
-        (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
         (
             54,
             "actual combined release tree",
@@ -1417,7 +1416,11 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
     }
     // These owners moved to the commercial runtime; its ownership guard checks
     // their enforcement artifacts while the native constitution remains pinned.
-    for (id, phrase) in [(55, "return exit 2"), (57, "max_budget_usd")] {
+    for (id, phrase) in [
+        (53, "E2E_CHECKS"),
+        (55, "return exit 2"),
+        (57, "max_budget_usd"),
+    ] {
         assert!(
             text_of(id).contains(phrase),
             "Mandate {id} must state `{phrase}`"

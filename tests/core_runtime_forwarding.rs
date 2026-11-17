@@ -17,6 +17,7 @@ fn fixture(root: &Path) -> std::path::PathBuf {
 use std::{env, io::{self, Read}};
 fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "core-parse") { std::process::exit(64); }
     assert_eq!(args, ["core-runtime", "--", "a goal with spaces", "tab\targument", "literal;$()"].map(std::ffi::OsString::from));
     let mut input = String::new(); io::stdin().read_to_string(&mut input).unwrap();
     assert_eq!(input, "caller stdin\n");
@@ -48,11 +49,10 @@ fn launch(
     instance: Option<&Path>,
 ) -> std::process::Output {
     let mut command = Command::new(core);
+    susi_paths::test_env::isolate_home(&mut command, home);
     command
         .args(["--", "a goal with spaces", "tab\targument", "literal;$()"])
         .current_dir(cwd)
-        .env("HOME", home)
-        .env("USERPROFILE", home)
         .env("SUSI_COMMERCIAL_BIN", runtime)
         .env("SUSI_FORWARD_TEST_CALLER", "verbatim value")
         .env("SUSI_XDG", "1")
@@ -129,18 +129,18 @@ fn complete_invocation_preserves_native_process_contract_and_instance() {
 }
 
 #[test]
-fn parser_errors_and_help_create_no_runtime_instance() {
+fn bootstrap_parser_errors_and_help_create_no_runtime_instance() {
     let temp = susi_paths::tempfile::tempdir().unwrap();
     let root = temp.path();
     for args in [
-        vec!["models", "--invalid"],
-        vec!["agents", "--help"],
+        vec!["install", "--invalid"],
+        vec!["install", "--help"],
         vec!["--help"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
+        susi_paths::test_env::isolate_home(&mut command, root);
+        let output = command
             .args(&args)
-            .env("HOME", root)
-            .env("USERPROFILE", root)
             .env_remove("SUSI_HOME")
             .env_remove("SUSI_INSTALLED_RELEASE")
             .env_remove("SUSI_WORKER_GUARD")
@@ -169,10 +169,10 @@ fn non_unicode_arguments_keep_the_public_refusal_before_runtime_launch() {
         std::ffi::OsString::from_wide(&[0xdcff])
     };
     let temp = susi_paths::tempfile::tempdir().unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
+    susi_paths::test_env::isolate_home(&mut command, temp.path());
+    let result = command
         .arg(argument)
-        .env("HOME", temp.path())
-        .env("USERPROFILE", temp.path())
         .env_remove("SUSI_INSTALLED_RELEASE")
         .env("SUSI_COMMERCIAL_BIN", temp.path().join("missing-runtime"))
         .output()

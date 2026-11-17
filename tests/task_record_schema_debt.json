@@ -3,7 +3,6 @@
   "source_commit": "fa616c19632049b657ad924285fb5eebbcde93d9",
   "note": "Unresolved legacy task records, pinned by SHA-256 after CRLF-to-LF normalization only. Remove entries when repaired or deleted. Do not add or refresh entries to permit new invalid data. This snapshot is not acceptance evidence.",
   "records": {
-    ".agents/tasks/T-CHANNELGUARD-1.json": "6825580870a05c298c4685c91f1ed08afcb734c064b9626910a51c9dece5f31d",
     ".agents/tasks/T-COUNT1102-1.json": "300432a49447952294df16a25a33369eef4755972e307d10e1d0e6824f863525",
     ".agents/tasks/T-MODELREAD-1.json": "53e954782abddddb6e02978fc3ba89ef444cfd36c639b599538b14f6bae6cfea",
     ".agents/tasks/T-STEP1ACCEPTANCE-1.json": "9b0b69e5e318d2e9addc05a2f1c061560fd094b2535a0bbb46ae69496d29a649",

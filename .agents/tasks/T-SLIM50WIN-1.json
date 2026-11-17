@@ -1,11 +1,12 @@
 {
   "id": "T-SLIM50WIN-1",
   "native_worker": "slim50-win",
-  "title": "Admit the reduced native socket through complete Windows source gates",
+  "title": "Admit the reduced native socket through complete platform source gates",
   "goal": "Core below 50k and production-qualified shipped both repositories on Windows and Linux",
   "size": "l",
   "status": "in_progress",
   "created_by": "SLIM17LEDGER",
+  "created_unix": 1794957382,
   "scopes": [
     ".agents",
     ".cargo",
