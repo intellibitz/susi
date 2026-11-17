@@ -451,6 +451,7 @@ fn main() {
     let strict_mac = MacPolicy::new([5u8; 32], PrivacyMode::LocalOnly, false);
     assert!(authorize_mcp_transport(&parsed_cfg.mcp_servers["stdio_ref"], &strict_mac).expect_err("deny stdio").contains(actions::PROCESS_EXEC));
     assert_eq!(authorize_mcp_transport(&parsed_cfg.mcp_servers["http_ref"], &strict_mac), Ok(()));
+    mcp_plug_double::serve();
     assert!(GmcpClient::execute_external_tool_result("http_ref", "*", "{}").expect("wildcard").contains("http_ref:summarize_items"));
     assert!(GmcpClient::execute_external_tool_result("http_ref", "summarize_items", &sum_args.to_string()).expect("ext call").contains("integ"));
     let run_cli = |args: &[&str]| -> std::process::Output {
