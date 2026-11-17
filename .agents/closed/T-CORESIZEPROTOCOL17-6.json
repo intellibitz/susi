@@ -1,0 +1,13 @@
+{
+  "branch": "coresize-protocol-17",
+  "task": "T-CORESIZEPROTOCOL17-6",
+  "agent": "CORESIZEPROTOCOL17",
+  "head": "8044926f2390d8e066cd2f7c14fbfee3a25ddbd7",
+  "closed_unix": 1794912703,
+  "scopes": [
+    "crates/susi-tools/src/mcp_budget.rs",
+    "crates/susi-tools/src/tests/mcp_budget.rs",
+    "tests/lean_core_ceilings.rs",
+    ".agents/tasks/T-CORESIZEPROTOCOL17-6.json"
+  ]
+}
