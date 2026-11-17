@@ -122,7 +122,6 @@ fn no_production_code_sends_or_answers_the_retired_unbound_pings() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     for rel in [
         "crates/susi-config/src/cluster_key.rs",
-        "crates/susi-core/src/peer_probe.rs",
         "crates/susi-daemon/src/server.rs",
         "crates/susi-gawd/src/kernel_loader.rs",
         "crates/susi-gawd-swarm/src/amas.rs",

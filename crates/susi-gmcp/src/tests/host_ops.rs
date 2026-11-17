@@ -236,43 +236,76 @@ fn audit_tools_read_the_server_workspace_chain() {
     let _ = std::fs::remove_dir_all(&ws);
 }
 
+/// Stands in for Susi Commercial Apps on `fleet.cluster.v1`: echoes the
+/// action and its args, and refuses as the real roster and ledger do.
+struct Cluster;
+impl PlaneHandler for Cluster {
+    fn handle(
+        &self,
+        _topic: &str,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let action = payload["action"].as_str().unwrap_or_default().to_string();
+        Ok(match action.as_str() {
+            "commits_show" => {
+                json!({"error": "no commit record with epoch prefix `ffff`", "kind": "config"})
+            }
+            "peers_probe" => json!({"error": "no signed pong", "kind": "network"}),
+            "commits_compact" => json!({"error": "ledger locked", "kind": "internal"}),
+            "peers_remove" => json!({"result_error": "no verified peer", "lines": [], "notes": []}),
+            "peers_rekey" => {
+                json!({"result_error": "rekey aborted", "lines": [], "notes": ["staged 0/1"]})
+            }
+            "peers_add" | "peers_unban" => {
+                json!({"result_error": null, "lines": ["done"], "notes": []})
+            }
+            _ => json!({"action": action, "args": payload["args"]}),
+        })
+    }
+}
+
 #[test]
-fn ledger_and_roster_tools_return_the_cli_documents_for_a_standalone_node() {
-    let _lock = crate::susi_core::commit_log::ENV_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let home = temp_dir("roster-home");
-    let mut env = susi_paths::test_env::EnvGuard::isolated();
-    env.set("SUSI_HOME", &home);
+fn ledger_and_roster_tools_forward_to_fleet_cluster_and_keep_their_errors() {
+    PlaneBus::global().register(topics::FLEET_CLUSTER, Arc::new(Cluster));
     let ws = Path::new(".");
-    let listed = doc(CoreTools::peers_list(&json!({}), ws));
-    assert_eq!(
-        listed,
-        crate::susi_core::peer_roster::list_report().unwrap()
+    for (action, answer) in [
+        ("peers_list", CoreTools::peers_list(&json!({}), ws)),
+        ("peers_status", CoreTools::peers_status(&json!({}), ws)),
+        ("commits_audit", CoreTools::commits_audit(&json!({}), ws)),
+        ("commits_replay", CoreTools::commits_replay(&json!({}), ws)),
+        ("commits_sync", CoreTools::commits_sync(&json!({}), ws)),
+    ] {
+        assert_eq!(doc(answer)["action"], action);
+    }
+    // Each refusal keeps the error class the tool raised before the move.
+    let shown = CoreTools::commits_show(&json!({"epoch": "ffff"}), ws).unwrap_err();
+    assert!(matches!(shown, EaiError::Config(..)), "{shown}");
+    assert!(shown.to_string().contains("ffff"));
+    let probed = CoreTools::peers_probe(&json!({"host": "h", "port": 9192}), ws).unwrap_err();
+    assert!(matches!(probed, EaiError::Network(..)), "{probed}");
+    let compacted = CoreTools::commits_compact(&json!({}), ws).unwrap_err();
+    assert!(matches!(compacted, EaiError::Internal(..)), "{compacted}");
+    // Arguments are still checked here before anything is sent.
+    assert!(CoreTools::commits_show(&json!({}), ws).is_err());
+    assert!(CoreTools::peers_probe(&json!({"host": "h", "port": 70000}), ws).is_err());
+    assert!(CoreTools::peers_add(&json!({}), ws).is_err());
+    assert!(
+        CoreTools::peers_add(&json!({"host": "h", "port": 70000}), ws)
+            .unwrap_err()
+            .to_string()
+            .contains("port")
     );
-    assert_eq!(listed["peers"], json!([]));
-    let rows = doc(CoreTools::peers_status(&json!({}), ws));
-    assert_eq!(rows.as_array().unwrap().len(), 1);
-    assert_eq!(rows[0]["self"], true);
-    let audit = doc(CoreTools::commits_audit(&json!({}), ws));
-    assert_eq!(audit, crate::susi_core::commit_log_report::audit_report());
-    assert_eq!(audit["ok"], true);
-    let replay = doc(CoreTools::commits_replay(&json!({}), ws));
-    assert_eq!(replay["decisions"], 0);
-    let missing = CoreTools::commits_show(&json!({"epoch": "ffff"}), ws).unwrap_err();
-    assert!(missing.to_string().contains("no commit record"));
-    let sync = doc(CoreTools::commits_sync(&json!({}), ws));
-    assert!(sync["note"].as_str().unwrap().contains("nothing to sync"));
-    assert_eq!(
-        doc(CoreTools::commits_compact(&json!({}), ws))["archived"],
-        0
-    );
-    let cleaned = doc(CoreTools::clean(&json!({}), ws));
-    assert_eq!(cleaned["removed_count"], 0);
-    let plan = doc(CoreTools::setup_plan(&json!({}), ws));
-    assert!(plan["keys_present"].is_array(), "{plan}");
-    drop(env);
-    let _ = std::fs::remove_dir_all(&home);
+    assert!(CoreTools::peers_remove(&json!({"peer": ""}), ws).is_err());
+    assert!(CoreTools::peers_rekey(&json!({"force": "yes"}), ws).is_err());
+    assert!(CoreTools::extensions_create(&json!({}), ws).is_err());
+    // Membership answers keep their {ok, lines, notes, error} document.
+    let added = doc(CoreTools::peers_add(&json!({"host": "h"}), ws));
+    assert_eq!(added["ok"], true);
+    assert_eq!(added["lines"], json!(["done"]));
+    let rekeyed = doc(CoreTools::peers_rekey(&json!({"force": false}), ws));
+    assert_eq!(rekeyed["ok"], false);
+    assert_eq!(rekeyed["error"], "rekey aborted");
+    assert!(CoreTools::peers_remove(&json!({"peer": "n1"}), ws).is_err());
 }
 
 #[test]

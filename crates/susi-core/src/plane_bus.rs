@@ -87,6 +87,9 @@ pub mod topics {
     /// `susi top --json`'s unified operator state for a workspace.
     /// Served by Susi Commercial Apps (`susi top`); outside `gemi.`, so scoped sessions reach it.
     pub const OPERATOR_SNAPSHOT: &str = "ecosystem_hub.operator.snapshot.v1";
+    /// The cluster roster and commit ledger behind GMCP's `peers_*` and `commits_*` tools.
+    /// Served by Susi Commercial Apps (Fleet Command); outside the pillar prefixes.
+    pub const FLEET_CLUSTER: &str = "fleet.cluster.v1";
     /// `susi ecosystem start <id>`: start an installed local AI engine.
     pub const GEMI_ECOSYSTEM_START: &str = "gemi.ecosystem.start";
     /// `susi ecosystem kb <list|show|search|check>`: the cloud-AI-ecosystem
@@ -441,6 +444,14 @@ pub fn with_watched<T>(payload: &Value, call: impl FnOnce() -> T) -> T {
     crate::progress::with_sink(Some(sink), || {
         crate::progress::with_cancel(Some(cancel_flag), call)
     })
+}
+/// A GMCP cluster tool's `action` with its `args`, answered on
+/// [`topics::FLEET_CLUSTER`] by Susi Commercial Apps.
+pub fn fleet_cluster(action: &str, args: Value) -> Result<Value, String> {
+    req(
+        topics::FLEET_CLUSTER,
+        json!({ "action": action, "args": args }),
+    )
 }
 // ── Gemi facade (call sites use these instead of `susi_gemi::*`) ──────────
 pub mod gemi {

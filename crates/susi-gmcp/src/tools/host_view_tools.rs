@@ -6,8 +6,9 @@
 //! `susi admin reload|provider-contract|intent-ladder` and `susi stop`.
 //!
 //! Each tool calls the library function its CLI command calls: directly
-//! when it lives in a crate this one depends on (`susi_core::peer_admin`,
-//! `susi_config::extensions`, the GEMI model facade), otherwise over the
+//! when it lives in a crate this one depends on (`susi_config::extensions`,
+//! the GEMI model facade), over `fleet.cluster.v1` for the membership
+//! commands Susi Commercial Apps serves, otherwise over the
 //! daemon's `daemon.host` plane topic (`susi_daemon::host_views` and the
 //! view modules it dispatches to). A workspace the caller names stands in
 //! for the CLI's working directory and is admitted by the MAC policy.
@@ -16,7 +17,6 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::susi_config::extensions;
-use crate::susi_core::peer_admin;
 use crate::susi_core::plane_bus::{daemon, gemi};
 use crate::susi_error::{EaiError, EaiResult};
 
@@ -24,13 +24,26 @@ use super::forward::plane_tools;
 use super::forward::{forward, policy_workspace, pretty, required_str, Kind};
 use super::CoreTools;
 
-/// Run a membership command and return `{ok, lines, notes, error}`: the
-/// lines it printed, its notes, and its refusal when it failed (the lines
-/// before a refusal still say what happened).
-fn membership(run: impl FnOnce(peer_admin::Out<'_>) -> Result<(), String>) -> EaiResult<String> {
-    let (result, lines, notes) = peer_admin::collect(run);
-    let error = result.as_ref().err().cloned();
-    if let (Some(error), true) = (&error, lines.is_empty() && notes.is_empty()) {
+/// Run a membership command in Susi Commercial Apps (`fleet.cluster.v1`)
+/// and return `{ok, lines, notes, error}`: the lines it printed, its notes,
+/// and its refusal when it failed (the lines before a refusal still say what
+/// happened).
+fn membership(action: &str, args: Value) -> EaiResult<String> {
+    membership_doc(&super::host_ops::cluster_report(action, args)?)
+}
+
+/// Shape a membership answer `{result_error, lines, notes}` as the tool's
+/// document; a refusal with nothing printed is the tool's error.
+fn membership_doc(answer: &Value) -> EaiResult<String> {
+    let lines = answer.get("lines").cloned().unwrap_or_else(|| json!([]));
+    let notes = answer.get("notes").cloned().unwrap_or_else(|| json!([]));
+    let error = answer
+        .get("result_error")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let silent =
+        lines.as_array().is_none_or(Vec::is_empty) && notes.as_array().is_none_or(Vec::is_empty);
+    if let (Some(error), true) = (&error, silent) {
         return Err(EaiError::config(error.clone()));
     }
     pretty(&json!({
@@ -77,17 +90,17 @@ impl CoreTools {
                     .ok_or_else(|| EaiError::config("port must be 0-65535"))?,
             ),
         };
-        membership(|out| peer_admin::add(out, &host, port))
+        membership("peers_add", json!({ "host": host, "port": port }))
     }
 
     pub fn peers_remove(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let peer = required_str(arg, "peer")?.to_string();
-        membership(|out| peer_admin::remove(out, &peer))
+        membership("peers_remove", json!({ "peer": peer }))
     }
 
     pub fn peers_unban(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let peer = required_str(arg, "peer")?.to_string();
-        membership(|out| peer_admin::unban(out, &peer))
+        membership("peers_unban", json!({ "peer": peer }))
     }
 
     pub fn peers_rekey(arg: &Value, _workspace: &Path) -> EaiResult<String> {
@@ -97,7 +110,7 @@ impl CoreTools {
                 .as_bool()
                 .ok_or_else(|| EaiError::config("force must be a boolean"))?,
         };
-        membership(|out| peer_admin::rekey(out, force))
+        membership("peers_rekey", json!({ "force": force }))
     }
 
     // ── 10. Lifecycle ──────────────────────────────────────────────────
