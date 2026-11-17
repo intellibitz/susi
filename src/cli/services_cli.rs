@@ -77,9 +77,8 @@ fn status(json: bool) -> Result<()> {
 }
 
 /// Operator control of a supervised service: one implementation with the
-/// MCP `services_*` tools (`susi_daemon::service_control`), which keeps the
-/// supervised-only and daemon-running guards and terminates with the
-/// platform's own process tool on every OS.
+/// MCP `services_*` tools (`susi_daemon::service_control`), which forwards
+/// to `susi-plug-host` on `daemon.services.control`.
 fn control(action: &str, name: &str) -> Result<()> {
     let report =
         susi_daemon::service_control::control(action, name).map_err(crate::anyhow::Error::msg)?;
