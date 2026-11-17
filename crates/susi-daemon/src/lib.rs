@@ -46,6 +46,7 @@ pub mod os_status;
 pub mod peer_channel_host;
 pub mod plane_handler;
 pub use susi_daemon_runtime::port_fallback;
+mod operator_args;
 pub mod privacy;
 pub mod provider_ops;
 pub use susi_daemon_runtime::resource_governor;

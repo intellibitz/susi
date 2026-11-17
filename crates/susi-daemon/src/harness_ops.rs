@@ -11,6 +11,7 @@
 //! A run is long: `run` starts it on a daemon thread and returns at once;
 //! `runs` and `status` (with the run's `state`) report its progress.
 
+use crate::operator_args::{absolute, field, msg, number};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,36 +34,6 @@ type R<T> = Result<T, String>;
 const PERM_HARNESS_READ: &str = "harness:read";
 const PERM_HARNESS_PLAN: &str = "harness:plan";
 const PERM_HARNESS_RUN: &str = "harness:run";
-
-fn msg(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
-
-fn field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-}
-
-fn number(payload: &Value, key: &str) -> Option<u64> {
-    payload.get(key).and_then(Value::as_u64)
-}
-
-/// An absolute path argument (the socket has no caller working directory).
-fn absolute(payload: &Value, key: &str) -> R<Option<PathBuf>> {
-    let Some(text) = field(payload, key) else {
-        return Ok(None);
-    };
-    let path = PathBuf::from(text);
-    if !path.is_absolute() {
-        return Err(format!(
-            "{key} must be an absolute path (the socket has no caller working directory)"
-        ));
-    }
-    Ok(Some(path))
-}
 
 fn required_path(payload: &Value, key: &str) -> R<PathBuf> {
     absolute(payload, key)?.ok_or_else(|| format!("{key} is required"))

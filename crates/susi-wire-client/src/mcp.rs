@@ -245,7 +245,61 @@ pub struct Session {
     open: bool,
 }
 
+/// Walk the revision-independent cursor sequence while each transport validates its page.
+pub(super) fn catalog_pages(
+    method: &str,
+    mut read_page: impl FnMut(&Value, &mut Vec<Value>) -> Result<Value, WireError>,
+) -> Result<Vec<Value>, WireError> {
+    let mut items = Vec::new();
+    let mut params = json!({});
+    let mut cursors = BTreeSet::new();
+    for _ in 0..MAX_PAGINATION_PAGES {
+        let result = read_page(&params, &mut items)?;
+        let cursor = result
+            .get("nextCursor")
+            .or_else(|| result.get("next_cursor"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty());
+        match cursor {
+            None => return Ok(items),
+            Some(c) if cursors.insert(c.to_owned()) => params = json!({"cursor": c}),
+            Some(c) => {
+                return Err(WireError::Protocol(format!(
+                    "{method} repeated pagination cursor {c:?}"
+                )))
+            }
+        }
+    }
+    Err(WireError::Protocol(format!(
+        "{method} exceeded {MAX_PAGINATION_PAGES} pagination pages"
+    )))
+}
+
 impl Session {
+    fn new_http(
+        addr: &str,
+        bearer: Option<&str>,
+        timeout: Duration,
+        version: &str,
+    ) -> Result<Self, WireError> {
+        let (host, port) = split_addr(addr)?;
+        ensure_loopback(&host, port)?;
+        Ok(Self {
+            host,
+            port,
+            bearer: bearer.map(str::to_string),
+            id: String::new(),
+            version: version.to_owned(),
+            server_info: json!({}),
+            server_capabilities: json!({}),
+            subscribed_uris: BTreeSet::new(),
+            last_challenge: std::sync::Mutex::new(None),
+            timeout,
+            next_id: 1,
+            open: false,
+        })
+    }
+
     pub fn open(addr: &str, bearer: Option<&str>, timeout: Duration) -> Result<Self, WireError> {
         Self::open_with_capabilities(addr, bearer, &json!({}), timeout)
     }
@@ -286,22 +340,7 @@ impl Session {
                 "clientInfo name and version must be non-empty".into(),
             ));
         }
-        let (host, port) = split_addr(addr)?;
-        ensure_loopback(&host, port)?;
-        let mut session = Self {
-            host,
-            port,
-            bearer: bearer.map(str::to_string),
-            id: String::new(),
-            version: String::new(),
-            server_info: json!({}),
-            server_capabilities: json!({}),
-            subscribed_uris: BTreeSet::new(),
-            last_challenge: std::sync::Mutex::new(None),
-            timeout,
-            next_id: 1,
-            open: false,
-        };
+        let mut session = Self::new_http(addr, bearer, timeout, "")?;
         let init = session.post(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": PROTOCOL_VERSION, "capabilities": capabilities, "clientInfo": {"name": client_info.0, "version": client_info.1}}}))?;
         session.next_id = 2;
         session.id = init
@@ -329,22 +368,7 @@ impl Session {
         bearer: Option<&str>,
         timeout: Duration,
     ) -> Result<Self, WireError> {
-        let (host, port) = split_addr(addr)?;
-        ensure_loopback(&host, port)?;
-        let mut session = Self {
-            host,
-            port,
-            bearer: bearer.map(str::to_string),
-            id: String::new(),
-            version: PROTOCOL_VERSION_2026_07_28.to_string(),
-            server_info: json!({}),
-            server_capabilities: json!({}),
-            subscribed_uris: BTreeSet::new(),
-            last_challenge: std::sync::Mutex::new(None),
-            timeout,
-            next_id: 1,
-            open: false,
-        };
+        let mut session = Self::new_http(addr, bearer, timeout, PROTOCOL_VERSION_2026_07_28)?;
         let discover = session.request_with_capabilities(
             "server/discover",
             &json!({}),
@@ -925,12 +949,13 @@ impl Session {
         }
     }
 
-    fn list_paginated(&mut self, method: &str, array_key: &str) -> Result<Vec<Value>, WireError> {
-        let mut params = json!({});
-        let mut items = Vec::new();
-        let mut seen_cursors = BTreeSet::new();
-        for _ in 0..MAX_PAGINATION_PAGES {
-            let result = self.request(method, &params, &mut |_| {})?;
+    pub(super) fn list_paginated(
+        &mut self,
+        method: &str,
+        array_key: &str,
+    ) -> Result<Vec<Value>, WireError> {
+        catalog_pages(method, |params, items| {
+            let result = self.request(method, params, &mut |_| {})?;
             let page = result
                 .get(array_key)
                 .and_then(Value::as_array)
@@ -938,26 +963,8 @@ impl Session {
                     WireError::Protocol(format!("{method} response missing `{array_key}` array"))
                 })?;
             items.extend(page.iter().cloned());
-            let cursor = result
-                .get("nextCursor")
-                .or_else(|| result.get("next_cursor"))
-                .and_then(Value::as_str)
-                .filter(|c| !c.is_empty());
-            match cursor {
-                Some(c) => {
-                    if !seen_cursors.insert(c.to_string()) {
-                        return Err(WireError::Protocol(format!(
-                            "{method} repeated pagination cursor {c:?}"
-                        )));
-                    }
-                    params = json!({ "cursor": c });
-                }
-                None => return Ok(items),
-            }
-        }
-        Err(WireError::Protocol(format!(
-            "{method} exceeded {MAX_PAGINATION_PAGES} pagination pages"
-        )))
+            Ok(result)
+        })
     }
 
     /// List all tools across cursor pages (`HOST-004`).

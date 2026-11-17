@@ -1,7 +1,7 @@
 //! The native in-process autonomous coding worker.
 //!
 //! A Rust multi-turn loop that talks to the metered gateway and dispatches
-//! workspace operations through the tool registry and its installed providers.
+//! workspace operations through the tool registry and its admitted implementations.
 //!
 //! The tool surface is the registry in [`crate::tools`], not a match arm here:
 //! the worker declares what the registry holds and runs it through the same

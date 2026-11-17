@@ -2,21 +2,14 @@
 
 use crate::susi_core::audit_export::{AuditAction, AuditChokePoint, AuditOutcome, AuditSink};
 use crate::susi_core::plane_bus::topics;
-use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
+use crate::susi_core::plane_bus::{workspace_path, PlaneBus, PlaneHandler};
 use crate::susi_error::EaiResult;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
+use susi_config::JsonFields as _;
 
 pub struct GawdPlaneHandler;
-
-fn workspace_path(payload: &Value) -> PathBuf {
-    payload
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 
 /// Run `mission` as the user's own request: like `susi <goal>` in process
 /// (`SusiMasterAgent::solve_stream_report`), it may start a stopped local
@@ -79,18 +72,14 @@ impl PlaneHandler for GawdPlaneHandler {
         crate::init_hooks();
         match topic {
             topics::GAWD_SOLVE => {
-                let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+                let intent = payload.field_str("intent").unwrap_or("");
                 let ws = workspace_path(&payload);
                 let version = payload
-                    .get("version")
-                    .and_then(|v| v.as_str())
+                    .field_str("version")
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
-                let model = payload.get("model").and_then(|v| v.as_str());
-                let generative = payload
-                    .get("generative")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let requires = payload.get("requires").and_then(|v| v.as_str());
+                let model = payload.field_str("model");
+                let generative = payload.field_bool("generative").unwrap_or(false);
+                let requires = payload.field_str("requires");
                 let chat = payload.get("chat").cloned();
                 if payload.get("tenant_id").is_some() {
                     return Ok(json!({ "error": MULTI_TENANT_COMMERCIAL }));
@@ -108,7 +97,7 @@ impl PlaneHandler for GawdPlaneHandler {
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_MISSION_RUN => {
-                let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+                let intent = payload.field_str("intent").unwrap_or("");
                 if intent.trim().is_empty() {
                     return Ok(json!({ "error": "intent is required" }));
                 }
@@ -117,10 +106,9 @@ impl PlaneHandler for GawdPlaneHandler {
                 }
                 let ws = workspace_path(&payload);
                 let version = payload
-                    .get("version")
-                    .and_then(|v| v.as_str())
+                    .field_str("version")
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
-                let model = payload.get("model").and_then(|v| v.as_str());
+                let model = payload.field_str("model");
                 // A watched forwarded goal streams its progress lines back and
                 // observes cooperative cancellation at phase boundaries.
                 let report = crate::susi_core::plane_bus::with_watched(&payload, || {
@@ -137,18 +125,16 @@ impl PlaneHandler for GawdPlaneHandler {
                 Ok(mission_outcome(&report))
             }
             topics::GAWD_PLAN_AUTONOMOUS => {
-                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let goal = payload.field_str("goal").unwrap_or("");
                 if goal.trim().is_empty() {
                     return Ok(json!({ "error": "goal is required" }));
                 }
                 let ws = workspace_path(&payload);
                 let version = payload
-                    .get("version")
-                    .and_then(|v| v.as_str())
+                    .field_str("version")
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
                 let max_steps = payload
-                    .get("max_steps")
-                    .and_then(|v| v.as_u64())
+                    .field_u64("max_steps")
                     .and_then(|n| u32::try_from(n).ok())
                     .unwrap_or(3);
                 match crate::ama::SusiMasterAgent::new()
@@ -159,7 +145,7 @@ impl PlaneHandler for GawdPlaneHandler {
                 }
             }
             topics::GAWD_PULSE_INGEST => {
-                let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+                let intent = payload.field_str("intent").unwrap_or("");
                 let ws = workspace_path(&payload);
                 match crate::compliance::SusiAdmin::ingest_natural_intent(&ws, intent) {
                     Ok(text) => Ok(json!({ "text": text })),
@@ -201,15 +187,15 @@ impl PlaneHandler for GawdPlaneHandler {
                 }
             }
             topics::GAWD_SANITIZE => {
-                let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
+                let input = payload.field_str("input").unwrap_or("");
                 match crate::ama::SusiMasterAgent::sanitize_input(input) {
                     Ok(text) => Ok(json!({ "text": text })),
                     Err(e) => Ok(json!({ "error": e.to_string() })),
                 }
             }
             topics::GAWD_AUDIT_ACTION => {
-                let tool = payload.get("tool").and_then(|v| v.as_str()).unwrap_or("");
-                let detail = payload.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+                let tool = payload.field_str("tool").unwrap_or("");
+                let detail = payload.field_str("detail").unwrap_or("");
                 let ws = workspace_path(&payload);
                 if payload.get("tenant_id").is_some() {
                     return Ok(json!({ "error": MULTI_TENANT_COMMERCIAL }));
@@ -240,17 +226,13 @@ impl PlaneHandler for GawdPlaneHandler {
             }
             topics::GAWD_PATCH => {
                 let ws = workspace_path(&payload);
-                let trust = payload
-                    .get("trust_level")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("manual");
+                let trust = payload.field_str("trust_level").unwrap_or("manual");
                 let request: crate::patch_cycle::PatchRequest = if payload.get("files").is_some() {
                     serde_json::from_value(payload.clone())
                         .map_err(|e| format!("invalid patch payload: {e}"))?
                 } else {
                     let request_json = payload
-                        .get("request_json")
-                        .and_then(|v| v.as_str())
+                        .field_str("request_json")
                         .ok_or("request_json or files required")?;
                     serde_json::from_str(request_json)
                         .map_err(|e| format!("invalid patch request JSON: {e}"))?
@@ -273,10 +255,7 @@ impl PlaneHandler for GawdPlaneHandler {
             }
             "gawd.auth.mint_aic" => {
                 // Phase 3: BYOA (Bring Your Own Agent) Identity Registration
-                let agent_id = payload
-                    .get("agent_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("anonymous_agent");
+                let agent_id = payload.field_str("agent_id").unwrap_or("anonymous_agent");
                 let requested_caps = payload
                     .get("requested_capabilities")
                     .and_then(|v| v.as_array())
@@ -321,7 +300,7 @@ impl PlaneHandler for GawdPlaneHandler {
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_CAPABILITY_GAP => {
-                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let name = payload.field_str("name").unwrap_or("");
                 let ws = workspace_path(&payload);
                 use crate::reflex_synth::ReflexSynthesizer;
                 let outcome = ReflexSynthesizer::synthesize_capability(name, &ws);
@@ -329,16 +308,13 @@ impl PlaneHandler for GawdPlaneHandler {
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_LOCK_BROADCAST => {
-                let resource_id = payload
-                    .get("resource_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let resource_id = payload.field_str("resource_id").unwrap_or("");
                 Ok(json!({
                     "ok": crate::amas::SusiSupervisor::broadcast_lock_request(resource_id)
                 }))
             }
             topics::GAWD_SCHEDULER_RECENT => {
-                let limit = payload.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                let limit = payload.field_u64("limit").unwrap_or(20) as usize;
                 let mut decisions =
                     susi_gawd_agents::scheduler::MissionScheduler::recent_decisions();
                 decisions.truncate(limit);
@@ -371,10 +347,9 @@ impl PlaneHandler for GawdPlaneHandler {
             "gawd.mission.rollback" => {
                 let ws = workspace_path(&payload);
                 let mission_id = payload
-                    .get("mission_id")
-                    .and_then(|v| v.as_str())
+                    .field_str("mission_id")
                     .ok_or("mission_id required")?;
-                let snapshot = payload.get("snapshot").and_then(|v| v.as_str());
+                let snapshot = payload.field_str("snapshot");
                 let now = susi_paths::unix_epoch_elapsed().as_secs();
                 match susi_gawd_swarm::mission_resume::rollback_mission(
                     &ws, mission_id, snapshot, now,

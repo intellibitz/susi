@@ -204,10 +204,12 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = base
-            .canonicalize()
-            .unwrap()
-            .join(format!("{label}-{}-{serial}", std::process::id()));
+        // Git for Windows rejects the verbatim path returned by canonicalize.
+        #[cfg(windows)]
+        let base = std::path::absolute(&base).unwrap();
+        #[cfg(not(windows))]
+        let base = base.canonicalize().unwrap();
+        let root = base.join(format!("{label}-{}-{serial}", std::process::id()));
         let fx = Self {
             repo: root.join("repo"),
             home: root.join("home"),
@@ -274,8 +276,13 @@ impl Fixture {
         fx.assert_local_remotes();
         let source = fx.root.join("mcp_child.rs");
         fs::write(&source, include_str!("acp_mcp_bridge/mcp_child.rs")).unwrap();
-        let out = fx
-            .command("rustc")
+        let mut compiler = fx.command("rustc");
+        #[cfg(windows)]
+        if let Some(program_data) = std::env::var_os("ProgramData") {
+            // rustc discovers the installed MSVC linker through its instance catalog.
+            compiler.env("ProgramData", program_data);
+        }
+        let out = compiler
             .args(["--edition=2021", "--crate-name", "acp_mcp_fixture"])
             .arg(source)
             .arg("-o")

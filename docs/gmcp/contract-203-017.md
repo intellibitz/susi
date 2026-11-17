@@ -358,7 +358,7 @@ authorities pinned in `.agents/gmcp/sources.json` and vendored under `.agents/gm
 ## Operations and non-claims
 
 - **Rollout & per-server isolation boundary**: `McpHost` isolates transport sessions, `HostPolicy` client identities/principals, `file://` root allow-lists, MRTR callback handlers, active SSE subscriptions, notification ring buffers, and `PersistedTaskHandleStore` files per server handle. Disconnecting, disabling, or resetting one server never interrupts sibling connected servers or mutates caller transcripts.
-- **Headless Core vs. Commercial UI boundary**: Susi Core ships the complete protocol-level MCP host, session engine, callback broker, headless `ui://` MCP Apps metadata/CSP validator, and `susi mcp` CLI with zero vendor MCP SDK crates (`rmcp`, `schemars`, `axum`, `tower`, `reqwest`, `ureq` absent), while interactive WebView/graphical MCP Apps surfaces live in Susi Commercial Apps (`intellibitz/susi-commercial-apps`).
+- **Headless Core vs. Commercial UI boundary**: Susi Core ships the complete protocol-level MCP host, session engine, callback broker, headless `ui://` MCP Apps metadata/CSP validator, and `susi mcp` CLI with zero vendor MCP SDK crates (`rmcp`, `schemars`, `axum`, `tower`, `reqwest`, `ureq` absent), while interactive WebView/graphical MCP Apps surfaces live in Susi Commercial Apps.
 
 ## Operations and incident runbook
 
@@ -434,5 +434,5 @@ Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), cro
 ### Production guarantees and non-claims
 
 - Production guarantees cover `crates/susi-wire-client/src/{host,mcp}.rs`, `crates/susi-tools/src/{mcp_budget,client,config,leading_mcp}.rs`, `crates/susi-core/src/mcp_client.rs`, `src/cli/mcp_cli.rs`, and `crates/susi-cli-defs/src/mcp.rs` (`HOST-001`..`HOST-018`).
-- Non-claim: Susi Core validates MCP Apps (`io.modelcontextprotocol/apps`) negotiation, `ui://` resource payloads, CSP, permissions, and domain metadata headlessly; sandboxed browser/WebView rendering surfaces live exclusively in `intellibitz/susi-commercial-apps`.
+- Non-claim: Susi Core validates MCP Apps (`io.modelcontextprotocol/apps`) negotiation, `ui://` resource payloads, CSP, permissions, and domain metadata headlessly; sandboxed browser/WebView rendering surfaces live exclusively in Susi Commercial Apps.
 - Non-claim: Direct Unix-domain socket host/server transport checks compile under `#[cfg(unix)]`, while TCP loopback Streamable HTTP and stdio child/duplex transports run across both Linux and Windows x86_64 hosts.

@@ -132,11 +132,11 @@ functional authorization input, not an activity log. Moving it to a local record
 replacement that preserves shared authorization and recovery semantics; the
 current guard does not read a local database.
 
-`local-snapshot` calls the storage guard through the installed
-`workflow_harness_v1` MCP provider. The provider must support the directed-deletion
-contract; rebuilding the core command alone does not install that implementation.
-An unavailable provider produces a visible audit error or advisory witness
-warning, never a successful empty audit.
+`local-snapshot` prefers an admitted `workflow_harness_v1` MCP provider for the
+storage guard. Healthy discovery proving no provider advertises it selects the
+native clone witness. Both paths preserve the directed-deletion contract.
+Discovery, audit and provider failures produce a visible error or advisory witness
+warning, never a successful empty audit or replay through the other path.
 
 The guard writes nothing to the remote and nothing local except its own refs
 (it creates, advances and, for an accepted directed deletion, drops them).
@@ -169,8 +169,9 @@ is exactly when someone has to act.
 
 The harness publishes the same way. Its
 [`storage_guard`](../crates/susi-harness/src/storage_guard.rs) module preserves
-the public audit/report API and delegates the algorithm over MCP; `xtask`
-reexports that adapter for `local-snapshot` and `local-workflow`.
+the public audit/report API, preferring MCP and using the native witness only
+after definitive provider absence; `xtask` reexports that adapter for
+`local-snapshot` and `local-workflow`.
 `submit-main`, `integrate` and `release-promote` run the advisory witness after
 live publication, from the command line and through the daemon. A finding or
 unavailable-provider warning arrives beside the receipt without invalidating

@@ -99,6 +99,17 @@ pub(crate) const EMBED_BUDGET: std::time::Duration = std::time::Duration::from_s
 
 pub struct GemiEngine;
 
+/// Emit the failover summary before publishing the completed routing trace.
+fn report_and_persist(
+    ladder: &mut crate::engines::routing::RoutingLadder,
+    callback: &dyn Fn(String),
+) {
+    if ladder.step_downs() > 0 {
+        callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+    }
+    ladder.persist();
+}
+
 impl GemiEngine {
     pub fn set_owned_runner_child_adopter(adopter: fn(&std::process::Child) -> bool) {
         let _ = adopter;
@@ -107,17 +118,7 @@ impl GemiEngine {
     pub fn shutdown_owned_runner() {}
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(
-            prompt,
-            workspace,
-            true,
-            &|_| {},
-            None,
-            None,
-            None,
-            &|_| {},
-            None,
-        )
+        Self::generate_reasoning_stream(prompt, workspace, &|_| {})
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
@@ -129,17 +130,7 @@ impl GemiEngine {
         workspace: &Path,
         min_complexity: Option<crate::models::intent::TaskComplexity>,
     ) -> String {
-        Self::reason_internal(
-            prompt,
-            workspace,
-            false,
-            &|_| {},
-            min_complexity,
-            None,
-            None,
-            &|_| {},
-            None,
-        )
+        Self::generate_reasoning_deep_opts_chat(prompt, workspace, None, min_complexity, None, None)
     }
 
     pub fn generate_reasoning_deep_with_model(
@@ -147,17 +138,7 @@ impl GemiEngine {
         workspace: &Path,
         model: &str,
     ) -> String {
-        Self::reason_internal(
-            prompt,
-            workspace,
-            false,
-            &|_| {},
-            None,
-            Some(model),
-            None,
-            &|_| {},
-            None,
-        )
+        Self::generate_reasoning_deep_opts_chat(prompt, workspace, Some(model), None, None, None)
     }
 
     /// Non-streaming deep reasoning with a complete caller conversation.
@@ -190,17 +171,7 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(
-            prompt,
-            workspace,
-            true,
-            callback,
-            None,
-            None,
-            None,
-            &|_| {},
-            None,
-        )
+        Self::generate_reasoning_stream_meta(prompt, workspace, callback, None, &|_| {}, None)
     }
 
     /// Streaming reasoning honoring a caller-requested model name — the
@@ -211,15 +182,11 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         model: &str,
     ) -> String {
-        let requested = Self::normalize_requested_model(Some(model));
-        Self::reason_internal(
+        Self::generate_reasoning_stream_meta(
             prompt,
             workspace,
-            reflex_allowed(requested),
             callback,
-            None,
-            requested,
-            None,
+            Some(model),
             &|_| {},
             None,
         )
@@ -466,10 +433,7 @@ impl GemiEngine {
                     &provider_callback,
                     meta,
                 );
-                if esc_ladder.step_downs() > 0 {
-                    callback(format!("[SUSI ROUTING] {}\n", esc_ladder.summary()));
-                }
-                esc_ladder.persist();
+                report_and_persist(&mut esc_ladder, callback);
                 if let Some(text) = escalated {
                     return finish_provider(text);
                 }
@@ -492,10 +456,7 @@ impl GemiEngine {
             )
         };
         if let Some(text) = provider_answer {
-            if ladder.step_downs() > 0 {
-                callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-            }
-            ladder.persist();
+            report_and_persist(&mut ladder, callback);
             return finish_provider(text);
         }
 
@@ -673,10 +634,7 @@ impl GemiEngine {
                     StepOutcome::Selected,
                     local_reason,
                 );
-                if ladder.step_downs() > 0 {
-                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-                }
-                ladder.persist();
+                report_and_persist(&mut ladder, callback);
                 // Feed the latency gate so the next request can escalate if slow.
                 if matches!(engine_key, "candle" | "llamacpp") {
                     crate::engines::routing::InferenceRouter::record_local_sample(
@@ -699,10 +657,7 @@ impl GemiEngine {
                 } else {
                     Self::fulfill_emitted_tool_calls(res, workspace, callback)
                 };
-                return match Self::verify_axiomatic_alignment(&text, workspace) {
-                    Ok(v) => v,
-                    Err(_) => text,
-                };
+                return Self::verify_axiomatic_alignment(&text, workspace).unwrap_or(text);
             }
             Ok(_) => {
                 eprintln!("[INFERENCE] Local engine returned empty output");
@@ -757,10 +712,7 @@ impl GemiEngine {
                 StepOutcome::Selected,
                 "local engine failed; power reasoning tool answered",
             );
-            if ladder.step_downs() > 0 {
-                callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-            }
-            ladder.persist();
+            report_and_persist(&mut ladder, callback);
             callback(power_res.clone());
             return power_res;
         }
@@ -887,15 +839,18 @@ impl GemiEngine {
             );
         }
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
-        let (answer, mut ladder) = Self::try_providers(
-            registry,
-            prompt,
-            workspace,
-            requested_model,
-            chat,
-            callback,
-            meta,
-        );
+        let try_registered = || {
+            Self::try_providers(
+                registry,
+                prompt,
+                workspace,
+                requested_model,
+                chat,
+                callback,
+                meta,
+            )
+        };
+        let (answer, mut ladder) = try_registered();
         if answer.is_some() {
             return (answer, ladder);
         }
@@ -905,15 +860,7 @@ impl GemiEngine {
         // it, admits its models and routes once more.
         match Self::start_local_engine_for_request(registry) {
             Ok(true) => {
-                let (answer, retry) = Self::try_providers(
-                    registry,
-                    prompt,
-                    workspace,
-                    requested_model,
-                    chat,
-                    callback,
-                    meta,
-                );
+                let (answer, retry) = try_registered();
                 ladder.steps.extend(retry.steps);
                 (answer, ladder)
             }

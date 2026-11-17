@@ -60,6 +60,32 @@ fn scorecard_lifecycle_and_batch_git_contracts() {
     let p = &score(root, None, None)["tasks"][0]["phases"];
     let pair = (p["implemented"].as_u64(), p["merged"].as_u64());
     assert_eq!(pair, (Some(150), Some(250)));
+    let evidence = root.join("complete.jsonl");
+    std::fs::write(
+        &evidence,
+        "{\"task\":\"T-G\",\"phase\":\"released\",\"at_unix\":300}\n\
+         {\"task\":\"T-G\",\"phase\":\"promoted\",\"at_unix\":350}\n",
+    )
+    .unwrap();
+    for selected in [vec![], vec!["T-G".into()], vec!["T-G".into(), "T-G".into()]] {
+        assert!(run(root, &evidence, &selected, true, true).is_ok());
+    }
+    for selected in [
+        vec!["T-MISSING".into()],
+        vec!["T-G".into(), "T-MISSING".into()],
+    ] {
+        let err = run(root, &evidence, &selected, true, true).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("scorecard requires all tasks complete"));
+    }
+    std::fs::remove_file(done.join("T-G.json")).unwrap();
+    for selected in [vec![], vec!["T-G".into()]] {
+        assert!(run(root, &evidence, &selected, true, true).is_err());
+        let report: Value =
+            serde_json::from_str(&run(root, &evidence, &selected, true, false).unwrap()).unwrap();
+        assert_eq!(report["tasks"], json!([]));
+    }
     let badf = root.join("e.jsonl");
     std::fs::write(&badf, "{bad\n").unwrap();
     assert!(run(root, &badf, &[], false, false).is_err());

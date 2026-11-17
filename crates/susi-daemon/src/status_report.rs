@@ -10,6 +10,7 @@
 //! sounded plausible (Mandate 2 — measured state or no claim).
 
 use std::path::{Path, PathBuf};
+use susi_config::JsonFields as _;
 
 use crate::{SusiDaemon, scheduled_missions::ScheduleStore};
 use susi_core::broker::IpcBroker;
@@ -206,27 +207,19 @@ fn read_missions(substrate_home: &Path) -> Vec<MissionInFlight> {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        let id = v
-            .get("id")
-            .and_then(|x| x.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            });
+        let id = v.field_str("id").map(str::to_string).unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        });
         let prompt_head: String = v
-            .get("prompt")
-            .and_then(|x| x.as_str())
+            .field_str("prompt")
             .unwrap_or("")
             .chars()
             .take(60)
             .collect();
-        let dispatched_unix = v
-            .get("dispatched_unix")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(0);
+        let dispatched_unix = v.field_u64("dispatched_unix").unwrap_or(0);
         out.push(MissionInFlight {
             id,
             prompt_head,
@@ -264,26 +257,20 @@ fn read_resumable_missions(workspace: &Path) -> Vec<ResumableMission> {
         };
         let failed = nodes
             .values()
-            .any(|n| n.get("state").and_then(|s| s.as_str()) == Some("failed"));
+            .any(|n| n.field_str("state") == Some("failed"));
         if failed {
             continue;
         }
         let resumable_nodes: Vec<String> = nodes
             .values()
-            .filter(|n| {
-                matches!(
-                    n.get("state").and_then(|s| s.as_str()),
-                    Some("pending") | Some("running")
-                )
-            })
-            .filter_map(|n| n.get("id").and_then(|i| i.as_str()).map(str::to_string))
+            .filter(|n| matches!(n.field_str("state"), Some("pending") | Some("running")))
+            .filter_map(|n| n.field_str("id").map(str::to_string))
             .collect();
         if resumable_nodes.is_empty() {
             continue;
         }
         let id = v
-            .get("mission_id")
-            .and_then(|x| x.as_str())
+            .field_str("mission_id")
             .map(str::to_string)
             .unwrap_or_else(|| {
                 path.file_stem()
@@ -333,13 +320,12 @@ fn read_rollback_ready(workspace: &Path) -> Vec<RollbackReady> {
         };
         let failed = nodes
             .values()
-            .any(|n| n.get("state").and_then(|s| s.as_str()) == Some("failed"));
+            .any(|n| n.field_str("state") == Some("failed"));
         if !failed {
             continue;
         }
         let id = v
-            .get("mission_id")
-            .and_then(|x| x.as_str())
+            .field_str("mission_id")
             .map(str::to_string)
             .unwrap_or_else(|| {
                 path.file_stem()
@@ -537,14 +523,10 @@ fn read_spend(global_dir: &Path) -> SpendSection {
             let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
                 continue;
             };
-            let bytes = record.get("bytes").and_then(|b| b.as_u64()).unwrap_or(0);
+            let bytes = record.field_u64("bytes").unwrap_or(0);
             s.observation_bytes += bytes;
-            s.observation_ms += record
-                .get("elapsed_ns")
-                .and_then(|n| n.as_u64())
-                .unwrap_or(0)
-                / 1_000_000;
-            if let Some(agent) = record.get("agent").and_then(|a| a.as_str()) {
+            s.observation_ms += record.field_u64("elapsed_ns").unwrap_or(0) / 1_000_000;
+            if let Some(agent) = record.field_str("agent") {
                 *by_agent.entry(agent.to_string()).or_default() += bytes;
             }
         }
@@ -570,11 +552,7 @@ fn ledger_providers(path: &Path) -> Vec<String> {
         .map(|records| {
             records
                 .iter()
-                .filter_map(|r| {
-                    r.get("provider")
-                        .and_then(|p| p.as_str())
-                        .map(str::to_string)
-                })
+                .filter_map(|r| r.field_str("provider").map(str::to_string))
                 .collect()
         })
         .unwrap_or_default();

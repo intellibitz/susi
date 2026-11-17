@@ -302,3 +302,28 @@ fn configure_adapter_and_reset_roundtrip_custom_command_adapter_on_disk() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn recovery_preserves_private_worker_provenance_and_unknown_future_fields() {
+    let workspace = temp_workspace("owner-metadata");
+    let manager =
+        AgentManager::with_config(&workspace, CatalogKind::Execution, workspace.join("cfg"))
+            .unwrap()
+            .with_catalog(vec![test_def("fixture", "fixture", 1)]);
+    let run = manager
+        .prepare_adapter("fixture", "run", local_adapter())
+        .unwrap();
+    let path = manager.run_dir(&run.id).unwrap().join("run.json");
+    let mut row: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    row["status"] = serde_json::json!("running");
+    row["worktree"] = serde_json::json!("isolated");
+    row["board_claim"] = serde_json::json!(17);
+    row["future_field"] = serde_json::json!({"details":["retained"]});
+    fs::write(&path, serde_json::to_vec(&row).unwrap()).unwrap();
+    assert_eq!(manager.status(&run.id).unwrap().status, RunStatus::Unknown);
+    let recovered: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for key in ["worktree", "board_claim", "future_field"] {
+        assert_eq!(recovered[key], row[key]);
+    }
+    fs::remove_dir_all(workspace).unwrap();
+}

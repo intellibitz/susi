@@ -20,26 +20,9 @@ use crate::susi_core::peer_admin;
 use crate::susi_core::plane_bus::{daemon, gemi};
 use crate::susi_error::{EaiError, EaiResult};
 
-use super::args;
-use super::forward::forwarded_tools;
+use super::forward::plane_tools;
 use super::forward::{forward, policy_workspace, pretty, required_str, Kind};
 use super::CoreTools;
-
-fn host(action: &str, arg: &Value, keys: &[(&str, Kind)]) -> EaiResult<String> {
-    forward(daemon::host, action, arg, keys, json!({}))
-}
-
-/// A `daemon.host` action that reads a (policy-admitted) workspace.
-fn host_in(action: &str, arg: &Value, server: &Path, keys: &[(&str, Kind)]) -> EaiResult<String> {
-    let workspace = policy_workspace(arg, "workspace", server, false)?;
-    forward(
-        daemon::host,
-        action,
-        arg,
-        keys,
-        json!({ "workspace": workspace.display().to_string() }),
-    )
-}
 
 /// Run a membership command and return `{ok, lines, notes, error}`: the
 /// lines it printed, its notes, and its refusal when it failed (the lines
@@ -61,38 +44,26 @@ fn membership(run: impl FnOnce(peer_admin::Out<'_>) -> Result<(), String>) -> Ea
 impl CoreTools {
     // ── 2. Operator view ───────────────────────────────────────────────
 
-    forwarded_tools! {
-        operator_status(operator_status_tool_attr, args::typed::<args::OperatorStatus>()),
-        "The executable's measured identity (sha256), daemon, local model, missions in flight, resumable missions, approvals and the scheduled queue, as `susi status --json`; with detail true, the whole `susi status` view (missions with prompts, resumable DAG nodes, rollback snapshots, brain leaders and unfit providers, routing, spend, approvals). Args: optional workspace, detail",
-        |arg, workspace| host_in("status", arg, workspace, &[("detail", Kind::Bool)]);
-
-        operator_review(operator_review_tool_attr, args::typed::<args::WorkspaceView>()),
-        "Daemon liveness and reclaimable OS cache, as `susi review`. Args: optional workspace",
-        |arg, workspace| host_in("review", arg, workspace, &[]);
+    plane_tools! {
+        daemon::host;
+        pub operator_status => "status" [detail: Bool] in ReadWorkspace;
+        pub operator_review => "review" [] in ReadWorkspace;
     }
 
     // ── 4. Onboarding ──────────────────────────────────────────────────
 
-    forwarded_tools! {
-        os_ecosystem(os_ecosystem_tool_attr, args::typed::<args::WorkspaceView>()),
-        "The local AI ecosystem: hardware, runtimes, models, agent and framework readiness, MCP servers and running AI processes, as `susi os ecosystem --json`. Args: optional workspace",
-        |arg, workspace| host_in("os_ecosystem", arg, workspace, &[]);
+    plane_tools! {
+        daemon::host;
+        pub os_ecosystem => "os_ecosystem" [] in ReadWorkspace;
     }
 
     // ── 9. OS ──────────────────────────────────────────────────────────
 
-    forwarded_tools! {
-        os_status(os_status_tool_attr, args::no_args()),
-        "Substrate status: consensus, ledger, services, peers, endpoints, storage and warnings, as `susi os status --json`",
-        |arg, _workspace| host("os_status", arg, &[]);
-
-        os_runtime(os_runtime_tool_attr, args::no_args()),
-        "Live AI processes by owner (SUSI or external), managed models with daemon residency, and per-process GPU memory, as `susi os runtime --json`",
-        |arg, _workspace| host("os_runtime", arg, &[]);
-
-        model_uninstall(model_uninstall_tool_attr, args::typed::<args::ModelUninstall>()),
-        "Remove one SUSI-managed .gguf model (refused while loaded or selected), as `susi os manage model uninstall`. Args: name",
-        |arg, _workspace| host("model_uninstall", arg, &[("name", Kind::Str)]);
+    plane_tools! {
+        daemon::host;
+        pub os_status => "os_status" [];
+        pub os_runtime => "os_runtime" [];
+        pub model_uninstall => "model_uninstall" [name: Str];
     }
 
     pub fn peers_add(arg: &Value, _workspace: &Path) -> EaiResult<String> {
@@ -131,10 +102,9 @@ impl CoreTools {
 
     // ── 10. Lifecycle ──────────────────────────────────────────────────
 
-    forwarded_tools! {
-        daemon_shutdown(daemon_shutdown_tool_attr, args::no_args()),
-        "Stop this daemon instance after replying (the call `susi stop` makes); starting it again stays with the CLI",
-        |arg, _workspace| host("daemon_shutdown", arg, &[]);
+    plane_tools! {
+        daemon::host;
+        pub daemon_shutdown => "daemon_shutdown" [];
     }
 
     // ── 13. Maintenance ────────────────────────────────────────────────
@@ -146,14 +116,10 @@ impl CoreTools {
         pretty(&doc)
     }
 
-    forwarded_tools! {
-        auto_status(auto_status_tool_attr, args::typed::<args::WorkspaceView>()),
-        "Zero-config substrate readiness: packs, leading MCP, preferred coding model, agent and framework readiness, last prime, as `susi auto status`. Args: optional workspace",
-        |arg, workspace| host_in("auto_status", arg, workspace, &[]);
-
-        auto_prime(auto_prime_tool_attr, args::no_args()),
-        "Re-run auto-prime now (models and installed peers; never enables MCP), as `susi auto prime`",
-        |arg, _workspace| host("auto_prime", arg, &[]);
+    plane_tools! {
+        daemon::host;
+        pub auto_status => "auto_status" [] in ReadWorkspace;
+        pub auto_prime => "auto_prime" [];
     }
 
     pub fn deep_scan(_arg: &Value, _workspace: &Path) -> EaiResult<String> {
@@ -169,14 +135,10 @@ impl CoreTools {
             .to_string())
     }
 
-    forwarded_tools! {
-        config_reload(config_reload_tool_attr, args::no_args()),
-        "Reload config.json and report the engine, model, model-ladder steps and MCP bootstrap servers in effect, as `susi admin reload`",
-        |arg, _workspace| host("config_reload", arg, &[]);
-
-        provider_contract(provider_contract_tool_attr, args::no_args()),
-        "Provider contract fixture checks, plus the read-only credentialed claims when SUSI_PROVIDER_PROBE=1, as `susi admin provider-contract`",
-        |arg, _workspace| host("provider_contract", arg, &[]);
+    plane_tools! {
+        daemon::host;
+        pub config_reload => "config_reload" [];
+        pub provider_contract => "provider_contract" [];
     }
 
     pub fn intent_ladder(arg: &Value, workspace: &Path) -> EaiResult<String> {

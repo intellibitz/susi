@@ -206,7 +206,7 @@ its RFC requirement level, normative clause, and owning repository path.
 4. **Zero plugin packs bundled in Core.** Core ships `DEFAULT_PACK_ID = "default"`
    with empty vendor catalogs and seeds zero packs into `~/.susi/extensions/`.
    Curated department and ecosystem plugin packs ship exclusively in Susi
-   Commercial Apps (`intellibitz/susi-commercial-apps`) consuming this contract.
+   Commercial Apps consuming this contract.
 5. **Internal `rmcp` alias deprecation posture.** `pub use self::mcp as rmcp;`
    in `crates/susi-gmcp/src/lib.rs` aliases Susi's own `#![forbid(unsafe_code)]`
    first-party `mcp` module; external crates and examples author against
@@ -488,4 +488,4 @@ Treat any `verified: false` standards drift (`hash_drift` or `unfetchable`), `Pl
 
 - Production guarantees cover `crates/susi-gmcp/src/{sdk.rs,sdk/examples.rs,protocol.rs,extensions.rs,content.rs,schema_check.rs,server.rs,stdio.rs,mcp/service.rs,mcp/task_manager.rs,requirements_ledger.rs}`, `crates/susi-gmcp/examples/01_minimal_tool.rs`..`06_production_plugin_server.rs`, `crates/susi-config/src/extensions.rs`, and `crates/susi-abi/src/lib.rs` (`SDK-001`..`SDK-018`).
 - Non-claim: Core plugins execute as verified manifest/bundle units over Susi-owned Rust traits and JSON-RPC boundaries (`#![forbid(unsafe_code)]`); arbitrary native `dlopen`/`cdylib` shared-library loading is intentionally excluded from Core.
-- Non-claim: Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`); curated commercial packs are delivered exclusively in `intellibitz/susi-commercial-apps`.
+- Non-claim: Core ships zero bundled vendor plugin packs (`DEFAULT_PACK_ID = "default"`); curated commercial packs are delivered exclusively in Susi Commercial Apps.

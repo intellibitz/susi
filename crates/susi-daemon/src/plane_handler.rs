@@ -6,19 +6,10 @@
 //! `susi_core::plane_bus::daemon`.
 
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
-use susi_core::plane_bus::{PlaneBus, PlaneHandler, topics};
+use susi_core::plane_bus::{PlaneBus, PlaneHandler, topics, workspace_path};
 
 struct DaemonPlaneHandler;
-
-fn workspace_path(payload: &Value) -> PathBuf {
-    payload
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 
 fn str_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
     payload.get(key).and_then(|v| v.as_str())

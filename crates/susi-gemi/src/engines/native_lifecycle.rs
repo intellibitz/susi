@@ -56,6 +56,25 @@ pub trait EngineHost: Send + Sync {
 /// resolution, config endpoints + routing cooldown for federation.
 pub struct SusiHost;
 
+impl SusiHost {
+    fn resolved_weights(model: &str) -> Result<std::path::PathBuf, String> {
+        crate::models::ModelManager::get_model_path(model)
+            .ok_or_else(|| format!("model '{model}' has no resolvable weights"))
+    }
+
+    pub(super) fn federated_endpoint_ready(
+        endpoint: &crate::susi_sandbox::manager::InferenceEndpointItem,
+    ) -> bool {
+        !crate::engines::http_provider::HttpProvider::resolve_api_key(
+            &endpoint.api_key_env,
+            &endpoint.name,
+        )
+        .is_empty()
+            || endpoint.api_base.contains("localhost")
+            || endpoint.api_base.contains("127.0.0.1")
+    }
+}
+
 impl EngineHost for SusiHost {
     fn resolve_model(&self, hint: Option<&str>, prompt: &str) -> Option<String> {
         if let Some(id) = hint {
@@ -67,28 +86,19 @@ impl EngineHost for SusiHost {
     }
 
     fn model_resident(&self, model: &str) -> Result<bool, String> {
-        let Some(path) = crate::models::ModelManager::get_model_path(model) else {
-            return Err(format!("model '{model}' has no resolvable weights"));
-        };
-
+        let path = Self::resolved_weights(model)?;
         Ok(crate::engines::runtime::InferenceHost::model_is_reusable(
             &path,
         ))
     }
 
     fn preload(&self, model: &str) -> EaiResult<()> {
-        let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
-            EaiError::inference(format!("model '{model}' has no resolvable weights"))
-        })?;
-
+        let path = Self::resolved_weights(model).map_err(EaiError::inference)?;
         crate::engines::runtime::InferenceHost::preload_resolved(&path).map(|_| ())
     }
 
     fn unload(&self, model: &str) -> EaiResult<()> {
-        let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
-            EaiError::inference(format!("model '{model}' has no resolvable weights"))
-        })?;
-
+        let path = Self::resolved_weights(model).map_err(EaiError::inference)?;
         crate::engines::runtime::InferenceHost::unload_resolved(&path).map(|_| ())
     }
 
@@ -97,15 +107,7 @@ impl EngineHost for SusiHost {
         cfg.inference_endpoints()
             .endpoints
             .iter()
-            .filter(|e| {
-                !crate::engines::http_provider::HttpProvider::resolve_api_key(
-                    &e.api_key_env,
-                    &e.name,
-                )
-                .is_empty()
-                    || e.api_base.contains("localhost")
-                    || e.api_base.contains("127.0.0.1")
-            })
+            .filter(|e| Self::federated_endpoint_ready(e))
             .map(|e| e.name.clone())
             .collect()
     }

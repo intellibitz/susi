@@ -176,52 +176,28 @@ impl CoreTools {
     }
 
     pub fn context_graph_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let graph = crate::susi_core::context_graph::ContextGraph::global();
-        let _ = graph.replay();
+        let graph = ContextGraph::replayed_global();
         if let Some(node_id) = arg.field_str("node_id") {
             let depth = arg.field_u64("depth").unwrap_or(2) as usize;
             let node = crate::susi_core::context_graph::NodeId(node_id.to_string());
             let subgraph = graph.related(&node, depth);
             Ok(serde_json::to_string_pretty(&subgraph).unwrap_or_else(|_| "{}".to_string()))
         } else {
-            let events = graph.workspace_events(workspace);
-            Ok(serde_json::to_string_pretty(&serde_json::json!({
-                "workspace": workspace.display().to_string(),
-                "event_count": events.len(),
-                "events": events,
-            }))
-            .unwrap_or_else(|_| "{}".to_string()))
+            Ok(
+                serde_json::to_string_pretty(&graph.workspace_event_report(workspace))
+                    .unwrap_or_else(|_| "{}".to_owned()),
+            )
         }
     }
 
     pub fn context_graph_ingest(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let source = arg.field_str("source").unwrap_or("unknown");
-        let label = arg.field_str("label").unwrap_or("external context");
-        let payload = arg.get("payload").unwrap_or(&serde_json::Value::Null);
-        let ws = arg
-            .field_str("workspace")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| workspace.to_path_buf());
-        let user = arg.field_str("user");
-        let id =
-            ContextGraph::global().record_external_context(source, label, payload, Some(&ws), user);
-        Ok(serde_json::to_string_pretty(&serde_json::json!({
-            "ingested": true,
-            "node_id": id.0,
-        }))
-        .unwrap_or_else(|_| "{}".to_string()))
+        let report = ContextGraph::global().ingest_report(arg, workspace);
+        Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_owned()))
     }
 
     pub fn context_graph_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let graph = ContextGraph::global();
-        let _ = graph.replay();
-        let (old_lines, new_lines) = graph.compact()?;
-        Ok(serde_json::to_string_pretty(&serde_json::json!({
-            "compacted": true,
-            "old_lines": old_lines,
-            "new_lines": new_lines,
-        }))
-        .unwrap_or_else(|_| "{}".to_string()))
+        let report = ContextGraph::replayed_global().compact_report()?;
+        Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_owned()))
     }
 
     pub fn ipc_grant(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {

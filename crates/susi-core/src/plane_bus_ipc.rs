@@ -21,14 +21,14 @@
 
 use crate::susi_core::plane_bus::PlaneHandler;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use susi_paths::sync::RwLock;
 use susi_paths::SusiDirs;
 
 /// Connect timeout: the rendezvous only ever targets this host.
@@ -182,15 +182,10 @@ impl IpcPlaneBus {
     }
 
     fn ensure_slot(&self, dir: &Path) -> (bool, Arc<str>) {
-        if let Some(slot) = self
-            .slots
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(dir)
-        {
+        if let Some(slot) = self.slots.read().get(dir) {
             return (slot.owner.is_some(), Arc::clone(&slot.secret));
         }
-        let mut guard = self.slots.write().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.slots.write();
         if let Some(slot) = guard.get(dir) {
             return (slot.owner.is_some(), Arc::clone(&slot.secret));
         }
@@ -217,12 +212,7 @@ impl IpcPlaneBus {
     }
 
     fn is_owner_dir(&self, dir: &Path) -> bool {
-        if let Some(slot) = self
-            .slots
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(dir)
-        {
+        if let Some(slot) = self.slots.read().get(dir) {
             return slot.owner.is_some();
         }
         self.fixed_rendezvous.is_none() && dir.parent().is_some_and(is_bus_root)
@@ -341,20 +331,8 @@ impl IpcPlaneBus {
 
     /// Atomically publish or remove this copy's single route manifest.
     fn flush_routes(&self) {
-        let mut topics: Vec<String> = self
-            .handlers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        let mut prefixes: Vec<String> = self
-            .prefixes
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
+        let mut topics: Vec<String> = self.handlers.read().keys().cloned().collect();
+        let mut prefixes: Vec<String> = self.prefixes.read().keys().cloned().collect();
         if topics.is_empty() && prefixes.is_empty() {
             let path = self.routes_file();
             let _ = std::fs::remove_file(&path);
@@ -398,7 +376,6 @@ impl IpcPlaneBus {
     fn local_prefix(&self, topic: &str) -> Option<Arc<dyn PlaneHandler>> {
         self.prefixes
             .read()
-            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .find(|e| topic.starts_with(e.0.as_str()))
             .map(|(_, v)| Arc::clone(v))
@@ -442,18 +419,12 @@ impl IpcPlaneBus {
     }
 
     pub fn register(&self, topic: &str, handler: Arc<dyn PlaneHandler>) {
-        self.handlers
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(topic.to_string(), handler);
+        self.handlers.write().insert(topic.to_string(), handler);
         self.mark_or_flush_routes();
     }
 
     pub fn register_prefix(&self, prefix: &str, handler: Arc<dyn PlaneHandler>) {
-        self.prefixes
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(prefix.to_string(), handler);
+        self.prefixes.write().insert(prefix.to_string(), handler);
         self.mark_or_flush_routes();
     }
 
@@ -461,12 +432,7 @@ impl IpcPlaneBus {
     /// copy's route manifest and removes any legacy per-topic file owned by
     /// this copy's listener — another copy's registration is left alone.
     pub fn unregister(&self, topic: &str) -> bool {
-        let removed = self
-            .handlers
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(topic)
-            .is_some();
+        let removed = self.handlers.write().remove(topic).is_some();
         if removed {
             self.mark_or_flush_routes();
         }
@@ -479,15 +445,46 @@ impl IpcPlaneBus {
         removed
     }
 
+    fn local_exact(&self, topic: &str) -> Option<Arc<dyn PlaneHandler>> {
+        self.handlers.read().get(topic).cloned()
+    }
+
+    /// Dispatch a side-effecting request once, to its sole exact registered owner.
+    /// Prefix matches cannot own this operation. A selected owner error is final.
+    pub fn try_request_exact_once(
+        &self,
+        topic: &str,
+        payload: Value,
+    ) -> Result<Option<Value>, String> {
+        let local = self.local_exact(topic);
+        let mut remote: HashSet<_> = matching_routes(&self.rendezvous_dirs(), topic, false)
+            .into_iter()
+            .map(|(_, ep)| ep)
+            .collect();
+        if let Some(ep) = self.endpoint.get() {
+            remote.remove(ep);
+        }
+        if remote.len() + usize::from(local.is_some()) > 1 {
+            return Err(format!("multiple exact plane owners advertise '{topic}'"));
+        }
+        if let Some(handler) = local {
+            return invoke(handler, topic, payload).map(Some);
+        }
+        let Some(ep) = remote.into_iter().next() else {
+            return Ok(None);
+        };
+        let (_, secret) = self.ensure_slot(&self.current_rendezvous());
+        match Self::remote(ep, topic, &payload, &secret) {
+            Remote::Answered(answer) => answer.map(Some),
+            Remote::Unreachable | Remote::Miss => {
+                Err(format!("registered plane owner unavailable for '{topic}'"))
+            }
+        }
+    }
+
     pub fn request(&self, topic: &str, payload: Value) -> Result<Value, String> {
         // Fast path: a handler registered in this copy stays in-process.
-        if let Some(h) = self
-            .handlers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(topic)
-            .map(Arc::clone)
-        {
+        if let Some(h) = self.local_exact(topic) {
             return invoke(h, topic, payload);
         }
         let candidates = self.candidates(topic);
@@ -529,10 +526,7 @@ impl IpcPlaneBus {
             self.stream_seq.fetch_add(1, Ordering::Relaxed)
         );
         let (tx, rx) = std::sync::mpsc::channel();
-        self.streams
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id.clone(), tx);
+        self.streams.write().insert(id.clone(), tx);
         let sid = match self.endpoint() {
             Some(ep) => {
                 self.prepare_rendezvous();
@@ -549,12 +543,7 @@ impl IpcPlaneBus {
                 return;
             };
             if self.endpoint.get().is_some_and(|e| addr == e.to_string()) {
-                if let Some(tx) = self
-                    .streams
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get(id)
-                {
+                if let Some(tx) = self.streams.read().get(id) {
                     let _ = tx.send(chunk);
                 }
             } else if let Ok(ep) = addr.parse::<SocketAddr>() {
@@ -562,12 +551,7 @@ impl IpcPlaneBus {
                 let body = json!({ "id": id, "chunk": chunk }).to_string();
                 let _ = post(ep, "/stream", &body, &secret);
             }
-        } else if let Some(tx) = self
-            .streams
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(stream_id)
-        {
+        } else if let Some(tx) = self.streams.read().get(stream_id) {
             let _ = tx.send(chunk);
         }
     }
@@ -577,17 +561,11 @@ impl IpcPlaneBus {
             .strip_prefix("ipc://")
             .and_then(|r| r.split_once('/').map(|(_, id)| id))
             .unwrap_or(stream_id);
-        self.streams
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id);
+        self.streams.write().remove(id);
     }
 
     pub fn is_wired(&self, topic: &str) -> bool {
-        self.handlers
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains_key(topic)
+        self.handlers.read().contains_key(topic)
             || self.local_prefix(topic).is_some()
             || !self.candidates(topic).is_empty()
     }
@@ -696,6 +674,14 @@ fn key_matches(presented: &str, secret: &str) -> bool {
 /// and the legacy `topics/` / `prefixes/` files. Shared by [`IpcPlaneBus`] and
 /// by callers that address one sibling's dir directly (CLI sibling revoke).
 pub fn route_candidates(dirs: &[PathBuf], topic: &str) -> Vec<(PathBuf, SocketAddr)> {
+    matching_routes(dirs, topic, true)
+}
+
+fn matching_routes(
+    dirs: &[PathBuf],
+    topic: &str,
+    include_prefixes: bool,
+) -> Vec<(PathBuf, SocketAddr)> {
     let manifests_by_dir: Vec<_> = dirs
         .iter()
         .map(|dir| (dir, read_dir_route_manifests(dir)))
@@ -711,6 +697,9 @@ pub fn route_candidates(dirs: &[PathBuf], topic: &str) -> Vec<(PathBuf, SocketAd
         if let Some((ep, _)) = read_endpoint_key(&exact) {
             out.push((exact, ep));
         }
+    }
+    if !include_prefixes {
+        return out;
     }
     for (dir, manifests) in &manifests_by_dir {
         for (path, m) in manifests {
@@ -739,60 +728,50 @@ struct RouteManifest {
     prefixes: Vec<String>,
 }
 
-fn is_routes_manifest_name(name: &str) -> bool {
-    name == "routes.json" || (name.starts_with("routes.") && name.ends_with(".json"))
+fn manifest_name(name: &str, prefix: &str) -> bool {
+    name.starts_with(prefix) && name.ends_with(".json")
 }
 
 fn is_rendezvous_manifest_name(name: &str) -> bool {
-    is_routes_manifest_name(name)
-        || name == "caps.json"
-        || (name.starts_with("caps.") && name.ends_with(".json"))
+    manifest_name(name, "routes.") || manifest_name(name, "caps.")
 }
 
 fn read_routes_manifest(path: &Path) -> Option<RouteManifest> {
     let bytes = crate::susi_config::read_atomic_bytes(path).ok()?;
     let v: Value = serde_json::from_slice(&bytes).ok()?;
     let endpoint = v.get("endpoint")?.as_str()?.parse().ok()?;
-    let topics = v
-        .get("topics")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let prefixes = v
-        .get("prefixes")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let names = |field: &str| {
+        v.get(field)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
     Some(RouteManifest {
         endpoint,
-        topics,
-        prefixes,
+        topics: names("topics"),
+        prefixes: names("prefixes"),
     })
 }
 
-fn read_dir_route_manifests(dir: &Path) -> Vec<(PathBuf, RouteManifest)> {
-    let Ok(rd) = std::fs::read_dir(dir) else {
+/// Sorted route or capability manifests in a single owned rendezvous directory.
+pub(crate) fn manifest_paths(dir: &Path, prefix: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
-    let mut paths: Vec<PathBuf> = rd
+    let mut paths: Vec<_> = entries
         .flatten()
-        .filter_map(|e| {
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            is_routes_manifest_name(&name).then(|| e.path())
-        })
+        .filter(|entry| manifest_name(&entry.file_name().to_string_lossy(), prefix))
+        .map(|entry| entry.path())
         .collect();
     paths.sort();
+    paths
+}
+
+fn read_dir_route_manifests(dir: &Path) -> Vec<(PathBuf, RouteManifest)> {
+    let paths = manifest_paths(dir, "routes.");
     paths
         .into_iter()
         .filter_map(|p| {
@@ -818,7 +797,7 @@ fn prune_stale_route_file(path: &Path, ep: SocketAddr, missed_topic: Option<&str
     let is_manifest = path
         .file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(is_routes_manifest_name);
+        .is_some_and(|name| manifest_name(name, "routes."));
     let should_remove = if is_manifest {
         read_routes_manifest(path).is_some_and(|m| {
             m.endpoint == ep
@@ -853,7 +832,7 @@ fn post(addr: SocketAddr, path: &str, body: &str, secret: &str) -> Option<String
 }
 
 fn any_slot_matches(slots: &RwLock<HashMap<PathBuf, RendezvousSlot>>, presented: &str) -> bool {
-    let guard = slots.read().unwrap_or_else(|p| p.into_inner());
+    let guard = slots.read();
     guard
         .values()
         .any(|slot| key_matches(presented, &slot.secret))
@@ -971,7 +950,7 @@ fn serve_conn(
         "/stream" => {
             if let Ok(v) = serde_json::from_str::<Value>(&body) {
                 let id = v.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                if let Some(tx) = streams.read().unwrap_or_else(|e| e.into_inner()).get(id) {
+                if let Some(tx) = streams.read().get(id) {
                     let _ = tx.send(v.get("chunk").cloned().unwrap_or(Value::Null));
                 }
             }
@@ -990,17 +969,11 @@ fn dispatch(
     topic: &str,
     payload: Value,
 ) -> Option<Result<Value, String>> {
-    if let Some(h) = handlers
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(topic)
-        .map(Arc::clone)
-    {
+    if let Some(h) = handlers.read().get(topic).map(Arc::clone) {
         return Some(invoke(h, topic, payload));
     }
     let h = prefixes
         .read()
-        .unwrap_or_else(|e| e.into_inner())
         .iter()
         .find(|e| topic.starts_with(e.0.as_str()))
         .map(|(_, v)| Arc::clone(v))?;
@@ -1257,6 +1230,10 @@ fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
 }
 
 #[cfg(test)]
+#[path = "tests/single_plane_owner.rs"]
+mod single_plane_owner;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1274,21 +1251,21 @@ mod tests {
     }
     use std::sync::atomic::AtomicU64;
 
-    struct Echo;
+    pub(super) struct Echo;
     impl PlaneHandler for Echo {
         fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
             Ok(json!({ "echo": payload }))
         }
     }
 
-    struct Reject;
+    pub(super) struct Reject;
     impl PlaneHandler for Reject {
         fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
             Err("nope".to_string())
         }
     }
 
-    fn tempdir(tag: &str) -> PathBuf {
+    pub(super) fn tempdir(tag: &str) -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         let d = std::env::temp_dir().join(format!(
             "susi_bus_ipc_{}_{}_{}",
@@ -1566,7 +1543,6 @@ mod tests {
         let prefixes: HandlerMap = Arc::new(RwLock::new(HashMap::new()));
         handlers
             .write()
-            .unwrap()
             .insert("test.reject".into(), Arc::new(Reject));
         assert!(dispatch(&handlers, &prefixes, "test.none", json!({})).is_none());
         assert_eq!(

@@ -10,6 +10,7 @@
 //! removing a key stays local to the CLI and desktop (`tests/socket_parity.rs`
 //! exempts `keys set` and `keys remove`).
 
+use crate::operator_args::{absolute, field, msg, number};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use susi_gemi::engines::brain::{self, TaskClass};
@@ -19,10 +20,6 @@ use susi_gemi::models::open_weight::{OpenWeightManager, OpenWeightOverride};
 use susi_gemi::models::openrouter::OpenRouterManager;
 
 type R<T> = Result<T, String>;
-
-fn msg(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
 
 /// The prompt every probe sends when the caller gives none.
 pub const DEFAULT_PROBE_PROMPT: &str = "Reply with exactly: ok";
@@ -693,34 +690,8 @@ pub fn verify_download_agent(workspace: &Path) -> R<Value> {
 
 // ── socket dispatch ────────────────────────────────────────────────────────
 
-fn field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-}
-
 fn flag(payload: &Value, key: &str) -> bool {
     payload.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
-
-fn number(payload: &Value, key: &str) -> Option<u64> {
-    payload.get(key).and_then(Value::as_u64)
-}
-
-/// An absolute path argument: the socket has no caller working directory.
-fn absolute(payload: &Value, key: &str) -> R<Option<PathBuf>> {
-    let Some(text) = field(payload, key) else {
-        return Ok(None);
-    };
-    let path = PathBuf::from(text);
-    if !path.is_absolute() {
-        return Err(format!(
-            "{key} must be an absolute path (the socket has no caller working directory)"
-        ));
-    }
-    Ok(Some(path))
 }
 
 fn vendor(payload: &Value) -> R<Vendor> {

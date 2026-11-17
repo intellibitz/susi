@@ -9,28 +9,91 @@ use crate::susi_core::mac_policy::MacPolicy;
 use crate::susi_error::{EaiError, EaiResult};
 use serde_json::{Map, Value};
 
-/// Declare public forwarding handlers together with their existing MCP
-/// attribute functions. The wire name follows the handler identifier; the
-/// forwarding expression retains each family's argument and error contract.
+/// Functions exposing non-plane operator implementations through the uniform GMCP handler type.
 macro_rules! forwarded_tools {
-    ($($handler:ident($attribute:ident, $schema:expr), $description:literal,
-        |$arg:ident, $workspace:ident| $forward:expr;)*) => {
-        $(
-            crate::tool_def!($attribute {
-                name: stringify!($handler),
-                description: $description,
-                input_schema: $schema,
-            });
-            pub fn $handler(
-                $arg: &serde_json::Value,
-                $workspace: &std::path::Path,
-            ) -> $crate::susi_error::EaiResult<String> {
-                $forward
-            }
-        )*
+    ($($handler:ident($arg:ident, $workspace:ident) => $forward:expr;)*) => {
+        $(pub fn $handler(
+            $arg: &serde_json::Value,
+            $workspace: &std::path::Path,
+        ) -> $crate::susi_error::EaiResult<String> { $forward })*
     };
 }
 pub(super) use forwarded_tools;
+
+/// The workspace a particular operator accepts before forwarding to the daemon.
+pub(super) enum Directory {
+    None,
+    Server,
+    ReadWorkspace,
+    OptionalReadRepo,
+    RequiredWriteRepo,
+}
+
+impl Directory {
+    fn payload(self, arg: &Value, server: &Path) -> EaiResult<Value> {
+        let (key, path) = match self {
+            Self::None => return Ok(serde_json::json!({})),
+            Self::Server => ("workspace", server.to_path_buf()),
+            Self::ReadWorkspace => (
+                "workspace",
+                policy_workspace(arg, "workspace", server, false)?,
+            ),
+            Self::OptionalReadRepo | Self::RequiredWriteRepo => {
+                let required = matches!(self, Self::RequiredWriteRepo);
+                if arg.get("repo").is_none_or(Value::is_null) {
+                    return if required {
+                        Err(EaiError::config("repo is required"))
+                    } else {
+                        Ok(serde_json::json!({}))
+                    };
+                }
+                ("repo", policy_workspace(arg, "repo", server, required)?)
+            }
+        };
+        Ok(serde_json::json!({ (key): path.display().to_string() }))
+    }
+}
+
+/// Build the authorized portion first: repository/workspace errors precede
+/// file errors, and both precede ordinary field validation and dispatch.
+pub(super) fn operator_paths(
+    directory: Directory,
+    arg: &Value,
+    server: &Path,
+    files: &[(&str, bool)],
+) -> EaiResult<Value> {
+    let workspace = directory.payload(arg, server)?;
+    if files.is_empty() {
+        return Ok(workspace);
+    }
+    Ok(merged(workspace, policy_paths(arg, files)?))
+}
+
+/// A daemon action receives only its admitted scalar fields and resolved paths.
+/// Path lists use their own order because callers observe the first refusal.
+macro_rules! plane_tools {
+    (@dir) => { $crate::tools::forward::Directory::None };
+    (@dir $scope:ident) => { $crate::tools::forward::Directory::$scope };
+    (@write read) => { false };
+    (@write write) => { true };
+    ($plane:path; $($vis:vis $handler:ident => $action:literal
+      [$($key:ident: $kind:ident),* $(,)?] $(in $scope:ident)?
+      $(paths [$($file:ident: $access:ident),* $(,)?])?;)*) => {
+        $($vis fn $handler(
+            arg: &serde_json::Value,
+            server: &std::path::Path,
+        ) -> $crate::susi_error::EaiResult<String> {
+            use $crate::tools::forward::{forward, operator_paths};
+            let extra = operator_paths(
+                plane_tools!(@dir $($scope)?), arg, server,
+                &[$($( (stringify!($file), plane_tools!(@write $access)) ),*)?],
+            )?;
+            forward($plane, $action, arg,
+                &[$( (stringify!($key), $crate::tools::forward::Kind::$kind) ),*], extra)
+        })*
+    };
+}
+pub(super) use plane_tools;
 
 /// Render the JSON text returned by host tools, including their existing error category.
 pub(super) fn pretty<T: serde::Serialize>(value: &T) -> EaiResult<String> {

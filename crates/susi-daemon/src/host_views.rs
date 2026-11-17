@@ -6,15 +6,12 @@
 //! B4 groups 2, 4, 9, 10 and 13). One implementation for both: the CLI
 //! prints what these functions return.
 
+use crate::operator_args::{field, msg};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 type R<T> = Result<T, String>;
-
-fn msg(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
 
 /// The checkout containing `cwd` (`git rev-parse --show-toplevel`), else
 /// `cwd` itself.
@@ -481,14 +478,6 @@ pub fn shutdown_soon(global_dir: PathBuf) -> Value {
 }
 
 // ── socket dispatch ────────────────────────────────────────────────────────
-
-fn field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-}
 
 /// The daemon's inference cache, read in process.
 fn loaded_in_process() -> R<Value> {

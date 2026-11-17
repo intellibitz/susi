@@ -45,106 +45,75 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn config_dir_for(
-    os: &str,
-    home: Option<&Path>,
-    xdg_config: Option<&Path>,
-    appdata: Option<&Path>,
-) -> Option<PathBuf> {
-    match os {
-        "windows" => {
-            abs_path(appdata).map(|base| base.join("intellibitz").join("susi").join("config"))
-        }
-        "macos" => home
-            .filter(|h| !h.as_os_str().is_empty())
-            .map(|h| h.join("Library/Application Support/intellibitz.susi")),
-        _ => abs_path(xdg_config)
-            .or_else(|| {
-                home.filter(|h| !h.as_os_str().is_empty())
-                    .map(|h| h.join(".config"))
-            })
-            .map(|base| base.join("susi")),
-    }
+#[derive(Clone, Copy)]
+enum ProjectDir {
+    Config,
+    Data,
+    Cache,
 }
 
-pub(crate) fn data_dir_for(
-    os: &str,
-    home: Option<&Path>,
-    xdg_data: Option<&Path>,
-    localappdata: Option<&Path>,
-) -> Option<PathBuf> {
-    match os {
-        "windows" => {
-            abs_path(localappdata).map(|base| base.join("intellibitz").join("susi").join("data"))
+impl ProjectDir {
+    fn resolve(
+        self,
+        os: &str,
+        home: Option<&Path>,
+        xdg: Option<&Path>,
+        appdata: Option<&Path>,
+    ) -> Option<PathBuf> {
+        let home = home.filter(|path| !path.as_os_str().is_empty());
+        match os {
+            "windows" => {
+                let leaf = match self {
+                    Self::Config => "config",
+                    Self::Data => "data",
+                    Self::Cache => "cache",
+                };
+                abs_path(appdata).map(|base| base.join("intellibitz").join("susi").join(leaf))
+            }
+            "macos" => home.map(|base| {
+                base.join(match self {
+                    Self::Config | Self::Data => "Library/Application Support/intellibitz.susi",
+                    Self::Cache => "Library/Caches/intellibitz.susi",
+                })
+            }),
+            _ => {
+                let fallback = match self {
+                    Self::Config => ".config",
+                    Self::Data => ".local/share",
+                    Self::Cache => ".cache",
+                };
+                abs_path(xdg)
+                    .or_else(|| home.map(|base| base.join(fallback)))
+                    .map(|base| base.join("susi"))
+            }
         }
-        "macos" => home
-            .filter(|h| !h.as_os_str().is_empty())
-            .map(|h| h.join("Library/Application Support/intellibitz.susi")),
-        _ => abs_path(xdg_data)
-            .or_else(|| {
-                home.filter(|h| !h.as_os_str().is_empty())
-                    .map(|h| h.join(".local/share"))
-            })
-            .map(|base| base.join("susi")),
     }
-}
 
-pub(crate) fn cache_dir_for(
-    os: &str,
-    home: Option<&Path>,
-    xdg_cache: Option<&Path>,
-    localappdata: Option<&Path>,
-) -> Option<PathBuf> {
-    match os {
-        "windows" => {
-            abs_path(localappdata).map(|base| base.join("intellibitz").join("susi").join("cache"))
-        }
-        "macos" => home
-            .filter(|h| !h.as_os_str().is_empty())
-            .map(|h| h.join("Library/Caches/intellibitz.susi")),
-        _ => abs_path(xdg_cache)
-            .or_else(|| {
-                home.filter(|h| !h.as_os_str().is_empty())
-                    .map(|h| h.join(".cache"))
-            })
-            .map(|base| base.join("susi")),
+    fn current(self) -> Option<PathBuf> {
+        let (xdg, windows) = match self {
+            Self::Config => ("XDG_CONFIG_HOME", "APPDATA"),
+            Self::Data => ("XDG_DATA_HOME", "LOCALAPPDATA"),
+            Self::Cache => ("XDG_CACHE_HOME", "LOCALAPPDATA"),
+        };
+        self.resolve(
+            std::env::consts::OS,
+            home_dir().as_deref(),
+            env_path(xdg).as_deref(),
+            env_path(windows).as_deref(),
+        )
     }
 }
 
 pub(crate) fn config_dir() -> Option<PathBuf> {
-    let home = home_dir();
-    let xdg_config = env_path("XDG_CONFIG_HOME");
-    let appdata = env_path("APPDATA");
-    config_dir_for(
-        std::env::consts::OS,
-        home.as_deref(),
-        xdg_config.as_deref(),
-        appdata.as_deref(),
-    )
+    ProjectDir::Config.current()
 }
 
 pub(crate) fn data_dir() -> Option<PathBuf> {
-    let home = home_dir();
-    let xdg_data = env_path("XDG_DATA_HOME");
-    let localappdata = env_path("LOCALAPPDATA");
-    data_dir_for(
-        std::env::consts::OS,
-        home.as_deref(),
-        xdg_data.as_deref(),
-        localappdata.as_deref(),
-    )
+    ProjectDir::Data.current()
 }
 
 pub(crate) fn cache_dir() -> Option<PathBuf> {
-    let home = home_dir();
-    let xdg_cache = env_path("XDG_CACHE_HOME");
-    let localappdata = env_path("LOCALAPPDATA");
-    cache_dir_for(
-        std::env::consts::OS,
-        home.as_deref(),
-        xdg_cache.as_deref(),
-        localappdata.as_deref(),
-    )
+    ProjectDir::Cache.current()
 }
 
 #[cfg(test)]
@@ -178,19 +147,19 @@ mod tests {
 
         // 1. Linux fallback when XDG_*_HOME is None or relative
         assert_eq!(
-            config_dir_for("linux", Some(home), None, None),
+            ProjectDir::Config.resolve("linux", Some(home), None, None),
             Some(home.join(".config").join("susi"))
         );
         assert_eq!(
-            config_dir_for("linux", Some(home), Some(Path::new("rel/xdg")), None),
+            ProjectDir::Config.resolve("linux", Some(home), Some(Path::new("rel/xdg")), None),
             Some(home.join(".config").join("susi"))
         );
         assert_eq!(
-            data_dir_for("linux", Some(home), None, None),
+            ProjectDir::Data.resolve("linux", Some(home), None, None),
             Some(home.join(".local/share").join("susi"))
         );
         assert_eq!(
-            cache_dir_for("linux", Some(home), None, None),
+            ProjectDir::Cache.resolve("linux", Some(home), None, None),
             Some(home.join(".cache").join("susi"))
         );
 
@@ -199,30 +168,30 @@ mod tests {
         let xdg_data = Path::new("/tmp/xdg-data");
         let xdg_cache = Path::new("/tmp/xdg-cache");
         assert_eq!(
-            config_dir_for("linux", Some(home), Some(xdg_cfg), None),
+            ProjectDir::Config.resolve("linux", Some(home), Some(xdg_cfg), None),
             Some(xdg_cfg.join("susi"))
         );
         assert_eq!(
-            data_dir_for("linux", Some(home), Some(xdg_data), None),
+            ProjectDir::Data.resolve("linux", Some(home), Some(xdg_data), None),
             Some(xdg_data.join("susi"))
         );
         assert_eq!(
-            cache_dir_for("linux", Some(home), Some(xdg_cache), None),
+            ProjectDir::Cache.resolve("linux", Some(home), Some(xdg_cache), None),
             Some(xdg_cache.join("susi"))
         );
 
         // 3. macOS layout
         let mac_home = Path::new("/Users/alice");
         assert_eq!(
-            config_dir_for("macos", Some(mac_home), None, None),
+            ProjectDir::Config.resolve("macos", Some(mac_home), None, None),
             Some(mac_home.join("Library/Application Support/intellibitz.susi"))
         );
         assert_eq!(
-            data_dir_for("macos", Some(mac_home), None, None),
+            ProjectDir::Data.resolve("macos", Some(mac_home), None, None),
             Some(mac_home.join("Library/Application Support/intellibitz.susi"))
         );
         assert_eq!(
-            cache_dir_for("macos", Some(mac_home), None, None),
+            ProjectDir::Cache.resolve("macos", Some(mac_home), None, None),
             Some(mac_home.join("Library/Caches/intellibitz.susi"))
         );
 
@@ -230,20 +199,20 @@ mod tests {
         let appdata = Path::new(r"C:\Users\alice\AppData\Roaming");
         let localappdata = Path::new(r"C:\Users\alice\AppData\Local");
         assert_eq!(
-            config_dir_for("windows", None, None, Some(appdata)),
+            ProjectDir::Config.resolve("windows", None, None, Some(appdata)),
             Some(appdata.join("intellibitz").join("susi").join("config"))
         );
         assert_eq!(
-            data_dir_for("windows", None, None, Some(localappdata)),
+            ProjectDir::Data.resolve("windows", None, None, Some(localappdata)),
             Some(localappdata.join("intellibitz").join("susi").join("data"))
         );
         assert_eq!(
-            cache_dir_for("windows", None, None, Some(localappdata)),
+            ProjectDir::Cache.resolve("windows", None, None, Some(localappdata)),
             Some(localappdata.join("intellibitz").join("susi").join("cache"))
         );
         // Relative APPDATA is ignored
         assert_eq!(
-            config_dir_for("windows", None, None, Some(Path::new("relative"))),
+            ProjectDir::Config.resolve("windows", None, None, Some(Path::new("relative"))),
             None
         );
     }
@@ -269,19 +238,19 @@ mod tests {
 
         let empty = Path::new("");
         for os in ["linux", "macos", "windows"] {
-            assert_eq!(config_dir_for(os, None, None, None), None);
-            assert_eq!(data_dir_for(os, None, None, None), None);
-            assert_eq!(cache_dir_for(os, None, None, None), None);
+            assert_eq!(ProjectDir::Config.resolve(os, None, None, None), None);
+            assert_eq!(ProjectDir::Data.resolve(os, None, None, None), None);
+            assert_eq!(ProjectDir::Cache.resolve(os, None, None, None), None);
             assert_eq!(
-                config_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                ProjectDir::Config.resolve(os, Some(empty), Some(empty), Some(empty)),
                 None
             );
             assert_eq!(
-                data_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                ProjectDir::Data.resolve(os, Some(empty), Some(empty), Some(empty)),
                 None
             );
             assert_eq!(
-                cache_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                ProjectDir::Cache.resolve(os, Some(empty), Some(empty), Some(empty)),
                 None
             );
         }
@@ -296,15 +265,15 @@ mod tests {
         let appdata = Path::new(r"C:\Users\alice\AppData\Roaming");
 
         assert_eq!(
-            config_dir_for("macos", Some(mac_home), Some(xdg_cfg), Some(appdata)),
+            ProjectDir::Config.resolve("macos", Some(mac_home), Some(xdg_cfg), Some(appdata)),
             Some(mac_home.join("Library/Application Support/intellibitz.susi"))
         );
         assert_eq!(
-            data_dir_for("macos", Some(mac_home), Some(xdg_data), Some(appdata)),
+            ProjectDir::Data.resolve("macos", Some(mac_home), Some(xdg_data), Some(appdata)),
             Some(mac_home.join("Library/Application Support/intellibitz.susi"))
         );
         assert_eq!(
-            cache_dir_for("macos", Some(mac_home), Some(xdg_cache), Some(appdata)),
+            ProjectDir::Cache.resolve("macos", Some(mac_home), Some(xdg_cache), Some(appdata)),
             Some(mac_home.join("Library/Caches/intellibitz.susi"))
         );
 
@@ -312,15 +281,15 @@ mod tests {
         let rel = Path::new("relative/appdata");
         for win_appdata in [None, Some(rel)] {
             assert_eq!(
-                config_dir_for("windows", Some(home), Some(xdg_cfg), win_appdata),
+                ProjectDir::Config.resolve("windows", Some(home), Some(xdg_cfg), win_appdata),
                 None
             );
             assert_eq!(
-                data_dir_for("windows", Some(home), Some(xdg_data), win_appdata),
+                ProjectDir::Data.resolve("windows", Some(home), Some(xdg_data), win_appdata),
                 None
             );
             assert_eq!(
-                cache_dir_for("windows", Some(home), Some(xdg_cache), win_appdata),
+                ProjectDir::Cache.resolve("windows", Some(home), Some(xdg_cache), win_appdata),
                 None
             );
         }
@@ -330,15 +299,15 @@ mod tests {
     fn unknown_os_falls_back_to_xdg_or_home_dot_dirs_like_linux() {
         let home = Path::new("/home/bob");
         assert_eq!(
-            config_dir_for("freebsd", Some(home), None, None),
+            ProjectDir::Config.resolve("freebsd", Some(home), None, None),
             Some(home.join(".config").join("susi"))
         );
         assert_eq!(
-            data_dir_for("freebsd", Some(home), None, None),
+            ProjectDir::Data.resolve("freebsd", Some(home), None, None),
             Some(home.join(".local/share").join("susi"))
         );
         assert_eq!(
-            cache_dir_for("freebsd", Some(home), None, None),
+            ProjectDir::Cache.resolve("freebsd", Some(home), None, None),
             Some(home.join(".cache").join("susi"))
         );
     }

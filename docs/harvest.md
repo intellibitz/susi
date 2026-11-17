@@ -33,9 +33,12 @@ on stdout. A non-zero exit code means refusal or a failed check.
 
 ## Commands
 
+Set `UPSTREAM_URL` to the source repository's Git fetch URL. Replace `WORKER`
+in the example record IDs and `worker` in `--agent` with your worktree's agent token.
+
 ```sh
 # 1. Quarantine fetch, pinned to one commit (a ref name is resolved to its SHA)
-local-harvest intake --url https://codeberg.org/acme/widgets.git --rev v1.4.0 --slug widgets
+local-harvest intake --url "$UPSTREAM_URL" --rev v1.4.0 --slug widgets
 #   pinned 3f2c...e9 / quarantine ref: refs/susi/upstream/widgets/3f2c...e9
 
 # 2. Per-file license verification at that commit (files or directories)
@@ -44,8 +47,8 @@ local-harvest scan --slug widgets --rev 3f2c...e9 --path src/codec --path NOTICE
 # 3. Import approved files, write the manifest, LICENSES and notices (no commit)
 local-harvest import --slug widgets --rev 3f2c...e9 \
   --map src/codec=crates/susi-codec/src/upstream \
-  --id H-CLAUDE-1 --task T-CLAUDE-7 --feature codec [--mode transplant|port] \
-  [--summary "trimmed to the decoder"] [--agent claude] [--overwrite]
+  --id H-WORKER-1 --task T-WORKER-7 --feature codec [--mode transplant|port] \
+  [--summary "trimmed to the decoder"] [--agent worker] [--overwrite]
 
 # 4. Regenerate THIRD_PARTY_NOTICES from all manifests, or check it
 local-harvest notices
@@ -55,7 +58,7 @@ local-harvest notices --check
 local-harvest audit --range origin/main..HEAD
 
 # 6. Discover raw-branch features and pure-Apache-2.0 modules from a cloud Git repo
-local-harvest raw-features --url https://codeberg.org/acme/widgets.git \
+local-harvest raw-features --url "$UPSTREAM_URL" \
   [--rev main] [--slug widgets] [--limit 50] [--json]
 
 # 7. Classify candidate paths/features into `core` (3 lean pillars) vs `commercial`
@@ -65,10 +68,10 @@ local-harvest route --path crates/susi-core/src/acp/frame.rs \
   [--slug widgets --rev 3f2c...e9] [--json]
 
 # 8. One-step autonomous Cloud Raw-Source Pickup (intake -> scan -> route -> import)
-local-harvest pickup --url https://codeberg.org/acme/widgets.git --rev main \
+local-harvest pickup --url "$UPSTREAM_URL" --rev main \
   --slug widgets --map src/frame.rs=crates/susi-core/src/acp/frame.rs \
-  --id H-CARBON-1 --task T-CARBON-1 [--feature F-ACP-FRAME-1] \
-  [--target auto|core|commercial] [--mode transplant|port] [--agent carbon] \
+  --id H-WORKER-2 --task T-WORKER-8 [--feature F-ACP-FRAME-1] \
+  [--target auto|core|commercial] [--mode transplant|port] [--agent worker] \
   [--summary "adapted to EaiResult"] [--overwrite] [--json]
 ```
 
@@ -78,12 +81,14 @@ code, then lists distillable `Task:` / `Feature:` commits and pure-`Apache-2.0`
 Rust modules together with their classified `core` vs. `commercial` destination.
 
 **route** classifies candidate paths, mappings, and summaries into `core` vs.
-`commercial` under [CEO Mandate 75](ceo-mandate-75.md):
+`commercial` under [CEO Mandate 75](ceo-mandate-75.md).
+The checkout's package and license layout determines its kind, independently
+of the Git remote's host or owner.
 
-- **`core`** (`intellibitz/susi`) is selected **only** for zero-UI,
+- **`core`** is selected **only** for zero-UI,
   zero-vendor-product protocol and runtime substrate capabilities inside Susi
   Core's 3 lean open-socket pillars (`gawd`, including A2A/ACP/harness; `gemi`; `gmcp`).
-- **`commercial`** (`intellibitz/susi-commercial-apps`) is selected for all
+- **`commercial`** is selected for all
   add-on product features, desktop and visual interfaces (all UIs and visual
   views live in Susi Commercial Apps), enterprise and department packs,
   SSO/RBAC/FinOps planes, connectors, plugs, and turnkey workflows.
@@ -92,8 +97,8 @@ Rust modules together with their classified `core` vs. `commercial` destination.
   candidate or when `--target` mismatches the current repository checkout.
 
 **pickup** combines quarantine `intake` -> pure-`Apache-2.0` per-file `scan` ->
-`route` target verification against the active checkout (`intellibitz/susi`
-hard-refuses `commercial`/UI/add-on candidates; `susi-commercial-apps` accepts
+`route` target verification against the active checkout (a core checkout
+hard-refuses `commercial`/UI/add-on candidates; a commercial checkout accepts
 `--target auto|commercial`) -> `import`, writing `.agents/harvest/<id>.json`
 (`"license": "Apache-2.0"`), `LICENSES/Apache-2.0.txt`, and deterministic
 `THIRD_PARTY_NOTICES`, and printing the exact Raw-Main distillable commit

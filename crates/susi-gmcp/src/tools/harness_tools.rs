@@ -9,119 +9,33 @@
 //! and `harness_status` (with the run's `state`) report progress. Serving
 //! the harness API and the gateway stays with the CLI (process entry points).
 
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use std::path::Path;
 
 use crate::susi_core::plane_bus::daemon;
 use crate::susi_error::{EaiError, EaiResult};
 
-use super::args;
-use super::forward::forwarded_tools;
-use super::forward::{forward, merged, policy_paths, policy_workspace, Kind};
+use super::forward::plane_tools;
 use super::CoreTools;
 
-const STR: Kind = Kind::Str;
-const U64: Kind = Kind::U64;
-
-/// `repo`, resolved through the MAC policy; `required` refuses its absence.
-fn repo(arg: &Value, server: &Path, required: bool, write: bool) -> EaiResult<Value> {
-    if arg.get("repo").is_none_or(Value::is_null) {
-        if required {
-            return Err(EaiError::config("repo is required"));
-        }
-        return Ok(json!({}));
-    }
-    let path = policy_workspace(arg, "repo", server, write)?;
-    Ok(json!({ "repo": path.display().to_string() }))
-}
-
-fn harness(action: &str, arg: &Value, keys: &[(&str, Kind)], extra: Value) -> EaiResult<String> {
-    forward(daemon::harness, action, arg, keys, extra)
-}
-
 impl CoreTools {
-    forwarded_tools! {
-        harness_status(harness_status_tool_attr, args::typed::<args::HarnessStatus>()),
-        "The harness API snapshot (spend, tasks, workers, warnings) for a ledger, with a run's state and plan when given, as `susi harness status`. Args: ledger, optional events, state, plan (absolute paths)",
-        |arg, _workspace| harness(
-            "status",
-            arg,
-            &[
-                ("ledger", STR),
-                ("events", STR),
-                ("state", STR),
-                ("plan", STR),
-            ],
-            policy_paths(
-                arg,
-                &[
-                    ("ledger", false),
-                    ("events", false),
-                    ("state", false),
-                    ("plan", false),
-                ],
-            )?,
-        );
-
-        harness_budget(harness_budget_tool_attr, args::typed::<args::HarnessBudget>()),
-        "The one-line harness budget report and any top-up alerts, as `susi harness budget`. Args: optional ledger, repo (absolute)",
-        |arg, workspace| harness(
-            "budget",
-            arg,
-            &[("ledger", STR)],
-            merged(
-                repo(arg, workspace, false, false)?,
-                policy_paths(arg, &[("ledger", false)])?,
-            ),
-        );
-
-        harness_models(harness_models_tool_attr, args::typed::<args::HarnessModels>()),
-        "The harness provider registry (registry, no network), its live drift check (verify), the models keyed providers add (discover) or the keyed models by cost (available), as `susi harness models`. Args: optional mode, provider, repo",
-        |arg, workspace| harness(
-            "models",
-            arg,
-            &[("mode", STR), ("provider", STR)],
-            repo(arg, workspace, false, false)?,
-        );
-
-        harness_plan(harness_plan_tool_attr, args::typed::<args::HarnessPlan>()),
-        "Plan a batch of dependency-ready queue tasks and write the plan, as `susi harness plan`. Args: repo, out (absolute), optional mission, limit, workers, roadmap, gateway",
-        |arg, workspace| harness(
-            "plan",
-            arg,
-            &[
-                ("out", STR),
-                ("mission", STR),
-                ("limit", U64),
-                ("workers", STR),
-                ("roadmap", STR),
-                ("gateway", STR),
-            ],
-            merged(
-                repo(arg, workspace, true, true)?,
-                policy_paths(arg, &[("out", true)])?,
-            ),
-        );
-
-        harness_author(harness_author_tool_attr, args::typed::<args::HarnessAuthor>()),
-        "Author a plan for a roadmap vector through the metered gateway, validate it and write it, as `susi harness author`. Args: repo, gateway, vector, out, optional model, roadmap, max_tasks, workers",
-        |arg, workspace| harness(
-            "author",
-            arg,
-            &[
-                ("gateway", STR),
-                ("vector", STR),
-                ("out", STR),
-                ("model", STR),
-                ("roadmap", STR),
-                ("max_tasks", U64),
-                ("workers", STR),
-            ],
-            merged(
-                repo(arg, workspace, true, true)?,
-                policy_paths(arg, &[("out", true), ("roadmap", false)])?,
-            ),
-        );
+    plane_tools! {
+        daemon::harness;
+        pub harness_status => "status" [] paths [ledger: read, events: read, state: read, plan: read];
+        pub harness_budget => "budget" [] in OptionalReadRepo paths [ledger: read];
+        pub harness_models => "models" [mode: Str, provider: Str] in OptionalReadRepo;
+        pub harness_plan => "plan" [mission: Str, limit: U64, workers: Str, roadmap: Str, gateway: Str] in RequiredWriteRepo
+            paths [out: write];
+        pub harness_author => "author" [gateway: Str, vector: Str, model: Str, max_tasks: U64, workers: Str] in RequiredWriteRepo
+            paths [out: write, roadmap: read];
+        harness_run_admitted => "run" [
+            gateway: Str, model: Str, timeout: U64, parallel: U64,
+            prefix: Str, workers: Str, budget_usd: Str, daily_usd: Str, attempts: U64,
+        ] in RequiredWriteRepo
+            paths [plan: read, catalogue: read, state: write, ledger: write, controls: write, rsi_log: write, adapter_state: write];
+        pub harness_runs => "runs" [];
     }
 
     pub fn harness_run(arg: &Value, workspace: &Path) -> EaiResult<String> {
@@ -130,49 +44,7 @@ impl CoreTools {
                 "susi cannot be chosen over the socket; a socket run drives the daemon's own binary",
             ));
         }
-        harness(
-            "run",
-            arg,
-            &[
-                ("plan", STR),
-                ("gateway", STR),
-                ("model", STR),
-                ("timeout", U64),
-                ("parallel", U64),
-                ("prefix", STR),
-                ("workers", STR),
-                ("budget_usd", STR),
-                ("daily_usd", STR),
-                ("attempts", U64),
-                ("state", STR),
-                ("catalogue", STR),
-                ("ledger", STR),
-                ("controls", STR),
-                ("rsi_log", STR),
-                ("adapter_state", STR),
-            ],
-            merged(
-                repo(arg, workspace, true, true)?,
-                policy_paths(
-                    arg,
-                    &[
-                        ("plan", false),
-                        ("catalogue", false),
-                        ("state", true),
-                        ("ledger", true),
-                        ("controls", true),
-                        ("rsi_log", true),
-                        ("adapter_state", true),
-                    ],
-                )?,
-            ),
-        )
-    }
-
-    forwarded_tools! {
-        harness_runs(harness_runs_tool_attr, args::no_args()),
-        "The harness missions this daemon started: running or finished, with notes, the report and the budget line",
-        |arg, _workspace| harness("runs", arg, &[], json!({}));
+        Self::harness_run_admitted(arg, workspace)
     }
 }
 

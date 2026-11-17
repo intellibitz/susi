@@ -14,6 +14,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, RwLock};
 
+pub(crate) const LOCAL_ENGINE_ABSENT: &str =
+    "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 pub const LOCAL_ENGINE_BUS_PREFIX: &str = "gpu_fabric.local_engine.";
 pub const TOPIC_LOCAL_INFER_STREAM: &str = "gpu_fabric.local_engine.infer_stream";
 pub const TOPIC_LOCAL_PRELOAD: &str = "gpu_fabric.local_engine.preload";
@@ -98,6 +100,18 @@ pub(crate) fn call_bus_plug(topic: &str, payload: Value) -> Option<EaiResult<Val
         return None;
     }
     Some(bus.request(topic, payload).map_err(EaiError::inference))
+}
+
+/// Return the first declared field from a wired text operation. An advertised
+/// backend's failure is final; only an absent or malformed reply is unavailable.
+pub(crate) fn call_bus_text(topic: &str, payload: Value, fields: &[&str]) -> EaiResult<String> {
+    let reply = call_bus_plug(topic, payload).transpose()?;
+    reply
+        .as_ref()
+        .and_then(|doc| fields.iter().find_map(|field| doc.get(*field)))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!(LOCAL_ENGINE_ABSENT))
 }
 
 #[derive(Debug, Clone)]
@@ -195,14 +209,20 @@ pub struct TrainedAlphaReflex {
     ckpt: ReflexCheckpoint,
 }
 
+pub(crate) fn reflex_bundle_path(
+    global_dir: &Path,
+    config: crate::susi_sandbox::manager::SusiConfig,
+) -> PathBuf {
+    global_dir
+        .join("models")
+        .join(config.alpha_weights_filename())
+        .with_extension("bundle.json")
+}
+
 impl TrainedAlphaReflex {
     pub fn load_from_dir(global_dir: &Path) -> EaiResult<Self> {
-        let alpha_filename =
-            crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
-        let bundle = global_dir
-            .join("models")
-            .join(&alpha_filename)
-            .with_extension("bundle.json");
+        let config = crate::susi_sandbox::manager::SusiConfig::load(global_dir)?;
+        let bundle = reflex_bundle_path(global_dir, config);
         let bytes = std::fs::read(&bundle).map_err(|_| {
             anyhow!(
                 "no published reflex checkpoint under {}",
@@ -271,13 +291,9 @@ pub(crate) fn train_alpha_reflex(global_dir: &Path, staged_file: &Path) -> EaiRe
         ));
     }
     let count = prototypes.len();
-    let alpha_filename =
-        crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
-    let models_dir = global_dir.join("models");
-    std::fs::create_dir_all(&models_dir)?;
-    let bundle_path = models_dir
-        .join(&alpha_filename)
-        .with_extension("bundle.json");
+    let config = crate::susi_sandbox::manager::SusiConfig::load(global_dir)?;
+    std::fs::create_dir_all(global_dir.join("models"))?;
+    let bundle_path = reflex_bundle_path(global_dir, config);
     let ckpt = ReflexCheckpoint {
         schema: "susi/reflex-bundle/v1".to_string(),
         intents: vocab,

@@ -598,6 +598,18 @@ fn read_manifest(git: &Git<'_>, rev: &str, name: &str) -> Result<Value> {
             manifest_path(name)
         ));
     }
+    let lanes = manifest["lanes"]
+        .as_array()
+        .filter(|lanes| !lanes.is_empty())
+        .ok_or("release manifest must contain a non-empty lanes array")?;
+    let mut ids = BTreeSet::new();
+    for lane in lanes {
+        let id = lane["id"].as_str().ok_or("release lane has no string id")?;
+        segment(id, "lane")?;
+        if !ids.insert(id) || !matches!(lane["status"].as_str(), Some("pending" | "qualified")) {
+            return Err("release manifest has duplicate lanes or an invalid lane status".into());
+        }
+    }
     Ok(manifest)
 }
 
@@ -816,7 +828,9 @@ fn status(git: &Git<'_>, opts: &Opts) -> Result<String> {
             }
         }
     }
-    let lanes: Vec<Value> = manifest["lanes"].as_array().cloned().unwrap_or_default();
+    let lanes = manifest["lanes"]
+        .as_array()
+        .ok_or("release manifest has no lanes array")?;
     let complete = lanes
         .iter()
         .all(|l| l["status"].as_str() == Some("qualified"));
@@ -840,7 +854,7 @@ fn status(git: &Git<'_>, opts: &Opts) -> Result<String> {
         return serde_json::to_string_pretty(&report).map_err(|e| e.to_string());
     }
     let mut out = format!("release {name} at {tip}\n");
-    for lane in &lanes {
+    for lane in lanes {
         let id = lane["id"].as_str().unwrap_or_default();
         let holder = claims
             .get(id)
@@ -1510,6 +1524,8 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    include!("release_lanes/manifest_tests.rs");
 
     static SEQ: AtomicUsize = AtomicUsize::new(0);
 

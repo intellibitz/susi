@@ -1,7 +1,7 @@
 //! Plane-bus handler for all `gemi.*` topics (real GEMI / models APIs).
 
 use crate::susi_core::plane_bus::topics;
-use crate::susi_core::plane_bus::{HardwareProfileDto, PlaneBus, PlaneHandler};
+use crate::susi_core::plane_bus::{workspace_path, HardwareProfileDto, PlaneBus, PlaneHandler};
 use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_error::EaiResult;
 use serde_json::{json, Value};
@@ -19,10 +19,6 @@ use susi_gemi_models::coding_models::CodingModelManager;
 use susi_gemi_models::intent::{IntentCategory, IntentClassifier, TaskComplexity};
 
 struct GemiPlaneHandler;
-
-fn workspace_path(payload: &Value) -> PathBuf {
-    path_field(payload, "workspace")
-}
 
 fn string_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
     payload.get(key).and_then(Value::as_str)

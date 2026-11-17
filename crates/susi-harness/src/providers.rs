@@ -15,6 +15,7 @@ use crate::policy::UsageProfile;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
+use susi_config::JsonFields as _;
 use susi_error::{EaiError, EaiResult};
 
 /// What a provider speaks on the wire.
@@ -1204,18 +1205,15 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
         }
     }
     let key_prefix = raw
-        .get("key_prefix")
-        .and_then(Value::as_str)
+        .field_str("key_prefix")
         .filter(|prefix| !prefix.is_empty())
         .map(str::to_string);
     let key_url = raw
-        .get("key_url")
-        .and_then(Value::as_str)
+        .field_str("key_url")
         .filter(|url| !url.is_empty())
         .map(str::to_string);
     let models_query = raw
-        .get("models_query")
-        .and_then(Value::as_str)
+        .field_str("models_query")
         .map(|query| query.trim().trim_start_matches('?').to_string())
         .filter(|query| !query.is_empty());
     Ok(ProviderRecord {
@@ -1232,34 +1230,20 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
 
 fn parse_model(raw: &Value) -> EaiResult<ModelRecord> {
     let id = string_field(raw, "id")?;
-    let backend = raw
-        .get("backend")
-        .and_then(Value::as_str)
-        .unwrap_or(&id)
-        .to_string();
+    let backend = raw.field_str("backend").unwrap_or(&id).to_string();
     let capabilities = Capabilities {
-        context: raw.get("context").and_then(Value::as_u64),
-        tools: raw.get("tools").and_then(Value::as_bool).unwrap_or(false),
-        streaming: raw
-            .get("streaming")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        vision: raw.get("vision").and_then(Value::as_bool).unwrap_or(false),
-        cache: raw.get("cache").and_then(Value::as_bool).unwrap_or(false),
+        context: raw.field_u64("context"),
+        tools: raw.field_bool("tools").unwrap_or(false),
+        streaming: raw.field_bool("streaming").unwrap_or(false),
+        vision: raw.field_bool("vision").unwrap_or(false),
+        cache: raw.field_bool("cache").unwrap_or(false),
     };
-    let tier = raw
-        .get("tier")
-        .and_then(Value::as_str)
-        .map(Tier::parse)
-        .transpose()?;
+    let tier = raw.field_str("tier").map(Tier::parse).transpose()?;
     Ok(ModelRecord {
         id,
         backend,
         capabilities,
-        price_ref: raw
-            .get("price_ref")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        price_ref: raw.field_str("price_ref").map(str::to_string),
         tier,
     })
 }

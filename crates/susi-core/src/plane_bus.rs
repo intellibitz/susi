@@ -268,6 +268,12 @@ fn req(topic: &str, payload: Value) -> Result<Value, String> {
     }
     PlaneBus::global().request(topic, payload)
 }
+/// Interpret the workspace of an incoming plane request. Omitted or non-string
+/// values use the process directory; explicit strings retain their native spelling.
+pub fn workspace_path(payload: &Value) -> PathBuf {
+    PathBuf::from(payload.field_str("workspace").unwrap_or("."))
+}
+
 fn workspace_payload(workspace: &Path) -> Value {
     json!({ "workspace": workspace.display().to_string() })
 }

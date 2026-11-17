@@ -48,6 +48,7 @@ pub mod capture;
 pub mod commit_log;
 pub mod commit_log_report;
 pub mod context_graph;
+mod context_graph_views;
 pub mod delegation;
 pub mod egress;
 pub mod emergency_stop;

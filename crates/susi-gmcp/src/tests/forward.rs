@@ -350,3 +350,32 @@ fn forwarded_tools_match_pristine_metadata() {
         "Network status and the hardware-selected model ladder's provisioning steps (all_verified is the verdict), as `susi verify-download-agent`; verification only, it never starts a download",
         args::no_args());
 }
+
+/// An invalid scope or file must stop the call before unrelated payload errors.
+#[test]
+fn operator_admission_preserves_failure_order() {
+    let _home = crate::test_isolation::enter_isolated_home();
+    use crate::tools::CoreTools;
+    let server = std::env::temp_dir();
+    let message = |result: EaiResult<String>| result.unwrap_err().to_string();
+    assert!(message(CoreTools::harness_plan(
+        &json!({"out":false, "limit":"invalid"}),
+        &server
+    ))
+    .contains("repo is required"));
+    assert!(message(CoreTools::provider_configure(
+        &json!({"file":false, "vendor":false, "model":false}),
+        &server
+    ))
+    .contains("file must be a string"));
+    assert!(message(CoreTools::harness_status(
+        &json!({"events":false, "ledger":false}),
+        &server
+    ))
+    .contains("ledger must be a string"));
+    assert!(message(CoreTools::harness_run(
+        &json!({"susi":false, "repo":false, "plan":false}),
+        &server
+    ))
+    .contains("susi cannot be chosen over the socket"));
+}
