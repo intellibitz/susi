@@ -24,7 +24,14 @@ fn run(words: &[OsString]) -> Result<ExitCode> {
     let program: Option<PathBuf> = None;
     let program = program
         .or_else(susi_config::vault_exec::commercial_executable)
-        .ok_or("this command is served by Susi Commercial Apps: install it and run `susi-commercial core-runtime <arguments>` (or repeat the same `susi` command)")?;
+        .ok_or_else(|| {
+            let entry = words
+                .first()
+                .and_then(|word| word.to_str())
+                .filter(|command| matches!(*command, "setup" | "top" | "peers" | "commits"))
+                .unwrap_or("core-runtime");
+            format!("this command is served by Susi Commercial Apps: install it and run `susi-commercial {entry} <arguments>` (or repeat the same `susi` command)")
+        })?;
     let launcher = core_executable(susi_paths::SusiDirs::cache_dir)?;
     if program.canonicalize()? == launcher.canonicalize()? {
         return Err("the commercial runtime resolves to the public core launcher".into());

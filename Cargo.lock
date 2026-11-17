@@ -863,14 +863,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-adapters-llm"
-version = "0.1.0"
-dependencies = [
- "susi-http-transport",
- "susi-vendor-serde-json",
-]
-
-[[package]]
 name = "susi-build-os-ucrt"
 version = "0.1.0"
 dependencies = [
@@ -932,29 +924,6 @@ name = "susi-daemon"
 version = "0.21.71"
 dependencies = [
  "susi-core",
-]
-
-[[package]]
-name = "susi-daemon-runtime"
-version = "0.1.0"
-dependencies = [
- "susi-abi",
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-getrandom",
- "susi-vendor-libc",
- "susi-vendor-rcgen",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
- "susi-vendor-tokio",
- "susi-vendor-tokio-rustls",
- "susi-vendor-tracing",
- "susi-vendor-winapi",
 ]
 
 [[package]]
@@ -1058,22 +1027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-leaf-services"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-tokio",
- "susi-vendor-wasmtime",
-]
-
-[[package]]
 name = "susi-native-client"
 version = "0.1.0"
 dependencies = [
@@ -1099,24 +1052,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
-]
-
-[[package]]
-name = "susi-server"
-version = "0.21.71"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-sandbox-client",
- "susi-vendor-hyper",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
- "susi-vendor-tokio",
- "susi-vendor-tokio-rustls",
- "susi-vendor-tracing",
 ]
 
 [[package]]

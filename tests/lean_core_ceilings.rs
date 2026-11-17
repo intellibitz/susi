@@ -6,8 +6,8 @@
 //!
 //! Per-pillar, category and file ceilings remain removed. The later explicit
 //! under-100k socket goal (Vision V-6) has a separate acceptance check, run by
-//! `cargo core-size`. It is intentionally not a claim that today's tree meets
-//! the goal, nor does a size check establish functional/protocol parity.
+//! `cargo core-size`. The explicit check verifies the complete runtime count;
+//! a size check does not establish functional/protocol parity.
 //! Mandate 84 makes that goal a standing rule: the complete socket never grows
 //! past `COMPLETE_SOCKET_CEILING`, which only goes down until it is 99,999.
 //!
@@ -190,7 +190,7 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
 // Bulk implementation relocation, retaining the native storage guard and wire contracts.
-const COMPLETE_SOCKET_CEILING: usize = 126_745;
+const COMPLETE_SOCKET_CEILING: usize = 99_999;
 /// The CEO's limit: strictly below 100,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 99_999;
 
@@ -448,10 +448,10 @@ fn complete_socket_never_grows(lines: usize) {
 // The ceiling stops at the limit: below 100,000, core may use the room the CEO gave it.
 const _: () = assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT);
 
-/// Goal acceptance is explicit while the reduction remains in progress. All
+/// Explicit complete-socket acceptance. All
 /// first-party runtime and facade code counts, not just the pillar crates.
 #[test]
-#[ignore = "unfinished reduction goal; run cargo core-size to measure acceptance"]
+#[ignore = "explicit complete-socket acceptance; run cargo core-size"]
 fn complete_socket_is_under_100k_lines() {
     let lines = repository_size();
     assert!(

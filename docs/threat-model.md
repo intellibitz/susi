@@ -210,7 +210,7 @@ All five contract ports and the leaf ports shift together under
 falls back to an ephemeral port. A pinned offset is bound exactly or the
 start refuses. With nothing pinned, a foreign holder of one of the six block
 ports (contract plus gossip) moves the whole block to the first free offset
-of 100 up to 2000 (`crates/susi-daemon-runtime/src/port_fallback.rs`); the daemon
+of 100 up to 2000 (Commercial Apps: `susi-commercial-apps/crates/susi-daemon-runtime/src/port_fallback.rs`); the daemon
 logs the holder and publishes the offset with its pid in `ports.json`.
 Clients trust that file only while its pid holds the instance's substrate
 lock, so a stale file left by a crashed daemon cannot redirect them, and
@@ -218,7 +218,7 @@ only a process of the same user can write the config directory it lives in.
 The bearer token still guards every contract port, wherever the block
 lands.
 
-TLS on the contract ports (`crates/susi-daemon-runtime/src/tls.rs`,
+TLS on the contract ports (Commercial Apps: `susi-commercial-apps/crates/susi-daemon-runtime/src/tls.rs`,
 `susi_http_transport::dual_transport`):
 
 - Every accepted connection is sniffed by its first byte. A TLS ClientHello
@@ -410,7 +410,7 @@ one.
 
 **Docker `sandbox_exec` has no implementation in core.** The GMCP tool
 forwards to the sandbox leaf's `POST /sandbox/docker_exec`, and that handler
-(`crates/susi-leaf-services/src/sandbox_svc.rs`) discards the command and
+(Commercial Apps: `susi-commercial-apps/crates/susi-leaf-services/src/sandbox_svc.rs`) discards the command and
 returns 500; no crate in this workspace depends on `bollard`. Consequences:
 
 - `sandbox_exec` always fails in core;

@@ -26,10 +26,5 @@ winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 # `member_sign` can only sign as this node.
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
 
-[[bench]]
-name = "evidence_verify"
-harness = false
-path = "benches/evidence_verify.rs"
-
 [lints]
 workspace = true

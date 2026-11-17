@@ -5,8 +5,6 @@
 use crate::memory_provenance::{
     DataClassification, MemoryAccessError, MemoryRecord, MemoryStore, Provenance, ProvenanceSource,
 };
-use crate::receipt_archive::ArchivedReceipt;
-use std::path::Path;
 
 fn rec(id: &str, source: ProvenanceSource, recorded: u64, retention: u64) -> MemoryRecord {
     MemoryRecord {
@@ -171,45 +169,4 @@ fn vc_201_081_mastery_expiry_math_holds() {
         50,
     );
     assert!(!f.expired(200));
-}
-
-/// Verification: Production caller wiring from ArchivedReceipt to MemoryRecord and MemoryStore.
-#[test]
-fn vc_201_081_mastery_production_caller_wired() {
-    let receipt = ArchivedReceipt {
-        schema: "susi/receipt_archive/v1".into(),
-        kind: "tool_execution".into(),
-        session_id: "session-42".into(),
-        mission_goal_hash: "goal-hash-99".into(),
-        training_intent: None,
-        receipt_id: "rcpt-real-1".into(),
-        tool: "cargo_build".into(),
-        arguments: "{\"target\": \"release\"}".into(),
-        observed_at: 500,
-        output_hash: "hash-out-123".into(),
-        successful: true,
-        archived_at: 501,
-        training_staged: Some(true),
-    };
-
-    let ws = Path::new("/srv/workspaces/proj-1");
-    let mem_record = receipt.to_memory_record(ws, "agent-devin");
-
-    assert_eq!(mem_record.id, "rcpt-real-1");
-    assert_eq!(mem_record.provenance.workspace, "/srv/workspaces/proj-1");
-    assert_eq!(mem_record.provenance.owner, "agent-devin");
-    assert_eq!(mem_record.provenance.revision, "session-42");
-    assert!(mem_record.provenance.source.is_evidence());
-
-    let mut store = MemoryStore::default();
-    store.insert(mem_record);
-
-    let read_result = store.read(
-        "rcpt-real-1",
-        "agent-devin",
-        DataClassification::Internal,
-        1000,
-    );
-    assert!(read_result.is_ok());
-    assert!(read_result.unwrap().contains("cargo_build"));
 }

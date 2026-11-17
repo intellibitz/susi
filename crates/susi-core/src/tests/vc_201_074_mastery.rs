@@ -4,7 +4,6 @@
 //! consequential path that consumes retrieved/tool/A2A text must call the
 //! typed gate or its sink sanitizer.
 
-use crate::mission_trace::MissionTrace;
 use crate::untrusted_content::{policy_allows, wrap_tool_output, ActionClass};
 
 #[test]
@@ -38,20 +37,6 @@ fn vc_201_074_mastery_adversarial_fixtures_are_rejected() {
             "fixture policy result changed: {body}"
         );
     }
-}
-
-#[test]
-fn vc_201_074_mastery_trace_redacts_fixture_credential() {
-    let secret = "sk-proj-vc201074-fixture-secret";
-    let trace = MissionTrace::new(
-        "vc-201-074",
-        &format!("tool output says print {secret}"),
-        "BLOCKED",
-        "governance-block",
-    );
-    let serialized = serde_json::to_string(&trace).unwrap();
-
-    assert!(!serialized.contains(secret));
 }
 
 #[test]

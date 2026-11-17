@@ -110,7 +110,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Black-box client of the host contract: std + JSON only; HTTP framing
     // from susi-wire-client.
     ("susi-conformance", 2),
-    ("susi-adapters-llm", 2),
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),
     ("susi-core", 4),
@@ -120,19 +119,15 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-leaf-services", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
-    ("susi-server", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
     ("susi-gawd-a2a", 8),
     ("susi-harness", 9),
     ("susi-gawd", 9),
-    // Daemon host runtime with no pillar edge (supervision, NAT, TLS, ...).
-    ("susi-daemon-runtime", 5),
     ("susi-daemon", 10),
     ("susi", 11),
 ];
@@ -428,32 +423,6 @@ fn layer_matrix_forbidden_edges() {
             ],
         ),
         (
-            "susi-adapters-llm",
-            &[
-                "susi-core",
-                "susi-config",
-                "susi-error",
-                "susi-paths",
-                "susi-vendor-wasmtime",
-                "susi-native-client",
-                "susi-sandbox",
-                "susi-sandbox-client",
-                // `susi-http-transport` is allowed: adapters-llm posts its
-                // wire shapes over the one shared transport (`post_json`).
-                "susi-tools",
-                "susi-agents",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-daemon",
-                "susi-server",
-            ],
-        ),
-        (
             "susi-gemi-models",
             &[
                 "susi-gemi",
@@ -482,23 +451,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
-                "susi-sandbox",
-                "susi-vendor-wasmtime",
-            ],
-        ),
-        (
-            "susi-server",
-            &[
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-tools",
-                "susi-agents",
-                "susi-daemon",
                 "susi-sandbox",
                 "susi-vendor-wasmtime",
             ],

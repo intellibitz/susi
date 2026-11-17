@@ -13,13 +13,10 @@ members = [
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
     "crates/susi-config",
-    "crates/susi-leaf-services",
-    "crates/susi-daemon-runtime",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
     "crates/susi-conformance",
     "crates/susi-wire-client",
-    "crates/susi-adapters-llm",
     "crates/susi-tools",
     "crates/susi-gemi-models",
     "crates/susi-gemi",
@@ -28,7 +25,7 @@ members = [
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
     "crates/susi-gawd-acp",
-    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
+    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon",
     "crates/susi-harness",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
@@ -117,7 +114,6 @@ susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
-susi-adapters-llm = { path = "crates/susi-adapters-llm" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
 susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
@@ -129,12 +125,9 @@ susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
 susi-tools = { path = "crates/susi-tools" }
-susi-server = { path = "crates/susi-server" }
 susi-paths = { path = "crates/susi-paths" }
 susi-error = { path = "crates/susi-error" }
 susi-config = { path = "crates/susi-config" }
-susi-leaf-services = { path = "crates/susi-leaf-services", features = ["all-services"] }
-susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
