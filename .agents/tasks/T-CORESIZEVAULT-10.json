@@ -1,0 +1,22 @@
+{
+  "id": "T-CORESIZEVAULT-10",
+  "title": "Land the release_qualify removal from core",
+  "goal": "Vision: V-6. Carries the change T-CORESIZEVAULT-9 accepted but never committed (its close receipt is abandoned): delete crates/susi-gawd/src/release_qualify.rs (262 lines), reached only by two VC-201-100 suites that now run on susi-fleet-command's copy (commercial T-CORESIZEVAULT-11); re-point VC-201-100; pin the ceiling.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794890088,
+  "scopes": [".agents/tasks/T-CORESIZEVAULT-10.json", "crates/susi-gawd/src/release_qualify.rs", "crates/susi-gawd/src/lib.rs", "crates/susi-gawd/src/tests/vc_201_100_mastery.rs", "tests/vc_201_100_mastery.rs", ".agents/roadmap-verdicts/VC-201-100.json", "tests/lean_core_ceilings.rs"],
+  "reuse": {"decision": "existing", "searched": "Destination: susi-fleet-command migrated::release_qualify with both suites passing (commercial T-CORESIZEVAULT-11)."},
+  "limitations": "Unreached code only.",
+  "progress": "Change ready; lands with this task."
+}

@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-100",
   "verdict": "delivered",
-  "evidence": "vc_201_100_mastery (crates/susi-gawd/src/tests/vc_201_100_mastery.rs)",
+  "evidence": "Since 2026-11-17 (T-CORESIZEVAULT-9, Mandate 84) release_qualify and both VC-201-100 suites run in intellibitz/susi-commercial-apps crates/susi-fleet-command/src/migrated (migrated::release_qualify, susi-gawd_vc_201_100_mastery.rs and _root.rs); core removed its unreached copy. As recorded before the move: vc_201_100_mastery (crates/susi-gawd/src/tests/vc_201_100_mastery.rs)",
   "missing": "",
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ20261005030120687099",
