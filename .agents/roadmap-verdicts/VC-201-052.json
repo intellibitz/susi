@@ -1,5 +1,5 @@
 {
-  "evidence": "crates/susi-gawd-swarm/src/cloud_failover.rs (reserve_dispatch called before request, commit called after taking provider-reported usage), tests/vc_201_052_reserved_before_dispatch_and_reconciled_after.rs (vc_201_052_reserved_before_dispatch_and_reconciled_after), crates/susi-gawd-swarm/src/tests/vc_201_052_mastery.rs (vc_201_052_mastery_reserve_and_reconcile, vc_201_052_mastery_hard_budget_exceeded_refuses_dispatch).",
+  "evidence": "Since 2026-11-17 (T-CORESIZEVAULT-6, Mandate 84) cloud_failover and both VC-201-052 suites run in intellibitz/susi-commercial-apps crates/susi-frontier-lab/src/migrated (migrated::cloud_failover, susi-gawd-swarm_vc_201_052_mastery.rs and _dispatch.rs); core removed its unreached copy. As recorded before the move: crates/susi-gawd-swarm/src/cloud_failover.rs (reserve_dispatch called before request, commit called after taking provider-reported usage), tests/vc_201_052_reserved_before_dispatch_and_reconciled_after.rs (vc_201_052_reserved_before_dispatch_and_reconciled_after), crates/susi-gawd-swarm/src/tests/vc_201_052_mastery.rs (vc_201_052_mastery_reserve_and_reconcile, vc_201_052_mastery_hard_budget_exceeded_refuses_dispatch).",
   "missing": null,
   "recorded_by": "ANTIGRAVITY",
   "recorded_unix": 1791225800,
