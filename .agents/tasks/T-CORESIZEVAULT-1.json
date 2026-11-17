@@ -25,12 +25,15 @@
     "src/cli/keys_cli.rs",
     "src/main.rs",
     "crates/susi-daemon/src/runtime_admin.rs",
-    "xtask/src/fast_release.rs"
+    "xtask/src/fast_release.rs",
+    "tests/lean_core_ceilings.rs",
+    "AGENTS.md",
+    "docs/ceo-mandate-84.md"
   ],
   "reuse": {
     "decision": "existing",
     "searched": "The destination already existed: intellibitz/susi-commercial-apps src/vault.rs carries the KeePassXC bridge as a fork and answers the same verbs as susi-commercial vault <verb>, and its plug host serves the plane bus. Old-against-new runs found four gaps there, closed first (commercial T-CORESIZEVAULT-1 and -2, on its main). Core's sealed-vault exec and client profiles stay in core because the fork's profiles differ. The plane bus (is_wired/request) is the existing socket for the daemon's refresh; no new transport."
   },
   "limitations": "Core alone no longer syncs KeePassXC, diagnoses signing, primes gpg/ssh agents, sets up git signing or re-keys a database: those verbs name susi-commercial vault <verb> and exit 2 when it is not installed, and the daemon refreshes the sealed vault only while the plug host runs beside it. A susi-gpg wrapper without commercial signs with the real gpg but no longer primes the passphrase from the vault. When more than one candidate database exists and no --db, SUSI_VAULT_DB, SUSI_COMMERCIAL_VAULT or vault.json names one, commercial searches its own locations first. A forwarded sync that fails records its --db in vault.json, where core recorded it only after success. Proven on Windows x86_64; Linux (where susi-gpg is a symlink to susi) is not yet run.",
-  "progress": "Bridge removed; vault_exec keeps the sealed-vault residue; forwarder, gpg residue and daemon bus request in place. End-to-end: forwarded sync seals the same keys as susi-commercial, doctor/setup-git/prime-signing/rekey give the same JSON keys and exit codes, a missing install names the command (exit 2), and susi-gpg without commercial runs gpg. Complete socket 305,757 -> 301,885 (-3,872)."
+  "progress": "Bridge removed; vault_exec keeps the sealed-vault residue; forwarder, gpg residue and daemon bus request in place. End-to-end: forwarded sync seals the same keys as susi-commercial, doctor/setup-git/prime-signing/rekey give the same JSON keys and exit codes, a missing install names the command (exit 2), and susi-gpg without commercial runs gpg. Complete socket -3,872 lines: 304,774 -> 300,902 on the merged tree, ceiling pinned. CEO decision 2026-11-17 recorded in AGENTS.md and docs/ceo-mandate-84.md: a capability moved into susi-commercial-apps, working there and matching the old behaviour, is not dropped; stop note 2246 lifted on the CEO authority (board 2355, 2356)."
 }
