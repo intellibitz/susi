@@ -21,6 +21,6 @@
     "decision": "existing",
     "searched": "Commercial susi-ecosystem-hub migrated::susi_vendor_mcp (the destination, already serving ecosystem_hub.mcp.call), core susi_config::mcp (stdio builder and header validation, which stay in core)."
   },
-  "limitations": "Blocked on the Linux pass (board 2532) under Mandate 84's rules for moves. Core's GMCP requirement tests VC-203-017 reach external MCP servers through this fallback (GmcpClient::execute_external_tool_result, susi-gmcp mcp_wrapper and tool_registry, susi-tools client, plane_handler and registry); they must keep running against the plug, so this task needs a decision on where they run before the deletion. Acceptance names the susi-tools unit suite only; extend it to the moved conformance cases when that is decided.",
-  "progress": "Not started in core. Destination done on Windows: commercial T-CORESIZEVAULT-19 (afca15dc)."
+  "limitations": "Without the Susi Commercial Apps plug host, core reaches no external MCP server (CEO decisions 2470, 2506). The connect-failure cooldown, header checks, cwd template and hidden console are now the plug host's (commercial afca15dc; Windows and Linux passes, board 2558). GMCP mastery evidence must be re-recorded after this commit (cargo local-release record-gmcp).",
+  "progress": "Fallback deleted: mcp_budget.rs now authorizes and forwards on ecosystem_hub.mcp.call / list_tools with a bus_timeout_ms read bound, naming susi-plug-host --supervise when nothing serves them. VC-203-017 cases reach their in-test servers through tests/gmcp_requirements/mcp_plug_double.rs (core's McpHost). Ceiling 291,802 -> 291,422."
 }

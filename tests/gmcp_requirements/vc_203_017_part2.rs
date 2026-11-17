@@ -473,6 +473,7 @@ fn main() {
     let mut cfg_v: Value = serde_json::from_str(&std::fs::read_to_string(&cfg_path).expect("cfg")).expect("j");
     cfg_v["mcp_servers"]["interop_http"]["auth_token"] = json!(tok_a);
     std::fs::write(&cfg_path, serde_json::to_vec_pretty(&cfg_v).expect("v")).expect("w");
+    mcp_plug_double::serve();
     assert!(GmcpClient::execute_external_tool_result("interop_http", "summarize_items", &sum_args.to_string()).expect("ext").contains("i1, i2"));
     let run_cli = |args: &[&str]| -> Value {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));

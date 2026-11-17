@@ -45,6 +45,7 @@ include!("gmcp_requirements/vc_203_014_part3.rs");
 include!("gmcp_requirements/vc_203_014_part4.rs");
 include!("gmcp_requirements/vc_203_016_part1.rs");
 include!("gmcp_requirements/vc_203_016_part2.rs");
+include!("gmcp_requirements/mcp_plug_double.rs");
 include!("gmcp_requirements/vc_203_017.rs");
 include!("gmcp_requirements/vc_203_017_part2.rs");
 include!("gmcp_requirements/vc_203_020.rs");
