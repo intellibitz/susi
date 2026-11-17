@@ -1,0 +1,26 @@
+{
+  "id": "T-CORESIZEVAULT-14",
+  "title": "Remove core's outbound MCP client fallback; MCP servers are reached through the commercial plug",
+  "goal": "Vision: V-9. Core half of the first pillar move (board 2488; decisions 2470, 2506). Commercial's ecosystem_hub.mcp.call / list_tools plug now spawns stdio servers with core's own builder and carries core's fallback tests (commercial T-CORESIZEVAULT-19, afca15dc). Delete crates/susi-tools/src/mcp_budget.rs's fallback (execute_mcp_rpc, the HTTP exchange, stdio spawn and JSON-RPC reader, the connect cooldown; about 350 runtime lines) so call_blocking_result and list_tools_blocking answer through the bus only and, with no host wired, return an error naming susi-plug-host --supervise. Move with it the conformance cases that reach external MCP servers through it end to end: tests/gmcp_requirements/vc_203_017.rs and vc_203_017_part2.rs (GmcpClient::execute_external_tool_result) must run against a plug host, in commercial or with an in-test host, not be deleted. Lower COMPLETE_SOCKET_CEILING to the new measure.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-tools",
+      "--lib",
+      "mcp_budget"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794902004,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Commercial susi-ecosystem-hub migrated::susi_vendor_mcp (the destination, already serving ecosystem_hub.mcp.call), core susi_config::mcp (stdio builder and header validation, which stay in core)."
+  },
+  "limitations": "Blocked on the Linux pass (board 2532) under Mandate 84's rules for moves. Core's GMCP requirement tests VC-203-017 reach external MCP servers through this fallback (GmcpClient::execute_external_tool_result, susi-gmcp mcp_wrapper and tool_registry, susi-tools client, plane_handler and registry); they must keep running against the plug, so this task needs a decision on where they run before the deletion. Acceptance names the susi-tools unit suite only; extend it to the moved conformance cases when that is decided.",
+  "progress": "Not started in core. Destination done on Windows: commercial T-CORESIZEVAULT-19 (afca15dc)."
+}
