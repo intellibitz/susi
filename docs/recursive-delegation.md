@@ -88,8 +88,11 @@ layers it over `susi_core::delegation`:
   `execute_recursive_tree` (`operator::run_recursive`) runs nested Driver <->
   Engine `RecursiveTaskNode` waves in isolated sandboxes without adding a
   `susi-harness -> susi-core` dependency edge.
-- **Single attenuation core in `susi_daemon::harness_ops`.** Every
-  `daemon.harness` request (`status`, `budget`, `models`, `plan`, `author`,
+- **Single attenuation core in the `daemon.harness` handler.** Core's daemon
+  served it in process (`susi_daemon::harness_ops`) until the harness moved to
+  Susi Commercial Apps (Mandate 84); `susi-plug-host` serves it now
+  (`susi_harness::daemon_ops` there), and core's daemon names the plug host when
+  none runs. Every `daemon.harness` request (`status`, `budget`, `models`, `plan`, `author`,
   `run`, `runs`, `recursive_contracts`, `run_recursive`, `cancel_run`, and
   `revoke_delegation`) opens a `DelegationScope` under an optional signed
   `susi-delegation/v1` envelope (`DelegationAuthority::host()`), enforcing
@@ -140,7 +143,7 @@ layers it over `susi_core::delegation`:
 ```text
 cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry
 cargo test --offline --locked -p susi-harness --lib -- recursive operator
-cargo test --offline --locked -p susi-daemon --lib -- harness_ops
+cargo test --offline --locked -p susi-daemon --lib -- plane_handler
 cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation
 cargo clippy --offline --locked -p susi-core -p susi-harness -p susi-daemon --all-targets -- -D warnings
 ```

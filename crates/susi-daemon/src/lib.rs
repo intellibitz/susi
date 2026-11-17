@@ -35,7 +35,6 @@ pub mod engine_hooks;
 pub use susi_daemon_runtime::engine_watchdog;
 pub mod gmcp_bootstrap;
 pub mod gossip;
-pub mod harness_ops;
 pub mod host_views;
 pub use susi_daemon_runtime::context_adapters;
 pub use susi_daemon_runtime::hot_reload_coverage;

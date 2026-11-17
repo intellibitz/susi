@@ -6,7 +6,8 @@
 //!
 //! The first-increment feature topics (`daemon.privacy.mode`,
 //! `daemon.ambient.start`, `daemon.services.control`, `daemon.os.provision`,
-//! `daemon.context.sample_os`) are served by `susi-plug-host`. Exact topic
+//! `daemon.context.sample_os`) and the harness operator topic
+//! (`daemon.harness`) are served by `susi-plug-host`. Exact topic
 //! registrations outrank this prefix, so a running plug host wins. When the
 //! host is absent this prefix names that command instead of handling them
 //! in-process.
@@ -26,7 +27,8 @@ impl PlaneHandler for DaemonPlaneHandler {
             | topics::DAEMON_AMBIENT_START
             | topics::DAEMON_CONTEXT_SAMPLE_OS
             | topics::DAEMON_OS_PROVISION
-            | topics::DAEMON_SERVICES_CONTROL => Err(plug_forward::absent(topic)),
+            | topics::DAEMON_SERVICES_CONTROL
+            | topics::DAEMON_HARNESS => Err(plug_forward::absent(topic)),
             topics::DAEMON_ECOSYSTEM_SCAN => {
                 if payload.get("cached").and_then(|v| v.as_bool()) == Some(true) {
                     let text = crate::discovery_pipeline::last_ecosystem_scan()?;
@@ -42,7 +44,6 @@ impl PlaneHandler for DaemonPlaneHandler {
             topics::DAEMON_CROWN_VERIFY => Ok(crate::crown::report(&workspace_path(&payload))),
             topics::DAEMON_PROVIDERS => crate::provider_ops::dispatch(&payload),
             topics::DAEMON_ADAPTERS => crate::adapter_ops::dispatch(&payload),
-            topics::DAEMON_HARNESS => crate::harness_ops::dispatch(&payload),
             topics::DAEMON_HOST => crate::host_views::dispatch(&payload),
             other => Ok(json!({ "error": format!("daemon handler: unhandled topic '{other}'") })),
         }
@@ -67,6 +68,7 @@ mod tests {
             topics::DAEMON_CONTEXT_SAMPLE_OS,
             topics::DAEMON_OS_PROVISION,
             topics::DAEMON_SERVICES_CONTROL,
+            topics::DAEMON_HARNESS,
         ] {
             let err = h.handle(topic, json!({})).unwrap_err();
             assert!(err.contains("susi-plug-host"), "{topic}: {err}");

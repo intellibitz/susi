@@ -1,6 +1,6 @@
 //! `clap` definitions for the `harness` command family, moved verbatim from
-//! `src/cli/harness_cli.rs` (D-SP-4 Stage 4c). The handlers stay in the root
-//! crate, which re-exports these types from `src/cli/harness_cli.rs`.
+//! `src/cli/harness_cli.rs` (D-SP-4 Stage 4c). The root crate parses them and
+//! forwards the command to Susi Commercial Apps, which runs the handlers.
 //!
 //! A variant marked `#[allow(missing_docs)]` keeps undocumented fields (or is
 //! hidden) on purpose: clap turns every `///` comment into `--help` text, and
