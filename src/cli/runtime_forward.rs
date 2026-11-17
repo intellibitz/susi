@@ -36,11 +36,12 @@ fn run(words: &[OsString]) -> Result<ExitCode> {
     if program.canonicalize()? == launcher.canonicalize()? {
         return Err("the commercial runtime resolves to the public core launcher".into());
     }
-    let mut command = Command::new(program);
+    let mut command = Command::new(&program);
     command
         .arg("core-runtime")
         .args(words)
         .env("SUSI_CORE_BIN", launcher)
+        .env("SUSI_COMMERCIAL_BIN", &program)
         // Core already selected the original instance at its original startup
         // point. In particular, an installed XDG instance keeps SUSI_HOME unset.
         .env("SUSI_CORE_INSTANCE_READY", "1")

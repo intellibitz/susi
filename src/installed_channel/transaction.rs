@@ -214,6 +214,7 @@ pub(super) fn start_selected(exe: &Path, restart: bool) -> Result<()> {
     command
         .args(["core-runtime", if restart { "restart" } else { "start" }])
         .env("SUSI_CORE_BIN", &image)
+        .env("SUSI_COMMERCIAL_BIN", &runtime.path)
         .env("SUSI_CORE_INSTANCE_READY", "1");
     let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut command)?.wait()?;
     if !status.success() {
