@@ -29,13 +29,11 @@ pub mod anti_entropy;
 pub mod audit;
 pub mod cancel_propagate;
 pub mod capacity_admission;
-pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
 pub mod host_hooks;
-pub mod identity_revoke;
 pub mod independent_verify;
 pub mod joint_consensus;
 pub mod mission_persist;
@@ -48,7 +46,6 @@ pub mod role_select;
 pub mod side_effect_journal;
 pub mod side_effects;
 pub mod task_lease;
-pub mod worker_recovery;
 pub mod writer_isolation;
 
 pub use susi_gawd_agents::{
