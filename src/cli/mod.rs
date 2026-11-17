@@ -38,6 +38,7 @@ pub mod peers_cli;
 pub mod plan_cli;
 pub mod plane_cli;
 pub mod privacy_cli;
+pub mod provider_forward;
 pub mod run_cli;
 pub mod services_cli;
 pub mod setup_cli;
