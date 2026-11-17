@@ -1,0 +1,24 @@
+{
+  "id": "T-CORESIZEVAULT-17",
+  "title": "Prepare core for the GEMI pillar to leave: route its direct callers over the bus",
+  "goal": "Vision: V-9. Core half of relocating susi-gemi and susi-gemi-models (about 35,000 runtime lines) to susi-commercial-apps (commercial T-CORESIZEVAULT-22; decisions 2470, 2506). (1) Route the daemon's and CLI's direct susi_gemi calls (susi-daemon provider_ops.rs, discovery_pipeline.rs, host_views.rs, runtime_admin.rs, estate_loop.rs; src/cli os_cli.rs, keys_cli.rs, mission_cli.rs) through gemi.* plane topics, so the only link left is composition.rs registering the gemi. prefix. (2) Let scoped gemi.* requests leave the process (plane_bus.rs req keeps gemi.* in-process under a ToolScope; GEMI returns tool_calls to its caller, board 2588). (3) After commercial's copy serves gemi.* with side-by-side parity on Windows and Linux, stop linking susi-gemi and susi-gemi-models, delete them and lower COMPLETE_SOCKET_CEILING.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794912816,
+  "reuse": {
+    "decision": "existing",
+    "searched": "The gemi. prefix handler core already registers (susi-gemi plane_handler.rs) and the plane_bus GemiEngine facade, which already speak gemi.* topics; the plug host's existing GEMI topics."
+  },
+  "limitations": "Pillar code: Linux pass (SusiCoreSizeVault, board 2549) before the deletion. Coordinate with grok (T-GROKCORESIZE-1, daemon handlers) on the daemon files.",
+  "progress": "Not started."
+}
