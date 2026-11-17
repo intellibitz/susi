@@ -1,0 +1,26 @@
+{
+  "id": "T-CORESIZEPROTOCOL17-7",
+  "title": "Preserve downstream Rust imports for the moved MCP profile and probe",
+  "goal": "Vision: V-10. Restore the public susi_gmcp::mcp_profile and mcp_probe callable contracts from f6341e91a^, including a consumer-supplied transport, negotiated versions and error results. Keep the paid implementation usable, compile an external-style Rust consumer, and reconcile the five-module move without increasing the measured public socket. Board 2673 reproduces the import failure.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--test",
+      "public_mcp_profile_contract"
+    ]
+  },
+  "created_by": "CORESIZEPROTOCOL17",
+  "created_unix": 1794915665,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Compare the pre-move public profile, probe and their tests at f6341e91a^ with their commercial destination at 494b070d and the public baseline at c173e094. Preserve caller-defined transport callbacks."
+  },
+  "limitations": "An independently built external Rust caller of default_profile() fails with E0433 on c173e094. This task covers the two coupled MCP modules. Three other exported modules in f6341e91a need separate compatibility evidence; a passing MCP import alone does not qualify those. Any public growth must be paid for in the same landed change.",
+  "progress": "Failing and passing consumer builds recorded in Susi Board 2673. The paid destination is on main."
+}
