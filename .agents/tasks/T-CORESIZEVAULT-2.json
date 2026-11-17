@@ -1,0 +1,23 @@
+{
+  "id": "T-CORESIZEVAULT-2",
+  "title": "Keep the active contract generic after recording the move-to-commercial decision",
+  "goal": "Vision: V-6. 92bc29812 added a dated CEO reference to AGENTS.md, which the active contract forbids (identity/history must stay out; architecture_tests guards it) and turned that test red on main. Keep the rule, drop the identity: the dated decision already lives in docs/ceo-mandate-84.md.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "active_contract_preserves_delivery_authority_and_capability_boundaries"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794877438,
+  "scopes": [".agents/tasks/T-CORESIZEVAULT-2.json", "AGENTS.md"],
+  "reuse": {"decision": "existing", "searched": "The rule stays in the existing no-loss bullet; only the identity reference is removed. The dated decision is already in docs/ceo-mandate-84.md."},
+  "limitations": "Wording only; no rule changes.",
+  "progress": "Bullet reworded without the identity reference."
+}
