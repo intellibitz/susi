@@ -104,7 +104,8 @@ continues `V-6`, which the CEO set earlier the same day.
 
 ## 4. Implementation truth
 
-- **Measured on public `main` at `4de036347` on 2026-11-17.** The complete
+- **Not met today.** Measured on public `main` at `4de036347` on
+  2026-11-17, the complete
   socket has 289,216 physical Rust lines, including 282,762 first-party runtime
   lines and 6,454 vendor facade lines. Reaching 99,999 requires removing
   189,217 lines. The pillar crates account for 130,496 lines and the remaining
