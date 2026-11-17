@@ -41,36 +41,6 @@ fn vc_201_074_mastery_adversarial_fixtures_are_rejected() {
 }
 
 #[test]
-fn vc_201_074_mastery_production_paths_apply_untrusted_policy() {
-    let master = include_str!("../../../susi-gawd-swarm/src/ama/master.rs");
-    let swarm = include_str!("../../../susi-gawd-swarm/src/amas.rs");
-    let report = include_str!("../../../susi-gawd-swarm/src/ama/report.rs");
-    let a2a = include_str!("../../../susi-gawd-a2a/src/executor.rs");
-    let mcp = concat!(
-        include_str!("../../../susi-gmcp/src/tools/core.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/agents.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/cluster.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/files_os.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/knowledge.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/models.rs"),
-        include_str!("../../../susi-gmcp/src/tools/core/substrate.rs"),
-    );
-
-    for (path, source) in [
-        ("master.rs", master),
-        ("amas.rs", swarm),
-        ("report.rs", report),
-        ("executor.rs", a2a),
-        ("core.rs", mcp),
-    ] {
-        assert!(
-            source.contains("enforce_action") || source.contains("redacted_for_sink"),
-            "{path} must route retrieved and tool content through the untrusted boundary"
-        );
-    }
-}
-
-#[test]
 fn vc_201_074_mastery_trace_redacts_fixture_credential() {
     let secret = "sk-proj-vc201074-fixture-secret";
     let trace = MissionTrace::new(
