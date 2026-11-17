@@ -25,6 +25,9 @@ use std::process::Stdio;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "native_board_discovery.rs"]
+mod discovery;
+
 /// Where board items live on the storage remote and in every clone.
 pub const ITEM_PREFIX: &str = "refs/board/items/";
 /// Canonical board item schema version (parity with `susi-dev-workflow`).
@@ -516,6 +519,9 @@ pub fn is_public_susi_remote_url(url: &str) -> bool {
 /// configured.
 pub fn resolve_board_target(workspace: Option<&Path>) -> Result<BoardTarget, String> {
     let workspace = workspace.filter(|path| path.exists());
+    // One fresh snapshot per resolution, read only if an environment override
+    // does not supply the setting. Never cache board refs or authority.
+    let settings = OnceLock::new();
     // An empty override defers to Git configuration. Preserve the source of
     // each value: per-repository URL caches belong under its common Git dir.
     let setting = |env: &'static str, config: &'static str, normalize: fn(&str) -> &str| {
@@ -528,7 +534,10 @@ pub fn resolve_board_target(workspace: Option<&Path>) -> Result<BoardTarget, Str
             .and_then(use_value)
             .map(|value| (env, value))
             .or_else(|| {
-                let value = git(workspace?, &["config", "--get", config]).ok()?;
+                let value = settings
+                    .get_or_init(|| discovery::configuration(workspace))
+                    .get(config)?
+                    .clone();
                 use_value(value).map(|value| (config, value))
             })
     };
@@ -616,6 +625,11 @@ fn verify_non_public_remote(work_dir: &Path, remote: &str) -> Result<(), String>
         return Err(format!(
             "refusing `{remote}`: refs/board/* is forbidden on public intellibitz/susi"
         ));
+    }
+    // On Unix, absolute local paths cannot be Git remote names. Windows
+    // backslash paths can be hand-written nicknames, so keep their live lookup.
+    if cfg!(unix) && Path::new(remote).is_absolute() {
+        return Ok(());
     }
     if let Ok(url) = git(work_dir, &["remote", "get-url", remote]) {
         if is_public_susi_remote_url(&url) {
@@ -1460,6 +1474,10 @@ impl CollaborativeAgentSession {
         Ok(stored)
     }
 }
+
+#[cfg(test)]
+#[path = "tests/native_board_discovery.rs"]
+mod discovery_tests;
 
 #[cfg(test)]
 mod tests {
