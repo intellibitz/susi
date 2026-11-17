@@ -56,7 +56,11 @@ continues `V-6`, which the CEO set earlier the same day.
    OpenAI-compatible and Anthropic behavior, Wasm admission, permissions,
    cancellation, persistence and harness execution keep their behavior. A
    capability leaves core only after its destination works and old and new
-   behavior have been shown over the socket.
+   behavior have been shown over the socket. Moving a capability into
+   `susi-commercial-apps` this way is not dropping it (CEO decision,
+   2026-11-17, asked directly with the trade-off stated: "Moving to commercial
+   is fine"): core forwards to the commercial destination, and an installation
+   without it names the command that serves it.
 6. **No tricks.** The number never comes from hiding code: not by minifying,
    not by moving runtime code into tests, tooling, `vendor/` or `.agents/`,
    not by leaving compiled code out of the count, and not by deleting tests

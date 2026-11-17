@@ -18,7 +18,11 @@ the requester to inspect code or perform routine engineering steps.
   `susi-commercial-apps`. Prove the destination works through the standard
   socket before removing its implementation from core. No functionality is
   dropped, no error stub replaces a working capability, and no implementation
-  is merely relabeled to reduce the count. Keep proprietary source out of core.
+  is merely relabeled to reduce the count. A capability moved into
+  `susi-commercial-apps`, working there with old and new behaviour shown to
+  match, is not dropped (CEO decision, 2026-11-17): core forwards to it, and an
+  installation without it names the command that serves it. Keep proprietary
+  source out of core.
 - The complete socket must be under 100,000 physical runtime Rust lines,
   including blanks, comments, inline tests, every feature/platform and the
   `susi-vendor-*` facades. Until that goal is met, core never grows. Pay for any
