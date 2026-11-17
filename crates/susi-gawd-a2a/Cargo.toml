@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 susi-gawd-acp = { workspace = true }
-susi-http-transport = { workspace = true }
 susi-config = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }

@@ -15,7 +15,7 @@
 //!
 //! - [`error`]: shared typed errors
 //! - [`native`]: native/WASM execution primitives
-//! - [`sandbox`]: workspace and config management
+//! - [`sandbox`]: generic workspace paths
 
 #![warn(missing_docs)]
 
@@ -38,9 +38,8 @@ pub mod native {
     pub use susi_vendor_wasmtime::*;
 }
 
-/// Sandbox and workspace management
+/// Generic workspace paths. Concrete sandbox management is served by the commercial runtime.
 pub mod sandbox {
-    pub use susi_sandbox_client::*;
     /// XDG directory specifications
     pub mod xdg {
         pub use susi_paths::SusiDirs;

@@ -10,6 +10,7 @@ susi-gawd-acp = { workspace = true }
 susi-abi = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
+susi-wire-client = { workspace = true }
 susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
@@ -20,11 +21,6 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 # process, which opened a console window from the windowless daemon).
 [target.'cfg(windows)'.dependencies]
 winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
-
-[dev-dependencies]
-# Test-only: foreign-member Ed25519 signatures for the endorsement gates —
-# `member_sign` can only sign as this node.
-ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
 
 [lints]
 workspace = true

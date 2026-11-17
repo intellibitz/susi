@@ -10,277 +10,31 @@
         clippy::wildcard_enum_match_arm
     )
 )]
-
-//! SUSI configuration substrate: `SusiConfig` dynamic registry, typed config
-//! fragments, and shared self-healing JSON load/merge/save helpers.
-//!
-//! Runs as a standalone REST service (`127.0.0.1:18082`, see `main.rs`) — the
-//! canonical reader/writer for the shared `~/.susi/config.json` while the
-//! substrate is up. Every other crate depends on this crate; only the
-//! *global* config read/write path prefers the service, so a running
-//! substrate stays the canonical writer. When the service is unreachable —
-//! or explicit local env config (`SUSI_XDG`, `XDG_*_HOME`) is set, e.g. in
-//! tests with a swapped `HOME` — every call resolves against the local files,
-//! so config access never hard-fails on service health. `cluster_key`
-//! signing/verification is deliberately local only: exposing HMAC over
-//! `cluster.key` (0600) as an unauthenticated localhost endpoint would let
-//! any process mint signed cluster messages.
+//! Generic configuration wire, atomic storage, host inspection and runtime bootstrap.
 
 pub use susi_error;
-
-pub mod cloud_env;
-pub mod cluster_key;
-mod config;
-pub mod credential;
-pub mod desired_state;
+pub mod config_bridge;
 pub mod disk_space;
-pub mod file_lock;
 pub mod host_metrics;
 mod json_util;
-pub mod key_rotation;
-pub mod key_scope;
-pub mod mac_policy;
 pub mod mcp;
 pub mod mcp_client;
-pub mod mcp_session;
 pub mod native_path;
-pub mod peer_channel;
-pub mod peer_channel_link;
+mod nonce;
 pub mod plain_http;
 pub mod process_probe;
 pub mod progress;
+pub mod redaction;
+pub use redaction::{redact_credentials, GovernancePatterns};
 pub mod protocol_json;
-pub mod secret_ref;
 pub mod storage_guard;
-mod types;
 pub mod vault_exec;
-pub mod vault_store;
-pub mod versioned_store;
-#[cfg(windows)]
 #[cfg(windows)]
 pub mod windows_model_identity;
 pub mod workflow_wire;
 pub mod workload_process;
+pub use nonce::random_nonce_hex;
 
-/// IPC client for the standalone `susi-config` service. Only the global
-/// config path is routed here; per-directory loads and `cluster_key` stay
-/// local by construction.
-mod service {
-    use std::time::Duration;
-    use susi_paths::loopback::{self, Auth};
-
-    use super::SusiConfig;
-
-    const DEFAULT_PORT: u16 = susi_paths::ports::CONFIG_SERVICE;
-    const TIMEOUT: Duration = Duration::from_millis(200);
-
-    fn port() -> u16 {
-        loopback::service_port("SUSI_CONFIG_PORT", DEFAULT_PORT)
-    }
-
-    /// The service process, or explicit local env config (`SUSI_XDG`,
-    /// `XDG_*_HOME`), resolves locally — a swapped HOME in tests must not
-    /// read or write the host substrate's real `config.json`.
-    fn local_only() -> bool {
-        susi_paths::is_service_mode() || loopback::local_env_override()
-    }
-
-    /// `GET /config` — healed global config from the running substrate.
-    pub fn get_global() -> Option<SusiConfig> {
-        if local_only() {
-            return None;
-        }
-        let resp = loopback::request_with_fallback(
-            &loopback::Endpoint {
-                port: port(),
-                timeout: TIMEOUT,
-                auth: Auth::HostToken,
-            },
-            "GET",
-            "/config",
-            None,
-        )?;
-        serde_json::from_str(resp.ok_body()?).ok()
-    }
-
-    /// `POST /config` — route a global-dir save through the substrate when
-    /// it is up; `false` tells the caller to fall back to the local atomic
-    /// write (identical bytes, same file).
-    pub fn save_global(cfg: &SusiConfig) -> bool {
-        if local_only() {
-            return false;
-        }
-        let Ok(payload) = serde_json::to_string(cfg) else {
-            return false;
-        };
-        loopback::request_with_fallback(
-            &loopback::Endpoint {
-                port: port(),
-                timeout: TIMEOUT,
-                auth: Auth::HostToken,
-            },
-            "POST",
-            "/config",
-            Some(&payload),
-        )
-        .is_some_and(|resp| resp.is_success())
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::super::env_test_lock;
-        use super::SusiConfig;
-
-        /// Sets `vars` for the closure's duration and restores the previous
-        /// values afterwards, even if an assertion fails.
-        fn with_env<R>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
-            struct Restore(Vec<(String, Option<std::ffi::OsString>)>);
-            impl Drop for Restore {
-                fn drop(&mut self) {
-                    for (key, old) in self.0.drain(..) {
-                        match old {
-                            Some(v) => std::env::set_var(&key, v),
-                            None => std::env::remove_var(&key),
-                        }
-                    }
-                }
-            }
-            let _restore = Restore(
-                vars.iter()
-                    .map(|(k, _)| ((*k).to_string(), std::env::var_os(k)))
-                    .collect(),
-            );
-            for (key, value) in vars {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-            f()
-        }
-
-        #[test]
-        fn port_honours_the_override_and_falls_back_to_the_contract_port() {
-            let _guard = env_test_lock();
-            with_env(&[("SUSI_CONFIG_PORT", Some(" 28082 "))], || {
-                assert_eq!(super::port(), 28082);
-            });
-            with_env(&[("SUSI_CONFIG_PORT", Some("not-a-port"))], || {
-                assert_eq!(
-                    super::port(),
-                    susi_paths::ports::effective(susi_paths::ports::CONFIG_SERVICE)
-                );
-            });
-            with_env(&[("SUSI_CONFIG_PORT", None)], || {
-                assert_eq!(
-                    super::port(),
-                    susi_paths::ports::effective(susi_paths::ports::CONFIG_SERVICE)
-                );
-            });
-        }
-
-        #[test]
-        fn explicit_local_env_config_keeps_global_config_off_the_service() {
-            let _guard = env_test_lock();
-            // Point the port at something nothing listens on: if the local-only
-            // guard ever regressed, the calls below would fail rather than reach
-            // a real substrate on this host.
-            with_env(
-                &[("SUSI_XDG", Some("1")), ("SUSI_CONFIG_PORT", Some("1"))],
-                || {
-                    assert!(super::local_only());
-                    let started = std::time::Instant::now();
-                    assert!(super::get_global().is_none());
-                    assert!(!super::save_global(&SusiConfig::default()));
-                    assert!(
-                        started.elapsed() < std::time::Duration::from_millis(150),
-                        "local-only resolution must not attempt network I/O"
-                    );
-                },
-            );
-        }
-
-        #[test]
-        fn enter_service_mode_forces_local_only_resolution_without_network_io() {
-            let _guard = env_test_lock();
-            with_env(
-                &[
-                    ("SUSI_XDG", None),
-                    ("XDG_CONFIG_HOME", None),
-                    ("XDG_DATA_HOME", None),
-                    ("XDG_CACHE_HOME", None),
-                    ("SUSI_CONFIG_PORT", Some("1")),
-                ],
-                || {
-                    super::super::enter_service_mode();
-                    assert!(super::local_only());
-                    let started = std::time::Instant::now();
-                    assert!(super::get_global().is_none());
-                    assert!(!super::save_global(&SusiConfig::default()));
-                    assert!(
-                        started.elapsed() < std::time::Duration::from_millis(150),
-                        "service-mode resolution must not attempt network I/O"
-                    );
-                },
-            );
-        }
-
-        #[test]
-        fn xdg_config_home_override_triggers_local_only_resolution() {
-            let _guard = env_test_lock();
-            let temp_xdg = std::env::temp_dir().join("susi-config-xdg-local-only-test");
-            let temp_xdg_str = temp_xdg.to_string_lossy().into_owned();
-            with_env(
-                &[
-                    ("SUSI_XDG", None),
-                    ("XDG_CONFIG_HOME", Some(&temp_xdg_str)),
-                    ("XDG_DATA_HOME", None),
-                    ("XDG_CACHE_HOME", None),
-                    ("SUSI_CONFIG_PORT", Some("1")),
-                ],
-                || {
-                    assert!(susi_paths::loopback::local_env_override());
-                    assert!(super::local_only());
-                    let started = std::time::Instant::now();
-                    assert!(super::get_global().is_none());
-                    assert!(!super::save_global(&SusiConfig::default()));
-                    assert!(
-                        started.elapsed() < std::time::Duration::from_millis(150),
-                        "XDG_CONFIG_HOME override must short-circuit without network I/O"
-                    );
-                },
-            );
-        }
-
-        #[test]
-        fn xdg_data_home_override_triggers_local_only_resolution() {
-            let _guard = env_test_lock();
-            let temp_data = std::env::temp_dir().join("susi-config-xdg-data-local-only-test");
-            let temp_data_str = temp_data.to_string_lossy().into_owned();
-            with_env(
-                &[
-                    ("SUSI_XDG", None),
-                    ("XDG_CONFIG_HOME", None),
-                    ("XDG_DATA_HOME", Some(&temp_data_str)),
-                    ("XDG_CACHE_HOME", None),
-                    ("SUSI_CONFIG_PORT", Some("1")),
-                ],
-                || {
-                    assert!(susi_paths::loopback::local_env_override());
-                    assert!(super::local_only());
-                },
-            );
-        }
-    }
-}
-
-pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
-pub use config::{redact_credentials, SusiConfig};
-pub use credential::CredentialRef;
-pub use desired_state::{
-    parse_desired_state, round_trip_desired_state, validate_desired_state, DesiredRef,
-    DesiredState, DESIRED_STATE_SCHEMA,
-};
 pub use json_util::{
     atomic_replace_file, atomic_replace_unsynced, atomic_write_bytes, atomic_write_json_pretty,
     clear_json_override, confined_workspace_join, create_private_dir, file_node,
@@ -289,22 +43,6 @@ pub use json_util::{
     write_json_override, DynamicRegistry, DynamicValue, JsonFields, ModelTier, ProviderType,
     StringRegistry,
 };
-pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
-pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
-pub use types::*;
-pub use vault_store::{SealedVault, VaultConfig};
-pub use versioned_store::VersionedJsonStore;
-
-#[cfg(test)]
-#[path = "tests/cluster_key.rs"]
-mod cluster_key_tests;
-
-#[cfg(test)]
-#[path = "tests/vc_201_061_mastery.rs"]
-mod vc_201_061_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_066_mastery.rs"]
-mod vc_201_066_mastery_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock

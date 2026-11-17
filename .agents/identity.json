@@ -823,5 +823,5 @@
   },
   "schema": "susi/identity/v1",
   "title": "Susi current core contract",
-  "version": "0.21.71"
+  "version": "0.21.72"
 }

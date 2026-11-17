@@ -1,0 +1,18 @@
+{
+  "id": "T-SLIM17LEDGER-7",
+  "title": "Move complete configuration authority and management owners out of generic core",
+  "goal": "Vision: reduce core below 50000 runtime Rust lines while preserving public bootstrap, offline authority, socket contracts and production behavior on Windows and Linux",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--all-targets"
+    ]
+  },
+  "created_by": "SLIM17LEDGER",
+  "created_unix": 1794954631
+}

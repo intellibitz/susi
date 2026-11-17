@@ -98,22 +98,18 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
     ("susi-build-os-ucrt", 0),
-    ("susi-cli-defs", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
     // No SUSI dependencies: a leaf, reachable from every rank above it.
-    ("susi-http-transport", 0),
     // std + JSON only; body framing is shared through the paths leaf.
     ("susi-wire-client", 1),
     // Black-box client of the host contract: std + JSON only; HTTP framing
     // from susi-wire-client.
-    ("susi-conformance", 2),
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),
     ("susi-core", 4),
-    ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
@@ -2110,7 +2106,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "exactly three core pillars",
         "No functionality is dropped",
         "Prove the destination works through the standard socket before removing",
-        "under 100,000 physical runtime Rust lines",
+        "under 50,000 physical runtime Rust lines",
         "core never grows",
         "blanks, comments, inline tests, every feature/platform",
         "lower `COMPLETE_SOCKET_CEILING`",
@@ -2424,7 +2420,7 @@ fn compiled_identity_is_generic_current_policy_with_active_safeguards() {
         (81, "Every Windows scheduled task retains RunLevel=Limited"),
         (82, "not a hard deadline"),
         (83, "never a private personal vault"),
-        (84, "strictly below 100,000 physical runtime Rust lines"),
+        (84, "strictly below 50,000 physical runtime Rust lines"),
         (
             84,
             "No minification, hidden excluded runtime, capability loss",
@@ -3245,13 +3241,7 @@ fn core_cli_has_no_ui_subcommands() {
     let mut sources = Vec::new();
     rust_files(&root.join("src"), &mut sources);
     assert!(!sources.is_empty(), "no Rust sources under src/");
-    // D-SP-4 Stage 4 moves the clap help text into susi-cli-defs; scan it too.
-    let root_sources = sources.len();
-    rust_files(&root.join("crates/susi-cli-defs/src"), &mut sources);
-    assert!(
-        sources.len() > root_sources,
-        "no Rust sources under crates/susi-cli-defs/src; update scanner path if moved"
-    );
+    // Complete command definitions are checked with their commercial owner.
     for path in &sources {
         let text = std::fs::read_to_string(path).expect("read src file");
         assert!(
@@ -3292,21 +3282,7 @@ fn core_cli_has_no_ui_subcommands() {
             number + 1
         );
     }
-    // `TopArgs` lives in susi-cli-defs since D-SP-4 Stage 4d;
-    // `src/cli/top_cli.rs` keeps only the handler.
-    let top = std::fs::read_to_string(root.join("crates/susi-cli-defs/src/top.rs"))
-        .expect("read susi-cli-defs top.rs");
-    assert!(
-        top.contains("struct TopArgs"),
-        "crates/susi-cli-defs/src/top.rs must define `struct TopArgs`; update scanner path if moved"
-    );
-    assert!(
-        !top.contains("pub watch") && !top.contains("pub interval"),
-        "`susi top` has no watch loop; a live view lives in the commercial desktop"
-    );
-    // `HarnessCommands` (and its help text) lives in susi-cli-defs since
-    // D-SP-4 Stage 4c; `src/cli/harness_cli.rs` only forwards to the suite.
-    for rel in ["src/cli/defs.rs", "crates/susi-cli-defs/src/harness.rs"] {
+    for rel in ["src/cli/defs.rs"] {
         let text = std::fs::read_to_string(root.join(rel)).expect("read CLI defs");
         let mut visible_help_matches = 0usize;
         for (number, line) in text.lines().enumerate() {
@@ -3584,10 +3560,10 @@ fn ceo_mandate_85_ends_a_claim_when_its_work_is_done() {
     );
 }
 
-/// Mandate 84 (CEO 2026-11-16): Susi core stays under 100,000 lines and, until it
+/// Mandate 84, tightened by the CEO on 2026-11-18: core stays under 50,000 lines and, until it
 /// does, never grows.
 #[test]
-fn ceo_mandate_84_keeps_core_under_100k_lines() {
+fn ceo_mandate_84_keeps_core_under_50k_lines() {
     let root = workspace_root();
     let flat = |path: &str| {
         std::fs::read_to_string(root.join(path))
@@ -3599,15 +3575,15 @@ fn ceo_mandate_84_keeps_core_under_100k_lines() {
     let doc = flat("docs/ceo-mandate-84.md");
     for phrase in [
         "**Agent reminder (one line):**",
-        "always strictly below 100,000 physical lines: at most 99,999",
+        "always strictly below 50,000 physical lines: at most 49,999",
         "**Until core is below the limit, it never grows.**",
         "**The ceiling only goes down.**",
         "**No functionality is dropped**",
         "**No tricks.**",
         "**Only the CEO raises it.**",
         "Implementation truth",
-        "**Not met today.**",
-        "**Not enforced:**",
+        "Size acceptance is separate from protocol",
+        "exact-source Windows/Linux production qualification",
     ] {
         assert!(
             doc.contains(phrase),
@@ -3618,7 +3594,7 @@ fn ceo_mandate_84_keeps_core_under_100k_lines() {
     let ceilings = flat("tests/lean_core_ceilings.rs");
     for needle in [
         "const COMPLETE_SOCKET_CEILING: usize =",
-        "const COMPLETE_SOCKET_LIMIT: usize = 99_999;",
+        "const COMPLETE_SOCKET_LIMIT: usize = 49_999;",
         "complete_socket_never_grows(repository_size());",
         "assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT)",
     ] {

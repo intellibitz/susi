@@ -5,7 +5,6 @@ members = [
     "crates/susi-abi",
     "crates/susi-paths",
     "crates/susi-build-os-ucrt",
-    "crates/susi-cli-defs",
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
@@ -13,9 +12,6 @@ members = [
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
     "crates/susi-config",
-    "crates/susi-sandbox-client",
-    "crates/susi-http-transport",
-    "crates/susi-conformance",
     "crates/susi-wire-client",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -50,7 +46,7 @@ exclude = ["vendor"]
 [package]
 name = "susi"
 default-run = "susi"
-version = "0.21.71"
+version = "0.21.72"
 edition = "2021"
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
 license = "Apache-2.0"
@@ -104,15 +100,12 @@ complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
-susi-cli-defs = { path = "crates/susi-cli-defs" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-native-client = { path = "crates/susi-native-client" }
-susi-sandbox-client = { path = "crates/susi-sandbox-client" }
-susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
@@ -145,11 +138,9 @@ susi-gawd-swarm = { workspace = true }
 [dependencies]
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-susi-sandbox-client = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
-susi-cli-defs = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }

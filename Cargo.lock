@@ -832,17 +832,15 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-build-os-ucrt",
- "susi-cli-defs",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-gawd-agents",
  "susi-gawd-swarm",
  "susi-paths",
- "susi-sandbox-client",
  "susi-vendor-clap",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-serde",
@@ -870,20 +868,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-cli-defs"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-clap",
-]
-
-[[package]]
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
  "susi-error",
  "susi-paths",
- "susi-vendor-chacha20poly1305",
- "susi-vendor-ed25519-dalek",
  "susi-vendor-getrandom",
  "susi-vendor-libc",
  "susi-vendor-serde",
@@ -891,15 +880,6 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-winapi",
  "susi-vendor-windows-registry",
- "susi-vendor-x25519-dalek",
-]
-
-[[package]]
-name = "susi-conformance"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-serde-json",
- "susi-wire-client",
 ]
 
 [[package]]
@@ -911,17 +891,17 @@ dependencies = [
  "susi-error",
  "susi-gawd-acp",
  "susi-paths",
- "susi-vendor-ed25519-dalek",
  "susi-vendor-getrandom",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-winapi",
+ "susi-wire-client",
 ]
 
 [[package]]
 name = "susi-daemon"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-core",
 ]
@@ -938,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-core",
  "susi-gawd-a2a",
@@ -951,7 +931,6 @@ version = "0.1.0"
 dependencies = [
  "susi-config",
  "susi-gawd-acp",
- "susi-http-transport",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
 ]
@@ -981,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-core",
  "susi-gemi-models",
@@ -996,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-core",
  "susi-vendor-serde",
@@ -1005,25 +984,13 @@ dependencies = [
 
 [[package]]
 name = "susi-harness"
-version = "0.21.71"
+version = "0.21.72"
 dependencies = [
  "susi-core",
  "susi-error",
  "susi-paths",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
-]
-
-[[package]]
-name = "susi-http-transport"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-hyper",
- "susi-vendor-rcgen",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-tokio",
- "susi-vendor-tokio-rustls",
 ]
 
 [[package]]
@@ -1040,18 +1007,6 @@ name = "susi-paths"
 version = "0.1.0"
 dependencies = [
  "susi-vendor-serde-json",
-]
-
-[[package]]
-name = "susi-sandbox-client"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-error",
- "susi-paths",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
 ]
 
 [[package]]
@@ -1195,6 +1150,7 @@ dependencies = [
 name = "susi-vendor-winapi"
 version = "0.1.0"
 dependencies = [
+ "susi-paths",
  "winapi",
 ]
 

@@ -27,8 +27,7 @@ cargo core-size
 ```
 
 This executes the under-50k test, which returns nonzero while the complete
-socket exceeds 49,999 lines. Its ordinary ignored status is an unfinished
-goal, not a pass. Acceptance requires one executed test and its size result;
+socket exceeds 49,999 lines. Ordinary test runs skip this explicit check; that skip is not acceptance. Acceptance requires one executed test and its size result;
 a zero-test or skipped selection proves nothing. Read the current measurement
 from the command rather than adding dated measurements to this document.
 

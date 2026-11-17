@@ -29,27 +29,6 @@ const ALLOWED_WIRE_CLIENT: &[&str] = &[
     "zmij",
 ];
 
-/// Packages in `susi-cli-defs`'s `clap` closure, the same on both targets.
-/// `susi-vendor-clap` builds clap without default features (T-CARBONLEAN-12),
-/// so the terminal colour stack (`anstream` and its Windows console packages)
-/// is not linked; `anstyle` stays as a dependency of `clap_builder`.
-const ALLOWED_CLI_DEFS: &[&str] = &[
-    "anstyle",
-    "clap",
-    "clap_builder",
-    "clap_derive",
-    "clap_lex",
-    "heck",
-    "idna_adapter",
-    "proc-macro2",
-    "quote",
-    "strsim",
-    "susi-cli-defs",
-    "susi-vendor-clap",
-    "syn",
-    "unicode-ident",
-];
-
 /// Package names in the normal and build graph of `package` on `target`.
 /// A failing `cargo tree` fails the test with its stderr; it never skips.
 fn closure(package: &str, target: &str) -> BTreeSet<String> {
@@ -104,20 +83,6 @@ fn assert_closure(package: &str, allowed: &[&str]) {
 #[test]
 fn wire_client_links_only_std_and_json() {
     assert_closure("susi-wire-client", ALLOWED_WIRE_CLIENT);
-}
-
-#[test]
-fn cli_defs_links_only_the_clap_closure() {
-    assert_closure("susi-cli-defs", ALLOWED_CLI_DEFS);
-}
-
-/// The conformance suite reuses the wire client's HTTP framing and stays a
-/// black-box std + JSON client of the host contract.
-#[test]
-fn conformance_suite_links_only_the_wire_client_and_json() {
-    let mut allowed = ALLOWED_WIRE_CLIENT.to_vec();
-    allowed.push("susi-conformance");
-    assert_closure("susi-conformance", &allowed);
 }
 
 #[test]

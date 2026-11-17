@@ -142,27 +142,44 @@ fn main() -> std::process::ExitCode {
 
 fn run() -> std::process::ExitCode {
     susi_paths::stdio::install_broken_pipe_guard();
-    let mut command_tree = Cli::command().version(env!("CARGO_PKG_VERSION"));
-    let cli = parse_cli(&mut command_tree);
-    if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
-        return status;
+    let words: Vec<_> = env::args_os().skip(1).collect();
+    if bare_terminal_invocation(false, !words.is_empty(), io::stdin().is_terminal()) {
+        return print_bare_usage(&mut cli::defs::RootInfo::command());
     }
-    if let Some(cli::defs::Commands::Local { args }) = &cli.command {
-        return cli::local_delivery_cli::execute(args);
-    }
-    if matches!(cli.command, Some(cli::defs::Commands::Install)) {
-        return cli::install_cli::execute();
-    }
-    if bare_terminal_invocation(
-        cli.command.is_some(),
-        !cli.intent.is_empty(),
-        io::stdin().is_terminal(),
-    ) {
-        return print_bare_usage(&mut command_tree);
+    // Concrete feature parsers live beside their implementations. Keep only
+    // installation and native delivery parsing in this bootstrap executable.
+    let first = words.first().and_then(|word| word.to_str());
+    let native_help = first == Some("help")
+        && words
+            .get(1)
+            .and_then(|word| word.to_str())
+            .is_some_and(|word| matches!(word, "install" | "install-release" | "local"));
+    if native_help || matches!(first, Some("install" | "install-release" | "local")) {
+        let mut command_tree = Cli::command().version(env!("CARGO_PKG_VERSION"));
+        let cli = parse_cli(&mut command_tree);
+        if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref())
+        {
+            return status;
+        }
+        if let Some(cli::defs::Commands::Local { args }) = &cli.command {
+            return cli::local_delivery_cli::execute(args);
+        }
+        if matches!(cli.command, Some(cli::defs::Commands::Install)) {
+            return cli::install_cli::execute();
+        }
+    } else if first == Some("help") && words.len() == 1 {
+        let mut tree = cli::defs::RootInfo::command();
+        return match tree.print_long_help() {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Unable to print help: {error}");
+                std::process::ExitCode::FAILURE
+            }
+        };
     }
     if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
         eprintln!("Unable to isolate development instance: {error}");
         return std::process::ExitCode::FAILURE;
     }
-    cli::runtime_forward::execute(&env::args_os().skip(1).collect::<Vec<_>>())
+    cli::runtime_forward::execute(&words)
 }

@@ -190,7 +190,7 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
 // Bulk implementation relocation, retaining the native storage guard and wire contracts.
-const COMPLETE_SOCKET_CEILING: usize = 84_351;
+const COMPLETE_SOCKET_CEILING: usize = 49_999;
 /// The CEO's limit: strictly below 50,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 49_999;
 

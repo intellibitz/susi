@@ -8,13 +8,12 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-const MANIFESTS: [(&str, &str); 7] = [
+const MANIFESTS: [(&str, &str); 6] = [
     ("Cargo.toml", "susi"),
     ("crates/susi-gawd/Cargo.toml", "susi-gawd"),
     ("crates/susi-gemi/Cargo.toml", "susi-gemi"),
     ("crates/susi-gmcp/Cargo.toml", "susi-gmcp"),
     ("crates/susi-daemon/Cargo.toml", "susi-daemon"),
-    ("crates/susi-server/Cargo.toml", "susi-server"),
     ("crates/susi-harness/Cargo.toml", "susi-harness"),
 ];
 const JSON: [(&str, &str); 3] = [
