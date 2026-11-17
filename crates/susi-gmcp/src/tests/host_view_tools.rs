@@ -71,23 +71,23 @@ fn membership_tools_validate_before_touching_the_roster() {
 
 #[test]
 fn membership_returns_lines_and_the_refusal() {
-    let done = membership(|out| {
-        out(peer_admin::Line::Info("evicted".into()));
-        out(peer_admin::Line::Note("note".into()));
-        Ok(())
-    })
+    let done = membership_doc(&json!({
+        "result_error": null, "lines": ["evicted"], "notes": ["note"]
+    }))
     .unwrap();
     let doc: Value = serde_json::from_str(&done).unwrap();
     assert_eq!(doc["ok"], true);
     assert_eq!(doc["lines"], json!(["evicted"]));
     assert_eq!(doc["notes"], json!(["note"]));
-    let partial = membership(|out| {
-        out(peer_admin::Line::Note("staged 0/1".into()));
-        Err("rekey aborted".into())
-    })
+    let partial = membership_doc(&json!({
+        "result_error": "rekey aborted", "lines": [], "notes": ["staged 0/1"]
+    }))
     .unwrap();
     let doc: Value = serde_json::from_str(&partial).unwrap();
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["error"], "rekey aborted");
-    assert!(membership(|_| Err("no verified peer".into())).is_err());
+    assert!(membership_doc(&json!({
+        "result_error": "no verified peer", "lines": [], "notes": []
+    }))
+    .is_err());
 }

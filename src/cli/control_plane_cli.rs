@@ -101,11 +101,17 @@ pub(crate) fn dispatch(
         Some(Substrate { action }) => in_workspace(PlanePrep::None, action, substrate_cli::execute),
         Some(Crown { action }) => in_workspace(PlanePrep::None, action, crown_cli::execute),
         Some(Services { action }) => in_workspace(PlanePrep::None, action, services_cli::execute),
-        Some(Commits { action }) => in_workspace(PlanePrep::None, action, commits_cli::execute),
+        // Served by Susi Commercial Apps (Fleet Command): its exit code is this command's.
+        Some(Commits { action }) => {
+            std::process::ExitCode::from(u8::try_from(commits_cli::execute(action)).unwrap_or(1))
+        }
         Some(Os { json, action }) => {
             run_plane_cwd(PlanePrep::None, |cwd| os_cli::execute(action, json, cwd))
         }
-        Some(Peers { action }) => in_workspace(PlanePrep::None, action, peers_cli::execute),
+        // Served by Susi Commercial Apps (Fleet Command): its exit code is this command's.
+        Some(Peers { action }) => {
+            std::process::ExitCode::from(u8::try_from(peers_cli::execute(action)).unwrap_or(1))
+        }
         Some(Agents { action }) => in_workspace(ecosystem, action, agent_cli::execute),
         Some(Frameworks { action }) => in_workspace(ecosystem, action, framework_cli::execute),
         Some(Models { action }) => in_workspace(ecosystem, action, model_cli::execute),

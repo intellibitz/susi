@@ -440,10 +440,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             }
         }
         Commands::Commits { action } => {
-            // Same pre-boot-dispatch note as Services above.
-            if let Err(e) = commits_cli::execute(action, cwd) {
-                eprintln!("{e}");
-                return std::process::ExitCode::FAILURE;
+            // Served by Susi Commercial Apps; its exit code and messages are this command's.
+            let code = commits_cli::execute(action);
+            if code != 0 {
+                return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
             }
         }
         Commands::Os { json, action } => {
@@ -454,10 +454,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             }
         }
         Commands::Peers { action } => {
-            // Same pre-boot-dispatch note as Services above.
-            if let Err(e) = peers_cli::execute(action, cwd) {
-                eprintln!("{e}");
-                return std::process::ExitCode::FAILURE;
+            // Served by Susi Commercial Apps; its exit code and messages are this command's.
+            let code = peers_cli::execute(action);
+            if code != 0 {
+                return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
             }
         }
         Commands::ServiceRun { .. } => {

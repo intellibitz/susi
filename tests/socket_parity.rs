@@ -232,8 +232,8 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("harness run", &[Mcp("harness_run"), Mcp("harness_runs")]),
     // B4 groups 2, 4 and 9: host views built by `susi_daemon` view modules
     // (`status_report`, `host_views`, `ecosystem_view`, `os_status`,
-    // `runtime_view`) and roster changes by `susi_core::peer_admin`, the
-    // functions the CLI calls. A `workspace` argument stands in for the
+    // `runtime_view`), the functions the CLI calls, and roster changes by
+    // Susi Commercial Apps over `fleet.cluster.v1`, which `susi peers` forwards to. A `workspace` argument stands in for the
     // CLI's cwd and is admitted by the MAC policy.
     // `operator_status` is `susi status --json`; with `detail` it is the
     // whole human view (`status_report::to_json` of the `UnifiedStatus`

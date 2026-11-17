@@ -383,27 +383,27 @@ impl CoreTools {
     }
 
     pub fn commits_audit(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        pretty(&crate::susi_core::commit_log_report::audit_report())
+        pretty(&cluster_report("commits_audit", serde_json::json!({}))?)
     }
 
     pub fn commits_replay(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        pretty(&crate::susi_core::commit_log_report::replay_report())
+        pretty(&cluster_report("commits_replay", serde_json::json!({}))?)
     }
 
     pub fn commits_show(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let report = crate::susi_core::commit_log_report::show_report(required_str(arg, "epoch")?)
-            .map_err(EaiError::config)?;
-        pretty(&report)
+        let epoch = required_str(arg, "epoch")?;
+        pretty(&cluster_report(
+            "commits_show",
+            serde_json::json!({ "epoch": epoch }),
+        )?)
     }
 
     pub fn commits_sync(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        pretty(&crate::susi_core::commit_log_report::sync_report())
+        pretty(&cluster_report("commits_sync", serde_json::json!({}))?)
     }
 
     pub fn commits_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let report =
-            crate::susi_core::commit_log_report::compact_report().map_err(EaiError::internal)?;
-        pretty(&report)
+        pretty(&cluster_report("commits_compact", serde_json::json!({}))?)
     }
 
     pub fn peers_probe(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -414,19 +414,40 @@ impl CoreTools {
                 Some(u16::try_from(n).map_err(|_| EaiError::config("port must be 0-65535"))?)
             }
         };
-        let report =
-            crate::susi_core::peer_probe::probe_report(host, port).map_err(EaiError::network)?;
-        pretty(&report)
+        let args = serde_json::json!({ "host": host, "port": port });
+        pretty(&cluster_report("peers_probe", args)?)
     }
 
     pub fn peers_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let report = crate::susi_core::peer_roster::list_report().map_err(EaiError::config)?;
-        pretty(&report)
+        pretty(&cluster_report("peers_list", serde_json::json!({}))?)
     }
 
     pub fn peers_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let rows = crate::susi_core::peer_roster::status_rows().map_err(EaiError::config)?;
-        pretty(&rows)
+        pretty(&cluster_report("peers_status", serde_json::json!({}))?)
+    }
+}
+
+/// The cluster roster and ledger answer for `action`: Susi Commercial Apps
+/// serves them on `fleet.cluster.v1` (Mandate 84). A refusal comes back as
+/// `{error, kind}` and keeps the error class the tool raised before the move.
+pub(super) fn cluster_report(
+    action: &str,
+    args: serde_json::Value,
+) -> EaiResult<serde_json::Value> {
+    let answer = crate::susi_core::plane_bus::fleet_cluster(action, args).map_err(|e| {
+        EaiError::config(format!(
+            "{action} is served by Susi Commercial Apps (fleet.cluster.v1): {e}"
+        ))
+    })?;
+    let refusal = answer
+        .as_object()
+        .filter(|o| o.len() == 2)
+        .and_then(|o| Some((o.get("error")?.as_str()?, o.get("kind")?.as_str()?)));
+    match refusal {
+        Some((error, "config")) => Err(EaiError::config(error.to_string())),
+        Some((error, "internal")) => Err(EaiError::internal(error.to_string())),
+        Some((error, _)) => Err(EaiError::network(error.to_string())),
+        None => Ok(answer),
     }
 }
 
