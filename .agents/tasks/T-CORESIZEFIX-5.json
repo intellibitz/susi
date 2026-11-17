@@ -1,0 +1,23 @@
+{
+  "id": "T-CORESIZEFIX-5",
+  "title": "Forward susi peers, susi commits and the cluster MCP tools to Susi Commercial Apps",
+  "goal": "Vision: V-10. Mandate 84 (non-pillar features move too; multi-node governance is Fleet Command, Guardrail 2). Commercial serves susi-commercial peers and susi-commercial commits (3e4744e3, 18/18 side-by-side parity) and answers fleet.cluster.v1 on the plug host (T-CORESIZEFIX-8). Core's susi peers and susi commits forward their flags to susi-commercial (naming it when it is not installed); GMCP's peers_* and commits_* MCP tools keep their names, schemas, argument checks and error classes and request fleet.cluster.v1 over the plane bus; core deletes susi-core peer_roster.rs, peer_admin.rs, peer_probe.rs and commit_log_report.rs and the two CLI bodies (about 3,400 counted lines) with their tests, which commercial carries.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cluster_forward"
+    ]
+  },
+  "created_by": "CORESIZEFIX",
+  "created_unix": 1794929615,
+  "reuse": {
+    "decision": "existing",
+    "searched": "commercial susi-fleet-command::cluster (the moved modules and CLIs) and its fleet.cluster.v1 plug; core's susi top forward (src/cli/top_cli.rs, vault_exec::run_commercial) and the operator_snapshot bus facade as the patterns; nothing new is built in core."
+  },
+  "limitations": "Windows x86_64 first, then the Linux run in WSL before the deletion lands. A live pass (private daemon on a port offset plus the commercial plug host) checks the MCP tools side by side with the old build. The clap definitions stay in core for help and flag parsing."
+}
