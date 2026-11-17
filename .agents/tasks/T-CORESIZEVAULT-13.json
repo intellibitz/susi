@@ -1,0 +1,24 @@
+{
+  "id": "T-CORESIZEVAULT-13",
+  "title": "Record the decision that non-pillar implementations also move out of core (reland)",
+  "goal": "Vision: V-9. Reland of T-CORESIZEVAULT-12, whose close ran before its commit (abandoned with the reason). Record in docs/ceo-mandate-84.md the decisions of 2026-11-17 that pillar and non-pillar implementations in core's socket crates may move into susi-commercial-apps (core keeps contracts, transport, basic config and the plane bus), and bring its implementation truth to the current measure (291,809).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CORESIZEVAULT",
+  "created_unix": 1794899825,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Mandate 84 rule 5 already records the move-to-commercial decision; extended in place (Mandate 90)."
+  },
+  "limitations": "Records the decisions and current measure only; no code moves in this task. AGENTS.md already says concrete implementations belong in separately hosted packages and is unchanged.",
+  "progress": "docs/ceo-mandate-84.md rule 5 records both 2026-11-17 decisions; implementation truth at 291,809 with categories re-measured."
+}

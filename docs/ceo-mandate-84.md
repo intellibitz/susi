@@ -60,7 +60,15 @@ continues `V-6`, which the CEO set earlier the same day.
    `susi-commercial-apps` this way is not dropping it (CEO decision,
    2026-11-17, asked directly with the trade-off stated: "Moving to commercial
    is fine"): core forwards to the commercial destination, and an installation
-   without it names the command that serves it.
+   without it names the command that serves it. Implementations move this way
+   whether or not they are pillar code (CEO decisions, 2026-11-17): pillar
+   implementations, because the GAWD, GEMI and GMCP crates alone were 133,562
+   lines ("Move pillar implementations into the paid suite as well"); and the
+   feature implementations in the socket crates (daemon handlers, CLI verbs,
+   config catalogs), because the other 158,247 lines left core about 58,000
+   over the limit with every pillar implementation gone ("Move non-pillar
+   features too"). Core keeps the contracts, transport, basic configuration
+   and the plane bus. Pillar code runs on Linux before core deletes its copy.
 6. **No tricks.** The number never comes from hiding code: not by minifying,
    not by moving runtime code into tests, tooling, `vendor/` or `.agents/`,
    not by leaving compiled code out of the count, and not by deleting tests
@@ -96,13 +104,14 @@ continues `V-6`, which the CEO set earlier the same day.
 
 ## 4. Implementation truth
 
-- **Not met today.** At `origin/main` on 2026-11-16 the complete socket is
-  307,737 lines (301,283 first-party runtime and 6,454 facades); 207,738 lines
-  must still go. Reported beside it: 136,790 test lines, 72,174 tooling lines,
-  216,164 lines of third-party `vendor/` source.
+- **Not met today.** At `origin/main` on 2026-11-17 the complete socket is
+  291,809 lines (285,355 first-party runtime and 6,454 facades); 191,810 lines
+  must still go. Reported beside it: 136,899 test lines, 72,685 tooling lines,
+  216,164 lines of third-party `vendor/` source. Of the runtime, the pillar
+  crates are 133,562 lines and the socket crates 158,247.
 - **Enforced:** `repository_size_is_reported_and_unsafe_baselines_do_not_multiply`
   in `tests/lean_core_ceilings.rs` fails when the complete socket exceeds
-  `COMPLETE_SOCKET_CEILING`, pinned at 307,737. The suite runs in the ordinary
+  `COMPLETE_SOCKET_CEILING`, pinned at 291,809. The suite runs in the ordinary
   test run and in core's fast release pipeline (`xtask/src/fast_release.rs`),
   so a core that grew cannot be released until the growth is paid for. A
   compile-time check keeps the ceiling from being pinned below 99,999.
