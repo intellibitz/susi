@@ -1,0 +1,1 @@
+{"branch":"claude25k","scopes":["Cargo.toml","Cargo.lock","src/","crates/","xtask/","tests/","scripts/","AGENTS.md","ARCHITECTURE.md","docs/"],"task":"T-CLAUDE25K-2","agent":"CLAUDE25K","claimed_unix":1795003244,"lease_until_unix":1795010444}
