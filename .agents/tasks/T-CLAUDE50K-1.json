@@ -1,0 +1,46 @@
+{
+  "id": "T-CLAUDE50K-1",
+  "title": "Bring core's total Rust under 50,000 lines",
+  "goal": "Vision: V-9. CEO 2026-11-19: \"susi core total line under 50k. make the decisions, do not prompt or ask ceo. go.\" Core's first-party Rust (runtime, tests and tooling; no vendored source) is 117,968 lines, 73,400 of them the xtask development and release tooling. Move xtask whole to Susi Commercial Apps (tools/core-xtask, T-CLAUDE50K-1 there) and delete it from core, keeping core's Linux link script under toolchain/, so the total falls to about 44,700. No capability is dropped: the tools run from a core checkout, and core names them.",
+  "size": "l",
+  "deps": [],
+  "scopes": [
+    "xtask/",
+    "toolchain/linux_link.rs",
+    "build.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo/config.toml",
+    ".githooks/pre-push",
+    "src/cli/local_delivery_cli.rs",
+    "crates/susi-core/src/self_build.rs",
+    "tests/",
+    "AGENTS.md",
+    "README.md",
+    "docs/",
+    "scripts/",
+    ".agents/tasks/T-CLAUDE50K-1.json",
+    ".agents/claims/T-CLAUDE50K-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "no_console_window"
+    ]
+  },
+  "created_by": "CLAUDE50K",
+  "created_unix": 1795035408,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's own xtask, transplanted whole; precedent: the unsafe ratchet's tools already moved to Susi Commercial Apps and run against a core checkout."
+  },
+  "progress": "2026-11-19: Susi Commercial Apps' copy is built and tested (tools/core-xtask); core's deletion waits for T-CLAUDE25K-3 to release its xtask/ and toolchain/ scopes."
+}
