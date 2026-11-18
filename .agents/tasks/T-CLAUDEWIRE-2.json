@@ -35,5 +35,9 @@
     ]
   },
   "created_by": "CLAUDEWIRE",
-  "created_unix": 1794992320
+  "created_unix": 1794992320,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's susi-wire-client and susi-config mcp_client, and Susi Commercial Apps' agent-runtime mcp_client; the move deletes core's copy of the wire client in favour of the one Susi Commercial Apps already runs, adds no code and no dependency."
+  }
 }
