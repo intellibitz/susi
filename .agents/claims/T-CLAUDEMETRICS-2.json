@@ -1,0 +1,1 @@
+{"branch":"claudemetrics","scopes":["crates/susi-config/src/host_metrics.rs","crates/susi-config/src/lib.rs","xtask/src/local_workflow/gates.rs","tests/lean_core_ceilings.rs"],"task":"T-CLAUDEMETRICS-2","agent":"CLAUDEMETRICS","claimed_unix":1794992982,"lease_until_unix":1794996582}
