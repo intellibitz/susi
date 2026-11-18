@@ -17,7 +17,8 @@
     "ARCHITECTURE.md",
     "docs/",
     ".agents/tasks/T-CLAUDERATCHET-2.json",
-    ".agents/claims/T-CLAUDERATCHET-2.json"
+    ".agents/claims/T-CLAUDERATCHET-2.json",
+    "crates/susi-vendor-syn/"
   ],
   "accept": {
     "cmd": [
@@ -27,8 +28,11 @@
       "--locked",
       "-p",
       "xtask",
-      "--lib",
-      "release_coordinator"
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "coordinator"
     ]
   },
   "created_by": "CLAUDERATCHET",
