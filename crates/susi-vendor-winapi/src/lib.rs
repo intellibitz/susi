@@ -23,6 +23,3 @@ pub mod host;
 pub mod process_job;
 #[cfg(windows)]
 pub mod stdio;
-
-#[cfg(windows)]
-pub mod socket;

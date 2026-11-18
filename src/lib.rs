@@ -10,10 +10,16 @@
     )
 )]
 
-//! Susi's public launcher and generic protocol contracts. Concrete command,
-//! daemon, agent, model and tool implementations run in the commercial runtime.
+//! susi: a local-first Rust substrate for orchestrating AI agents and models.
+//! Local Candle inference loads llama/qwen2 **GGUF** weights; remote models
+//! mount via OpenAI-compatible (and Anthropic/Gemini/Triton) engines. Work
+//! queues through a lock-free async intent pipeline and fans out across a
+//! multi-agent swarm. Tools expose over the Model Context Protocol (MCP).
 //!
-//! - [`error`]: shared typed errors
+//! - [`daemon`]: background process management and lifecycle
+//! - [`gawd`]: agent orchestration and reflex synthesis
+//! - [`gemi`]: model loading and inference (Candle-based)
+//! - [`gmcp`]: Model Context Protocol server/client and tool registry
 //! - [`native`]: native/WASM execution primitives
 //! - [`sandbox`]: workspace and config management
 
@@ -27,6 +33,7 @@ pub use susi_error;
 #[cfg(windows)]
 #[doc(hidden)] // The installed channel's own launch bindings, not a public API.
 pub mod channel_bindings;
+pub mod hooks;
 
 /// Error types and handling
 pub mod error {
@@ -70,5 +77,11 @@ mod tests {
     fn sandbox_xdg_susi_dirs_resolves_paths() {
         let home = sandbox::xdg::SusiDirs::substrate_home();
         assert!(!home.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn hooks_module_reexports_engine_hooks() {
+        let _hooks = hooks::SusiEngineHooks;
+        assert_eq!(std::mem::size_of::<hooks::SusiEngineHooks>(), 0);
     }
 }

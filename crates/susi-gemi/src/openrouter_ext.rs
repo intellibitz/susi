@@ -1,0 +1,138 @@
+//! Engines-side OpenRouter helpers (live `/models`, paid probe).
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_gemi_models::openrouter::{
+    attribution_headers, is_openrouter_base, OpenRouterManager, API_BASE,
+};
+
+use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
+use crate::engines::routing::InferenceRouter;
+
+/// Build an [`HttpProvider`] for the effective OpenRouter model pin.
+pub fn provider(manager: &OpenRouterManager) -> Result<HttpProvider> {
+    manager.doctor()?;
+    Ok(HttpProvider {
+        name: format!("openrouter-{}", manager.effective_model().replace('/', "-")),
+        api_base: API_BASE.to_string(),
+        model: manager.effective_model(),
+        protocol: InferenceProtocol::OpenAiChat,
+        api_key: manager.resolve_api_key(),
+    })
+}
+
+/// Prefer OpenRouter for cloud routing and optionally pin a model/route.
+pub fn prefer(model: Option<&str>, clear_model: bool) -> Result<String> {
+    let manager = OpenRouterManager::new()?;
+    if clear_model {
+        let cleared = manager.clear_preferred_model()?;
+        let _ = InferenceRouter::set_preferred_cloud("openrouter");
+        return Ok(format!("{cleared}; cloud preference → openrouter"));
+    }
+    manager.doctor()?;
+    let pin = manager.prefer(model)?;
+    let cloud =
+        InferenceRouter::set_preferred_cloud("openrouter").map_err(|e| susi_error::eai_err!(e))?;
+    Ok(format!("{pin} | {cloud}"))
+}
+
+/// Paid probe against the effective OpenRouter model.
+pub fn probe(prompt: &str) -> Result<String> {
+    crate::model_probe::run(prompt, "tokio runtime for OpenRouter probe", || {
+        provider(&OpenRouterManager::new()?)
+    })
+}
+
+/// Live model ids from OpenRouter `GET /models` (requires key). Caps list size.
+pub fn list_live(limit: usize) -> Result<Vec<String>> {
+    let manager = OpenRouterManager::new()?;
+    manager.doctor()?;
+    let key = manager.resolve_api_key();
+    fetch_live_models(&key, limit)
+}
+
+fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
+    let url = format!("{API_BASE}/models");
+    let (referer, title) = attribution_headers();
+    let auth = format!("Bearer {api_key}");
+    let mut headers = vec![("Authorization", auth.as_str())];
+    if is_openrouter_base(API_BASE) {
+        headers.push(("HTTP-Referer", referer.as_str()));
+        headers.push(("X-Title", title.as_str()));
+    }
+    let call = susi_http_transport::http_call("GET", &url, &headers, 30, 0)
+        .map_err(|e| susi_error::eai_err!("OpenRouter /models request: {e}"))?;
+    let status = call.status;
+    let bytes = call
+        .into_bytes(16 * 1024 * 1024)
+        .context("OpenRouter /models body")?;
+    if !(200..300).contains(&status) {
+        let body = String::from_utf8_lossy(&bytes);
+        bail!(
+            "OpenRouter /models HTTP {}: {}",
+            status,
+            body.chars().take(200).collect::<String>()
+        );
+    }
+    let json: serde_json::Value =
+        serde_json::from_slice(&bytes).context("OpenRouter /models json")?;
+    let mut ids = Vec::new();
+    if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                ids.push(id.to_string());
+                if ids.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+    if ids.is_empty() {
+        bail!("OpenRouter /models returned no model ids");
+    }
+    Ok(ids)
+}
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_rejects_empty_and_whitespace_only_prompts_before_network() {
+        let empty_err = probe("").expect_err("empty prompt must fail");
+        assert!(empty_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+
+        let ws_err = probe("   \t\n  ").expect_err("whitespace prompt must fail");
+        assert!(ws_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn openrouter_base_detection_and_attribution_headers_are_consistent() {
+        assert!(is_openrouter_base(API_BASE));
+        assert!(!is_openrouter_base("https://api.openai.com/v1"));
+        let (referer, title) = attribution_headers();
+        assert!(!referer.trim().is_empty());
+        assert!(!title.trim().is_empty());
+    }
+
+    #[test]
+    fn openrouter_manager_exposes_non_empty_effective_model_identifier() {
+        let manager = OpenRouterManager::new().expect("manager init");
+        let effective = manager.effective_model();
+        assert!(!effective.trim().is_empty());
+        assert!(effective.contains('/'));
+    }
+
+    #[test]
+    fn is_openrouter_base_recognizes_subpaths_and_rejects_unrelated_hosts() {
+        assert!(is_openrouter_base(
+            "https://openrouter.ai/api/v1/chat/completions"
+        ));
+        assert!(!is_openrouter_base(""));
+        assert!(!is_openrouter_base("http://localhost:11434/v1"));
+    }
+}

@@ -1,0 +1,264 @@
+//! Direct CLI and in-process execution for registered MCP tools.
+//!
+//! Provides parameter schema validation against registered/standard tool input schemas,
+//! evidence recording via `EvidenceSession::capture_call`, and response formatting
+//! adhering to the standard MCP `CallToolResult` JSON specification.
+
+use crate::protocol::is_tool_result_error;
+use crate::tool_registry::{GmcpClient, ToolRegistry};
+use serde_json::{json, Value};
+use std::{collections::HashMap, path::Path, sync::OnceLock};
+use susi_error::{EaiError, EaiResult};
+use susi_paths::sync::RwLock;
+
+static CUSTOM_SCHEMAS: OnceLock<RwLock<HashMap<String, Value>>> = OnceLock::new();
+
+fn custom_schemas() -> &'static RwLock<HashMap<String, Value>> {
+    CUSTOM_SCHEMAS.get_or_init(RwLock::default)
+}
+
+/// Register a custom JSON schema for an MCP tool parameter validation.
+pub fn register_tool_schema(server: &str, tool: &str, schema: Value) {
+    let key = if server.is_empty() || server == "susi" || server == "native" || server == "gmcp" {
+        tool.to_string()
+    } else {
+        format!("{server}:{tool}")
+    };
+    custom_schemas().write().insert(key, schema);
+}
+
+/// Retrieve the effective input schema for a given tool.
+pub fn get_tool_schema(server: &str, tool: &str) -> Value {
+    let key = format!("{server}:{tool}");
+    let schemas = custom_schemas().read();
+    if let Some(schema) = schemas.get(&key).or_else(|| schemas.get(tool)) {
+        return schema.clone();
+    }
+    drop(schemas);
+
+    // Built-in schemas for common core tools
+    match tool {
+        "read_file" | "extensions_validate" => {
+            json!({ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] })
+        }
+        "write_file" => json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" }, "content": { "type": "string" } },
+            "required": ["path", "content"]
+        }),
+        "exec_command" => {
+            json!({ "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] })
+        }
+        "tasks_pause" | "tasks_resume" => {
+            json!({ "type": "object", "properties": { "task_id": { "type": "string" } }, "required": ["task_id"] })
+        }
+        "os_ps" => json!({ "type": "object", "properties": { "limit": { "type": "integer" } } }),
+        "extensions_load" | "extensions_unload" => {
+            json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] })
+        }
+        "brain_pareto" => {
+            json!({ "type": "object", "properties": { "class": { "type": "string" } } })
+        }
+        "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify"
+        | "extensions_list" | "extensions_status" => json!({ "type": "object" }),
+        _ => json!({ "type": "object" }),
+    }
+}
+
+/// Validate tool arguments against the tool's input schema.
+pub fn validate_tool_args(server: &str, tool: &str, args: &Value) -> EaiResult<()> {
+    if !args.is_object() {
+        return Err(EaiError::protocol("Arguments must be a valid JSON object"));
+    }
+
+    let schema = get_tool_schema(server, tool);
+    let validator = crate::schema_check::Validator::compile(&schema)
+        .map_err(|e| EaiError::protocol(format!("Invalid input schema: {e}")))?;
+
+    if !validator.is_valid(args) {
+        let mut errors = Vec::new();
+        for err in validator.iter_errors(args) {
+            errors.push(format!("{}: {}", err.instance_path(), err));
+        }
+        let detail = if errors.is_empty() {
+            "Arguments do not conform to schema".to_string()
+        } else {
+            errors.join("; ")
+        };
+        return Err(EaiError::protocol(format!(
+            "Arguments do not match inputSchema for tool '{tool}': {detail}"
+        )));
+    }
+
+    Ok(())
+}
+
+/// Format raw text or error output into standard MCP CallToolResult format.
+pub fn format_tool_response(output: &str, is_error: bool) -> Value {
+    json!({
+        "content": [
+            {
+                "type": "text",
+                "text": output
+            }
+        ],
+        "isError": is_error
+    })
+}
+
+pub type ToolHandlerFn = std::sync::Arc<dyn Fn(&Value, &Path) -> EaiResult<String> + Send + Sync>;
+static CUSTOM_HANDLERS: OnceLock<RwLock<HashMap<String, ToolHandlerFn>>> = OnceLock::new();
+
+fn custom_handlers() -> &'static RwLock<HashMap<String, ToolHandlerFn>> {
+    CUSTOM_HANDLERS.get_or_init(RwLock::default)
+}
+
+/// Register a custom handler function for a tool invocation.
+pub fn register_tool_handler(server: &str, tool: &str, handler: ToolHandlerFn) {
+    let key = if server.is_empty() || server == "susi" || server == "native" || server == "gmcp" {
+        tool.to_string()
+    } else {
+        format!("{server}:{tool}")
+    };
+    custom_handlers().write().insert(key, handler);
+}
+
+/// Remove all custom schemas and handlers bound under an explicit `server` namespace.
+pub fn clear_server_registrations(server: &str) {
+    let prefix = format!("{server}:");
+    custom_schemas()
+        .write()
+        .retain(|k, _| !k.starts_with(&prefix));
+    custom_handlers()
+        .write()
+        .retain(|k, _| !k.starts_with(&prefix));
+}
+
+fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<String> {
+    let handler = custom_handlers().read().get(tool).cloned(); // no lock while it runs
+    if let Some(handler) = handler {
+        return handler(args, workspace);
+    }
+
+    match tool {
+        "status" => crate::tools::CoreTools::status(args, workspace),
+        "ledger_verify" => crate::tools::CoreTools::ledger_verify(args, workspace),
+        "identity" => crate::tools::CoreTools::identity(args, workspace),
+        "list_models" => crate::tools::CoreTools::list_models(args, workspace),
+        "read_file" => crate::tools::CoreTools::read_file(args, workspace),
+        "write_file" => crate::tools::CoreTools::write_file(args, workspace),
+        "exec_command" => crate::tools::CoreTools::exec_command(args, workspace),
+        "tasks_pause" => crate::tools::CoreTools::tasks_pause(args, workspace),
+        "tasks_resume" => crate::tools::CoreTools::tasks_resume(args, workspace),
+        "sovereign_dashboard" => crate::tools::CoreTools::sovereign_dashboard(args, workspace),
+        "os_ps" => crate::tools::CoreTools::os_ps(args, workspace),
+        "os_sysinfo" => crate::tools::CoreTools::os_sysinfo(args, workspace),
+        "extensions_list" => crate::tools::CoreTools::extensions_list(args, workspace),
+        "extensions_status" => crate::tools::CoreTools::extensions_status(args, workspace),
+        "extensions_validate" => crate::tools::CoreTools::extensions_validate(args, workspace),
+        "extensions_load" => crate::tools::CoreTools::extensions_load(args, workspace),
+        "extensions_unload" => crate::tools::CoreTools::extensions_unload(args, workspace),
+        "brain_pareto" => crate::tools::CoreTools::brain_pareto(args, workspace),
+        _ => {
+            let out = ToolRegistry::execute_tool(tool, args, workspace);
+            if is_tool_result_error(&out) {
+                Err(EaiError::protocol(out))
+            } else {
+                Ok(out)
+            }
+        }
+    }
+}
+
+/// Directly invoke an MCP tool locally or via dynamic server proxy with parameter
+/// schema validation, evidence ledger recording, and MCP-compliant response formatting.
+pub fn call_tool_direct(
+    server: &str,
+    tool: &str,
+    args: &Value,
+    workspace: &Path,
+) -> EaiResult<Value> {
+    let call_id = if server.is_empty()
+        || server == "susi"
+        || server == "native"
+        || server == "gmcp"
+        || server == "local"
+        || server == "builtin"
+        || server == "core"
+    {
+        tool.to_string()
+    } else {
+        format!("{server}:{tool}")
+    };
+
+    // 0. Gateway Policy Boundary (identical to GmcpService::call_tool)
+    if let Err(violation) = crate::protocol::McpGatewayProxy::evaluate_tool_policy(tool) {
+        let err_msg = format!("Governance Violation: {violation}");
+        let _ =
+            susi_core::capture::EvidenceSession::capture_call(&call_id, args, workspace, || {
+                Err(EaiError::protocol(&err_msg))
+            });
+        return Ok(format_tool_response(&err_msg, true));
+    }
+
+    // 1. Parameter Schema Validation
+    if let Err(e) = validate_tool_args(server, tool, args) {
+        let err_msg = e.to_string();
+        // Record validation failure in evidence session if one exists or is created
+        let _ =
+            susi_core::capture::EvidenceSession::capture_call(&call_id, args, workspace, || {
+                Err(EaiError::protocol(&err_msg))
+            });
+        return Ok(format_tool_response(&err_msg, true));
+    }
+
+    // 2. Ensure an active EvidenceSession for CLI/standalone callers
+    let _activation = if susi_core::capture::EvidenceSession::for_workspace(workspace).is_none() {
+        susi_core::capture::EvidenceSession::new(&format!("cli:mcp:{call_id}"), workspace, |s| {
+            s.to_string()
+        })
+        .ok()
+        .map(|sess| susi_core::capture::EvidenceSession::activate(&sess))
+    } else {
+        None
+    };
+
+    // 3. Execution Dispatch with Evidence Recording
+    let is_native = server == "susi"
+        || server == "native"
+        || server == "gmcp"
+        || server == "local"
+        || server == "builtin"
+        || server == "core"
+        || server.is_empty()
+        || custom_handlers().read().contains_key(tool)
+        || ToolRegistry::exists(tool);
+
+    let exec_res =
+        susi_core::capture::EvidenceSession::capture_call(&call_id, args, workspace, || {
+            let handler = custom_handlers().read().get(&call_id).cloned();
+            if let Some(handler) = handler {
+                handler(args, workspace)
+            } else if is_native {
+                dispatch_native(tool, args, workspace)
+            } else {
+                GmcpClient::execute_external_tool(server, tool, &args.to_string())
+            }
+        });
+
+    // 4. Response Formatting
+    match exec_res {
+        Ok(text) => {
+            let is_err = is_tool_result_error(&text);
+            Ok(format_tool_response(&text, is_err))
+        }
+        Err(err) => {
+            let err_msg = err.to_string();
+            Ok(format_tool_response(&err_msg, true))
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/direct_call.rs"]
+mod tests;

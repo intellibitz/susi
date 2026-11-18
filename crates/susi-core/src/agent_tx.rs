@@ -1,0 +1,465 @@
+//! Multi-agent transactional snapshots with compensating rollback.
+//!
+//! Captures workspace file contents and blackboard entries at begin, applies
+//! participating changes, and on abort restores both — a saga-style boundary
+//! for mission workflows (not a full ACID DB).
+
+use crate::susi_error::{EaiError, EaiResult};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::sync::RwLock;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TxStatus {
+    Open,
+    Committed,
+    Aborted,
+}
+
+/// One file version captured at snapshot time (`None` = did not exist).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSnapshot {
+    pub rel_path: String,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentTransaction {
+    pub id: String,
+    pub workspace: String,
+    pub description: String,
+    pub status: TxStatus,
+    pub files: Vec<FileSnapshot>,
+    pub blackboard: BTreeMap<String, String>,
+    pub created_at: u64,
+    pub closed_at: Option<u64>,
+}
+
+fn now() -> u64 {
+    susi_paths::unix_epoch_elapsed().as_secs()
+}
+
+fn tx_dir(workspace: &Path) -> PathBuf {
+    susi_paths::workspace_state_dir(workspace).join("tx")
+}
+
+/// A transaction closes only against the workspace it snapshotted. Ids are
+/// unique per workspace journal, not globally, so a caller naming the
+/// wrong workspace is refused rather than acted on.
+fn ensure_same_workspace(tx: &AgentTransaction, workspace: &Path) -> EaiResult<()> {
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    if canonical(Path::new(&tx.workspace)) == canonical(workspace) {
+        return Ok(());
+    }
+    Err(EaiError::governance(format!(
+        "tx {} belongs to workspace {}, not {}",
+        tx.id,
+        tx.workspace,
+        workspace.display()
+    )))
+}
+
+fn confined_with_rel(workspace: &Path, raw: &str) -> EaiResult<(String, PathBuf)> {
+    let norm = raw.trim().replace('\\', "/");
+    let path = Path::new(&norm);
+    let err = |m: String| EaiError::governance(m);
+    let bad_parent = path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir));
+    if norm.is_empty() || bad_parent {
+        return Err(err(format!("tx path escape: {raw}")));
+    }
+    let rel = if path.is_absolute() {
+        let ws = workspace.canonicalize().map_err(|e| err(e.to_string()))?;
+        let (mut cur, mut pend) = (path, Vec::new());
+        while std::fs::symlink_metadata(cur).is_err() {
+            let Some((p, n)) = cur.parent().zip(cur.file_name()) else {
+                break;
+            };
+            pend.push(n.to_os_string());
+            cur = p;
+        }
+        let mut res = cur.canonicalize().map_err(|e| err(e.to_string()))?;
+        res.extend(pend.iter().rev());
+        let st = res.strip_prefix(&ws).map_err(|_| err(raw.to_owned()))?;
+        let text = st.to_str().filter(|s| !s.is_empty());
+        text.ok_or_else(|| err(raw.to_owned()))?.replace('\\', "/")
+    } else {
+        norm
+    };
+    let joined = crate::susi_config::confined_workspace_join(workspace, &rel)
+        .map_err(|e| err(format!("tx outside: {e}")))?;
+    Ok((rel, joined))
+}
+
+fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
+    confined_with_rel(workspace, rel).map(|(_, joined)| joined)
+}
+
+/// Process-wide transaction registry.
+pub struct TxManager {
+    open: RwLock<HashMap<String, AgentTransaction>>,
+    next_id: AtomicU64,
+}
+
+impl TxManager {
+    pub fn new() -> Self {
+        Self {
+            open: RwLock::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    pub fn global() -> &'static Self {
+        static M: OnceLock<TxManager> = OnceLock::new();
+        M.get_or_init(TxManager::new)
+    }
+
+    /// Begin a transaction: snapshot listed relative files + optional blackboard map.
+    pub fn begin(
+        &self,
+        workspace: &Path,
+        description: &str,
+        file_rels: &[String],
+        blackboard: BTreeMap<String, String>,
+    ) -> EaiResult<AgentTransaction> {
+        let mut files = Vec::new();
+        for rel in file_rels {
+            let (normalized_rel, path) = confined_with_rel(workspace, rel)?;
+            let content = if path.is_file() {
+                Some(
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| EaiError::filesystem(format!("snapshot {rel}: {e}")))?,
+                )
+            } else {
+                None
+            };
+            files.push(FileSnapshot {
+                rel_path: normalized_rel,
+                content,
+            });
+        }
+        let id = self.reserve_id(workspace)?;
+        let tx = AgentTransaction {
+            id: id.clone(),
+            workspace: workspace.display().to_string(),
+            description: description.into(),
+            status: TxStatus::Open,
+            files,
+            blackboard,
+            created_at: now(),
+            closed_at: None,
+        };
+        // The durable copy is what lets another process (a later CLI
+        // call) abort this transaction; a begin that could not write it
+        // must not report success.
+        self.persist(&tx)?;
+        self.open
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tx.clone());
+        Ok(tx)
+    }
+
+    /// Mint an id no other transaction in this workspace has used, by
+    /// claiming `.susi/tx/<id>.json` with `create_new`. The counter is
+    /// per-process, so a process that never hydrated used to mint `tx-1`
+    /// again and overwrite an earlier transaction's rollback snapshot.
+    fn reserve_id(&self, workspace: &Path) -> EaiResult<String> {
+        let dir = tx_dir(workspace);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
+        for _ in 0..10_000 {
+            let id = format!("tx-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(dir.join(format!("{id}.json")))
+            {
+                Ok(_) => return Ok(id),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    return Err(EaiError::filesystem(format!("reserve {id}: {e}")));
+                }
+            }
+        }
+        Err(EaiError::filesystem("no free transaction id"))
+    }
+
+    pub fn commit(&self, tx_id: &str, workspace: &Path) -> EaiResult<AgentTransaction> {
+        let mut guard = self.open.write().unwrap_or_else(|e| e.into_inner());
+        let entry = guard
+            .get_mut(tx_id)
+            .ok_or_else(|| EaiError::governance(format!("unknown tx {tx_id}")))?;
+        if entry.status != TxStatus::Open {
+            return Err(EaiError::governance("transaction not open"));
+        }
+        ensure_same_workspace(entry, workspace)?;
+        entry.status = TxStatus::Committed;
+        entry.closed_at = Some(now());
+        let out = entry.clone();
+        guard.remove(tx_id);
+        drop(guard);
+        // A commit that stays Open on disk would let a later process's
+        // abort roll back committed work.
+        self.persist(&out)?;
+        Ok(out)
+    }
+
+    /// Abort: restore snapshotted files. Returns blackboard map to restore by caller.
+    pub fn abort(&self, tx_id: &str, workspace: &Path) -> EaiResult<AgentTransaction> {
+        let mut guard = self.open.write().unwrap_or_else(|e| e.into_inner());
+        let entry = guard
+            .get_mut(tx_id)
+            .ok_or_else(|| EaiError::governance(format!("unknown tx {tx_id}")))?;
+        if entry.status != TxStatus::Open {
+            return Err(EaiError::governance("transaction not open"));
+        }
+        // Snapshots are relative paths: restoring them under another
+        // workspace would write one project's contents into another.
+        ensure_same_workspace(entry, workspace)?;
+        for snap in &entry.files {
+            let path = confined(workspace, &snap.rel_path)?;
+            match &snap.content {
+                Some(content) => {
+                    crate::susi_config::atomic_replace_file(&path, content.as_ref()).map_err(
+                        |e| EaiError::filesystem(format!("restore {}: {e}", snap.rel_path)),
+                    )?;
+                }
+                None => {
+                    if path.exists() {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+        entry.status = TxStatus::Aborted;
+        entry.closed_at = Some(now());
+        let out = entry.clone();
+        guard.remove(tx_id);
+        drop(guard);
+        self.persist(&out)?;
+        Ok(out)
+    }
+
+    /// Re-load persisted transactions from `workspace/.susi/tx/` into the
+    /// in-memory map. Each CLI invocation is a fresh process — without
+    /// hydration `list`, `commit` and `abort` can never see a `begin`
+    /// issued by an earlier call. Closed rows on disk also shadow stale
+    /// in-memory open rows for the same id.
+    pub fn hydrate(&self, workspace: &Path) {
+        let dir = tx_dir(workspace);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut max_id = 0u64;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(tx) = serde_json::from_str::<AgentTransaction>(&text) else {
+                continue;
+            };
+            if let Some(n) = tx
+                .id
+                .strip_prefix("tx-")
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                max_id = max_id.max(n + 1);
+            }
+            if tx.status == TxStatus::Open {
+                self.open
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(tx.id.clone(), tx);
+            } else {
+                self.open
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&tx.id);
+            }
+        }
+        // A hydrated tx-7 must not collide with the next `begin` minting
+        // tx-1 in a fresh process — advance the counter past disk state.
+        self.next_id.fetch_max(max_id, Ordering::Relaxed);
+    }
+
+    /// Replace the durable copy whole: a torn write is skipped by
+    /// `hydrate`, silently losing an open transaction's snapshot.
+    fn persist(&self, tx: &AgentTransaction) -> EaiResult<()> {
+        let path = tx_dir(Path::new(&tx.workspace)).join(format!("{}.json", tx.id));
+        let body = serde_json::to_vec_pretty(tx)?;
+        crate::susi_config::atomic_write_bytes(&path, &body)
+            .map_err(|e| EaiError::filesystem(format!("persist {}: {e}", path.display())))
+    }
+
+    pub fn get(&self, tx_id: &str) -> Option<AgentTransaction> {
+        self.open
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tx_id)
+            .cloned()
+    }
+
+    pub fn list_open(&self) -> Vec<AgentTransaction> {
+        self.open
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
+    }
+}
+
+impl Default for TxManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_ws() -> PathBuf {
+        // A clock value is not a reservation: concurrent Windows tests can
+        // observe the same tick and remove one another's snapshot workspace.
+        susi_paths::tempfile::Builder::new()
+            .prefix("susi-tx-")
+            .tempdir()
+            .unwrap()
+            .keep()
+    }
+
+    #[test]
+    fn abort_restores_files() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("a.txt"), "original").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "edit a", &["a.txt".into()], BTreeMap::new())
+            .unwrap();
+        std::fs::write(ws.join("a.txt"), "mutated").unwrap();
+        let aborted = mgr.abort(&tx.id, &ws).unwrap();
+        assert_eq!(aborted.status, TxStatus::Aborted);
+        assert_eq!(
+            std::fs::read_to_string(ws.join("a.txt")).unwrap(),
+            "original"
+        );
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn a_fresh_process_never_reuses_a_persisted_id() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("c.txt"), "v1").unwrap();
+        let first = TxManager::new()
+            .begin(&ws, "first", &["c.txt".into()], BTreeMap::new())
+            .unwrap();
+        // A second process that never hydrated starts its counter at 1.
+        let second = TxManager::new()
+            .begin(&ws, "second", &["c.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert_ne!(first.id, second.id);
+        let on_disk: AgentTransaction = serde_json::from_str(
+            &std::fs::read_to_string(tx_dir(&ws).join(format!("{}.json", first.id))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(on_disk.description, "first");
+
+        // The first process's snapshot is still recoverable elsewhere.
+        std::fs::write(ws.join("c.txt"), "mutated").unwrap();
+        let recovering = TxManager::new();
+        recovering.hydrate(&ws);
+        recovering.abort(&first.id, &ws).unwrap();
+        assert_eq!(std::fs::read_to_string(ws.join("c.txt")).unwrap(), "v1");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn closing_from_another_workspace_is_refused() {
+        let ws = temp_ws();
+        let other = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        let _ = std::fs::create_dir_all(&other);
+        std::fs::write(ws.join("d.txt"), "mine").unwrap();
+        std::fs::write(other.join("d.txt"), "theirs").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "d", &["d.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert!(mgr.abort(&tx.id, &other).is_err());
+        assert!(mgr.commit(&tx.id, &other).is_err());
+        assert_eq!(
+            std::fs::read_to_string(other.join("d.txt")).unwrap(),
+            "theirs"
+        );
+        mgr.abort(&tx.id, &ws).unwrap();
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn commit_keeps_mutations() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("b.txt"), "v1").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "edit b", &["b.txt".into()], BTreeMap::new())
+            .unwrap();
+        std::fs::write(ws.join("b.txt"), "v2").unwrap();
+        mgr.commit(&tx.id, &ws).unwrap();
+        assert_eq!(std::fs::read_to_string(ws.join("b.txt")).unwrap(), "v2");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn begin_rejects_path_escape_and_get_list_open_track_active_transactions() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        let mgr = TxManager::default();
+        assert!(mgr
+            .begin(&ws, "escape", &["../outside.txt".into()], BTreeMap::new())
+            .is_err());
+        assert!(mgr.list_open().is_empty());
+
+        std::fs::write(ws.join("ok.txt"), "v1").unwrap();
+        let tx = mgr
+            .begin(&ws, "valid", &["ok.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert_eq!(mgr.list_open().len(), 1);
+        assert_eq!(mgr.get(&tx.id).unwrap().description, "valid");
+        mgr.commit(&tx.id, &ws).unwrap();
+        assert!(mgr.get(&tx.id).is_none());
+        assert!(mgr.list_open().is_empty());
+
+        let abs_ok = ws.join("abs.txt");
+        std::fs::write(&abs_ok, "before").unwrap();
+        let abs_arg = [abs_ok.to_string_lossy().into()];
+        let abs_tx = mgr.begin(&ws, "in", &abs_arg, BTreeMap::new()).unwrap();
+        assert_eq!(abs_tx.files[0].rel_path, "abs.txt");
+        assert_eq!(abs_tx.files[0].content.as_deref(), Some("before"));
+        std::fs::write(&abs_ok, "after").unwrap();
+        mgr.abort(&abs_tx.id, &ws).unwrap();
+        assert_eq!(std::fs::read_to_string(&abs_ok).unwrap(), "before");
+        let out_arg = [std::env::temp_dir()
+            .join("out-tx.txt")
+            .to_string_lossy()
+            .into()];
+        assert!(mgr.begin(&ws, "out", &out_arg, BTreeMap::new()).is_err());
+
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+}

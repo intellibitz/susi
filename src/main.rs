@@ -10,19 +10,121 @@
     )
 )]
 
-//! Native Susi launcher, installation owner and public command contract.
-#![allow(missing_docs)]
+//! SUSI Engine CLI
+//!
+//! Command-line interface for the susi local-first AI orchestration system.
+//!
+//! Module map: `cli::defs` holds the clap surface; `cli::control_plane_cli`
+//! dispatches pre-boot commands; `cli::mission_cli` dispatches post-boot commands;
+//! `cli::plane_cli`/`cli::mission_host`/`cli::keys_cli`/`cli::admin_cli` hold shared plumbing; the
+//! remaining `cli::*_cli` modules own per-domain subcommands.
+
+#![allow(missing_docs)] // binary crate: internal CLI modules are not public API
+
+// Retain the original Rust process entry and TLS boundary in Windows binaries.
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
+pub(crate) mod anyhow;
+mod audit_writer;
 mod cli;
+mod cli_json;
 mod dev_instance;
-use clap::{CommandFactory, FromArgMatches};
-use cli::defs::Cli;
-use std::env;
-use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+mod tracing_subscriber;
 
+use cli::control_plane_cli::{dispatch, dispatch_mcp};
+use cli::defs::{command_requires_daemon, Cli};
+use cli::mission_cli::dispatch as dispatch_mission;
+use cli::mission_host::{glass_box_callback, MissionHost};
+
+use susi::SUSI_VERSION;
+use susi_daemon::SusiDaemon;
+use susi_gawd::ama::SusiMasterAgent;
+
+use clap::{CommandFactory, FromArgMatches};
+use std::env;
+use std::io::{self, IsTerminal, Read, Write};
+use std::path::PathBuf;
+use tracing::{info, warn};
+
+/// Bare args are mission intent by design — but a hyphenated first token
+/// is never natural language, so `susi daemon-status` / `peer-list` /
+/// `commit-sync` are almost always mistyped control-plane commands, not
+/// goals. Silently ingesting them burns an inference round on garbage.
+/// Returns the sibling command names sharing the token's stem (handling
+/// singular→plural: `peer` → `peers`) when the stem names a command
+/// family — the caller refuses with a suggestion instead of dispatching.
+fn command_near_miss(tree: &clap::Command, intent: &[String]) -> Vec<String> {
+    let Some(first) = intent.first() else {
+        return Vec::new();
+    };
+    let Some(stem) = first.split('-').next() else {
+        return Vec::new();
+    };
+    if stem.is_empty() {
+        return Vec::new();
+    }
+    // A bare token is only a near-miss when it is exactly the stem of a
+    // hyphenated command — `daemon` → `daemon-start`. Plain words stay
+    // mission intent. Hyphenated tokens keep the looser stem match.
+    let bare = !first.contains('-');
+    let mut matches: Vec<String> = cli::intent_guard::susi_subcommands(tree)
+        .flat_map(|c| {
+            std::iter::once(c.get_name().to_string())
+                .chain(c.get_visible_aliases().map(str::to_string))
+        })
+        .filter(|name| {
+            if bare {
+                name.contains('-') && name.split('-').next() == Some(stem)
+            } else {
+                name.split('-').next() == Some(stem) || name.trim_end_matches('s') == stem
+            }
+        })
+        .collect();
+    matches.sort();
+    matches.dedup();
+    matches
+}
+
+/// Internal spawn modes are never what a mistyping user wants —
+/// `susi daemon` should hear about the lifecycle verbs, not the
+/// supervisor's in-process `daemon-start` entry point.
+fn user_facing_suggestion(internal: &str) -> Option<&'static str> {
+    match internal {
+        "daemon-start" => Some("`susi start` · `susi restart` · `susi stop`"),
+        "service-run" => Some("`susi services status`"),
+        _ => None,
+    }
+}
+
+fn read_stdin_bounded() -> io::Result<Option<String>> {
+    let stdin = io::stdin();
+    let cfg = susi_sandbox_client::manager::SusiConfig::load_global().unwrap_or_default();
+    let max_size = cfg.max_stdin_size_bytes();
+    // Read one past the limit so exact-sized payloads are accepted and oversize
+    // inputs are distinguishable from a full-but-valid buffer.
+    let mut buffer = Vec::new();
+    let mut limited = stdin.take((max_size as u64).saturating_add(1));
+    limited.read_to_end(&mut buffer)?;
+    if buffer.len() > max_size {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Input exceeds {} bytes limit", max_size),
+        ));
+    }
+    let content =
+        String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let trimmed = content.trim().trim_start_matches('\u{feff}').trim();
+    Ok(if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    })
+}
+
+/// Bare `susi` has nothing to do: no command, no goal and stdin on a
+/// terminal. Core takes one-shot goals and has no interactive prompt.
+/// Redirected stdin is never bare; it carries (or closes) a piped goal.
 fn bare_terminal_invocation(has_command: bool, has_intent: bool, stdin_is_terminal: bool) -> bool {
     !has_command && !has_intent && stdin_is_terminal
 }
@@ -54,11 +156,83 @@ fn parse_cli(tree: &mut clap::Command) -> Cli {
     Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|error| error.format(tree).exit())
 }
 
+/// Read-only reports that answer from files and live process checks: `top`,
+/// `status` and `audit query`. They return before tracing, the kernel
+/// bootloader and the master agent (D-SP-1): none of those feeds their
+/// output, and an operator runs `status` exactly when something is slow.
+/// Returns `Ok(exit_code)` when handled; `Err(command)` hands it back.
+#[allow(clippy::result_large_err)] // Err is the whole unconsumed `Commands`, handed back by design
+fn dispatch_local_report(
+    command: Option<cli::defs::Commands>,
+) -> Result<std::process::ExitCode, Option<cli::defs::Commands>> {
+    use cli::defs::{AuditCommands, Commands};
+    let cwd = || env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    match command {
+        Some(Commands::Top(args)) => Ok(cli::top_cli::execute(args)),
+        Some(Commands::Status { json }) => {
+            let global_dir = susi_paths::SusiDirs::config_dir();
+            let _ = std::fs::create_dir_all(&global_dir);
+            if json {
+                return Ok(cli::status_cli::run_json(&cwd(), &global_dir));
+            }
+            cli::status_cli::print_identity(&global_dir);
+            cli::status_cli::run(&cwd(), &global_dir);
+            Ok(std::process::ExitCode::SUCCESS)
+        }
+        Some(Commands::Audit {
+            action:
+                Some(AuditCommands::Query {
+                    actor,
+                    mission,
+                    kind,
+                    since,
+                    until,
+                    json,
+                }),
+        }) => {
+            let query = susi_sandbox_client::audit_chain::AuditQuery {
+                actor,
+                mission,
+                kind,
+                since,
+                until,
+            };
+            Ok(cli::mission_cli::audit_query(&cwd(), &query, json))
+        }
+        other => Err(other),
+    }
+}
+
 fn get_home_dir() -> PathBuf {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Default worker count for candle's barrier pool. Decode-step GEMVs are
+/// small, and the pool's wake/sync overhead scales negatively past ~4
+/// workers — measured on a 28-thread host: Qwen3-30B-A3B Q4_K_M decode ran
+/// 0.82 tok/s at the 28-worker default vs 3.09 at 4 threads, and dense
+/// qwen2.5-1.5b 4.19 vs 9.59 the same way. Four threads is the empirical
+/// knee on both paths; `CANDLE_NUM_THREADS` remains the override.
+fn default_candle_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().clamp(1, 4))
+        .unwrap_or(4)
+}
+
+/// A normal goal needs model preference (tools are only the ones admitted
+/// explicitly), not a fresh probe of every optional external agent/framework. The daemon discovers those in
+/// the background; explicitly invoking one still runs its own preflight.
+fn bare_goal_catalogs(goal: &str) -> susi_daemon::discovery_pipeline::Catalogs {
+    use susi_daemon::discovery_pipeline::Catalogs;
+    if susi_core::manifold::IntentManifold::analyze(goal).scope_of_impact
+        == susi_core::manifold::ScopeOfImpact::Read
+    {
+        return Catalogs::NONE;
+    }
+    Catalogs::CODING_MODELS
 }
 
 /// The CLI's clap command tree is large, and a debug build spends enough stack
@@ -140,8 +314,25 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+/// A locally started inference runner belongs to this invocation. Keeping the
+/// guard outside the goal loop allows reuse, then reaps it on normal exit;
+/// the Windows process job also covers termination without unwinding.
+struct LocalRunnerSession;
+
+impl Drop for LocalRunnerSession {
+    fn drop(&mut self) {
+        susi_gemi::engines::runtime::GemiEngine::shutdown_owned_runner();
+    }
+}
+
 fn run() -> std::process::ExitCode {
+    let _local_runner_session = LocalRunnerSession;
+    // Before anything can write: a consumer that closes the pipe (`susi status
+    // | head -1`) must stop us cleanly instead of panicking, which under
+    // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
+    // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
+    susi_server::register_board_https_transport();
     let mut command_tree = Cli::command().version(env!("CARGO_PKG_VERSION"));
     let cli = parse_cli(&mut command_tree);
     if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
@@ -150,9 +341,14 @@ fn run() -> std::process::ExitCode {
     if let Some(cli::defs::Commands::Local { args }) = &cli.command {
         return cli::local_delivery_cli::execute(args);
     }
+    // Installation acts on the native user home before development isolation
+    // or service composition can create another instance or start a daemon.
     if matches!(cli.command, Some(cli::defs::Commands::Install)) {
         return cli::install_cli::execute();
     }
+    // Core has no interactive prompt (zero UI): bare `susi` on a terminal
+    // prints usage and exits before any instance or substrate work. The
+    // conversation lives in the Susi desktop app; piped stdin stays a goal.
     if bare_terminal_invocation(
         cli.command.is_some(),
         !cli.intent.is_empty(),
@@ -160,9 +356,307 @@ fn run() -> std::process::ExitCode {
     ) {
         return print_bare_usage(&mut command_tree);
     }
+    // First, while single-threaded: a non-installed binary is a dev build
+    // and runs as its own instance (see `dev_instance`).
     if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
         eprintln!("Unable to isolate development instance: {error}");
         return std::process::ExitCode::FAILURE;
     }
-    cli::runtime_forward::execute(&env::args_os().skip(1).collect::<Vec<_>>())
+    // Still single-threaded: candle's barrier pool sizes itself from this
+    // once, at first use — an explicit setting always wins.
+    if env::var_os("CANDLE_NUM_THREADS").is_none() {
+        env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
+    }
+    // An empty pipe is not a mission. Read it before starting services or
+    // probing catalogs; non-empty piped goals take the same real mission path.
+    let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
+        match read_stdin_bounded() {
+            Ok(Some(goal)) if matches!(goal.as_str(), "exit" | "quit") => {
+                return std::process::ExitCode::SUCCESS;
+            }
+            Ok(Some(goal)) => Some(goal),
+            Ok(None) => return std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Could not read your goal: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
+    // A hyphenated first intent token is a mistyped command, not a goal —
+    // refuse before any substrate work (daemon ensure, auto-install) runs.
+    if cli.command.is_none() {
+        if let Some(hints) = cli::intent_guard::refuse(&command_tree, &cli.intent) {
+            eprintln!(
+                "`{}` looks like a command, not a goal — refusing to run it as a mission.",
+                cli.intent.join(" ")
+            );
+            if !hints.is_empty() {
+                eprintln!("did you mean: {}", hints.join(", "));
+            }
+            eprintln!("to run it as a goal, quote it as a sentence: susi \"<what you want done>\"");
+            return std::process::ExitCode::from(2);
+        }
+        let near_misses = command_near_miss(&command_tree, &cli.intent);
+        if !near_misses.is_empty() {
+            eprintln!(
+                "`{}` is not a susi command — refusing to ingest it as mission intent.",
+                cli.intent.join(" ")
+            );
+            let suggestions: Vec<String> = near_misses
+                .iter()
+                .map(|s| {
+                    user_facing_suggestion(s)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("`susi {s}`"))
+                })
+                .collect();
+            eprintln!("did you mean: {}", suggestions.join(", "));
+            eprintln!("substrate status: `susi os` · service health: `susi services status`");
+            return std::process::ExitCode::from(2);
+        }
+    }
+    // Control-plane planes return early; Models::Local and Mcp serve fall through.
+    let command = match dispatch(cli.command) {
+        Ok(code) => return code,
+        Err(command) => command,
+    };
+    let command = match dispatch_mcp(command) {
+        Ok(code) => return code,
+        Err(command) => command,
+    };
+    let command = match dispatch_local_report(command) {
+        Ok(code) => return code,
+        Err(command) => command,
+    };
+
+    // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
+    // See ARCHITECTURE.md and susi_daemon::composition. `mcp serve` skips
+    // the auto-prime: its client is waiting on the handshake.
+    let substrate = susi_paths::SusiDirs::substrate_home();
+    let skip_composition = command
+        .as_ref()
+        .is_some_and(cli::defs::command_skips_composition);
+    if skip_composition {
+        // Lifecycle/status commands compose nothing (see the predicate).
+    } else if command
+        .as_ref()
+        .is_some_and(cli::defs::command_is_local_report)
+    {
+        susi_daemon::boot_trace::phase(
+            "composition: local report",
+            susi_daemon::composition::wire_plane_handlers,
+        );
+    } else if matches!(
+        command,
+        Some(cli::defs::Commands::Mcp {
+            action: Some(cli::mcp_cli::McpCommands::Serve) | None,
+        })
+    ) {
+        susi_daemon::boot_trace::phase("composition: mcp serve", || {
+            susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
+        });
+    } else {
+        // First goals must not wait for unrelated framework/agent probes.
+        // Explicit commands retain their own catalog admission contracts.
+        let catalogs = command.as_ref().map_or_else(
+            || bare_goal_catalogs(piped_intent.as_deref().unwrap_or(&cli.intent.join(" "))),
+            cli::defs::command_catalogs,
+        );
+        susi_daemon::boot_trace::phase("composition: cli", || {
+            susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
+        });
+    }
+
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let _home = get_home_dir();
+    let global_dir = susi_paths::SusiDirs::config_dir();
+    let _ = std::fs::create_dir_all(&global_dir);
+
+    // Bounded daily rotation: `never` produced an unbounded single file
+    // (22MB+ observed in weeks). Seven retained files keep a week of
+    // daemon tracing without filling the disk; `minutely`/`hourly` would
+    // rotate mid-incident too aggressively for postmortems.
+    let (audit_writer, _guard) =
+        audit_writer::spawn_daily_audit_writer(&global_dir, "audit", "log", 7);
+
+    // tantivy logs every segment merge/commit at INFO — observed ~97% of a
+    // 74MB daily audit file was index churn. Governance events need susi at
+    // debug; third-party index internals only matter at warn.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi=debug,tantivy=warn"));
+
+    // The console layer goes to stderr: stdout is the data plane
+    // (`susi audit query --json`, `susi status`, every machine-readable
+    // surface), and a boot-time INFO line there makes it unparseable.
+    // Routine engine diagnostics belong in the durable audit log, not in the
+    // first-goal conversation. Warnings/errors remain visible; explicit log
+    // settings or verbose mode restore diagnostic detail on the console.
+    let verbose_console =
+        env::var_os("RUST_LOG").is_some() || env::var_os("SUSI_VERBOSE").is_some();
+    let console_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            tracing_subscriber::EnvFilter::new(if verbose_console {
+                "info,susi=debug"
+            } else {
+                "warn"
+            })
+        });
+    tracing_subscriber::SusiSubscriber::new(
+        env_filter,
+        console_filter,
+        verbose_console,
+        audit_writer,
+    )
+    .install();
+
+    // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
+    let _ = susi_gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
+
+    let mut exit_code = std::process::ExitCode::SUCCESS;
+
+    let needs_daemon = match &command {
+        Some(cmd) => command_requires_daemon(cmd),
+        None => {
+            susi_core::manifold::IntentManifold::analyze(
+                piped_intent.as_deref().unwrap_or(&cli.intent.join(" ")),
+            )
+            .requires_swarm
+        }
+    };
+    if needs_daemon {
+        SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
+    }
+
+    // Ambient indexing belongs to a user's work, never the host substrate.
+    // Read-only goals and explicit search do not need a background poller.
+    if command.is_none() {
+        let goal = piped_intent.clone().unwrap_or_else(|| cli.intent.join(" "));
+        if susi_core::manifold::IntentManifold::analyze(&goal).requires_swarm {
+            susi_daemon::ambient::start_ambient_indexer(&cwd);
+        }
+    }
+
+    if let Some(command) = command {
+        let ama = SusiMasterAgent::new();
+        let cfg = susi_sandbox_client::manager::SusiConfig::load_global().unwrap_or_default();
+        let host = MissionHost {
+            cwd: &cwd,
+            global_dir: &global_dir,
+            ama: &ama,
+            cfg: &cfg,
+        };
+        exit_code = dispatch_mission(command, &host);
+    } else if let Some(report) = SusiMasterAgent::new().try_direct_user_answer(
+        piped_intent.as_deref().unwrap_or(&cli.intent.join(" ")),
+        &cwd,
+        SUSI_VERSION,
+        &glass_box_callback,
+    ) {
+        exit_code = report.exit_code();
+        let _ = io::stdout().flush();
+    } else if !cli.intent.is_empty() {
+        let ama = SusiMasterAgent::new();
+        let goal = cli.intent.join(" ");
+        let preflight =
+            (|| -> Result<susi_core::worktree_isolation::ProvisionedWorktree, String> {
+                let agent = susi_core::native_board::resolve_agent(Some("ama-master"), Some(&cwd))?;
+                let target = susi_core::native_board::resolve_board_target(Some(&cwd))?;
+                let _ = susi_core::native_board::check_board(&target, &agent, true)?;
+                susi_core::worktree_isolation::acquire_isolated_worktree(
+                    &cwd,
+                    &agent,
+                    "ama-mission",
+                    false,
+                )
+            })();
+        match preflight {
+            Ok(mut wt) => {
+                match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(wt.path(), &goal) {
+                    Ok(msg) => info!("Natural intent ingested successfully: {}", msg),
+                    Err(e) => warn!(
+                        "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
+                        e
+                    ),
+                }
+                exit_code = ama
+                    .solve_stream_report(&goal, wt.path(), SUSI_VERSION, &glass_box_callback)
+                    .exit_code();
+                let _ = wt.release();
+            }
+            Err(err) => {
+                eprintln!("[GOVERNANCE_BLOCK] {err}");
+                let _ = io::stderr().flush();
+                exit_code = std::process::ExitCode::FAILURE;
+            }
+        }
+        let _ = io::stdout().flush();
+    } else if let Some(input) = piped_intent {
+        let ama = SusiMasterAgent::new();
+        exit_code = ama
+            .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
+            .exit_code();
+        let _ = io::stdout().flush();
+    }
+    exit_code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_candle_threads;
+    use clap::CommandFactory;
+
+    #[test]
+    fn only_a_bare_terminal_invocation_prints_usage() {
+        assert!(super::bare_terminal_invocation(false, false, true));
+        assert!(
+            !super::bare_terminal_invocation(false, false, false),
+            "redirected stdin is a piped one-shot goal, never usage"
+        );
+        assert!(!super::bare_terminal_invocation(false, true, true));
+        assert!(!super::bare_terminal_invocation(true, false, true));
+    }
+
+    #[test]
+    fn bare_usage_lists_commands_but_no_interactive_shell() {
+        let help = super::Cli::command().render_help().to_string();
+        assert!(help.contains("Usage:"), "{help}");
+        assert!(help.contains("Commands:"), "{help}");
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("shell ")),
+            "{help}"
+        );
+        assert!(super::Cli::command().find_subcommand("shell").is_none());
+    }
+
+    #[test]
+    fn first_goal_primes_models_without_optional_framework_probes() {
+        // No MCP prime exists: core never auto-enables a server (plan A8).
+        let catalogs = super::bare_goal_catalogs("Build a calculator");
+        assert!(catalogs.coding_models);
+        assert!(!catalogs.execution_agents && !catalogs.frameworks);
+    }
+
+    #[test]
+    fn first_goal_reads_skip_optional_catalogs() {
+        for goal in [
+            "read notes.txt",
+            "status",
+            "Compute 17 + 25. Answer with only the number.",
+        ] {
+            assert!(super::bare_goal_catalogs(goal).is_empty(), "{goal}");
+        }
+    }
+
+    #[test]
+    fn candle_thread_default_is_clamped_and_positive() {
+        let n = default_candle_threads();
+        let cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        assert_eq!(n, cpus.clamp(1, 4));
+    }
 }

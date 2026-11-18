@@ -1,0 +1,173 @@
+//! Socket reach for the host views and maintenance commands left after the
+//! planned B4 groups (zero-UI plan B4 groups 2, 4, 9, 10 and 13): `susi
+//! status --json`, `susi review`, `susi os status|runtime|ecosystem`,
+//! `susi os manage model uninstall`, `susi peers add|remove|unban|rekey`,
+//! `susi auto status|prime`, `susi deep-scan`, `susi extensions create`,
+//! `susi admin reload|provider-contract|intent-ladder` and `susi stop`.
+//!
+//! Each tool calls the library function its CLI command calls: directly
+//! when it lives in a crate this one depends on (`susi_config::extensions`,
+//! the GEMI model facade), over `fleet.cluster.v1` for the membership
+//! commands Susi Commercial Apps serves, otherwise over the
+//! daemon's `daemon.host` plane topic (`susi_daemon::host_views` and the
+//! view modules it dispatches to). A workspace the caller names stands in
+//! for the CLI's working directory and is admitted by the MAC policy.
+
+use serde_json::{json, Value};
+use std::path::Path;
+
+use crate::susi_config::extensions;
+use crate::susi_core::plane_bus::{daemon, gemi};
+use crate::susi_error::{EaiError, EaiResult};
+
+use super::forward::plane_tools;
+use super::forward::{forward, policy_workspace, pretty, required_str, Kind};
+use super::CoreTools;
+
+/// Run a membership command in Susi Commercial Apps (`fleet.cluster.v1`)
+/// and return `{ok, lines, notes, error}`: the lines it printed, its notes,
+/// and its refusal when it failed (the lines before a refusal still say what
+/// happened).
+fn membership(action: &str, args: Value) -> EaiResult<String> {
+    membership_doc(&super::host_ops::cluster_report(action, args)?)
+}
+
+/// Shape a membership answer `{result_error, lines, notes}` as the tool's
+/// document; a refusal with nothing printed is the tool's error.
+fn membership_doc(answer: &Value) -> EaiResult<String> {
+    let lines = answer.get("lines").cloned().unwrap_or_else(|| json!([]));
+    let notes = answer.get("notes").cloned().unwrap_or_else(|| json!([]));
+    let error = answer
+        .get("result_error")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let silent =
+        lines.as_array().is_none_or(Vec::is_empty) && notes.as_array().is_none_or(Vec::is_empty);
+    if let (Some(error), true) = (&error, silent) {
+        return Err(EaiError::config(error.clone()));
+    }
+    pretty(&json!({
+        "ok": error.is_none(),
+        "lines": lines,
+        "notes": notes,
+        "error": error,
+    }))
+}
+
+impl CoreTools {
+    // ── 2. Operator view ───────────────────────────────────────────────
+
+    plane_tools! {
+        daemon::host;
+        pub operator_status => "status" [detail: Bool] in ReadWorkspace;
+        pub operator_review => "review" [] in ReadWorkspace;
+    }
+
+    // ── 4. Onboarding ──────────────────────────────────────────────────
+
+    plane_tools! {
+        daemon::host;
+        pub os_ecosystem => "os_ecosystem" [] in ReadWorkspace;
+    }
+
+    // ── 9. OS ──────────────────────────────────────────────────────────
+
+    plane_tools! {
+        daemon::host;
+        pub os_status => "os_status" [];
+        pub os_runtime => "os_runtime" [];
+        pub model_uninstall => "model_uninstall" [name: Str];
+    }
+
+    pub fn peers_add(arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let host = required_str(arg, "host")?.to_string();
+        let port = match arg.get("port") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .and_then(|p| u16::try_from(p).ok())
+                    .ok_or_else(|| EaiError::config("port must be 0-65535"))?,
+            ),
+        };
+        membership("peers_add", json!({ "host": host, "port": port }))
+    }
+
+    pub fn peers_remove(arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let peer = required_str(arg, "peer")?.to_string();
+        membership("peers_remove", json!({ "peer": peer }))
+    }
+
+    pub fn peers_unban(arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let peer = required_str(arg, "peer")?.to_string();
+        membership("peers_unban", json!({ "peer": peer }))
+    }
+
+    pub fn peers_rekey(arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let force = match arg.get("force") {
+            None | Some(Value::Null) => false,
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| EaiError::config("force must be a boolean"))?,
+        };
+        membership("peers_rekey", json!({ "force": force }))
+    }
+
+    // ── 10. Lifecycle ──────────────────────────────────────────────────
+
+    plane_tools! {
+        daemon::host;
+        pub daemon_shutdown => "daemon_shutdown" [];
+    }
+
+    // ── 13. Maintenance ────────────────────────────────────────────────
+
+    pub fn extensions_create(arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let status = extensions::create_pack(required_str(arg, "id")?).map_err(EaiError::config)?;
+        let doc = serde_json::to_value(status)
+            .map_err(|error| EaiError::internal(format!("encode pack: {error}")))?;
+        pretty(&doc)
+    }
+
+    plane_tools! {
+        daemon::host;
+        pub auto_status => "auto_status" [] in ReadWorkspace;
+        pub auto_prime => "auto_prime" [];
+    }
+
+    pub fn deep_scan(_arg: &Value, _workspace: &Path) -> EaiResult<String> {
+        let reply =
+            gemi::ModelManager::deep_scan_home_and_register(&susi_paths::SusiDirs::config_dir());
+        if let Some(error) = reply.get("error").and_then(Value::as_str) {
+            return Err(EaiError::filesystem(error.to_string()));
+        }
+        Ok(reply
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string())
+    }
+
+    plane_tools! {
+        daemon::host;
+        pub config_reload => "config_reload" [];
+        pub provider_contract => "provider_contract" [];
+    }
+
+    pub fn intent_ladder(arg: &Value, workspace: &Path) -> EaiResult<String> {
+        // `adopt_gap` keeps its old write admission; the host now refuses it.
+        let write = arg.get("mode").and_then(Value::as_str) == Some("adopt_gap");
+        let workspace = policy_workspace(arg, "workspace", workspace, write)?;
+        forward(
+            daemon::host,
+            "intent_ladder",
+            arg,
+            &[("mode", Kind::Str), ("id", Kind::Str)],
+            json!({ "workspace": workspace.display().to_string() }),
+        )
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/host_view_tools.rs"]
+mod tests;

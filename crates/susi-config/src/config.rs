@@ -61,7 +61,7 @@ impl SusiConfig {
     /// Bundled defaults with host-contract port keys removed — used for
     /// heal merges and schema validation so polluted/legacy port fields are
     /// never re-persisted or required.
-    pub fn heal_defaults() -> &'static DynamicRegistry {
+    pub(crate) fn heal_defaults() -> &'static DynamicRegistry {
         static DEFAULTS: std::sync::OnceLock<DynamicRegistry> = std::sync::OnceLock::new();
         DEFAULTS.get_or_init(|| {
             let mut settings = Self::bundled_defaults().settings.clone();
@@ -499,6 +499,58 @@ impl SusiConfig {
         self.get("discoverable_assets").unwrap_or_default()
     }
 
+    /// External coding agents mounted as pluggable swarm peers.
+    ///
+    /// Core lists none (`config.default.json` ships an empty array); host
+    /// `config.json` may list CLI/HTTP/A2A peers and optional managed overlays,
+    /// and the active extension pack may ship more in `external-peer-agents.json`.
+    /// **Managed** peers are also admitted from the active extension pack's
+    /// execution-agents + agent-engines catalogs (`peer_name`) and from the
+    /// adapter files under `~/.susi/execution-agents/` and
+    /// `~/.susi/agent-engines/`, so an installed entry does not require
+    /// duplicating it under `external_peer_agents`.
+    pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
+        let mut peers: Vec<ExternalPeerAgentSpec> =
+            self.get_or_bundled_default("external_peer_agents");
+        // Migrate only exact historical built-ins. Preserve user-edited commands,
+        // endpoints, argv, credentials and timeouts. New bundled peers are admitted
+        // for existing installations as well as fresh installs.
+        let legacy: Vec<ExternalPeerAgentSpec> =
+            serde_json::from_str(include_str!("../../../config/execution-peers.legacy.json"))
+                .unwrap_or_default();
+        let defaults: Vec<ExternalPeerAgentSpec> =
+            Self::default().get_or_bundled_default("external_peer_agents");
+        for peer in &mut peers {
+            if legacy.iter().any(|old| peer_exact_legacy_match(old, peer)) {
+                if let Some(updated) = defaults.iter().find(|p| p.name == peer.name) {
+                    *peer = updated.clone();
+                }
+            }
+        }
+        for default in defaults.into_iter().filter(|p| p.protocol == "managed") {
+            if !peers.iter().any(|p| p.name == default.name) {
+                peers.push(default);
+            }
+        }
+        // CLI/HTTP/A2A peers an installed extension pack ships
+        // (`external-peer-agents.json`, a bare array of peer specs); the
+        // host's own `config.json` entries win on a name clash.
+        let pack_peers: Vec<ExternalPeerAgentSpec> =
+            super::extensions::load_json_or_bundled("external-peer-agents.json", "[]");
+        for pack_peer in pack_peers {
+            if !pack_peer.name.trim().is_empty() && !peers.iter().any(|p| p.name == pack_peer.name)
+            {
+                peers.push(pack_peer);
+            }
+        }
+        for catalog_peer in managed_peers_from_catalogs() {
+            if !peers.iter().any(|p| p.name == catalog_peer.name) {
+                peers.push(catalog_peer);
+            }
+        }
+        peers
+    }
+
     /// Leading models catalog (~50 curated); live `/models` discovery remains
     /// unbounded. Override via config key `model_catalog`.
     #[allow(clippy::expect_used)]
@@ -537,6 +589,84 @@ impl SusiConfig {
     }
 }
 
+/// Exact field equality for legacy peer migrate (avoids double `serde_json::to_value`).
+fn peer_exact_legacy_match(a: &ExternalPeerAgentSpec, b: &ExternalPeerAgentSpec) -> bool {
+    a.name == b.name
+        && a.description == b.description
+        && a.protocol == b.protocol
+        && a.api_base == b.api_base
+        && a.model == b.model
+        && a.detect_bins == b.detect_bins
+        && a.command == b.command
+        && a.args == b.args
+        && a.timeout_secs == b.timeout_secs
+        && a.api_key_env == b.api_key_env
+}
+
+/// Minimal catalog row used to admit managed swarm peers from extension packs.
+#[derive(Debug, Deserialize)]
+struct CatalogPeerHint {
+    #[serde(default)]
+    id: String,
+    peer_name: String,
+    name: String,
+    #[serde(flatten, default)]
+    _extra: HashMap<String, serde_json::Value>,
+}
+
+/// Managed peers from what the host installed: the active extension pack's
+/// `execution-agents.json` / `agent-engines.json` (core bundles neither, so
+/// with no pack the catalogs are empty), then the adapter files the host
+/// wrote under `<config_dir>/execution-agents/` and `<config_dir>/agent-engines/`
+/// (`<id>.json`, the peer name being the id), which `susi agents` /
+/// `susi frameworks` resolve the same way.
+fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
+    managed_peers_from(&susi_paths::SusiDirs::config_dir())
+}
+
+pub(crate) fn managed_peers_from(config_dir: &std::path::Path) -> Vec<ExternalPeerAgentSpec> {
+    let mut out: Vec<ExternalPeerAgentSpec> = Vec::new();
+    let mut push = |peer: &str, label: &str| {
+        let peer = peer.trim();
+        if peer.is_empty() || out.iter().any(|p| p.name == peer) {
+            return;
+        }
+        out.push(ExternalPeerAgentSpec {
+            name: peer.to_string(),
+            description: format!(
+                "{label} managed executor/framework; setup via susi agents / susi frameworks."
+            ),
+            protocol: "managed".into(),
+            ..Default::default()
+        });
+    };
+    let catalogs = [
+        ("execution-agents.json", "execution-agents"),
+        ("agent-engines.json", "agent-engines"),
+    ];
+    let mut pack_ids: Vec<String> = Vec::new();
+    for (logical, _) in catalogs {
+        let entries: Vec<CatalogPeerHint> = super::extensions::load_json_or_bundled(logical, "[]");
+        for entry in &entries {
+            push(&entry.peer_name, &entry.name);
+            pack_ids.push(entry.id.trim().to_string());
+            pack_ids.push(entry.peer_name.trim().to_string());
+        }
+    }
+    // A host file named after a pack entry's id or peer name is that entry's
+    // per-id adapter override (`susi agents configure <id>` writes one), not
+    // a second peer: the same rule `catalog_with_host_dir` applies.
+    for (_, subdir) in catalogs {
+        for id in super::extensions::host_adapter_ids(&config_dir.join(subdir)) {
+            if pack_ids.iter().any(|p| !p.is_empty() && *p == id) {
+                continue;
+            }
+            push(&id, &id);
+        }
+    }
+    out
+}
+
 /// The one credential redactor for text leaving SUSI's trust boundary
 /// (CLI output, peer/agent logs, provider errors). Masks the value of every
 /// environment variable named `*_API_KEY` / `*_TOKEN` / `*_SECRET` (8+
@@ -557,6 +687,20 @@ pub fn redact_credentials(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::json_util::DynamicValue;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-config-unit-{label}-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
     #[test]
     fn bundled_defaults_and_heal_in_place_strip_contract_ports_and_api_auth_token_while_preserving_user_overrides(
     ) {
@@ -593,6 +737,47 @@ mod tests {
         assert_eq!(cfg.a2a_http_port(), susi_paths::ports::A2A_HTTP + 100);
         assert_eq!(cfg.gossip_port(), susi_paths::ports::GOSSIP + 100);
         assert!(!SusiConfig::heal_in_place(&mut cfg));
+    }
+
+    #[test]
+    fn load_save_roundtrip_and_managed_peers_admission_deduplicates_host_adapter_overrides() {
+        let dir = unique_temp_dir("save-load-peers");
+
+        let mut cfg = SusiConfig {
+            settings: DynamicRegistry::new(),
+        };
+        cfg.settings
+            .insert("trust_level".into(), DynamicValue::String("strict".into()));
+        cfg.save(&dir).expect("save config.json");
+
+        let loaded = SusiConfig::load(&dir).expect("load config.json");
+        assert_eq!(loaded.trust_level(), "strict");
+        for port_key in HOST_CONTRACT_PORT_KEYS {
+            assert!(!loaded.settings.contains_key(*port_key));
+        }
+
+        let exec_dir = dir.join("execution-agents");
+        let eng_dir = dir.join("agent-engines");
+        fs::create_dir_all(&exec_dir).expect("create execution-agents");
+        fs::create_dir_all(&eng_dir).expect("create agent-engines");
+        fs::write(exec_dir.join("codex-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write codex-custom.json");
+        fs::write(eng_dir.join("langgraph-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write langgraph-custom.json");
+        fs::write(eng_dir.join("codex-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write duplicate codex-custom.json");
+
+        let peers = managed_peers_from(&dir);
+        let codex_count = peers.iter().filter(|p| p.name == "codex-custom").count();
+        let lg_count = peers
+            .iter()
+            .filter(|p| p.name == "langgraph-custom")
+            .count();
+        assert_eq!(codex_count, 1);
+        assert_eq!(lg_count, 1);
+        assert!(peers.iter().all(|p| p.protocol == "managed"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

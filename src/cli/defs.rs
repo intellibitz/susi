@@ -1,42 +1,44 @@
 //! Clap surface for the susi CLI: top-level parser, command/subcommand enums,
-//! retained at the public launcher. Implementations live in Susi Commercial Apps.
+//! and the daemon-requirement table. Dispatch lives in `control_plane_cli`
+//! (pre-boot) and `mission_cli` (post-boot).
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use susi_cli_defs::acp as acp_cli;
-use susi_cli_defs::agent as agent_cli;
-use susi_cli_defs::ambient as ambient_cli;
-use susi_cli_defs::auto as auto_cli;
-use susi_cli_defs::blackboard as blackboard_cli;
-use susi_cli_defs::board as board_cli;
-use susi_cli_defs::brain as brain_cli;
-use susi_cli_defs::broker as broker_cli;
-use susi_cli_defs::commits as commits_cli;
-use susi_cli_defs::context_graph as context_graph_cli;
-use susi_cli_defs::crown as crown_cli;
-use susi_cli_defs::ecosystem as ecosystem_cli;
-use susi_cli_defs::extensions as extensions_cli;
-use susi_cli_defs::framework as framework_cli;
-use susi_cli_defs::frontier as frontier_cli;
-use susi_cli_defs::harness as harness_cli;
-use susi_cli_defs::intent as intent_cli;
-use susi_cli_defs::mcp as mcp_cli;
-use susi_cli_defs::model as model_cli;
-use susi_cli_defs::open_weight as open_weight_cli;
-use susi_cli_defs::openrouter as openrouter_cli;
-use susi_cli_defs::os as os_cli;
-use susi_cli_defs::patch as patch_cli;
-use susi_cli_defs::peers as peers_cli;
-use susi_cli_defs::plan as plan_cli;
-use susi_cli_defs::privacy as privacy_cli;
-use susi_cli_defs::services as services_cli;
-use susi_cli_defs::setup as setup_cli;
-use susi_cli_defs::substrate as substrate_cli;
-use susi_cli_defs::tasks as tasks_cli;
-use susi_cli_defs::telemetry as telemetry_cli;
-use susi_cli_defs::tx as tx_cli;
+use super::acp_cli;
+use super::agent_cli;
+use super::ambient_cli;
+use super::auto_cli;
+use super::blackboard_cli;
+use super::board_cli;
+use super::brain_cli;
+use super::broker_cli;
+pub(crate) use super::catalogs::{command_catalogs, mcp_catalogs};
+use super::commits_cli;
+use super::context_graph_cli;
+use super::crown_cli;
+use super::ecosystem_cli;
+use super::extensions_cli;
+use super::framework_cli;
+use super::frontier_cli;
+use super::harness_cli;
+use super::intent_cli;
+use super::mcp_cli;
+use super::model_cli;
+use super::open_weight_cli;
+use super::openrouter_cli;
+use super::os_cli;
+use super::patch_cli;
+use super::peers_cli;
+use super::plan_cli;
+use super::privacy_cli;
+use super::services_cli;
+use super::setup_cli;
+use super::substrate_cli;
+use super::tasks_cli;
+use super::telemetry_cli;
+use super::tx_cli;
 
 #[derive(Parser)]
 #[command(name = "susi")]
@@ -390,10 +392,10 @@ public_commands! {
     Clean,
     /// Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
     #[command(name = "run")]
-    Run(susi_cli_defs::run::RunArgs),
+    Run(super::run_cli::RunArgs),
     /// Unified operator control surface: workload, resources, providers, config, federation, and evidence
     #[command(name = "top")]
-    Top(susi_cli_defs::top::TopArgs),
+    Top(super::top_cli::TopArgs),
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
         #[arg(long, default_value_t = String::new())]
@@ -607,10 +609,6 @@ pub(crate) enum AdminCommands {
     /// `sync`, `verify` and `release` moved to Susi Commercial Apps
     /// (`susi-commercial admin <verb>`); refused naming that command
     #[command(external_subcommand)]
-    #[allow(
-        dead_code,
-        reason = "the public parser validates these words before their unchanged argv reaches the runtime"
-    )]
     Moved(Vec<String>),
 }
 
@@ -660,4 +658,675 @@ pub(crate) enum AuditCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+/// Daemon lifecycle and status commands answer from the lock, the contract
+/// ports and the files the daemon writes; none of them touches tools,
+/// catalogs or inference, so none runs the CLI composition root. That root
+/// costs tens of seconds even on a healthy host (catalog priming probes
+/// every launcher), and `daemon-start` composes its own substrate in
+/// `run_daemon_loop` — running the CLI root first had doubled the daemon's
+/// boot before it even took its lock.
+pub(crate) fn command_skips_composition(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::DaemonStart { .. }
+            | Commands::Start
+            | Commands::Stop
+            | Commands::Restart
+            | Commands::Status { .. }
+            | Commands::Audit {
+                action: Some(AuditCommands::Verify { .. } | AuditCommands::Query { .. }),
+            }
+            // The dev-workflow commands that moved to Susi Commercial Apps
+            // only print their refusal: nothing to compose for that.
+            | Commands::Workflow { .. }
+            | Commands::Board { .. }
+            | Commands::Tasks {
+                action: None | Some(tasks_cli::TaskCommands::Moved(_)),
+            }
+            | Commands::Admin {
+                subcommand: AdminCommands::Moved(_)
+            }
+    )
+}
+
+/// Local reports that read only the host's own files (`keys` reads key
+/// presence and routing prefs): they need the plane
+/// handlers, not the CLI composition root, whose cloud-endpoint registration
+/// (a walk of the whole model catalog plus the credential scout) took 4.2 s
+/// of `susi review`'s 4.9 s.
+pub(crate) fn command_is_local_report(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Review | Commands::OsClean | Commands::Keys { .. }
+    )
+}
+
+/// Mandate 32: only ensure the daemon for commands that need the background
+/// substrate. Local-only admin/workspace ops must return without blocking on
+/// binary integrity checks or daemon restart.
+///
+/// Every command is classified explicitly here, and
+/// `tests::every_command_has_a_pinned_daemon_and_catalog_classification`
+/// pins each one. The default is `false` (D-SP-1): a command added later
+/// starts without the daemon until it is classified as needing it.
+#[allow(clippy::wildcard_enum_match_arm)]
+pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
+    match command {
+        // `start` brings the daemon up through this gate and then waits for
+        // its host contract (`control_plane_start`).
+        Commands::Start
+        // Substrate work: missions, the GEMI server, inference benchmarks,
+        // model selection/scouting/scanning and the substrate's own reports.
+        | Commands::Automate { .. }
+        | Commands::Gemi
+        | Commands::Benchmark
+        | Commands::DeepScan
+        | Commands::SelectModel { .. }
+        | Commands::ScoutModel { .. }
+        | Commands::VerifyDownloadAgent
+        | Commands::SubstrateReport
+        | Commands::BloatAudit
+        // Dispatched before this gate is consulted (`install`, `local`,
+        // `install-release` in `main::run`; `service-run` and `harness` in
+        // `control_plane_cli::dispatch`). Kept at the value they had before
+        // the default flipped.
+        | Commands::Install
+        | Commands::InstallRelease { .. }
+        | Commands::Local { .. }
+        | Commands::ServiceRun { .. }
+        | Commands::Harness { .. } => true,
+        Commands::Agents { .. }
+        | Commands::Frameworks { .. }
+        | Commands::Models { .. }
+        | Commands::OpenWeight { .. }
+        | Commands::Frontier { .. }
+        | Commands::OpenRouter { .. } => false,
+        Commands::Extensions { .. } => false,
+        Commands::Auto { .. }
+        | Commands::Setup { .. }
+        | Commands::Ecosystem { .. }
+        | Commands::Brain { .. }
+        | Commands::Tasks { .. }
+        | Commands::Workflow { .. }
+        | Commands::Blackboard { .. }
+        | Commands::Board { .. }
+        | Commands::ContextGraph { .. }
+        | Commands::Broker { .. }
+        | Commands::Telemetry { .. }
+        | Commands::Patch { .. }
+        | Commands::Plan { .. }
+        | Commands::Privacy { .. }
+        | Commands::Intent { .. }
+        | Commands::Ambient { .. }
+        | Commands::Tx { .. }
+        | Commands::Substrate { .. }
+        | Commands::Crown { .. }
+        // Status is the substrate's own measured report — it must answer
+        // even when the daemon is down (that's when an operator asks).
+        | Commands::Status { .. }
+        | Commands::Services { .. }
+        | Commands::Commits { .. }
+        | Commands::Os { .. }
+        | Commands::Peers { .. }
+        | Commands::Audit { .. }
+        | Commands::Run { .. }
+        | Commands::Top { .. } => false,
+        // `mcp serve` answers from its own in-process service. Ensuring the
+        // daemon first held the MCP handshake for the whole host-contract
+        // wait (10 s when the daemon never binds) and left a daemon behind
+        // every session.
+        Commands::Mcp { .. } | Commands::Acp { .. } => false,
+        Commands::Clean
+        | Commands::Review
+        | Commands::OsClean
+        | Commands::Uninstall
+        | Commands::Stop
+        | Commands::Restart
+        | Commands::Pulse { .. }
+        | Commands::McpAdd { .. }
+        | Commands::Keys { .. }
+        | Commands::DaemonStart { .. } => false,
+        Commands::Admin { subcommand } => {
+            matches!(subcommand, AdminCommands::Audit)
+        }
+        // Every current variant is matched above; this arm is the default for
+        // a variant added later, which compiles to "no daemon" until it is
+        // classified (and the pinning test fails until it is pinned).
+        #[allow(unreachable_patterns)]
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command_catalogs, command_skips_composition, Cli};
+    use clap::{CommandFactory, Parser};
+    use susi_daemon::discovery_pipeline::Catalogs;
+
+    fn skips(args: &[&str]) -> bool {
+        let cli = Cli::try_parse_from(args).unwrap();
+        command_skips_composition(&cli.command.unwrap())
+    }
+
+    fn catalogs(args: &[&str]) -> Catalogs {
+        let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        command_catalogs(&cli.command.unwrap())
+    }
+
+    fn assert_primes(expected: Catalogs, commands: &[&[&str]]) {
+        for cmd in commands {
+            assert_eq!(catalogs(cmd), expected, "{cmd:?}");
+        }
+    }
+
+    /// Commands whose output reads no primed catalog prime nothing.
+    #[test]
+    fn commands_reading_no_catalog_prime_nothing() {
+        assert_primes(
+            Catalogs::NONE,
+            &[
+                &["susi", "agents", "list"],
+                &["susi", "agents", "doctor"],
+                &["susi", "agents", "tasks"],
+                &["susi", "agents", "worker", "t-1"],
+                &["susi", "frameworks", "list"],
+                &["susi", "frameworks", "doctor"],
+                &["susi", "frameworks", "worker", "t-1"],
+                &["susi", "openweight", "list"],
+                &["susi", "openweight"],
+                &["susi", "openweight", "doctor"],
+                &["susi", "openweight", "setup", "m"],
+                &["susi", "frontier", "list"],
+                &["susi", "frontier"],
+                &["susi", "frontier", "doctor"],
+                &["susi", "frontier", "setup", "m"],
+                &["susi", "models", "doctor"],
+                &["susi", "models", "prefer", "m"],
+                &["susi", "models", "reset", "m"],
+                &["susi", "mcp", "enable", "filesystem"],
+                &["susi", "mcp", "reset", "filesystem"],
+                &["susi", "mcp", "tools", "127.0.0.1:9090"],
+                &["susi", "mcp", "ledger"],
+                &["susi", "mcp", "call", "127.0.0.1:9090", "t"],
+                &["susi", "mcp", "serve"],
+                &["susi", "acp"],
+                &["susi", "acp", "serve"],
+                &["susi", "acp", "discover"],
+                &["susi", "acp", "discover", "--json"],
+                &["susi", "auto", "status"],
+                &["susi", "keys", "list"],
+                &["susi", "keys"],
+                &["susi", "review"],
+                &["susi", "audit", "verify"],
+                &["susi", "audit"],
+                &["susi", "bloat-audit"],
+                &["susi", "clean"],
+                &["susi", "os-clean"],
+            ],
+        );
+    }
+
+    /// Commands that print the preferred coding model prime only that.
+    #[test]
+    fn preferred_model_readers_prime_only_coding_models() {
+        assert_primes(
+            Catalogs::CODING_MODELS,
+            &[
+                &["susi", "models"],
+                &["susi", "models", "list"],
+                &["susi", "models", "setup", "m"],
+            ],
+        );
+    }
+
+    /// Regression: every command that writes `selected_model_override.txt`
+    /// without writing `preferred_coding_model.txt` primes coding models
+    /// first, so the next auto-prefer finds a ready preferred model and
+    /// keeps the pin instead of overwriting it.
+    #[test]
+    fn override_writers_prime_coding_models_first() {
+        assert_primes(
+            Catalogs::CODING_MODELS,
+            &[
+                &["susi", "select-model", "m"],
+                &["susi", "frontier", "prefer", "m"],
+                &["susi", "frontier", "prefer", "--clear"],
+                &["susi", "openweight", "prefer", "m"],
+                &["susi", "openweight", "prefer", "--clear"],
+            ],
+        );
+    }
+
+    /// Commands that print or use the enabled MCP set prime nothing: core
+    /// never enables an MCP server on its own (zero-UI plan A8).
+    #[test]
+    fn enabled_mcp_readers_prime_nothing() {
+        assert_primes(
+            Catalogs::NONE,
+            &[
+                &["susi", "mcp", "list"],
+                &["susi", "mcp", "status"],
+                &["susi", "mcp", "doctor"],
+                &["susi", "mcp", "setup", "filesystem"],
+                &["susi", "mcp", "disable", "filesystem"],
+            ],
+        );
+    }
+
+    /// Regression: `mcp call` to anything but a network peer may dispatch in
+    /// process (`susi_solve` runs a mission, `reason` generates with the
+    /// selected model), so it primes every catalog, as missions do.
+    #[test]
+    fn in_process_mcp_calls_prime_every_catalog() {
+        assert_primes(
+            Catalogs::ALL,
+            &[
+                &[
+                    "susi",
+                    "mcp",
+                    "call",
+                    "susi",
+                    "susi_solve",
+                    "{\"intent\":\"x\"}",
+                ],
+                &["susi", "mcp", "call", "susi", "reason"],
+                &["susi", "mcp", "call", "native", "list_models"],
+                &["susi", "mcp", "call", "gmcp", "susi_solve"],
+                &["susi", "mcp", "call", "", "reason"],
+                &["susi", "mcp", "call", "filesystem", "read_file"],
+            ],
+        );
+        assert_primes(
+            Catalogs::NONE,
+            &[
+                &["susi", "mcp", "call", "http://127.0.0.1:9/mcp", "reason"],
+                &["susi", "mcp", "call", "127.0.0.1:9", "susi_solve"],
+            ],
+        );
+    }
+
+    /// Readers of the registered agent capabilities prime the agent scans;
+    /// crown also reads the selected model.
+    #[test]
+    fn capability_readers_prime_the_agent_scans() {
+        assert_primes(Catalogs::AGENTS, &[&["susi", "substrate", "status"]]);
+        assert_primes(
+            Catalogs::AGENTS.union(Catalogs::CODING_MODELS),
+            &[&["susi", "crown", "verify"], &["susi", "crown", "status"]],
+        );
+    }
+
+    /// `auto prime`, missions and the commands kept at their pre-split value
+    /// still prime every catalog, as before priming was split.
+    #[test]
+    fn auto_prime_missions_and_unclassified_commands_prime_everything() {
+        assert_primes(
+            Catalogs::ALL,
+            &[
+                &["susi", "auto", "prime"],
+                &["susi", "automate", "x"],
+                &["susi", "install"],
+                &["susi", "gemi"],
+                &["susi", "substrate-report"],
+                &["susi", "sovereign-dashboard"],
+                &["susi", "deep-scan"],
+                &["susi", "uninstall"],
+            ],
+        );
+    }
+
+    /// D-SP-1: both predicates default to "nothing" (no daemon, no catalog)
+    /// for a command added later. So every current command is pinned here,
+    /// and the table must name exactly the subcommands clap knows, hidden
+    /// ones included: a new command fails this test until it is classified.
+    #[test]
+    fn every_command_has_a_pinned_daemon_and_catalog_classification() {
+        use Catalogs as C;
+        let crown = C::AGENTS.union(C::CODING_MODELS);
+        // (subcommand, argv after `susi`, requires the daemon, catalogs)
+        let pins: &[(&str, &[&str], bool, Catalogs)] = &[
+            ("agents", &["agents", "list"], false, C::NONE),
+            ("frameworks", &["frameworks", "list"], false, C::NONE),
+            ("start", &["start"], true, C::ALL),
+            ("stop", &["stop"], false, C::ALL),
+            ("restart", &["restart"], false, C::ALL),
+            ("install", &["install"], true, C::ALL),
+            (
+                "install-release",
+                &["install-release", "--status"],
+                true,
+                C::ALL,
+            ),
+            ("local", &["local", "build", "debug"], true, C::ALL),
+            ("uninstall", &["uninstall"], false, C::ALL),
+            ("mcp", &["mcp", "list"], false, C::NONE),
+            ("acp", &["acp", "discover"], false, C::NONE),
+            ("extensions", &["extensions"], false, C::ALL),
+            ("auto", &["auto", "status"], false, C::NONE),
+            ("setup", &["setup"], false, C::ALL),
+            ("workflow", &["workflow", "sync"], false, C::ALL),
+            (
+                "harness",
+                &["harness", "status", "--ledger", "l"],
+                true,
+                C::ALL,
+            ),
+            ("tasks", &["tasks"], false, C::ALL),
+            ("brain", &["brain"], false, C::ALL),
+            ("ecosystem", &["ecosystem"], false, C::ALL),
+            ("blackboard", &["blackboard"], false, C::ALL),
+            ("board", &["board", "check"], false, C::ALL),
+            ("context-graph", &["context-graph"], false, C::ALL),
+            ("broker", &["broker"], false, C::ALL),
+            ("telemetry", &["telemetry"], false, C::ALL),
+            ("patch", &["patch", "p.json"], false, C::ALL),
+            ("plan", &["plan", "goal"], false, C::ALL),
+            ("privacy", &["privacy"], false, C::ALL),
+            ("intent", &["intent"], false, C::ALL),
+            ("ambient", &["ambient"], false, C::ALL),
+            ("tx", &["tx"], false, C::ALL),
+            ("substrate", &["substrate", "status"], false, C::AGENTS),
+            ("crown", &["crown", "status"], false, crown),
+            ("gemi", &["gemi"], true, C::ALL),
+            ("status", &["status"], false, C::ALL),
+            ("services", &["services"], false, C::ALL),
+            ("commits", &["commits"], false, C::ALL),
+            ("os", &["os"], false, C::ALL),
+            ("peers", &["peers"], false, C::ALL),
+            ("service-run", &["service-run", "susi-paths"], true, C::ALL),
+            ("substrate-report", &["substrate-report"], true, C::ALL),
+            ("bloat-audit", &["bloat-audit"], true, C::NONE),
+            ("models", &["models"], false, C::CODING_MODELS),
+            ("openweight", &["openweight"], false, C::NONE),
+            ("frontier", &["frontier"], false, C::NONE),
+            ("openrouter", &["openrouter"], false, C::ALL),
+            ("keys", &["keys"], false, C::NONE),
+            (
+                "select-model",
+                &["select-model", "m"],
+                true,
+                C::CODING_MODELS,
+            ),
+            ("deep-scan", &["deep-scan"], true, C::ALL),
+            ("mcp-add", &["mcp-add", "n", "cmd"], false, C::ALL),
+            (
+                "verify-download-agent",
+                &["verify-download-agent"],
+                true,
+                C::ALL,
+            ),
+            ("scout-model", &["scout-model", "u"], true, C::ALL),
+            ("benchmark", &["benchmark"], true, C::ALL),
+            ("pulse", &["pulse", "x"], false, C::ALL),
+            ("automate", &["automate", "x"], true, C::ALL),
+            ("review", &["review"], false, C::NONE),
+            ("os-clean", &["os-clean"], false, C::NONE),
+            ("audit", &["audit"], false, C::NONE),
+            ("admin", &["admin", "lint"], false, C::ALL),
+            ("clean", &["clean"], false, C::NONE),
+            ("run", &["run", "hello"], false, C::ALL),
+            ("top", &["top"], false, C::ALL),
+            (
+                "daemon-start",
+                &["daemon-start", "--workspace", "x"],
+                false,
+                C::ALL,
+            ),
+        ];
+        let mut pinned: Vec<&str> = pins.iter().map(|pin| pin.0).collect();
+        pinned.sort_unstable();
+        let unique = pinned.len();
+        pinned.dedup();
+        assert_eq!(unique, pinned.len(), "a command is pinned twice");
+        let mut known: Vec<String> = Cli::command()
+            .get_subcommands()
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        known.sort_unstable();
+        assert_eq!(
+            pinned, known,
+            "pin every command's daemon and catalog classification"
+        );
+        for &(name, argv, daemon, expected) in pins {
+            let args: Vec<&str> = std::iter::once("susi")
+                .chain(argv.iter().copied())
+                .collect();
+            let matches = Cli::command()
+                .try_get_matches_from(&args)
+                .unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert_eq!(matches.subcommand_name(), Some(name), "{args:?}");
+            let command = Cli::try_parse_from(&args).unwrap().command.unwrap();
+            assert_eq!(
+                super::command_requires_daemon(&command),
+                daemon,
+                "daemon: {args:?}"
+            );
+            assert_eq!(command_catalogs(&command), expected, "catalogs: {args:?}");
+        }
+        // `admin` is classified per subcommand: only the compliance audit
+        // ensures the daemon.
+        let admin_audit = Cli::try_parse_from(["susi", "admin", "audit"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(super::command_requires_daemon(&admin_audit));
+        assert_eq!(command_catalogs(&admin_audit), C::ALL);
+    }
+
+    /// Lifecycle and status never run the CLI composition root: on a host
+    /// whose daemon was down, that root alone held `susi start`, `susi
+    /// status` and the daemon's own `daemon-start` for ~13 minutes.
+    #[test]
+    fn lifecycle_and_status_skip_the_cli_composition() {
+        for cmd in [
+            &["susi", "start"][..],
+            &["susi", "stop"],
+            &["susi", "restart"],
+            &["susi", "status"],
+            &["susi", "daemon-start", "--workspace", "x"],
+        ] {
+            assert!(skips(cmd), "{cmd:?} must skip composition");
+        }
+        assert!(
+            !skips(&["susi", "mcp", "serve"]),
+            "mcp serve composes the substrate"
+        );
+    }
+
+    #[test]
+    fn moved_dev_workflow_commands_refuse_without_composition_or_daemon() {
+        for args in [
+            &["susi", "admin", "release"][..],
+            &["susi", "admin", "release", "--cut", "patch"],
+            &["susi", "admin", "sync"],
+            &["susi", "workflow", "guard", "commit"],
+            &["susi", "workflow", "--help"],
+            &["susi", "tasks"],
+            &["susi", "tasks", "claim", "T-A-1", "--scope", "src"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(command_skips_composition(&command), "{args:?}");
+            assert!(!super::command_requires_daemon(&command), "{args:?}");
+        }
+        let eval = Cli::try_parse_from([
+            "susi",
+            "tasks",
+            "eval-corpus",
+            "--corpus",
+            "c.json",
+            "--input",
+            "i.json",
+        ])
+        .unwrap()
+        .command
+        .unwrap();
+        assert!(!command_skips_composition(&eval));
+    }
+
+    #[test]
+    fn audit_file_commands_skip_composition() {
+        for args in [
+            &["susi", "audit", "verify"][..],
+            &["susi", "audit", "query", "--json"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(command_skips_composition(&command));
+            assert!(!super::command_requires_daemon(&command));
+        }
+        assert!(!skips(&["susi", "audit"]));
+    }
+
+    /// Chat, the coding app, and one command per product are not OS commands.
+    /// Peers stay on `agents` / `frameworks`. One completion stays on `run`.
+    #[test]
+    fn application_commands_are_not_os_commands() {
+        for args in [
+            &["susi", "chat"][..],
+            &["susi", "code", "fix it"],
+            &["susi", "aider"],
+            &["susi", "openhands"],
+            &["susi", "browser-use"],
+            &["susi", "crewai"],
+            &["susi", "haystack"],
+            &["susi", "langgraph"],
+            &["susi", "swe-agent"],
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert!(cli.command.is_none(), "{args:?} must not be an OS command");
+        }
+        assert!(Cli::try_parse_from(["susi", "agents", "list"])
+            .unwrap()
+            .command
+            .is_some());
+        assert!(Cli::try_parse_from(["susi", "frameworks", "init", "crewai"]).is_err());
+        assert!(
+            Cli::try_parse_from(["susi", "frameworks", "setup", "crewai"])
+                .unwrap()
+                .command
+                .is_some()
+        );
+        assert!(Cli::try_parse_from(["susi", "run", "hello"])
+            .unwrap()
+            .command
+            .is_some());
+    }
+
+    /// A four-question quiz, a swarm narration of a web scout, and a swarm
+    /// narration of the local model list are not commands. Listing local
+    /// weights stays on `deep-scan`; the coding-model catalog stays on
+    /// `models list`.
+    #[test]
+    fn narrated_scout_quiz_and_legacy_local_are_not_commands() {
+        for args in [
+            &["susi", "models", "local"][..],
+            &["susi", "os", "manage", "model", "local"],
+        ] {
+            assert!(
+                Cli::try_parse_from(args).is_err(),
+                "{args:?} must not parse"
+            );
+        }
+        for args in [&["susi", "eval"][..], &["susi", "mcp-scout"]] {
+            let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert!(cli.command.is_none(), "{args:?} must not be an OS command");
+            assert!(
+                super::super::intent_guard::refuse(
+                    &<Cli as CommandFactory>::command(),
+                    &cli.intent
+                )
+                .is_some(),
+                "{args:?} must not run as a mission"
+            );
+        }
+        assert!(Cli::try_parse_from(["susi", "deep-scan"])
+            .unwrap()
+            .command
+            .is_some());
+        assert!(Cli::try_parse_from(["susi", "models", "list"])
+            .unwrap()
+            .command
+            .is_some());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for rel in [
+            "crates/susi-gemi/src/eval.rs",
+            "crates/susi-gmcp/src/reflexes.rs",
+        ] {
+            assert!(
+                !root.join(rel).exists(),
+                "{rel} is a narrated or empty feature and must stay removed"
+            );
+        }
+        let bundled = std::fs::read_to_string(root.join("config/config.default.json"))
+            .unwrap_or_else(|e| panic!("read bundled config: {e}"));
+        assert!(
+            !bundled.contains("mcp_scout_pulse") && !bundled.contains("admin_pulses"),
+            "the bundled scout pulse must stay removed"
+        );
+    }
+
+    fn collect_help_snapshot(cmd: &mut clap::Command, path: &[String], out: &mut String) {
+        let label = path.join(" ");
+        let help = cmd.render_help().to_string();
+        out.push_str(&format!("=== {label} ===\n{help}\n"));
+        let names: Vec<String> = cmd
+            .get_subcommands()
+            .filter(|sub| sub.get_name() != "help")
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        for name in names {
+            let sub = cmd.find_subcommand_mut(&name).expect("subcommand exists");
+            let mut next_path = path.to_vec();
+            next_path.push(name);
+            collect_help_snapshot(sub, &next_path, out);
+        }
+    }
+
+    fn render_cli_help_snapshot() -> String {
+        let mut root = <Cli as CommandFactory>::command().version(env!("CARGO_PKG_VERSION"));
+        root.build();
+        let raw_version = root.render_version();
+        assert_eq!(
+            raw_version,
+            format!("susi {}\n", env!("CARGO_PKG_VERSION")),
+            "--version output must report the binary's package version"
+        );
+        let version = raw_version.replace(env!("CARGO_PKG_VERSION"), "<VERSION>");
+        let mut out = format!("=== version ===\n{version}\n");
+        collect_help_snapshot(&mut root, &["susi".to_string()], &mut out);
+        out.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn root_command_summary_matches_full_parser() {
+        use clap::CommandFactory;
+        for flag in ["--help", "-h", "--version", "-V"] {
+            let render = |command: clap::Command| {
+                let error = command
+                    .version(env!("CARGO_PKG_VERSION"))
+                    .try_get_matches_from(["renamed-susi", flag])
+                    .unwrap_err();
+                (error.kind(), error.to_string())
+            };
+            assert_eq!(
+                render(super::RootInfo::command()),
+                render(super::Cli::command())
+            );
+        }
+    }
+
+    #[test]
+    fn cli_help_and_version_match_snapshot() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let snapshot_path = root.join("tests/fixtures/cli_help_snapshot.txt");
+        let actual = render_cli_help_snapshot();
+        let expected = std::fs::read_to_string(&snapshot_path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", snapshot_path.display()))
+            .replace("\r\n", "\n");
+        assert_eq!(
+            actual, expected,
+            "CLI help/version output drifted from tests/fixtures/cli_help_snapshot.txt"
+        );
+    }
 }

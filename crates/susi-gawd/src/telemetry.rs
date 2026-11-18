@@ -1,0 +1,327 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
+//! Prometheus and operational telemetry metrics for this host's own inference.
+//!
+//! Provides global thread-safe aggregation of token consumption, dollar costs (micros),
+//! request latency, and failure rates, and exports them in standard Prometheus exposition
+//! format so the developer can scrape them locally (Prometheus, Grafana). Organisation-wide
+//! chargeback and FinOps reporting are built outside this repository on this surface.
+
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+/// Token count usage for a single inference call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub total_tokens: u64,
+}
+
+impl TokenUsage {
+    /// Construct a new TokenUsage with automatic sum.
+    #[must_use]
+    pub const fn new(prompt_tokens: u64, completion_tokens: u64) -> Self {
+        Self::with_cache(prompt_tokens, completion_tokens, 0)
+    }
+
+    /// Construct a new TokenUsage with explicit cached prompt tokens.
+    #[must_use]
+    pub const fn with_cache(
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cached_tokens: u64,
+    ) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
+            total_tokens: prompt_tokens.saturating_add(completion_tokens),
+        }
+    }
+}
+
+impl From<&TokenUsage> for susi_adapters_llm::inference_wire::TokenUsage {
+    fn from(t: &TokenUsage) -> Self {
+        susi_adapters_llm::inference_wire::TokenUsage::with_cache(
+            t.prompt_tokens,
+            t.completion_tokens,
+            t.cached_tokens,
+        )
+    }
+}
+
+impl From<TokenUsage> for susi_adapters_llm::inference_wire::TokenUsage {
+    fn from(t: TokenUsage) -> Self {
+        (&t).into()
+    }
+}
+
+/// Cumulative metrics for a single model identifier.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ModelTelemetryStats {
+    pub requests: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub total_cost_micros: u64,
+    pub errors: u64,
+}
+
+/// Global registry for inference telemetry and financial governance.
+#[derive(Debug, Default)]
+pub struct InferenceTelemetry {
+    total_requests: AtomicU64,
+    total_prompt_tokens: AtomicU64,
+    total_completion_tokens: AtomicU64,
+    total_cached_tokens: AtomicU64,
+    total_cost_micros: AtomicU64,
+    total_errors: AtomicU64,
+    models: Mutex<BTreeMap<String, ModelTelemetryStats>>,
+}
+
+impl InferenceTelemetry {
+    /// Create a fresh telemetry registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the singleton global telemetry registry.
+    pub fn global() -> &'static Self {
+        static REGISTRY: OnceLock<InferenceTelemetry> = OnceLock::new();
+        REGISTRY.get_or_init(Self::new)
+    }
+
+    /// Record an inference dispatch with its token usage and cost.
+    pub fn record_call(&self, model: &str, usage: &TokenUsage, cost_micros: u64, is_error: bool) {
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.total_prompt_tokens
+            .fetch_add(usage.prompt_tokens, Ordering::Relaxed);
+        self.total_completion_tokens
+            .fetch_add(usage.completion_tokens, Ordering::Relaxed);
+        self.total_cached_tokens
+            .fetch_add(usage.cached_tokens, Ordering::Relaxed);
+        self.total_cost_micros
+            .fetch_add(cost_micros, Ordering::Relaxed);
+        if is_error {
+            self.total_errors.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let mut lock = self.models.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = lock.entry(model.to_string()).or_default();
+        entry.requests = entry.requests.saturating_add(1);
+        entry.prompt_tokens = entry.prompt_tokens.saturating_add(usage.prompt_tokens);
+        entry.completion_tokens = entry
+            .completion_tokens
+            .saturating_add(usage.completion_tokens);
+        entry.cached_tokens = entry.cached_tokens.saturating_add(usage.cached_tokens);
+        entry.total_cost_micros = entry.total_cost_micros.saturating_add(cost_micros);
+        if is_error {
+            entry.errors = entry.errors.saturating_add(1);
+        }
+    }
+
+    /// Snapshot of total requests across all models.
+    #[must_use]
+    pub fn total_requests(&self) -> u64 {
+        self.total_requests.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of total prompt tokens processed.
+    #[must_use]
+    pub fn total_prompt_tokens(&self) -> u64 {
+        self.total_prompt_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of total completion tokens generated.
+    #[must_use]
+    pub fn total_completion_tokens(&self) -> u64 {
+        self.total_completion_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of total cached prompt tokens read.
+    #[must_use]
+    pub fn total_cached_tokens(&self) -> u64 {
+        self.total_cached_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of cumulative cost across all models in micro-dollars (micros).
+    #[must_use]
+    pub fn total_cost_micros(&self) -> u64 {
+        self.total_cost_micros.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of total inference errors encountered.
+    #[must_use]
+    pub fn total_errors(&self) -> u64 {
+        self.total_errors.load(Ordering::Relaxed)
+    }
+
+    /// Render Prometheus exposition format (`/metrics`).
+    #[must_use]
+    pub fn render_prometheus(&self) -> String {
+        let mut out = format!(
+            concat!(
+                "# HELP susi_inference_requests_total Total LLM inference calls dispatched.\n",
+                "# TYPE susi_inference_requests_total counter\n",
+                "susi_inference_requests_total {}\n\n",
+                "# HELP susi_inference_tokens_total Total tokens processed by inference.\n",
+                "# TYPE susi_inference_tokens_total counter\n",
+                "susi_inference_tokens_total{{kind=\"prompt\"}} {}\n",
+                "susi_inference_tokens_total{{kind=\"cached\"}} {}\n",
+                "susi_inference_tokens_total{{kind=\"completion\"}} {}\n\n",
+                "# HELP susi_inference_cost_micros_total Cumulative inference expenditure in micro-dollars.\n",
+                "# TYPE susi_inference_cost_micros_total counter\n",
+                "susi_inference_cost_micros_total {}\n\n",
+                "# HELP susi_inference_errors_total Total failed inference dispatches.\n",
+                "# TYPE susi_inference_errors_total counter\n",
+                "susi_inference_errors_total {}\n\n",
+            ),
+            self.total_requests(),
+            self.total_prompt_tokens(),
+            self.total_cached_tokens(),
+            self.total_completion_tokens(),
+            self.total_cost_micros(),
+            self.total_errors(),
+        );
+
+        let lock = self.models.lock().unwrap_or_else(|e| e.into_inner());
+        if !lock.is_empty() {
+            out.push_str("# HELP susi_model_requests_total Requests per model identifier.\n");
+            out.push_str("# TYPE susi_model_requests_total counter\n");
+            for (model, stats) in lock.iter() {
+                out.push_str(&format!(
+                    "susi_model_requests_total{{model=\"{model}\"}} {}\n",
+                    stats.requests
+                ));
+            }
+
+            out.push_str("\n# HELP susi_model_cost_micros_total Cumulative cost per model in micro-dollars.\n");
+            out.push_str("# TYPE susi_model_cost_micros_total counter\n");
+            for (model, stats) in lock.iter() {
+                out.push_str(&format!(
+                    "susi_model_cost_micros_total{{model=\"{model}\"}} {}\n",
+                    stats.total_cost_micros
+                ));
+            }
+        }
+
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inference_telemetry_records_and_aggregates_metrics() {
+        let registry = InferenceTelemetry::new();
+        assert_eq!(registry.total_requests(), 0);
+        assert_eq!(registry.total_cost_micros(), 0);
+
+        let usage = TokenUsage::with_cache(100, 50, 40);
+        registry.record_call("anthropic/claude-3-5-sonnet", &usage, 1050, false);
+        registry.record_call("anthropic/claude-3-5-sonnet", &usage, 1050, false);
+        registry.record_call("openai/gpt-4o", &usage, 750, true);
+
+        assert_eq!(registry.total_requests(), 3);
+        assert_eq!(registry.total_prompt_tokens(), 300);
+        assert_eq!(registry.total_cached_tokens(), 120);
+        assert_eq!(registry.total_completion_tokens(), 150);
+        assert_eq!(registry.total_cost_micros(), 2850);
+        assert_eq!(registry.total_errors(), 1);
+
+        let prom = registry.render_prometheus();
+        assert!(prom.contains("susi_inference_requests_total 3"));
+        assert!(prom.contains("susi_inference_tokens_total{kind=\"prompt\"} 300"));
+        assert!(prom.contains("susi_inference_tokens_total{kind=\"cached\"} 120"));
+        assert!(prom.contains("susi_inference_tokens_total{kind=\"completion\"} 150"));
+        assert!(prom.contains("susi_inference_cost_micros_total 2850"));
+        assert!(prom.contains("susi_inference_errors_total 1"));
+        assert!(prom.contains("susi_model_requests_total{model=\"anthropic/claude-3-5-sonnet\"} 2"));
+        assert!(prom
+            .contains("susi_model_cost_micros_total{model=\"anthropic/claude-3-5-sonnet\"} 2100"));
+    }
+
+    #[test]
+    fn token_usage_constructors_and_zero_call_registry_defaults() {
+        let basic = TokenUsage::new(120, 30);
+        assert_eq!(basic.prompt_tokens, 120);
+        assert_eq!(basic.completion_tokens, 30);
+        assert_eq!(basic.cached_tokens, 0);
+        assert_eq!(basic.total_tokens, 150);
+
+        let cached = TokenUsage::with_cache(200, 50, 80);
+        assert_eq!(cached.cached_tokens, 80);
+        assert_eq!(cached.total_tokens, 250);
+        let wire: susi_adapters_llm::inference_wire::TokenUsage = cached.into();
+        assert_eq!(wire.prompt_tokens, 200);
+        assert_eq!(wire.cached_tokens, 80);
+
+        let registry = InferenceTelemetry::new();
+        assert_eq!(registry.total_requests(), 0);
+        assert_eq!(registry.total_prompt_tokens(), 0);
+        assert_eq!(registry.total_cached_tokens(), 0);
+        assert_eq!(registry.total_completion_tokens(), 0);
+        assert_eq!(registry.total_cost_micros(), 0);
+        assert_eq!(registry.total_errors(), 0);
+    }
+
+    #[test]
+    fn render_prometheus_tracks_multiple_models_independently() {
+        let registry = InferenceTelemetry::new();
+        let u1 = TokenUsage::new(50, 25);
+        let u2 = TokenUsage::with_cache(100, 40, 20);
+        registry.record_call("model-alpha", &u1, 300, false);
+        registry.record_call("model-beta", &u2, 900, false);
+        registry.record_call("model-beta", &u2, 600, false);
+
+        let prom = registry.render_prometheus();
+        assert!(prom.contains("susi_model_requests_total{model=\"model-alpha\"} 1"));
+        assert!(prom.contains("susi_model_cost_micros_total{model=\"model-alpha\"} 300"));
+        assert!(prom.contains("susi_model_requests_total{model=\"model-beta\"} 2"));
+        assert!(prom.contains("susi_model_cost_micros_total{model=\"model-beta\"} 1500"));
+    }
+
+    #[test]
+    fn error_only_call_increments_errors_and_requests_together() {
+        let registry = InferenceTelemetry::new();
+        let zero_usage = TokenUsage::new(0, 0);
+        registry.record_call("failing-model", &zero_usage, 0, true);
+        assert_eq!(registry.total_requests(), 1);
+        assert_eq!(registry.total_errors(), 1);
+        assert_eq!(registry.total_cost_micros(), 0);
+        assert!(registry
+            .render_prometheus()
+            .contains("susi_inference_errors_total 1"));
+    }
+
+    #[test]
+    fn record_call_accumulates_prompt_cached_completion_and_cost_totals() {
+        let registry = InferenceTelemetry::new();
+        let u1 = TokenUsage::with_cache(100, 40, 30);
+        let u2 = TokenUsage::with_cache(50, 10, 20);
+        registry.record_call("m1", &u1, 500, false);
+        registry.record_call("m1", &u2, 250, false);
+        assert_eq!(registry.total_requests(), 2);
+        assert_eq!(registry.total_prompt_tokens(), 150);
+        assert_eq!(registry.total_completion_tokens(), 50);
+        assert_eq!(registry.total_cached_tokens(), 50);
+        assert_eq!(registry.total_cost_micros(), 750);
+        assert_eq!(registry.total_errors(), 0);
+    }
+}

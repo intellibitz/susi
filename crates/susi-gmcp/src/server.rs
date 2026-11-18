@@ -1,0 +1,686 @@
+//! MCP stdio and Streamable HTTP entry points, served by GMCP's own MCP
+//! implementation (`crate::mcp`).
+use crate::mcp::{
+    http::{LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService},
+    ServiceExt,
+};
+use crate::protocol::GmcpService;
+use hyper::body::Bytes;
+use hyper::{
+    body::Incoming,
+    header::{HeaderValue, CONTENT_TYPE},
+    service::service_fn,
+    Method, Request, Response, StatusCode,
+};
+use std::{
+    convert::Infallible,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
+use susi_http_transport::http_conn::TokioIo;
+
+use susi_http_transport::dual_transport::{negotiate_transport, TlsAcceptor};
+use susi_http_transport::http_conn;
+
+type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
+type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;
+
+/// The identity a sealed peer-channel session proved, attached to every
+/// request that arrives over it.
+pub type ChannelPeer = crate::susi_config::peer_channel_link::ChannelPeer;
+
+/// One terminated peer-channel session handed to this surface: the
+/// in-process end of a socket pair the daemon's channel host pumps the
+/// session's plaintext through, and the identity the session proved. The
+/// socket is never accepted from a listener, so nothing outside this
+/// process can attach an identity to a connection.
+pub struct ChannelConnection {
+    pub stream: std::net::TcpStream,
+    pub peer: ChannelPeer,
+}
+
+type IngressSender = tokio::sync::mpsc::UnboundedSender<ChannelConnection>;
+
+fn ingress_slot() -> &'static std::sync::Mutex<Option<IngressSender>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Option<IngressSender>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Serve a peer-channel connection on the running Streamable HTTP surface.
+/// `Err` hands the connection back when no surface is running in this
+/// process.
+pub fn serve_channel_connection(conn: ChannelConnection) -> Result<(), ChannelConnection> {
+    let slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
+    match slot.as_ref() {
+        Some(tx) => tx.send(conn).map_err(|e| e.0),
+        None => Err(conn),
+    }
+}
+
+fn response(status: StatusCode, text: &'static str) -> Response<BoxBody> {
+    let mut response = Response::new(Full::new(Bytes::from_static(text.as_bytes())).boxed());
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+    // RFC 9110 §15.5.2: a 401 MUST carry a challenge; RFC 6585 §4: tell a
+    // rate-limited client when the per-minute window reopens.
+    if status == StatusCode::UNAUTHORIZED {
+        headers.insert(
+            hyper::header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"susi-gmcp\""),
+        );
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        headers.insert(hyper::header::RETRY_AFTER, HeaderValue::from_static("60"));
+    }
+    response
+}
+
+fn json_response(status: StatusCode, body: &serde_json::Value) -> Response<BoxBody> {
+    let mut response =
+        Response::new(Full::new(Bytes::from(serde_json::to_vec(body).unwrap_or_default())).boxed());
+    *response.status_mut() = status;
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response
+}
+
+fn cors(response: &mut Response<BoxBody>, origin: &str) {
+    if let Ok(value) = HeaderValue::from_str(origin) {
+        response
+            .headers_mut()
+            .insert("access-control-allow-origin", value);
+    }
+    response.headers_mut().insert(
+        "access-control-allow-methods",
+        HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
+    );
+    response.headers_mut().insert("access-control-allow-headers", HeaderValue::from_static("Content-Type, Authorization, Accept, MCP-Protocol-Version, Mcp-Session-Id, Mcp-Method, Mcp-Name, Last-Event-ID"));
+    response.headers_mut().insert(
+        "access-control-expose-headers",
+        HeaderValue::from_static("Mcp-Session-Id, MCP-Protocol-Version"),
+    );
+}
+
+fn load_config_or_warn() -> Arc<crate::susi_sandbox::manager::SusiConfig> {
+    match crate::susi_sandbox::manager::SusiConfig::load_global_arc() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("[GMCP] Config load failed, using bundled defaults: {e}");
+            Arc::new(crate::susi_sandbox::manager::SusiConfig::default())
+        }
+    }
+}
+
+fn open_durable_service(workspace: &Path) -> Option<GmcpService> {
+    crate::sdk::ServerBuilder::from_identity(
+        GmcpService::server_identity(),
+        workspace.to_path_buf(),
+    )
+    .durable_tasks(susi_paths::SusiDirs::data_dir().join("gmcp-tasks"))
+    .with_host_tools(true)
+    .with_builtin_catalog()
+    .build()
+    .map_err(|e| eprintln!("[GMCP] Server initialization failed (fail-closed): {e}"))
+    .ok()
+}
+
+pub struct GmcpServer;
+impl GmcpServer {
+    pub fn run_stdio(workspace: &Path, version: &str) {
+        if let Some(service) = open_durable_service(workspace) {
+            Self::serve_stdio_service(service, version);
+        }
+    }
+
+    pub fn serve_stdio_service(service: GmcpService, version: &str) {
+        let limit = load_config_or_warn().max_rpc_body_bytes();
+        if limit == 0 {
+            eprintln!(
+                "[GMCP] Invalid max_rpc_body_bytes (0): must be > 0; refusing stdio transport"
+            );
+            return;
+        }
+        eprintln!(
+            "[GMCP] v{version}: MCP over newline-delimited stdio (max_rpc_body_bytes={limit})"
+        );
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[GMCP] Runtime failed: {e}");
+                return;
+            }
+        };
+        runtime.block_on(async move {
+            let transport = crate::jsonrpc_gate::StdioGate::new(
+                crate::stdio::BoundedLines::new(tokio::io::stdin(), limit),
+                tokio::io::stdout(),
+            );
+            match service.serve(transport).await {
+                Ok(running) => {
+                    if let Err(e) = running.waiting().await {
+                        eprintln!("[GMCP] Stdio failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[GMCP] Stdio negotiation failed: {e}"),
+            }
+        });
+    }
+
+    pub fn start_http_server(
+        workspace: PathBuf,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+    ) {
+        if let Some(application) = open_durable_service(&workspace) {
+            Self::run_http_service(application, listeners, tls, require_tls_remote, true);
+        }
+    }
+
+    pub fn serve_http_service(
+        application: GmcpService,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+    ) {
+        Self::run_http_service(application, listeners, tls, require_tls_remote, false);
+    }
+
+    fn run_http_service(
+        application: GmcpService,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+        register_channel_ingress: bool,
+    ) {
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[GMCP] Runtime failed: {e}");
+                return;
+            }
+        };
+        runtime.block_on(async move {
+            let cfg =
+                crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+            // Clamped: Semaphore::new panics above MAX_PERMITS, and a
+            // configured 0 would refuse every connection forever.
+            let permits = Arc::new(tokio::sync::Semaphore::new(
+                cfg.max_concurrent_agents()
+                    .clamp(1, tokio::sync::Semaphore::MAX_PERMITS),
+            ));
+            let service = http_service(application);
+            eprintln!("[GMCP] Streamable HTTP available at /mcp (alias /messages)");
+
+            if register_channel_ingress {
+                let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel();
+                {
+                    let mut slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.as_ref().is_none_or(|tx| tx.is_closed()) {
+                        *slot = Some(ingress_tx);
+                    }
+                }
+                let channel_service = service.clone();
+                tokio::spawn(async move {
+                    while let Some(conn) = ingress_rx.recv().await {
+                        let service = channel_service.clone();
+                        tokio::spawn(serve_channel(conn, service));
+                    }
+                });
+            }
+
+            // One accept loop per bound socket (loopback + external when the
+            // bind address is a specific non-loopback IP).
+            let mut accept_loops = Vec::new();
+            for std_listener in listeners {
+                if let Err(e) = std_listener.set_nonblocking(true) {
+                    eprintln!("[GMCP] Listener failed: {e}");
+                    continue;
+                }
+                let listener = match tokio::net::TcpListener::from_std(std_listener) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("[GMCP] Listener failed: {e}");
+                        continue;
+                    }
+                };
+                let permits = Arc::clone(&permits);
+                let service = service.clone();
+                let tls = tls.clone();
+                accept_loops.push(tokio::spawn(async move {
+                    loop {
+                        let (stream, peer) = match listener.accept().await {
+                            Ok(pair) => pair,
+                            Err(e) => {
+                                eprintln!("[GMCP] Accept failed: {e}");
+                                continue;
+                            }
+                        };
+                        let permit = match permits.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                drop(stream);
+                                continue;
+                            }
+                        };
+                        let service = service.clone();
+                        let peer_ip = peer.ip();
+                        let tls = tls.clone();
+                        let remote = !peer_ip.to_canonical().is_loopback();
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            // host_only serves this machine alone, whatever the bind.
+                            if crate::susi_core::mac_policy::refuses_remote_client(peer_ip) {
+                                return;
+                            }
+                            let Some(io) = negotiate_transport(
+                                stream,
+                                remote,
+                                tls.as_ref(),
+                                require_tls_remote,
+                                "[GMCP]",
+                            )
+                            .await
+                            else {
+                                return;
+                            };
+                            let svc = service_fn(move |req| {
+                                handle_request(req, service.clone(), peer_ip, None)
+                            });
+                            if let Err(e) = http_conn::connection_builder()
+                                .serve_connection(TokioIo::new(io), svc)
+                                .await
+                            {
+                                eprintln!("[GMCP] Connection failed: {e}");
+                            }
+                        });
+                    }
+                }));
+            }
+            for accept_loop in accept_loops {
+                let _ = accept_loop.await;
+            }
+        });
+    }
+}
+
+fn seal_headers(headers: &mut hyper::HeaderMap, enc: &'static str) {
+    headers.insert("x-susi-enc", HeaderValue::from_static(enc));
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+}
+
+/// Serve one peer-channel connection: HTTP/1.1 over the in-process socket,
+/// every request authorized by the session's proven identity.
+async fn serve_channel(conn: ChannelConnection, service: HttpService) {
+    let ChannelConnection { stream, peer } = conn;
+    if stream.set_nonblocking(true).is_err() {
+        return;
+    }
+    let Ok(stream) = tokio::net::TcpStream::from_std(stream) else {
+        return;
+    };
+    let source = peer.link_source.ip();
+    let peer = Arc::new(peer);
+    let svc = service_fn(move |req| {
+        handle_request(req, service.clone(), source, Some(Arc::clone(&peer)))
+    });
+    if let Err(e) = http_conn::connection_builder()
+        .serve_connection(TokioIo::new(stream), svc)
+        .await
+    {
+        eprintln!("[GMCP] peer channel connection failed: {e}");
+    }
+}
+
+pub fn http_service(service: GmcpService) -> HttpService {
+    let cfg = load_config_or_warn();
+    let mut transport = StreamableHttpServerConfig::default();
+    let rpc_limit = cfg.max_rpc_body_bytes();
+    transport.max_request_body_bytes = if rpc_limit == 0 {
+        eprintln!(
+            "[GMCP] Invalid max_rpc_body_bytes (0); using bundled default for HTTP transport"
+        );
+        crate::susi_sandbox::manager::SusiConfig::default().max_rpc_body_bytes()
+    } else {
+        rpc_limit
+    };
+    if let Some(hosts) = cfg.get::<Vec<String>>("mcp_allowed_hosts") {
+        transport = transport.with_allowed_hosts(hosts);
+    }
+    let origin = cfg.allow_origin();
+    // Wildcard CORS is not an Origin-validation policy. With no explicit origin
+    // configured, reject browser origins; non-browser clients still pass.
+    transport = if origin == "*" {
+        transport.enforce_origin_validation()
+    } else {
+        transport.with_allowed_origins([origin])
+    };
+    StreamableHttpService::new(
+        move || Ok(service.session()),
+        Arc::new(session_manager()),
+        transport,
+    )
+}
+
+/// The longest receive window a CLI `tools/call` asks for: `susi os manage
+/// model load` (a large model can take minutes to read and place).
+pub const MAX_TOOL_CALL_SECS: u64 = 1800;
+
+/// A session closes after `keep_alive` with no session event (the
+/// default is 300s), and a running tool call produces none. The window must
+/// outlast the longest tool call, or a long model load fails on the client
+/// while the daemon keeps loading.
+const SESSION_IDLE_SECS: u64 = MAX_TOOL_CALL_SECS + 60;
+
+fn session_manager() -> LocalSessionManager {
+    let mut sessions = LocalSessionManager::default();
+    sessions.session_config.keep_alive = Some(std::time::Duration::from_secs(SESSION_IDLE_SECS));
+    sessions
+}
+
+/// Seal every data chunk of `body` as it is produced — never buffering the
+/// stream — so a sealed long-lived SSE response keeps flowing.
+fn seal_each_chunk(
+    body: BoxBody,
+    seal: impl Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
+) -> BoxBody {
+    body.map_frame(move |frame| frame.map_data(|chunk| Bytes::from(seal(&chunk))))
+        .boxed()
+}
+
+/// MCP Streamable HTTP MUST refuse a present, disallowed `Origin` with 403
+/// before auth or body handling (DNS-rebinding defense). A missing Origin
+/// passes — non-browser clients do not send one. Policy matches
+/// [`http_service`]: wildcard CORS (`*`) is not an allowlist, so every
+/// present Origin is refused; an explicit origin must match exactly.
+fn origin_forbidden(headers: &hyper::HeaderMap, allow_origin: &str) -> bool {
+    let Some(raw) = headers
+        .get(hyper::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    if allow_origin == "*" {
+        return true;
+    }
+    let presented = raw.trim();
+    if presented.eq_ignore_ascii_case("null") {
+        return !allow_origin.eq_ignore_ascii_case("null");
+    }
+    let Ok(uri) = presented.parse::<hyper::Uri>() else {
+        return true;
+    };
+    let (Some(scheme), Some(authority)) = (uri.scheme_str(), uri.authority()) else {
+        return true;
+    };
+    let Ok(allowed) = allow_origin.parse::<hyper::Uri>() else {
+        return true;
+    };
+    let (Some(a_scheme), Some(a_authority)) = (allowed.scheme_str(), allowed.authority()) else {
+        return true;
+    };
+    !(scheme.eq_ignore_ascii_case(a_scheme)
+        && authority.host().eq_ignore_ascii_case(a_authority.host())
+        && (a_authority.port_u16().is_none() || a_authority.port_u16() == authority.port_u16()))
+}
+
+async fn handle_request(
+    req: Request<Incoming>,
+    service: HttpService,
+    peer: std::net::IpAddr,
+    channel: Option<Arc<ChannelPeer>>,
+) -> Result<Response<BoxBody>, Infallible> {
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+    // Origin before auth: a seeded api_auth_token must not turn a browser
+    // Origin refusal into 401 and hide the MCP-required 403.
+    if origin_forbidden(req.headers(), &cfg.allow_origin()) {
+        return Ok(response(StatusCode::FORBIDDEN, "Forbidden"));
+    }
+    let hdr = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    // Owned header values — the body buffer below moves `req`, so the
+    // SignedRequest borrows these, not the request.
+    let (node_h, ts_h, nonce_h, sig_h, enc_h, enc_nonce_h, node_pub_h) = (
+        hdr("x-susi-node"),
+        hdr("x-susi-req-ts"),
+        hdr("x-susi-req-nonce"),
+        hdr("x-susi-req-sig"),
+        hdr("x-susi-enc"),
+        hdr("x-susi-enc-nonce"),
+        hdr("x-susi-node-pub"),
+    );
+    // The client can open a chunk-sealed stream (`v1s`), so a sealed SSE
+    // response need not be buffered whole before it is encrypted.
+    let stream_seal = hdr("x-susi-enc-accept").is_some_and(|v| {
+        v.split(',')
+            .any(|t| t.trim() == crate::susi_core::mcp_client::SEALED_STREAM)
+    });
+    let signed = crate::susi_core::net_guard::SignedRequest {
+        node: node_h.as_deref(),
+        ts_secs: ts_h.as_deref().and_then(|s| s.parse().ok()),
+        nonce: nonce_h.as_deref(),
+        sig: sig_h.as_deref(),
+    };
+    // Buffer the body once up front: request signatures bind to the
+    // exact body bytes (v2 canonical), and `service.handle` accepts any
+    // Body so the buffered bytes rebuild into the same request shape
+    // downstream — JSON-RPC bodies are small and bounded anyway.
+    let (mut parts, body) = req.into_parts();
+    // Same ceiling the MCP transport enforces, plus the 16-byte AEAD tag a
+    // sealed body carries.
+    let body_limit = cfg.max_rpc_body_bytes().saturating_add(16);
+    let body_bytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
+        body, body_limit,
+    ))
+    .await
+    {
+        Ok(c) => c.to_bytes(),
+        Err(_) => {
+            return Ok(response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request body exceeds limit",
+            ));
+        }
+    };
+    // Pairwise-sealed body (bound-member channel): open before auth so
+    // the v2 signature verifies against the plaintext hash the sender
+    // signed. Decryption uses the *roster-bound* pubkey when one exists;
+    // the self-asserted `x-susi-node-pub` covers the asymmetric window —
+    // AEAD tag failure or a swapped pubkey fails closed either way.
+    // When the request was sealed, the response is sealed back to the
+    // same key — the session id and tool results travel encrypted too.
+    let mut seal_key: Option<String> = None;
+    let effective = if enc_h.is_some() || enc_nonce_h.is_some() {
+        let open_key = node_h
+            .as_deref()
+            .and_then(crate::susi_config::cluster_key::bound_pubkey_for_node)
+            .or(node_pub_h);
+        match (
+            enc_h.as_deref(),
+            enc_nonce_h.as_deref(),
+            open_key.as_deref(),
+        ) {
+            (Some("v1"), Some(nonce), Some(pk)) => {
+                match crate::susi_config::cluster_key::member_open(pk, nonce, &body_bytes) {
+                    Some(pt) => {
+                        seal_key = Some(pk.to_string());
+                        // The MCP endpoint requires application/json — the sealed wire
+                        // body travelled as octet-stream.
+                        parts.headers.insert(
+                            hyper::header::CONTENT_TYPE,
+                            hyper::header::HeaderValue::from_static("application/json"),
+                        );
+                        pt
+                    }
+                    None => return Ok(response(StatusCode::UNAUTHORIZED, "Unauthorized")),
+                }
+            }
+            _ => return Ok(response(StatusCode::UNAUTHORIZED, "Unauthorized")),
+        }
+    } else {
+        body_bytes.to_vec()
+    };
+    // A peer-channel session terminates in this process: its requests are
+    // local to the MCP transport, whose Host allowlist (a browser
+    // DNS-rebinding defense; no browser reaches this path) then sees the
+    // loopback name rather than the caller's routing name for this node.
+    if channel.is_some() {
+        parts
+            .headers
+            .insert(hyper::header::HOST, HeaderValue::from_static("127.0.0.1"));
+    }
+    let mut req = Request::from_parts(
+        parts,
+        http_body_util::Full::new(hyper::body::Bytes::from(effective.clone())),
+    );
+    let mut result = if req.method() == Method::OPTIONS {
+        response(StatusCode::NO_CONTENT, "")
+    } else if req.method() == Method::GET && req.uri().path() == "/health" {
+        // Liveness is public on every contract port (README, "Host contract").
+        response(StatusCode::OK, "ok")
+    } else if !match channel.as_deref() {
+        // A sealed peer-channel session: the identity its handshake proved
+        // is the credential (no bearer travels between machines).
+        Some(channel_peer) => {
+            crate::susi_core::net_guard::NetGuard::channel_authorized(channel_peer, &signed)
+        }
+        None => crate::susi_core::net_guard::NetGuard::is_authorized(
+            req.headers()
+                .get(hyper::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok()),
+            peer,
+            &signed,
+            req.method().as_str(),
+            req.uri().path(),
+            Some(&effective),
+        ),
+    } {
+        response(StatusCode::UNAUTHORIZED, "Unauthorized")
+    } else if !crate::susi_core::net_guard::RateLimiter::global().check_unless_local_host(
+        req.headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
+        peer,
+        cfg.rate_limit_per_minute(),
+    ) {
+        response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded")
+    } else if matches!(req.uri().path(), "/mcp" | "/messages") {
+        // The same envelope gate the stdio transport runs: malformed
+        // JSON-RPC bodies are answered with the identical error document
+        // (at the HTTP status the SDK reserves for invalid requests)
+        // rather than reaching the session layer. Era-specific `_meta`
+        // and version policy stays with the SDK's HTTP validation.
+        if req.method() == Method::POST {
+            if let Some(rejection) = crate::jsonrpc_gate::http_envelope_rejection(&effective) {
+                return Ok(json_response(StatusCode::BAD_REQUEST, &rejection));
+            }
+        }
+        let principal = if let Some(channel_peer) = channel.as_deref() {
+            crate::mcp::task_manager::TaskPrincipal::from_node(&channel_peer.identity.node_id)
+        } else if signed.present()
+            && crate::susi_core::net_guard::NetGuard::is_authorized(
+                None,
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                &signed,
+                req.method().as_str(),
+                req.uri().path(),
+                Some(&effective),
+            )
+        {
+            crate::mcp::task_manager::TaskPrincipal::from_node(signed.node.unwrap_or_default())
+        } else if let Some(tok) = req
+            .headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+        {
+            crate::mcp::task_manager::TaskPrincipal::from_bearer_token(tok)
+        } else {
+            crate::mcp::task_manager::TaskPrincipal::local()
+        };
+        req.extensions_mut().insert(principal);
+        service.handle(req).await
+    } else {
+        response(
+            StatusCode::NOT_FOUND,
+            "Use the MCP Streamable HTTP endpoint at /mcp",
+        )
+    };
+    // Sealed request ⇒ sealed response. A client that accepts `v1s` gets
+    // each body chunk sealed as it streams (long-lived SSE keeps flowing);
+    // otherwise the (bounded) body is collected and sealed once as `v1`.
+    // The client refuses unsealed responses to sealed requests, so a
+    // relay cannot silently downgrade the return path either.
+    let seal_key = match seal_key {
+        Some(pk)
+            if stream_seal && crate::susi_config::cluster_key::member_seal(&pk, b"").is_some() =>
+        {
+            let (mut rparts, rbody) = result.into_parts();
+            rparts.headers.remove(hyper::header::CONTENT_LENGTH);
+            seal_headers(
+                &mut rparts.headers,
+                crate::susi_core::mcp_client::SEALED_STREAM,
+            );
+            let sealed = seal_each_chunk(rbody, move |chunk| {
+                crate::susi_core::mcp_client::seal_stream_record(&pk, chunk)
+            });
+            result = Response::from_parts(rparts, sealed);
+            None
+        }
+        other => other,
+    };
+    if let Some(pk) = seal_key {
+        let (mut rparts, rbody) = result.into_parts();
+        // The rebuilt body's length differs from whatever the service
+        // set — stale lengths truncate or hang the reader.
+        rparts.headers.remove(hyper::header::CONTENT_LENGTH);
+        let rbytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
+            rbody,
+            16 * 1024 * 1024,
+        ))
+        .await
+        {
+            Ok(c) => c.to_bytes(),
+            Err(_) => {
+                return Ok(response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "response body exceeds limit",
+                ));
+            }
+        };
+        result = match crate::susi_config::cluster_key::member_seal(&pk, &rbytes) {
+            Some((nonce, ct)) => {
+                let mut sealed = Response::from_parts(
+                    rparts,
+                    http_body_util::Full::new(Bytes::from(ct)).boxed(),
+                );
+                seal_headers(sealed.headers_mut(), "v1");
+                if let Ok(v) = HeaderValue::from_str(&nonce) {
+                    sealed.headers_mut().insert("x-susi-enc-nonce", v);
+                }
+                sealed
+            }
+            // Our node.key is unreadable — return the plaintext body
+            // rather than dropping the call; the client fails closed
+            // on unsealed replies, so the downgrade is visible, never
+            // silent.
+            None => Response::from_parts(rparts, http_body_util::Full::new(rbytes).boxed()),
+        };
+    }
+    cors(&mut result, &cfg.allow_origin());
+    Ok(result)
+}
+
+#[cfg(test)]
+#[path = "tests/server.rs"]
+mod tests;

@@ -510,7 +510,8 @@ pub struct AgentInterface {
 }
 
 /// Optional protocol features the agent supports.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]

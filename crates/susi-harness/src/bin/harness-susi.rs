@@ -1,0 +1,406 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
+//! Run one agent task against susi itself.
+//!
+//! The adapter prepares a worktree, adds and claims a task, runs the native
+//! worker in that worktree, verifies the commit and the acceptance, and lands
+//! the work through `workflow finish`.
+
+#[path = "support/args.rs"]
+mod arguments;
+use arguments::{number, required, take};
+
+use serde_json::json;
+use std::path::PathBuf;
+use std::time::Duration;
+use susi_harness::adapter::{land, run_task, SusiRunPolicy, SusiTarget, SusiTaskSpec};
+use susi_harness::executor::{NativeWorker, RunOutcome};
+
+struct RunOptions {
+    repo: PathBuf,
+    susi_program: PathBuf,
+    spec: SusiTaskSpec,
+}
+
+fn main() {
+    let options = match parse(std::env::args().skip(1)) {
+        Ok(options) => options,
+        Err(message) => fail(&message),
+    };
+    let target = SusiTarget::new(options.repo, options.susi_program);
+    eprintln!(
+        "harness-susi: preparing {} and running the agent; this can take minutes",
+        options.spec.worktree_name
+    );
+    let report = match run_task(
+        &target,
+        &options.spec,
+        &NativeWorker,
+        &SusiRunPolicy::unmetered(),
+    ) {
+        Ok(report) => report,
+        Err(error) => fail(&error.to_string()),
+    };
+    let final_text = match &report.agent {
+        RunOutcome::Succeeded { final_text, .. } => final_text.clone(),
+        RunOutcome::Failed { message } => message.clone(),
+        RunOutcome::TimedOut => "timed out".to_string(),
+    };
+    let summary = json!({
+        "task": report.task,
+        "worktree": report.worktree.display().to_string(),
+        "committed": report.committed,
+        "accepted": report.accepted,
+        "agent": describe(&report.agent),
+        "final": final_text
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summary).unwrap_or_default()
+    );
+    if !report.accepted {
+        fail("the worktree was not a committed, accepted task");
+    }
+    eprintln!(
+        "harness-susi: landing {} through workflow finish",
+        report.task
+    );
+    match land(&target, &report) {
+        Ok(output) => {
+            let tail = if output.stderr.trim().is_empty() {
+                output.stdout.trim()
+            } else {
+                output.stderr.trim()
+            };
+            eprintln!("harness-susi: finish said: {tail}");
+        }
+        Err(error) => fail(&error.to_string()),
+    }
+}
+
+fn describe(outcome: &RunOutcome) -> &'static str {
+    match outcome {
+        RunOutcome::Succeeded { .. } => "succeeded",
+        RunOutcome::Failed { .. } => "failed",
+        RunOutcome::TimedOut => "timed_out",
+    }
+}
+
+fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
+    let mut repo = PathBuf::new();
+    let mut susi_program = PathBuf::new();
+    let mut worktree_name = String::new();
+    let mut title = String::new();
+    let mut accept = String::new();
+    let mut scopes: Vec<String> = Vec::new();
+    let mut gateway = String::new();
+    let mut model = String::new();
+    let mut alternates = Vec::new();
+    let mut timeout: u64 = 600;
+    let mut state = PathBuf::new();
+    let mut prompt_words: Vec<String> = Vec::new();
+
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--repo" => repo = PathBuf::from(take(&mut args, &argument)?),
+            "--susi" => susi_program = PathBuf::from(take(&mut args, &argument)?),
+            "--name" => worktree_name = take(&mut args, &argument)?,
+            "--title" => title = take(&mut args, &argument)?,
+            "--accept" => accept = take(&mut args, &argument)?,
+            "--scope" => scopes.push(take(&mut args, &argument)?),
+            "--gateway" => gateway = take(&mut args, &argument)?,
+            "--model" => model = take(&mut args, &argument)?,
+            "--alternate" => alternates.push(take(&mut args, &argument)?),
+            "--timeout" => timeout = number(&mut args, &argument)?,
+            "--state" => state = PathBuf::from(take(&mut args, &argument)?),
+            other if other.starts_with("--") => {
+                return Err(format!("unknown argument {other}"));
+            }
+            other => prompt_words.push(other.to_string()),
+        }
+    }
+
+    required!(repo.as_os_str() => "--repo is required");
+    required!(susi_program.as_os_str() => "--susi is required");
+    required!(worktree_name.trim() => "--name is required");
+    required!(title.trim() => "--title is required");
+    required!(accept.trim() => "--accept is required");
+    required!(scopes => "at least one --scope is required");
+    required!(gateway.trim(), model.trim() => "--gateway and --model are required");
+    required!(state.as_os_str() => "--state is required");
+    required!(prompt_words => "a prompt is required");
+
+    Ok(RunOptions {
+        repo,
+        susi_program,
+        spec: SusiTaskSpec {
+            worktree_name,
+            title,
+            accept,
+            scopes,
+            prompt: prompt_words.join(" "),
+            gateway_url: gateway,
+            model,
+            alternates,
+            timeout: Duration::from_secs(timeout),
+            state_dir: state,
+            task: None,
+            precheck: true,
+            net_deletion_allowance: susi_harness::adapter::net_deletion_allowance_from_env(),
+        },
+    })
+}
+
+fn fail(message: &str) -> ! {
+    eprintln!("harness-susi: {message}");
+    std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args<'a>(list: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
+        list.iter().map(|value| (*value).to_string())
+    }
+
+    #[test]
+    fn parses_a_complete_run() {
+        let options = parse(args(&[
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--name",
+            "smoke",
+            "--title",
+            "docs",
+            "--accept",
+            "cargo test -p susi-harness",
+            "--scope",
+            "docs/harness.md",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--state",
+            "state",
+            "write",
+            "the",
+            "docs",
+        ]))
+        .unwrap();
+        assert_eq!(options.spec.worktree_name, "smoke");
+        assert_eq!(options.spec.prompt, "write the docs");
+        assert_eq!(options.spec.scopes, vec!["docs/harness.md".to_string()]);
+    }
+
+    #[test]
+    fn refuses_missing_required_flags() {
+        assert!(parse(args(&["--repo", "r"])).is_err());
+        assert!(parse(args(&["--attempt", "nope"])).is_err());
+        assert!(parse(args(&["--nope"])).is_err());
+    }
+
+    #[test]
+    fn describes_run_outcomes_and_validates_multiple_scopes_alternates_and_prompt() {
+        assert_eq!(
+            describe(&RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: Some(0.02),
+            }),
+            "succeeded"
+        );
+        assert_eq!(
+            describe(&RunOutcome::Failed {
+                message: "boom".into(),
+            }),
+            "failed"
+        );
+        assert_eq!(describe(&RunOutcome::TimedOut), "timed_out");
+
+        let no_prompt = [
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--name",
+            "smoke",
+            "--title",
+            "docs",
+            "--accept",
+            "cargo test -p susi-harness",
+            "--scope",
+            "crates/susi-harness/src/lib.rs",
+            "--scope",
+            "docs/harness.md",
+            "--alternate",
+            "gemini-flash",
+            "--alternate",
+            "qwen-coder",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--state",
+            "state",
+        ];
+        assert_eq!(
+            parse(args(&no_prompt)).err().unwrap(),
+            "a prompt is required"
+        );
+
+        let mut with_prompt = no_prompt.to_vec();
+        with_prompt.extend_from_slice(&["update", "harness"]);
+        let options = parse(args(&with_prompt)).unwrap();
+        assert_eq!(
+            options.spec.scopes,
+            vec![
+                "crates/susi-harness/src/lib.rs".to_string(),
+                "docs/harness.md".to_string()
+            ]
+        );
+        assert_eq!(
+            options.spec.alternates,
+            vec!["gemini-flash".to_string(), "qwen-coder".to_string()]
+        );
+        assert_eq!(options.spec.prompt, "update harness");
+    }
+
+    #[test]
+    fn validates_each_required_flag_and_invalid_timeout_or_missing_flag_value() {
+        assert_eq!(
+            parse(args(&["--repo", "r"])).err().unwrap(),
+            "--susi is required"
+        );
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s"])).err().unwrap(),
+            "--name is required"
+        );
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s", "--name", "n"]))
+                .err()
+                .unwrap(),
+            "--title is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t",
+            ]))
+            .err()
+            .unwrap(),
+            "--accept is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t", "--accept", "a",
+            ]))
+            .err()
+            .unwrap(),
+            "at least one --scope is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t", "--accept", "a",
+                "--scope", "sc",
+            ]))
+            .err()
+            .unwrap(),
+            "--gateway and --model are required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo",
+                "r",
+                "--susi",
+                "s",
+                "--name",
+                "n",
+                "--title",
+                "t",
+                "--accept",
+                "a",
+                "--scope",
+                "sc",
+                "--gateway",
+                "g",
+                "--model",
+                "m",
+            ]))
+            .err()
+            .unwrap(),
+            "--state is required"
+        );
+        assert_eq!(
+            parse(args(&["--timeout", "nope"])).err().unwrap(),
+            "timeout must be a number of seconds"
+        );
+        assert_eq!(
+            parse(args(&["--state"])).err().unwrap(),
+            "--state needs a value"
+        );
+
+        let options = parse(args(&[
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--name",
+            "smoke",
+            "--title",
+            "docs",
+            "--accept",
+            "cargo test -p susi-harness",
+            "--scope",
+            "docs/harness.md",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--timeout",
+            "180",
+            "--state",
+            "state",
+            "run",
+        ]))
+        .unwrap();
+        assert_eq!(options.spec.timeout, Duration::from_secs(180));
+    }
+
+    #[test]
+    fn rejects_missing_flag_values_and_whitespace_only_required_strings() {
+        for flag in [
+            "--repo",
+            "--susi",
+            "--name",
+            "--title",
+            "--accept",
+            "--scope",
+            "--gateway",
+            "--model",
+            "--alternate",
+            "--timeout",
+        ] {
+            assert_eq!(
+                parse(args(&[flag])).err().unwrap(),
+                format!("{flag} needs a value")
+            );
+        }
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s", "--name", "   "]))
+                .err()
+                .unwrap(),
+            "--name is required"
+        );
+    }
+}

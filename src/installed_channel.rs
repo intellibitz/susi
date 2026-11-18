@@ -8,13 +8,8 @@ use std::process::ExitCode;
 mod host_task;
 #[path = "installed_channel/package.rs"]
 mod package;
-#[cfg(windows)]
-#[path = "installed_channel/runtime.rs"]
-mod runtime;
 #[path = "installed_channel/transaction.rs"]
 mod transaction;
-#[cfg(windows)]
-pub(crate) use runtime::paired_runtime;
 
 pub(crate) fn management(command: Option<&Commands>) -> Option<ExitCode> {
     command

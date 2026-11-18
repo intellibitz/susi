@@ -1,15 +1,31 @@
 [package]
 name = "susi-gawd"
 version = "0.21.71"
-edition = "2021"
 license = "Apache-2.0"
-publish = false
-autobins = false
+edition = "2021"
 
 [dependencies]
-susi-core = { workspace = true }
 susi-gawd-acp = { workspace = true }
-susi-gawd-a2a = { workspace = true }
+susi-build-os-ucrt = { workspace = true, features = ["policy"] }
+susi-abi = { workspace = true }
+susi-core = { workspace = true }
+susi-adapters-llm = { workspace = true }
+susi-gawd-agents = { workspace = true }
+susi-gawd-swarm = { workspace = true }
+susi-sandbox-client = { workspace = true }
+susi-config = { workspace = true }
+susi-error = { workspace = true }
+susi-paths = { workspace = true }
+susi-native-client = { workspace = true }
+susi-vendor-syn = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+
+[dev-dependencies]
+susi-unsafe-ratchet = { workspace = true }
+# Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
+# host. Production `susi-gawd` reaches `susi-native` over IPC only.
 
 [lints]
 workspace = true
