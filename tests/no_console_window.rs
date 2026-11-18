@@ -1108,7 +1108,7 @@ fn the_scan_reaches_test_build_and_tool_sources() {
         .collect();
     for expected in [
         "build.rs",
-        "tests/installed_windows_entry.rs",
+        "tests/lean_core_ceilings.rs",
         "tests/no_console_window.rs",
         "xtask/src/main.rs",
         "crates/susi-paths/src/console.rs",
