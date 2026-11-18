@@ -40,11 +40,9 @@ pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub use susi_config::progress;
 pub mod provider;
-pub mod untrusted_content;
 pub mod zc_egress_allowlist;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
-pub mod bounded_io;
 pub mod native_board;
 pub mod scoped_tools;
 pub mod self_build;
@@ -66,6 +64,3 @@ pub use provider::Provider;
 #[cfg(test)]
 #[path = "tests/audit_action_choke_point.rs"]
 mod audit_action_choke_point_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_074_mastery.rs"]
-mod vc_201_074_mastery_tests;

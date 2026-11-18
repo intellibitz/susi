@@ -182,7 +182,8 @@ reached the socket, and the bearer is the operator's. In particular:
   then the mission's own token set, so a mission's tokens can narrow what the
   host allows but never widen it. The narrowing holds only for tool calls
   that are attributed to a mission.
-- Tool output is wrapped as untrusted content (`untrusted_content.rs`) and
+- Tool output is wrapped as untrusted content (`untrusted_content.rs`, in Susi
+  Commercial Apps' agent runtime) and
   credential requests inside it are redacted before it reaches a sink. This
   limits what a retrieved document can exfiltrate through result channels;
   it does not stop a model from acting on instructions it read.
