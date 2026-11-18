@@ -125,4 +125,3 @@ pub fn configure_for(binaries: &[&str]) -> io::Result<()> {
     }
     Ok(())
 }
-
