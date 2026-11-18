@@ -46,19 +46,13 @@ fn third_party_product_implementations_only_shrink() {
             files.len()
         );
     }
-    let agents = std::fs::read_to_string(root.join("AGENTS.md"))
-        .expect("read AGENTS.md")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).expect("read AGENTS.md");
     assert!(
-        agents.contains("generic standards-protocol AI OS socket"),
+        agents.contains("open-source socket"),
         "AGENTS.md must keep the open-source socket rule"
     );
     assert!(
-        agents.contains(
-            "Concrete implementations belong in separately hosted implementation packages"
-        ),
+        agents.contains("A third party writes the"),
         "AGENTS.md must keep the third-party plug rule"
     );
 }

@@ -1,0 +1,985 @@
+//! Leaf-service registry and the substrate's process table.
+//!
+//! The microkernel runs its leaf services (`susi-paths`/`susi-error`/
+//! `susi-config`/`susi-sandbox`/`susi-native`) as standalone localhost
+//! processes. This module is the shared contract every plane can read:
+//! which services exist, which pids the daemon currently supervises, and
+//! whether a given port is live. The table itself is a single JSON file
+//! under `substrate_home/services.json`, written atomically, so any cell
+//! process observes the same process table the daemon
+//! wrote — the same file-backed rendezvous pattern as `plane_bus_ipc`,
+//! `broker`, and `capture`.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::ErrorKind;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+
+use crate::susi_error::{EaiError, EaiResult};
+use susi_paths::SusiDirs;
+
+/// One leaf service the daemon may supervise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeafService {
+    /// Stable service name used on the CLI and in the process table.
+    pub name: &'static str,
+    /// Cargo binary name to spawn when the port is dead.
+    pub binary: &'static str,
+    /// Env var that overrides the bind port.
+    pub port_env: &'static str,
+    /// Default localhost port when `port_env` is unset.
+    pub default_port: u16,
+}
+
+/// The microkernel's leaf services, in boot order (lower deps first).
+pub const LEAF_SERVICES: &[LeafService] = &[
+    LeafService {
+        name: "susi-paths",
+        binary: "susi-paths",
+        port_env: "SUSI_PATHS_PORT",
+        default_port: susi_paths::ports::PATHS_SERVICE,
+    },
+    LeafService {
+        name: "susi-error",
+        binary: "susi-error",
+        port_env: "SUSI_ERROR_PORT",
+        default_port: susi_paths::ports::ERROR_SERVICE,
+    },
+    LeafService {
+        name: "susi-config",
+        binary: "susi-config",
+        port_env: "SUSI_CONFIG_PORT",
+        default_port: susi_paths::ports::CONFIG_SERVICE,
+    },
+    LeafService {
+        name: "susi-sandbox",
+        binary: "susi-sandbox",
+        port_env: "SUSI_SANDBOX_PORT",
+        default_port: susi_paths::ports::SANDBOX_SERVICE,
+    },
+    LeafService {
+        name: "susi-native",
+        binary: "susi-native",
+        port_env: "SUSI_NATIVE_PORT",
+        default_port: susi_paths::ports::NATIVE_SERVICE,
+    },
+];
+
+impl LeafService {
+    /// Effective port: explicit `SUSI_<SVC>_PORT` env wins; otherwise the
+    /// default shifts by the instance `port_offset` (env or config key) so a
+    /// second instance's leaf services land beside the primary's instead of
+    /// colliding with them (offset 100 → 18180–18184).
+    pub fn port(&self) -> u16 {
+        std::env::var(self.port_env)
+            .ok()
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .unwrap_or_else(|| {
+                let offset = crate::susi_config::SusiConfig::load_global()
+                    .map(|c| c.port_offset())
+                    .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
+                self.default_port.saturating_add(offset)
+            })
+    }
+}
+
+/// Look up a leaf service by name.
+pub fn leaf_service(name: &str) -> Option<&'static LeafService> {
+    LEAF_SERVICES.iter().find(|s| s.name == name)
+}
+
+/// One supervised process row in the table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServiceRecord {
+    /// Leaf service name (`susi-native`, ...).
+    pub name: String,
+    /// OS pid the daemon spawned.
+    pub pid: u32,
+    /// Port the service listens on.
+    pub port: u16,
+    /// Unix seconds when the daemon (re)started it.
+    pub started_at: u64,
+    /// How many times the supervisor has restarted it since daemon boot.
+    pub restarts: u32,
+    /// Unix seconds until which respawns are suspended — set when the
+    /// service exceeds MAX_RESTARTS so a crash-looping service backs off
+    /// instead of churning, then gets retried (restart counter reset)
+    /// rather than abandoned forever.
+    #[serde(default)]
+    pub disabled_until: Option<u64>,
+    /// True when the port is bound by a process the daemon did not spawn
+    /// (`cargo run`, a stale dev binary, a foreign listener). External
+    /// records are observed and displayed but never signaled — the
+    /// supervisor only kills its own children. When the external process
+    /// dies, the supervisor drops this record and spawns its own.
+    #[serde(default)]
+    pub external: bool,
+    /// Operator stop (`susi services stop`): the supervisor leaves the
+    /// service down until `susi services start` clears this — distinct
+    /// from `disabled_until`, which is crash-loop backoff the supervisor
+    /// manages itself.
+    #[serde(default)]
+    pub stopped: bool,
+}
+
+/// Where the process table lives: shared host state, not per-pid, because
+/// every plane must observe the same supervised set.
+pub fn table_path() -> PathBuf {
+    SusiDirs::substrate_home().join("services.json")
+}
+
+/// Load the process table. Missing/corrupt files read as empty — a corrupt
+/// table must never wedge a plane (the daemon rewrites it on the next
+/// supervision pass anyway).
+pub fn load() -> Vec<ServiceRecord> {
+    load_from(&table_path())
+}
+
+/// Test seam: load from an explicit path instead of the shared location.
+/// Duplicate service names collapse to the first row — the table
+/// invariant is one row per name, and a hand-edited/corrupted file must
+/// not hand readers a state writers can't reason about.
+pub fn load_from(path: &std::path::Path) -> Vec<ServiceRecord> {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Vec::new(),
+        Err(_) => return Vec::new(),
+    };
+    let mut rows: Vec<ServiceRecord> = serde_json::from_str(&text).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    rows.retain(|r| seen.insert(r.name.clone()));
+    rows
+}
+
+/// Persist the process table atomically (temp file + rename, same contract
+/// as `SusiConfig::save` — a torn write must never leave an empty file for
+/// concurrent readers).
+pub fn save(records: &[ServiceRecord]) -> EaiResult<()> {
+    save_to(&table_path(), records)
+}
+
+/// Atomic read-modify-write on the shared table, serialized across
+/// processes by the same lockfile primitive the commit ledger uses.
+/// Without it, `susi services stop` can load, mutate, and save while the
+/// supervisor does the same — whichever writes last wins, and an
+/// operator's stop flag is silently clobbered by the monitor's pass.
+/// The closure sees the freshly loaded table; its mutations are what
+/// gets persisted.
+pub fn update_with<R>(f: impl FnOnce(&mut Vec<ServiceRecord>) -> R) -> EaiResult<R> {
+    let path = table_path();
+    let Some(_lock) = path
+        .parent()
+        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "services"))
+    else {
+        return Err(EaiError::filesystem(
+            "service table lock unavailable — possible wedged holder or extreme contention",
+        ));
+    };
+    let mut table = load();
+    let out = f(&mut table);
+    save(&table)?;
+    Ok(out)
+}
+
+/// Test seam: save to an explicit path instead of the shared location.
+pub fn save_to(path: &std::path::Path, records: &[ServiceRecord]) -> EaiResult<()> {
+    let body = serde_json::to_string_pretty(records)
+        .map_err(|e| EaiError::internal(format!("serialize service table: {e}")))?;
+    crate::susi_config::atomic_write_bytes(path, body.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("persist {}: {e}", path.display())))
+}
+
+/// Upsert a record by service name; returns the stored record.
+pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16) -> ServiceRecord {
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
+    // One row per name — a table restored from a corrupted file could
+    // carry duplicates; absorb them into the first and drop the rest
+    // so the invariant is repaired, not just respected.
+    let mut seen = false;
+    let mut updated: Option<ServiceRecord> = None;
+    records.retain_mut(|r| {
+        if r.name != name {
+            return true;
+        }
+        if seen {
+            return false;
+        }
+        seen = true;
+        r.pid = pid;
+        r.port = port;
+        r.started_at = now;
+        r.restarts = r.restarts.saturating_add(1);
+        r.disabled_until = None;
+        r.external = false;
+        r.stopped = false;
+        updated = Some(r.clone());
+        true
+    });
+    if let Some(rec) = updated {
+        return rec;
+    }
+    let rec = ServiceRecord {
+        name: name.to_string(),
+        pid,
+        port,
+        started_at: now,
+        restarts: 0,
+        disabled_until: None,
+        external: false,
+        stopped: false,
+    };
+    records.push(rec.clone());
+    rec
+}
+
+/// Record a service whose port is bound by a process the daemon did not
+/// spawn. `pid` is best-effort (`pid_for_port` may not identify the
+/// holder — `0` means unknown). External rows keep `restarts` at 0 and
+/// are replaced by a supervised row if the supervisor ever takes over.
+pub fn record_external(
+    records: &mut Vec<ServiceRecord>,
+    name: &str,
+    pid: u32,
+    port: u16,
+) -> ServiceRecord {
+    let now = susi_paths::unix_epoch_elapsed().as_secs();
+    let rec = ServiceRecord {
+        name: name.to_string(),
+        pid,
+        port,
+        started_at: now,
+        restarts: 0,
+        disabled_until: None,
+        external: true,
+        stopped: false,
+    };
+    // Same one-row-per-name repair as `record`: overwrite the first
+    // same-named row and drop any duplicates a corrupted table carried.
+    let mut seen = false;
+    records.retain_mut(|r| {
+        if r.name != name {
+            return true;
+        }
+        if seen {
+            return false;
+        }
+        seen = true;
+        *r = rec.clone();
+        true
+    });
+    if !seen {
+        records.push(rec.clone());
+    }
+    rec
+}
+
+/// Remove a record by service name; true when something was removed.
+pub fn remove(records: &mut Vec<ServiceRecord>, name: &str) -> bool {
+    let before = records.len();
+    records.retain(|r| r.name != name);
+    records.len() != before
+}
+
+/// TCP liveness probe: the leaf services are all `axum` HTTP listeners, so
+/// a successful connect to `127.0.0.1:port` is the health contract.
+pub fn probe(port: u16) -> bool {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+/// HTTP liveness probe — strictly stronger than `probe`: a listener can
+/// accept TCP while its request handler is wedged (deadlocked runtime,
+/// starved worker pool). Any HTTP response — even a 404 — proves the
+/// routing layer answers requests. Leaf services all serve axum, so
+/// `GET /` always elicits a status line.
+pub fn http_probe(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
+    if stream
+        .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut buf = [0u8; 16];
+    match stream.read(&mut buf) {
+        Ok(n) => buf[..n].starts_with(b"HTTP/"),
+        Err(_) => false,
+    }
+}
+
+/// Whether `pid` refers to a live process. `/proc` on Linux; `kill -0`
+/// elsewhere on unix; the process object on Windows; conservatively "alive"
+/// where none of them answers — a false "dead" would make the supervisor
+/// respawn a healthy service.
+pub fn pid_alive(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if !PathBuf::from(format!("/proc/{pid}")).is_dir() {
+            return false;
+        }
+        // A zombie still has a /proc dir but cannot serve or hold
+        // anything — read the state field (the char after the last ')'
+        // in `pid (comm) state ...`; comm itself may contain parens).
+        // Unreadable stat keeps the conservative "alive" answer.
+        fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit(')').next().map(|tail| tail.to_string()))
+            .and_then(|tail| tail.trim().chars().next())
+            .map(|state| state != 'Z')
+            .unwrap_or(true)
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(true)
+    }
+    #[cfg(windows)]
+    {
+        // Asked of the process object itself rather than by spawning
+        // `tasklist` on every supervision tick; an unknowable answer keeps the
+        // conservative "alive" above so a healthy service is never respawned
+        // over a probe failure.
+        crate::susi_config::process_probe::pid_alive(pid).unwrap_or(true)
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+/// Identify the pid holding a localhost TCP port, when the OS lets us.
+/// Linux: the socket inode comes from `/proc/net/tcp{,6}` (local_address
+/// port match, state LISTEN), then `/proc/*/fd` is scanned for the
+/// `socket:[inode]` symlink. Windows: the LISTENING row of
+/// `netstat -ano -p tcp`. macOS and other unixes: `lsof` restricted to
+/// TCP listeners. `None` when the holder is unreadable — callers must
+/// tolerate an unknown owner.
+#[cfg(target_os = "linux")]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let hex_port = format!("{port:04X}");
+    let mut inode = String::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = fs::read_to_string(table) else {
+            continue;
+        };
+        for line in text.lines().skip(1) {
+            let mut cols = line.split_whitespace();
+            let _idx = cols.next();
+            let Some(local) = cols.next() else {
+                continue;
+            };
+            let Some((_ip, p)) = local.rsplit_once(':') else {
+                continue;
+            };
+            if p != hex_port {
+                continue;
+            }
+            // Columns: sl local_address rem_address st ... inode — field 3
+            // is state (0A = LISTEN), field 9 the socket inode.
+            let _remote = cols.next();
+            let state = cols.next().unwrap_or("");
+            if state != "0A" {
+                continue;
+            }
+            inode = line.split_whitespace().nth(9).unwrap_or("").to_string();
+            break;
+        }
+        if !inode.is_empty() {
+            break;
+        }
+    }
+    if inode.is_empty() {
+        return None;
+    }
+    let needle = format!("socket:[{inode}]");
+    let proc = PathBuf::from("/proc");
+    for entry in fs::read_dir(&proc).ok()?.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+        let Ok(fds) = fs::read_dir(entry.path().join("fd")) else {
+            continue;
+        };
+        for fd in fds.flatten() {
+            if fs::read_link(fd.path())
+                .map(|t| t.to_string_lossy() == needle)
+                .unwrap_or(false)
+            {
+                return name.parse::<u32>().ok();
+            }
+        }
+    }
+    None
+}
+
+/// Windows: the owner of the LISTENING row for `port` in `netstat -ano`.
+#[cfg(windows)]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let mut cmd = susi_paths::console::background_command("netstat");
+    cmd.args(["-ano", "-p", "tcp"]);
+    let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
+    parse_netstat_owners(&out.stdout, &[port], false)
+        .into_iter()
+        .next()
+}
+
+/// macOS and other unixes: `lsof -t` limited to TCP listeners on `port`
+/// (a client connected *to* the port is not its owner).
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let mut cmd = std::process::Command::new("lsof");
+    cmd.args(["-nP", "-t", &format!("-iTCP:{port}"), "-sTCP:LISTEN"]);
+    let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|line| line.trim().parse::<u32>().ok().filter(|pid| *pid != 0))
+}
+
+/// No port-owner source on this platform.
+#[cfg(not(any(unix, windows)))]
+pub fn pid_for_port(_port: u16) -> Option<u32> {
+    None
+}
+
+/// Bound on one port-owner lookup (`netstat`, `lsof`).
+#[cfg(any(windows, all(unix, not(target_os = "linux"))))]
+const PORT_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Parse Windows `netstat -ano` output for the pids that own `ports`: TCP
+/// rows in `LISTENING` state (`Proto Local Foreign State PID`), and, when
+/// `include_udp`, UDP rows (`Proto Local Foreign PID`; UDP has no state).
+/// The local address column ends `:port`; a matching foreign address never
+/// counts, and pid 0 (the idle process) is never an owner.
+pub fn parse_netstat_owners(stdout: &[u8], ports: &[u16], include_udp: bool) -> Vec<u32> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut pids = Vec::new();
+    for line in text.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        let pid_col = match cols.first() {
+            Some(proto) if proto.eq_ignore_ascii_case("tcp") => {
+                if cols.len() < 5 || !cols[3].eq_ignore_ascii_case("LISTENING") {
+                    continue;
+                }
+                4
+            }
+            Some(proto) if include_udp && proto.eq_ignore_ascii_case("udp") => {
+                if cols.len() < 4 {
+                    continue;
+                }
+                3
+            }
+            Some(_) | None => continue,
+        };
+        let Some((_addr, port)) = cols[1].rsplit_once(':') else {
+            continue;
+        };
+        let Ok(port) = port.parse::<u16>() else {
+            continue;
+        };
+        let Ok(pid) = cols[pid_col].parse::<u32>() else {
+            continue;
+        };
+        if pid != 0 && ports.contains(&port) && !pids.contains(&pid) {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// Resident set size of `pid` in KiB — the footprint column for service
+/// tables: `VmRSS` from `/proc/<pid>/status` on Linux, the working set on
+/// Windows (`susi_config::process_probe`, which Windows used to lack, so the
+/// column was always empty there). `None` when the pid is dead, unreadable,
+/// or the platform has no source.
+pub fn rss_kb(pid: u32) -> Option<u64> {
+    crate::susi_config::process_probe::rss_kb(pid)
+}
+
+/// A snapshot of every leaf service with its live health — what the
+/// `services` CLI and `os_services` tool render. Supervision metadata comes
+/// from the table when present; health is always probed live.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceStatus {
+    /// Leaf service name.
+    pub name: String,
+    /// Effective port.
+    pub port: u16,
+    /// Supervised pid, when the daemon owns one.
+    pub pid: Option<u32>,
+    /// Restart count while supervised.
+    pub restarts: u32,
+    /// Unix seconds the supervised process was spawned at, when known.
+    pub started_at: Option<u64>,
+    /// Live TCP probe result.
+    pub up: bool,
+    /// True when the port is bound by a process the daemon does not own.
+    #[serde(default)]
+    pub external: bool,
+    /// True when the operator stopped the service — the supervisor holds
+    /// it down until `susi services start`.
+    #[serde(default)]
+    pub stopped: bool,
+}
+
+impl ServiceStatus {
+    /// Human uptime for a supervised process ("3d2h", "4h12m", "90s");
+    /// "-" when the service was never supervised or `started_at` is in
+    /// the future (clock skew — never panic on timestamps).
+    pub fn uptime(&self) -> String {
+        let Some(start) = self.started_at else {
+            return "-".to_string();
+        };
+        let now = susi_paths::unix_epoch_elapsed().as_secs();
+        let secs = now.saturating_sub(start);
+        if secs >= 86400 {
+            format!("{}d{}h", secs / 86400, (secs % 86400) / 3600)
+        } else if secs >= 3600 {
+            format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
+        } else if secs >= 60 {
+            format!("{}m{}s", secs / 60, secs % 60)
+        } else {
+            format!("{secs}s")
+        }
+    }
+
+    /// Human resident memory for the process behind `pid` ("84.2 MiB",
+    /// "612 KiB"); "-" when no supervised pid exists or the OS won't
+    /// tell us — never invent a number for an unreadable process.
+    pub fn rss(&self) -> String {
+        match self.pid.and_then(rss_kb) {
+            Some(kb) if kb >= 1024 => format!("{:.1} MiB", kb as f64 / 1024.0),
+            Some(kb) => format!("{kb} KiB"),
+            None => "-".to_string(),
+        }
+    }
+}
+
+/// Snapshot all leaf services: probe each port, join with table records.
+pub fn status() -> Vec<ServiceStatus> {
+    let table: BTreeMap<String, ServiceRecord> =
+        load().into_iter().map(|r| (r.name.clone(), r)).collect();
+    // Probe every port at once: on Windows a connect to a port nobody holds
+    // is refused only after SYN retries, so each down service costs the full
+    // probe timeout and five in sequence made `susi services` take ~1.6 s.
+    let up: Vec<bool> = std::thread::scope(|scope| {
+        let probes: Vec<_> = LEAF_SERVICES
+            .iter()
+            .map(|svc| scope.spawn(move || probe(svc.port())))
+            .collect();
+        probes
+            .into_iter()
+            .map(|probe| probe.join().unwrap_or(false))
+            .collect()
+    });
+    LEAF_SERVICES
+        .iter()
+        .zip(up)
+        .map(|(svc, up)| {
+            let rec = table.get(svc.name);
+            ServiceStatus {
+                name: svc.name.to_string(),
+                port: svc.port(),
+                // External rows may carry pid 0 when the holder couldn't
+                // be identified — render unknown, not a bogus "pid 0".
+                pid: rec.and_then(|r| {
+                    if r.external && r.pid == 0 {
+                        None
+                    } else {
+                        Some(r.pid)
+                    }
+                }),
+                restarts: rec.map(|r| r.restarts).unwrap_or(0),
+                started_at: rec.map(|r| r.started_at),
+                up,
+                external: rec.map(|r| r.external).unwrap_or(false),
+                stopped: rec.map(|r| r.stopped).unwrap_or(false),
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Port resolution reads process env and the instance's `ports.json`
+    /// (`SUSI_PORT_OFFSET`, `SUSI_HOME`, `HOME`). Tests that resolve a leaf
+    /// port hold the shared env lock and run under a private empty home, so
+    /// no concurrent test (nor a live daemon on the machine) can change the
+    /// answer between two reads.
+    fn isolated_ports() -> (
+        std::sync::MutexGuard<'static, ()>,
+        susi_paths::test_env::EnvGuard,
+        PathBuf,
+    ) {
+        let lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("susi_svc_ports_{}", std::process::id()));
+        fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &home);
+        (lock, env, home)
+    }
+
+    #[test]
+    fn table_round_trip_and_upsert() {
+        let dir = std::env::temp_dir().join(format!("susi_svc_table_{}", std::process::id()));
+        let path = dir.join("services.json");
+        let _ = fs::remove_dir_all(&dir);
+
+        let mut records = Vec::new();
+        let r1 = record(&mut records, "susi-native", 4242, 18084);
+        assert_eq!(r1.restarts, 0);
+        save_to(&path, &records).unwrap();
+        let loaded = load_from(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].pid, 4242);
+
+        // Upsert bumps restarts and replaces the pid.
+        let mut loaded = loaded;
+        let r2 = record(&mut loaded, "susi-native", 5555, 18084);
+        assert_eq!(r2.pid, 5555);
+        assert_eq!(r2.restarts, 1);
+        assert_eq!(loaded.len(), 1);
+
+        assert!(remove(&mut loaded, "susi-native"));
+        assert!(!remove(&mut loaded, "susi-native"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn leaf_ports_ride_the_instance_offset() {
+        // With no per-service env override, every leaf port is
+        // default + the resolved instance offset — what the daemon probes
+        // and what the spawned child binds must be the same number.
+        let (_lock, _env, home) = isolated_ports();
+        let offset = crate::susi_config::SusiConfig::load_global()
+            .map(|c| c.port_offset())
+            .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
+        for svc in LEAF_SERVICES {
+            if std::env::var_os(svc.port_env).is_some() {
+                continue; // explicit env wins — assert only the offset path
+            }
+            assert_eq!(
+                svc.port(),
+                svc.default_port.saturating_add(offset),
+                "{} must ride the uniform offset",
+                svc.name
+            );
+        }
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn corrupt_table_reads_as_empty() {
+        let dir = std::env::temp_dir().join(format!("susi_svc_corrupt_{}", std::process::id()));
+        let path = dir.join("services.json");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, "{not json").unwrap();
+        assert!(load_from(&path).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rss_kb_reads_self_and_none_for_dead() {
+        assert!(rss_kb(std::process::id()).is_some_and(|kb| kb > 0));
+        assert_eq!(rss_kb(4_000_000), None);
+    }
+
+    #[test]
+    fn pid_alive_detects_self_and_dead() {
+        assert!(pid_alive(std::process::id()));
+        // pid 1 always exists on unix; an implausible pid must read dead.
+        assert!(!pid_alive(4_000_000));
+    }
+
+    #[test]
+    fn pid_for_port_finds_a_listener_we_own() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let found = pid_for_port(port);
+        // Linux and macOS always name the owner of our own listener.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert_eq!(found, Some(std::process::id()));
+        // Windows names it whenever the host's TCP table shows the socket
+        // with its owner. A process in an isolated network compartment
+        // (some sandboxes) sees its listener missing from `netstat`, or
+        // every listener with owner 0; then no owner may be invented.
+        #[cfg(windows)]
+        {
+            let table = susi_paths::console::background_command("netstat")
+                .args(["-ano", "-p", "tcp"])
+                .output()
+                .unwrap();
+            let suffix = format!(":{port}");
+            let owner_visible = String::from_utf8_lossy(&table.stdout).lines().any(|l| {
+                let cols: Vec<&str> = l.split_whitespace().collect();
+                cols.len() >= 5 && cols[1].ends_with(&suffix) && cols[4] != "0"
+            });
+            if owner_visible {
+                assert_eq!(found, Some(std::process::id()));
+            } else {
+                eprintln!("netstat hides this listener's owner here; asserting no invented owner");
+                assert!(found.is_none());
+            }
+        }
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+        assert!(found.is_none());
+        // An unbound high port must not produce a bogus owner.
+        assert!(pid_for_port(1).is_none() || probe(1));
+    }
+
+    #[test]
+    fn netstat_owners_read_tcp_listeners_and_optionally_udp() {
+        let sample = b"
+Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:9090           0.0.0.0:0              LISTENING       4242
+  TCP    127.0.0.1:50000        127.0.0.1:9090         ESTABLISHED     777
+  TCP    [::]:9093              [::]:0                 LISTENING       4243
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       0
+  UDP    0.0.0.0:9092           *:*                                    4244
+  UDP    [::]:5353              *:*                                    99
+";
+        assert_eq!(
+            parse_netstat_owners(sample, &[9090, 9093, 9092], false),
+            vec![4242, 4243]
+        );
+        assert_eq!(
+            parse_netstat_owners(sample, &[9090, 9092], true),
+            vec![4242, 4244]
+        );
+        // A client whose *foreign* port matches is never an owner, and the
+        // idle process (pid 0) never is either.
+        assert!(parse_netstat_owners(sample, &[50001, 135], true).is_empty());
+    }
+
+    #[test]
+    fn record_external_marks_row_and_supervised_record_replaces_it() {
+        let mut records = Vec::new();
+        let ext = record_external(&mut records, "susi-native", 0, 18084);
+        assert!(ext.external);
+        assert_eq!(ext.restarts, 0);
+        // A supervised spawn upserts over the external row — the daemon's
+        // own child replaces the observed one, external flag cleared.
+        let owned = record(&mut records, "susi-native", 7777, 18084);
+        assert!(!owned.external);
+        assert_eq!(owned.pid, 7777);
+        assert_eq!(records.len(), 1);
+    }
+
+    #[test]
+    fn leaf_registry_covers_five_services_in_boot_order() {
+        assert_eq!(LEAF_SERVICES.len(), 5);
+        assert_eq!(LEAF_SERVICES[0].name, "susi-paths");
+        assert_eq!(LEAF_SERVICES[4].name, "susi-native");
+        assert!(leaf_service("susi-config").is_some());
+        assert!(leaf_service("nope").is_none());
+        // 18084 shifted by the instance offset (`SUSI_PORT_OFFSET`, set on a
+        // dev/second instance and inherited by `cargo test`).
+        let (_lock, _env, home) = isolated_ports();
+        assert_eq!(
+            leaf_service("susi-native").map(|s| s.port()),
+            Some(susi_paths::ports::effective(18084))
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn probe_reports_closed_port() {
+        // 9 is the discard port; nothing sane binds it in a test env.
+        assert!(!probe(9));
+    }
+
+    #[test]
+    fn http_probe_distinguishes_serving_from_listening() {
+        use std::io::{Read, Write};
+        // A bare TCP listener that accepts but never speaks HTTP fails
+        // the HTTP probe while passing the TCP one — the wedge case the
+        // monitor must catch.
+        let wedged = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = wedged.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for s in wedged.incoming().flatten() {
+                let mut s = s;
+                let mut buf = [0u8; 64];
+                let _ = s.read(&mut buf);
+                // Never answer — wedged handler.
+            }
+        });
+        assert!(probe(port), "TCP probe sees the listener");
+        assert!(!http_probe(port), "HTTP probe must see through the wedge");
+
+        // A minimal HTTP responder passes both. It reads the request before
+        // replying, as every HTTP server does: closing a socket whose request
+        // is still unread resets the connection, and Windows then discards a
+        // reply the client has not read yet, so the probe failed under load
+        // on the fixture rather than on the probe.
+        let serving = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = serving.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for s in serving.incoming().flatten() {
+                let mut s = s;
+                let mut request = Vec::new();
+                let mut buf = [0u8; 256];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let _ = s.write_all(b"HTTP/1.0 404 Not Found\r\n\r\n");
+            }
+        });
+        assert!(http_probe(port), "any HTTP status line counts as alive");
+    }
+
+    mod prop_tests {
+        use super::*;
+
+        fn next_u64(state: &mut u64) -> u64 {
+            *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = *state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
+        }
+
+        fn gen_name(state: &mut u64) -> String {
+            const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz-";
+            let len = 1 + ((next_u64(state) % 16) as usize);
+            (0..len)
+                .map(|_| ALPHABET[(next_u64(state) as usize) % ALPHABET.len()] as char)
+                .collect()
+        }
+
+        fn gen_record(state: &mut u64) -> ServiceRecord {
+            let has_disabled = (next_u64(state) & 1) == 1;
+            ServiceRecord {
+                name: gen_name(state),
+                pid: next_u64(state) as u32,
+                port: next_u64(state) as u16,
+                started_at: next_u64(state),
+                restarts: next_u64(state) as u32,
+                disabled_until: if has_disabled {
+                    Some(next_u64(state))
+                } else {
+                    None
+                },
+                external: (next_u64(state) & 1) == 1,
+                stopped: (next_u64(state) & 1) == 1,
+            }
+        }
+
+        fn gen_table(state: &mut u64, max_len: usize) -> Vec<ServiceRecord> {
+            let len = (next_u64(state) as usize) % max_len;
+            (0..len).map(|_| gen_record(state)).collect()
+        }
+
+        #[test]
+        fn save_load_round_trips_any_table() {
+            let mut state = 0x1111_2222_3333_4444_u64;
+            let dir = std::env::temp_dir().join(format!(
+                "susi_svc_prop_{}_{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let path = dir.join("services.json");
+            for case in 0..256_usize {
+                let mut records = gen_table(&mut state, 8);
+                if case % 4 == 0 && !records.is_empty() {
+                    let mut dup = gen_record(&mut state);
+                    dup.name = records[0].name.clone();
+                    records.push(dup);
+                }
+                save_to(&path, &records).expect("save");
+                let loaded = load_from(&path);
+                let mut deduped = records.clone();
+                let mut seen = std::collections::HashSet::new();
+                deduped.retain(|r| seen.insert(r.name.clone()));
+                assert_eq!(loaded, deduped);
+            }
+            let _ = fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn record_keeps_one_row_per_name() {
+            let mut state = 0x5555_6666_7777_8888_u64;
+            for _ in 0..512 {
+                let name = gen_name(&mut state);
+                let pid_count = 1 + ((next_u64(&mut state) % 5) as usize);
+                let port = next_u64(&mut state) as u16;
+                let mut table = Vec::new();
+                for i in 0..pid_count {
+                    let pid = next_u64(&mut state) as u32;
+                    let rec = record(&mut table, &name, pid, port);
+                    assert_eq!(rec.pid, pid);
+                    assert_eq!(rec.restarts as usize, i);
+                }
+                assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+            }
+        }
+
+        #[test]
+        fn record_external_overwrites_to_external() {
+            let mut state = 0x9999_aaaa_bbbb_cccc_u64;
+            for case in 0..512_usize {
+                let mut table = gen_table(&mut state, 6);
+                let name = if case % 2 == 0 && !table.is_empty() {
+                    table[0].name.clone()
+                } else {
+                    gen_name(&mut state)
+                };
+                let pid = next_u64(&mut state) as u32;
+                let port = next_u64(&mut state) as u16;
+                let rec = record_external(&mut table, &name, pid, port);
+                assert!(rec.external);
+                assert_eq!(rec.restarts, 0);
+                assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+                assert_eq!(
+                    table.iter().find(|r| r.name == name).map(|r| r.external),
+                    Some(true)
+                );
+            }
+        }
+
+        #[test]
+        fn remove_is_total_and_idempotent() {
+            let mut state = 0xdddd_eeee_ffff_0001_u64;
+            for case in 0..512_usize {
+                let mut table = gen_table(&mut state, 8);
+                let name = if case % 2 == 0 && !table.is_empty() {
+                    table[0].name.clone()
+                } else {
+                    gen_name(&mut state)
+                };
+                let present = table.iter().any(|r| r.name == name);
+                assert_eq!(remove(&mut table, &name), present);
+                assert!(!table.iter().any(|r| r.name == name));
+                assert!(!remove(&mut table, &name));
+            }
+        }
+    }
+}

@@ -1,0 +1,289 @@
+//! Durable management of the top developer/agent-focused cloud models.
+//! Catalog ranks are editorial (coding + agents), not chatbot popularity.
+//!
+//! # Where config lives
+//!
+//! - **Catalog list** — extension pack: host
+//!   `~/.susi/extensions/<pack>/coding-models.json` overrides the bundled
+//!   [`config/coding-models.json`](../../../config/coding-models.json)
+//!   (see `config/README.md`).
+//! - **Per-model overrides** — flat host dir `~/.susi/coding-models/<id>.json`
+//!   (engine / model id / api_key_env). Pack files do not replace this path.
+//!
+//! Paid probe / `HttpProvider` construction lives in the engines crate
+//! (`susi_gemi::coding_models_ext`) so this models crate never depends on engines.
+use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use serde_json::Value;
+#[cfg(test)]
+use std::fs;
+use susi_error::EaiResult as Result;
+
+use crate::catalog;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodingModelDefinition {
+    pub id: String,
+    pub name: String,
+    pub rank: u8,
+    pub documentation: String,
+    pub engine: String,
+    /// Provider API model id (overridable via host configure).
+    pub model: String,
+    #[serde(default)]
+    pub protocol_type: String,
+    #[serde(default)]
+    pub api_key_env: String,
+}
+
+crate::catalog::cloud_model_controls!(
+    CodingModelManager,
+    CodingModelDefinition,
+    CodingModelOverride,
+    CodingModelEndpoint,
+    "coding"
+);
+
+crate::catalog::local_catalog!(
+    CodingModelManager,
+    with_config,
+    CodingModelDefinition,
+    "coding-models",
+    "coding-models.json",
+    "unknown coding model {id}; use `susi models list`",
+    |model, id| model.id == id || model.name.eq_ignore_ascii_case(id)
+);
+
+impl CodingModelManager {
+    pub fn effective(&self, id: &str) -> Result<CodingModelDefinition> {
+        let def = Self::definition(id)?;
+        def.with_stored_override(&self.root)
+    }
+
+    pub fn configure(&self, id: &str, over: &CodingModelOverride) -> Result<CodingModelDefinition> {
+        let def = Self::definition(id)?;
+        let mut merged: CodingModelOverride =
+            catalog::read_override(&self.root, &def.id, "invalid coding-model override")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        merged.engine = over.engine.clone().or(merged.engine);
+        merged.model = over.model.clone().or(merged.model);
+        merged.protocol_type = over.protocol_type.clone().or(merged.protocol_type);
+        merged.api_key_env = over.api_key_env.clone().or(merged.api_key_env);
+        merged.extra.extend(over.extra.clone());
+        crate::susi_config::write_json_override(&self.root, &def.id, &merged)?;
+        self.effective(&def.id)
+    }
+
+    /// Local readiness only — does not call a paid model.
+    pub fn preflight(&self, id: &str) -> Result<String> {
+        let def = self.effective(id)?;
+        catalog::preflight(&def.engine, &def.api_key_env, true)?;
+        Ok(format!(
+            "endpoint {} ready; model id {}; credentials present",
+            def.engine, def.model
+        ))
+    }
+
+    pub fn prefer(&self, id: &str) -> Result<String> {
+        let def = self.effective(id)?;
+        self.preflight(&def.id)?;
+        crate::susi_config::create_private_dir(&susi_paths::SusiDirs::config_dir())?;
+        let prefer = susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
+        crate::susi_config::atomic_write_bytes(&prefer, def.id.as_bytes())?;
+        // Also set the runtime override to the provider model id for cloud routing.
+        crate::ModelManager::set_selected_model(&def.model)?;
+        Ok(format!(
+            "preferred coding model set to {} (api id {})",
+            def.id, def.model
+        ))
+    }
+
+    pub fn preferred(&self) -> Option<String> {
+        catalog::preferred(&susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt"))
+    }
+
+    /// Zero-config: if no preferred coding model is set, prefer the best-ranked
+    /// catalog entry whose endpoint + credentials are ready.
+    pub fn auto_prefer_best_ready(&self) -> Result<Option<String>> {
+        if let Some(existing) = self.preferred() {
+            // Refresh selection if still ready; otherwise fall through to pick another.
+            if self.preflight(&existing).is_ok() {
+                return Ok(Some(existing));
+            }
+        }
+        let mut catalog = Self::catalog()?;
+        catalog.sort_by_key(|m| m.rank);
+        for def in catalog {
+            if self.preflight(&def.id).is_err() {
+                continue;
+            }
+            self.prefer(&def.id)?;
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[AUTO] Preferred coding model `{}`", def.id);
+            }
+            return Ok(Some(def.id));
+        }
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ranked_coding_models_catalog() {
+        let catalog = CodingModelManager::catalog().unwrap();
+        assert_eq!(catalog.len(), 11);
+        for (i, m) in catalog.iter().enumerate() {
+            assert_eq!(m.rank as usize, i + 1);
+            m.validate().unwrap();
+            assert!(!m.model.is_empty());
+            assert!(!m.engine.is_empty());
+        }
+        assert_eq!(
+            CodingModelManager::definition("Claude Opus").unwrap().id,
+            "claude-opus"
+        );
+        assert_eq!(
+            CodingModelManager::definition("openrouter").unwrap().engine,
+            "OpenRouter"
+        );
+        assert_eq!(
+            CodingModelManager::definition("llama-4").unwrap().engine,
+            "OpenRouter"
+        );
+    }
+
+    #[test]
+    fn host_override_and_reset() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-coding-model-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let manager = CodingModelManager::with_config(root.clone());
+        let updated = manager
+            .configure(
+                "gpt-5",
+                &CodingModelOverride {
+                    engine: None,
+                    model: Some("gpt-5.4".into()),
+                    protocol_type: None,
+                    api_key_env: None,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.model, "gpt-5.4");
+        assert_eq!(manager.effective("gpt-5").unwrap().model, "gpt-5.4");
+        assert_eq!(manager.reset("gpt-5").unwrap().model, "gpt-5");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn coding_model_definition_validate_enforces_nonempty_fields_and_env_identifier_syntax() {
+        let base = CodingModelDefinition {
+            id: "claude-opus".to_string(),
+            name: "Claude Opus".to_string(),
+            rank: 1,
+            documentation: "https://docs.anthropic.com".to_string(),
+            engine: "Anthropic".to_string(),
+            model: "claude-opus-4-6".to_string(),
+            protocol_type: "anthropic".to_string(),
+            api_key_env: String::new(),
+        };
+        assert!(base.validate().is_ok());
+
+        let mut valid_env = base.clone();
+        valid_env.api_key_env = "ANTHROPIC_API_KEY_2".to_string();
+        assert!(valid_env.validate().is_ok());
+
+        for bad_id in ["", "   "] {
+            let mut d = base.clone();
+            d.id = bad_id.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_engine in ["", " \t "] {
+            let mut d = base.clone();
+            d.engine = bad_engine.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_model in ["", "  "] {
+            let mut d = base.clone();
+            d.model = bad_model.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_env in ["BAD-ENV-NAME", "KEY=VAL", "SPACE VAR", "KEY$1"] {
+            let mut d = base.clone();
+            d.api_key_env = bad_env.to_string();
+            let err = d.validate().unwrap_err().to_string();
+            assert!(err.contains("api_key_env must name an environment variable"));
+        }
+    }
+
+    #[test]
+    fn coding_model_manager_definition_resolves_id_and_case_insensitive_name_and_reports_unknown() {
+        let by_id = CodingModelManager::definition("claude-opus").unwrap();
+        let by_upper_name = CodingModelManager::definition("CLAUDE OPUS").unwrap();
+        assert_eq!(by_id.id, "claude-opus");
+        assert_eq!(by_upper_name.id, "claude-opus");
+        assert_eq!(by_id.model, by_upper_name.model);
+
+        let err = CodingModelManager::definition("unknown-coding-model-xyz")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("susi models list"));
+    }
+
+    #[test]
+    fn mandate_35_configure_preserves_unknown_extra_fields_and_effective_rejects_invalid_env() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-coding-model-m35-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let override_path = root.join("gpt-5.json");
+        fs::write(
+            &override_path,
+            r#"{"model":"gpt-5.1","custom_tier":"enterprise","routing_weight":10}"#,
+        )
+        .unwrap();
+
+        let manager = CodingModelManager::with_config(root.clone());
+        let updated = manager
+            .configure(
+                "gpt-5",
+                &CodingModelOverride {
+                    model: Some("gpt-5.5".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.model, "gpt-5.5");
+
+        let raw: Value =
+            serde_json::from_slice(&fs::read(&override_path).unwrap()).expect("valid json");
+        assert_eq!(raw["model"], "gpt-5.5");
+        assert_eq!(raw["custom_tier"], "enterprise");
+        assert_eq!(raw["routing_weight"], 10);
+
+        // Invalid api_key_env in host override must be rejected by effective()
+        fs::write(
+            &override_path,
+            r#"{"model":"gpt-5.5","api_key_env":"BAD-ENV-NAME"}"#,
+        )
+        .unwrap();
+        assert!(manager.effective("gpt-5").is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+}

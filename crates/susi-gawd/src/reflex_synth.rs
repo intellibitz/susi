@@ -1,0 +1,384 @@
+// SUSI Reflex Synthesizer
+// Test-Driven Evolution Substrate, implementing identity.json Mandate 20's
+// Alpha-Self Evolution Order (Motion -> Architecture -> Structure -> Logic) —
+// not the unrelated release-gate "Motion Rule" (Pillar IV item 3); this file
+// predates the renaming that split those two concepts apart and originally
+// called this one "Motion Rule Protocol" too, exactly the collision
+// Mandate 20's own note warns about.
+
+use crate::susi_error::{EaiError, EaiResult};
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+pub struct ReflexSynthesizer;
+
+/// Basename-only slug for reflex files — rejects `..`, separators, and
+/// non-identifier characters that could escape the reflexes directory.
+fn sanitize_reflex_slug(intent: &str) -> EaiResult<String> {
+    let slug = intent.trim().replace(' ', "_").to_lowercase();
+    if slug.is_empty() {
+        return Err(EaiError::protocol("Reflex intent cannot be empty"));
+    }
+    if slug.contains("..") || slug.contains('/') || slug.contains('\\') {
+        return Err(EaiError::filesystem(
+            "Reflex intent must not contain path separators or '..'",
+        ));
+    }
+    if !slug
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(EaiError::filesystem(
+            "Reflex intent must be alphanumeric/underscore/dash only after normalization",
+        ));
+    }
+    Ok(slug)
+}
+
+/// A check run on the staged module before it is published.
+type StagedCheck = dyn Fn(&Path) -> Result<(), String>;
+
+/// A reflex slug for free text: lowercase ASCII alphanumerics, every other
+/// run of characters collapsed to `_`, at most 48 chars; `None` when
+/// nothing alphanumeric remains.
+#[must_use]
+pub fn slug_for(text: &str) -> Option<String> {
+    let mut slug = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.ends_with('_') && !slug.is_empty() {
+            slug.push('_');
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('_').to_string();
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// Where a reflex `<slug>.wasm` is published.
+#[must_use]
+pub fn reflex_path(slug: &str) -> std::path::PathBuf {
+    susi_paths::SusiDirs::data_dir()
+        .join("reflexes")
+        .join(format!("{slug}.wasm"))
+}
+
+/// A reflex registers only when the intent's own checks pass under the
+/// sandbox, not merely when it executes on one fixed probe (VC-200-002).
+///
+/// Result of [`ReflexSynthesizer::synthesize_capability`].
+#[derive(Debug, Clone)]
+pub struct ReflexSynthesis {
+    /// Published `reflexes/<slug>.wasm`.
+    pub path: String,
+    /// `true`: model-written, compiled and run on a probe input.
+    /// `false`: the signature-echo probe reflex (capability not implemented).
+    pub functional: bool,
+    /// Why the functional attempt failed, when `functional` is `false`.
+    pub note: Option<String>,
+}
+
+/// First fenced code block (```rust / ```rs / ```) in `reply`.
+fn extract_rust_block(reply: &str) -> Option<String> {
+    let start = reply.find("```")?;
+    let after = &reply[start + 3..];
+    let body_start = after.find('\n')? + 1;
+    let body = &after[body_start..];
+    let end = body.find("```")?;
+    let code = body[..end].trim();
+    (!code.is_empty()).then(|| code.to_string())
+}
+
+impl ReflexSynthesizer {
+    /// Synthesizes and compiles a WASI reflex that can be hot-loaded by
+    /// `ToolRegistry::execute_tool` (the `reflex_<name>` convention) without a
+    /// daemon restart — the concrete mechanism behind roadmap.json's VC-200-002
+    /// "Autonomous Trait Patching" vector. Output is derived from the reflex's
+    /// runtime argument (FNV-1a signature), not a hardcoded constant, so two
+    /// different calls are verifiably not just replaying the same canned value.
+    ///
+    /// Requires the `wasm32-wasip1` rustup target (`rustup target add
+    /// wasm32-wasip1`); compilation failure is returned as an `Err`, never
+    /// silently swallowed, so callers can tell a real patch from a missing
+    /// toolchain component.
+    pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
+        let slug = sanitize_reflex_slug(intent)?;
+        let path = Self::compile_and_publish(&slug, &Self::generate_reflex_source(intent), None)?;
+        Ok(path.to_string_lossy().to_string())
+    }
+
+    /// Close a capability gap for real when possible: ask the local model for
+    /// a std-only program implementing `intent` (input = argv[1], result on
+    /// stdout); publish it only if the source parses, compiles to
+    /// `wasm32-wasip1`, and runs successfully on a probe input under the
+    /// `susi-native` WASI sandbox. Otherwise fall back to the probe reflex,
+    /// keeping why the functional attempt failed.
+    ///
+    /// # Errors
+    /// Invalid intent slug, or both the functional and the probe build fail.
+    pub fn synthesize_capability(intent: &str, workspace: &Path) -> EaiResult<ReflexSynthesis> {
+        Self::synthesize_capability_for(intent, intent, workspace)
+    }
+
+    /// [`synthesize_capability`](Self::synthesize_capability) with a reflex
+    /// `name` (must be a valid slug) separate from the free-text
+    /// `description` the model implements -- used when the gap is a
+    /// recurring mission intent rather than a missing tool name.
+    ///
+    /// # Errors
+    /// Invalid `name`, or both the functional and the probe build fail.
+    pub fn synthesize_capability_for(
+        name: &str,
+        description: &str,
+        workspace: &Path,
+    ) -> EaiResult<ReflexSynthesis> {
+        let intent = name;
+        let slug = sanitize_reflex_slug(name)?;
+        let functional = Self::model_reflex_source(description, workspace).and_then(|src| {
+            // VC-200-002: execution is not correctness — the staged module
+            // must also satisfy the intent's own checks (fixtures + any
+            // declared invariants) under the WASI sandbox before it may
+            // publish under a live name. An intent the model cannot
+            // produce checks for is unverifiable → stays unregistered.
+            let spec = Self::model_intent_spec(description, workspace)?;
+            let independent_probe = spec.fixtures.first().and_then(|fixture| {
+                fixture
+                    .expected
+                    .as_ref()
+                    .or(fixture.expect_contains.as_ref())
+                    .map(|expected| crate::reflex_intent::IntentFixture {
+                        input: fixture.input.clone(),
+                        expect_action: expected.clone(),
+                    })
+            });
+            let verify = move |staged: &Path| -> Result<(), String> {
+                let run = |input: &str| -> Result<String, String> {
+                    crate::susi_native::WasmHost::execute_reflex(staged, input)
+                        .map_err(|e| format!("reflex failed to execute: {e}"))
+                        .and_then(|out| {
+                            if out.trim().is_empty() {
+                                Err("reflex produced no output".to_string())
+                            } else {
+                                Ok(out)
+                            }
+                        })
+                };
+                crate::reflex_verify::run_checks(&spec, &run)?;
+                if let Some(fixture) = &independent_probe {
+                    let verdict = crate::reflex_intent::probe_compiled_reflex(staged, fixture);
+                    match verdict {
+                        crate::reflex_intent::ReflexVerdict::Accept => Ok(()),
+                        crate::reflex_intent::ReflexVerdict::RejectMalformed
+                        | crate::reflex_intent::ReflexVerdict::RejectCompilation
+                        | crate::reflex_intent::ReflexVerdict::RejectExecution
+                        | crate::reflex_intent::ReflexVerdict::RejectSignatureEcho
+                        | crate::reflex_intent::ReflexVerdict::RejectWrongOutput => {
+                            Err(format!("independent reflex probe failed: {verdict:?}"))
+                        }
+                    }
+                } else {
+                    Ok(())
+                }
+            };
+            Self::compile_and_publish(&slug, &src, Some(&verify))
+        });
+        match functional {
+            Ok(path) => Ok(ReflexSynthesis {
+                path: path.to_string_lossy().to_string(),
+                functional: true,
+                note: None,
+            }),
+            Err(why) => {
+                let path = Self::synthesize_wasm_reflex(intent, workspace)?;
+                Ok(ReflexSynthesis {
+                    path,
+                    functional: false,
+                    note: Some(why.to_string()),
+                })
+            }
+        }
+    }
+
+    /// Model-written reflex source for `intent`: the first fenced Rust block
+    /// of the reply, required to parse and to define `fn main`.
+    fn model_reflex_source(intent: &str, workspace: &Path) -> EaiResult<String> {
+        let prompt = format!(
+            "Write a complete, self-contained Rust program using only the standard library \
+             (no external crates, no networking, no filesystem access) for the \
+             wasm32-wasip1 target that implements: {intent}\n\
+             Read the input from the first command-line argument \
+             (std::env::args().nth(1)) and print the result to stdout. \
+             Reply with the program in a single ```rust code block."
+        );
+        let reply = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
+        let source = extract_rust_block(&reply)
+            .ok_or_else(|| EaiError::inference("model reply contained no Rust code block"))?;
+        let valid = susi_vendor_syn::is_valid_rust_checked(&source).map_err(EaiError::inference)?;
+        if !valid || !source.contains("fn main") {
+            return Err(EaiError::inference(
+                "model-written reflex is not a valid Rust program with fn main",
+            ));
+        }
+        Ok(source)
+    }
+
+    /// The intent's executable check set: ask the model for concrete
+    /// input → expected-output fixtures (plus any VC-201-008 invariants it
+    /// can declare) as a fenced `json` block. `Err` when the model cannot
+    /// produce a verifiable spec — an intent without checks is not
+    /// verifiable, so the reflex stays unregistered and the gap open.
+    fn model_intent_spec(
+        intent: &str,
+        workspace: &Path,
+    ) -> EaiResult<crate::reflex_verify::IntentSpec> {
+        let prompt = format!(
+            "For a self-contained std-only Rust program implementing: {intent}\n\
+             The program reads its input from argv[1] and prints the result to stdout.\n\
+             Reply with ONLY a ```json block — the verification spec: \
+             {{\"fixtures\": [{{\"input\": \"<arg>\", \"expected\": \"<exact stdout>\"}}, \
+             ...at least 3 concrete cases...], \"invariants\": []}}. \
+             Use \"expected\" for exact trimmed output or \"expect_contains\" for a \
+             required substring. No prose, no code."
+        );
+        let reply = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
+        let json = extract_rust_block(&reply).ok_or_else(|| {
+            EaiError::inference("model reply contained no JSON verification spec")
+        })?;
+        crate::reflex_verify::parse_intent_spec(&json).ok_or_else(|| {
+            EaiError::inference(
+                "model produced no usable intent-check spec — reflex is unverifiable",
+            )
+        })
+    }
+
+    /// Write `source`, compile it to a private staging name, optionally run
+    /// `verify` on the staged module, then rename it into the live
+    /// `reflexes/<slug>.wasm` name. `ToolRegistry` executes every
+    /// `reflexes/*.wasm`, so nothing unverified or half-written is ever
+    /// visible under a live name.
+    fn compile_and_publish(
+        slug: &str,
+        source: &str,
+        verify: Option<&StagedCheck>,
+    ) -> EaiResult<std::path::PathBuf> {
+        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
+        let _ = fs::create_dir_all(&reflex_dir);
+        let wasm_src = reflex_dir.join(format!("{slug}.rs"));
+        fs::write(&wasm_src, source)?;
+        let wasm_out = reflex_dir.join(format!("{slug}.wasm"));
+        let staged = reflex_dir.join(format!("{slug}.wasm.{}.tmp", std::process::id()));
+        // Mandate 42: non-UTF8 paths are errors, never panics.
+        let staged_str = staged.to_str().ok_or_else(|| {
+            EaiError::process(format!(
+                "WASM output path is not valid UTF-8: {}",
+                wasm_out.display()
+            ))
+        })?;
+        let src_str = wasm_src.to_str().ok_or_else(|| {
+            EaiError::process(format!(
+                "WASM source path is not valid UTF-8: {}",
+                wasm_src.display()
+            ))
+        })?;
+        let cleanup_unsynthesized_src = || {
+            if !wasm_out.exists() {
+                let _ = fs::remove_file(&wasm_src);
+            }
+        };
+        let output = Command::new("rustc")
+            .args(["--target", "wasm32-wasip1", "-O", "-o", staged_str, src_str])
+            .output()
+            .map_err(|e| {
+                let _ = fs::remove_file(&staged);
+                cleanup_unsynthesized_src();
+                EaiError::process(format!("rustc invocation failed: {e}"))
+            })?;
+        if !output.status.success() {
+            let _ = fs::remove_file(&staged);
+            cleanup_unsynthesized_src();
+            return Err(EaiError::process(format!(
+                "WASM compilation failed (is the wasm32-wasip1 rustup target installed? \
+                 `rustup target add wasm32-wasip1`): {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        if let Some(verify) = verify {
+            if let Err(why) = verify(&staged) {
+                let _ = fs::remove_file(&staged);
+                cleanup_unsynthesized_src();
+                return Err(EaiError::process(why));
+            }
+        }
+        if let Err(e) = fs::rename(&staged, &wasm_out) {
+            let _ = fs::remove_file(&staged);
+            cleanup_unsynthesized_src();
+            return Err(EaiError::filesystem(format!(
+                "publish reflex {}: {e}",
+                wasm_out.display()
+            )));
+        }
+        Ok(wasm_out)
+    }
+
+    /// The one user-facing report of a capability-gap attempt (Mandate 1):
+    /// a model-written reflex is reported as compiled and verified against
+    /// the intent's own checks in the WASI sandbox; a probe reflex is
+    /// reported as not implementing the capability at all.
+    pub fn gap_report(name: &str, outcome: &EaiResult<ReflexSynthesis>) -> String {
+        match outcome {
+            Ok(r) if r.functional => format!(
+                "[HOT_PATCH] Synthesized a model-written WASI reflex for '{name}' at {} \
+                 (callable as 'reflex_{name}'). It compiled and passed the intent's \
+                 own fixtures and invariants under the WASI sandbox.",
+                r.path
+            ),
+            Ok(r) => format!(
+                "[HOT_PATCH] Compiled a probe WASI reflex for '{name}' at {} \
+                 (callable as 'reflex_{name}'). It verifies the hot-load path and returns an \
+                 input signature only; it does not implement '{name}', so the capability \
+                 gap remains open.{}",
+                r.path,
+                r.note
+                    .as_ref()
+                    .map(|n| format!(" Functional synthesis failed: {n}"))
+                    .unwrap_or_default()
+            ),
+            Err(e) => {
+                format!("[CAPABILITY_GAP] '{name}' unresolved: reflex synthesis failed ({e}).")
+            }
+        }
+    }
+
+    fn generate_reflex_source(intent: &str) -> String {
+        let intent_literal = format!("{:?}", intent);
+        format!(
+            "// SUSI Synthesized WASI Reflex\n\
+            // Autonomous hot-patch generated to close a capability gap without a\n\
+            // daemon restart. Signature is derived from the runtime argument, so\n\
+            // output is verifiably input-dependent rather than a hardcoded stub.\n\
+            fn main() {{\n\
+                const INTENT: &str = {intent_literal};\n\
+                let arg = std::env::args().nth(1).unwrap_or_default();\n\
+                let mut hash: u64 = 0xcbf29ce484222325;\n\
+                for byte in arg.bytes().chain(INTENT.bytes()) {{\n\
+                    hash ^= byte as u64;\n\
+                    hash = hash.wrapping_mul(0x100000001b3);\n\
+                }}\n\
+                println!(\"[REFLEX:{{}}] input={{}} signature={{:016x}}\", INTENT, arg, hash);\n\
+            }}\n",
+            intent_literal = intent_literal
+        )
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/reflex_synth.rs"]
+mod tests;

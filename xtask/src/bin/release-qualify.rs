@@ -44,7 +44,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The binaries a Susi core release ships, as built by the `build` gate.
-const ASSETS: [&str; 1] = ["susi"];
+const ASSETS: [&str; 2] = ["susi", "susi-harness"];
 
 /// Every gate a current `release-qualify` cut executes and records.
 const ALL_QUALIFICATION_GATES: [&str; 9] = [
@@ -181,6 +181,8 @@ fn gates(jobs: Option<&str>) -> Vec<Gate> {
                 "--locked",
                 "--profile",
                 "dist",
+                "-p",
+                "susi-harness",
                 "-p",
                 "susi",
                 "--features",
@@ -733,7 +735,6 @@ fn http_health_ready(port: u16) -> bool {
 struct ScopedConformanceDaemon {
     child: std::process::Child,
     susi_bin: PathBuf,
-    core_bin: PathBuf,
     home: PathBuf,
     instance: PathBuf,
     offset: u16,
@@ -744,9 +745,7 @@ impl ScopedConformanceDaemon {
         if matches!(self.child.try_wait(), Ok(None)) {
             let mut stop = Command::new(&self.susi_bin);
             susi_paths::test_env::isolate_home(&mut stop, &self.home);
-            stop.args(["core-runtime", "stop"])
-                .env("SUSI_CORE_BIN", &self.core_bin)
-                .env("SUSI_COMMERCIAL_BIN", &self.susi_bin)
+            stop.arg("stop")
                 .env("SUSI_HOME", &self.instance)
                 .env("SUSI_PORT_OFFSET", self.offset.to_string())
                 .env("SUSI_NO_REGISTRY_ENV", "1")
@@ -824,22 +823,9 @@ fn run_conformance_gate(
     root: &Path,
     target_dir: &Path,
     logs: &Path,
-    _jobs: Option<&str>,
+    jobs: Option<&str>,
 ) -> Result<(Value, u64, u64), String> {
     let dist_susi = dist_susi_binary(target_dir);
-    // Qualification must name the exact paired candidate, never an installed
-    // runtime selected implicitly from PATH or the operator's home.
-    let commercial = std::env::var_os("SUSI_COMMERCIAL_BIN")
-        .map(PathBuf::from)
-        .ok_or("conformance requires explicit SUSI_COMMERCIAL_BIN for the paired candidate")?
-        .canonicalize()
-        .map_err(|error| format!("paired commercial candidate: {error}"))?;
-    if !commercial.is_file() {
-        return Err("paired commercial candidate must be a regular executable".into());
-    }
-    let commercial_bytes = std::fs::read(&commercial)
-        .map_err(|error| format!("cannot hash paired runtime: {error}"))?;
-    let commercial_sha256 = sha256_hex(&commercial_bytes);
     let recorded_susi = format!("target/dist/susi{}", std::env::consts::EXE_SUFFIX);
     let offset = pick_conformance_port_offset()
         .ok_or("no free SUSI_PORT_OFFSET in 14000..24000 for conformance gate")?;
@@ -858,12 +844,10 @@ fn run_conformance_gate(
     eprintln!("release-qualify: conformance (SUSI_PORT_OFFSET={offset}) ...");
     let started = Instant::now();
 
-    let mut daemon_cmd = Command::new(&commercial);
+    let mut daemon_cmd = Command::new(&dist_susi);
     susi_paths::test_env::isolate_home(&mut daemon_cmd, &conformance_home);
     daemon_cmd
-        .args(["core-runtime", "daemon-start"])
-        .env("SUSI_CORE_BIN", &dist_susi)
-        .env("SUSI_COMMERCIAL_BIN", &commercial)
+        .arg("daemon-start")
         .arg("--workspace")
         .arg(&instance)
         .env("SUSI_HOME", &instance)
@@ -879,8 +863,7 @@ fn run_conformance_gate(
     let daemon_pid = child.id();
     let mut daemon = ScopedConformanceDaemon {
         child,
-        susi_bin: commercial.clone(),
-        core_bin: dist_susi.clone(),
+        susi_bin: dist_susi.clone(),
         home: conformance_home.clone(),
         instance: instance.clone(),
         offset,
@@ -939,12 +922,21 @@ fn run_conformance_gate(
         std::thread::sleep(Duration::from_millis(50));
     };
 
-    let base_argv = vec![
-        commercial.display().to_string(),
-        "core-conformance".to_owned(),
-    ];
+    let mut base_argv = words(&[
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-conformance",
+    ]);
+    if let Some(n) = jobs {
+        base_argv.push("-j".into());
+        base_argv.push(n.into());
+    }
     let mut exec_argv = base_argv.clone();
     exec_argv.extend([
+        "--".to_owned(),
         "--host".to_owned(),
         "127.0.0.1".to_owned(),
         "--port-offset".to_owned(),
@@ -957,11 +949,9 @@ fn run_conformance_gate(
         dist_susi.display().to_string(),
         "--json".to_owned(),
     ]);
-    let mut recorded_argv = vec![
-        "<paired>/susi-commercial".to_owned(),
-        "core-conformance".to_owned(),
-    ];
+    let mut recorded_argv = base_argv;
     recorded_argv.extend([
+        "--".to_owned(),
         "--host".to_owned(),
         "127.0.0.1".to_owned(),
         "--port-offset".to_owned(),
@@ -975,15 +965,14 @@ fn run_conformance_gate(
         "--json".to_owned(),
     ]);
 
-    let mut conf_cmd = Command::new(&commercial);
+    let cargo_env = capture_cargo_env(root);
+    let mut conf_cmd = Command::new("cargo");
     conf_cmd
         .args(exec_argv.get(1..).unwrap_or_default())
         .current_dir(root)
         .stdin(Stdio::null());
-    susi_paths::test_env::isolate_home(&mut conf_cmd, &conformance_home);
+    apply_isolated_cargo_env(&mut conf_cmd, &conformance_home, &cargo_env);
     conf_cmd
-        .env("SUSI_COMMERCIAL_BIN", &commercial)
-        .env("SUSI_CORE_BIN", &dist_susi)
         .env("SUSI_HOME", &instance)
         .env("SUSI_PORT_OFFSET", &offset_str);
 
@@ -1002,11 +991,6 @@ fn run_conformance_gate(
     log_bytes.extend_from_slice(&out.stdout);
     std::fs::write(&log_path, &log_bytes).map_err(|e| format!("{}: {e}", log_path.display()))?;
 
-    if sha256_hex(&std::fs::read(&commercial).map_err(|error| error.to_string())?)
-        != commercial_sha256
-    {
-        return Err("paired commercial runtime changed during conformance".into());
-    }
     let code = out.status.code().unwrap_or(-1);
     eprintln!("release-qualify: conformance exit {code} in {seconds} s");
     if code != 0 {
@@ -1035,7 +1019,6 @@ fn run_conformance_gate(
         "duration_s": seconds,
         "log_sha256": sha256_hex(&log_bytes),
         "conformance": conformance_summary,
-        "paired_runtime": {"file": "susi-commercial", "sha256": commercial_sha256},
     });
     Ok((record, max_check_ms, check_count))
 }

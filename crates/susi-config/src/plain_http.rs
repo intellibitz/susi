@@ -179,6 +179,18 @@ impl Stream for TcpStream {
     }
 }
 
+impl Stream for crate::peer_channel_link::ChannelStream {
+    fn read_within(&mut self, left: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(left));
+        Ok(())
+    }
+
+    /// A channel write is bounded by its link's socket write timeout.
+    fn write_within(&mut self, _left: Duration) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Validate the method, URL and headers of a request.
 fn check_request(method: &str, url: &str, headers: &[(&str, &str)]) -> Result<Target, String> {
     if method.is_empty() || !method.bytes().all(|b| b.is_ascii_uppercase()) {

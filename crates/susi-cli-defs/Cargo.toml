@@ -1,0 +1,13 @@
+[package]
+name = "susi-cli-defs"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Dependency-light clap CLI surface definitions shared by susi and susi-cli (D-SP-4)."
+
+[dependencies]
+clap = { package = "susi-vendor-clap", path = "../susi-vendor-clap" }
+
+[lints]
+workspace = true

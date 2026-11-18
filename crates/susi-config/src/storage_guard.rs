@@ -464,7 +464,14 @@ fn try_call(
     if let Some(result) = tests::fixture::dispatch(name, arguments, cwd) {
         return result.map(Some);
     }
-    crate::config_bridge::try_call(name, arguments, cwd)
+    let client = crate::mcp_client::ClientInfo {
+        name: "susi-storage-guard",
+        version: env!("CARGO_PKG_VERSION"),
+    };
+    Ok(
+        crate::mcp_session::try_call_reply_with_info(name, arguments, cwd, client)?
+            .map(|reply| reply.result),
+    )
 }
 
 #[cfg(test)]

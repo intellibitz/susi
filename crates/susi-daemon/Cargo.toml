@@ -1,14 +1,48 @@
 [package]
 name = "susi-daemon"
-version = "0.21.72"
-edition = "2021"
+version = "0.21.71"
 license = "Apache-2.0"
-publish = false
-autobins = false
+edition = "2024"
 
 [dependencies]
+susi-abi = { workspace = true }
+susi-sandbox-client = { workspace = true }
+susi-config = { workspace = true }
+susi-error = { workspace = true }
+susi-paths = { workspace = true }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 susi-core = { workspace = true }
+# Host runtime without pillar dependencies; compiles beside the pillars.
+susi-daemon-runtime = { workspace = true }
+susi-gemi = { workspace = true }
+susi-gawd = { workspace = true }
+# The A2A port (9094 + offset) is served from here: susi-gawd does not
+# depend on the A2A tier, so it compiles in parallel with the HTTP stack.
+susi-gawd-a2a = { workspace = true }
+susi-gmcp = { workspace = true }
+susi-server = { workspace = true }
+susi-tools = { workspace = true }
+susi-http-transport = { workspace = true }
+susi-vendor-wasmtime = { workspace = true }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+
+[features]
+default = []
+tools-rich = ["susi-gmcp/tools-rich"]
+local-engine = ["susi-gemi/local-engine"]
+
+[dev-dependencies]
+# test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio", features = ["test-util"] }
+
+[target."cfg(windows)".dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [lints]
 workspace = true

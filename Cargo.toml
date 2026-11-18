@@ -5,6 +5,7 @@ members = [
     "crates/susi-abi",
     "crates/susi-paths",
     "crates/susi-build-os-ucrt",
+    "crates/susi-cli-defs",
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
@@ -12,7 +13,13 @@ members = [
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
     "crates/susi-config",
+    "crates/susi-leaf-services",
+    "crates/susi-daemon-runtime",
+    "crates/susi-sandbox-client",
+    "crates/susi-http-transport",
+    "crates/susi-conformance",
     "crates/susi-wire-client",
+    "crates/susi-adapters-llm",
     "crates/susi-tools",
     "crates/susi-gemi-models",
     "crates/susi-gemi",
@@ -21,8 +28,7 @@ members = [
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
     "crates/susi-gawd-acp",
-    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon",
-    "crates/susi-harness",
+    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
     "crates/susi-vendor-ed25519-dalek",
@@ -46,7 +52,7 @@ exclude = ["vendor"]
 [package]
 name = "susi"
 default-run = "susi"
-version = "0.21.72"
+version = "0.21.71"
 edition = "2021"
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
 license = "Apache-2.0"
@@ -100,17 +106,20 @@ complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
+susi-cli-defs = { path = "crates/susi-cli-defs" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-native-client = { path = "crates/susi-native-client" }
+susi-sandbox-client = { path = "crates/susi-sandbox-client" }
+susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
+susi-adapters-llm = { path = "crates/susi-adapters-llm" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
 susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
-susi-harness = { path = "crates/susi-harness" }
 susi-gawd-agents = { path = "crates/susi-gawd-agents" }
 susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
 susi-gawd-acp = { path = "crates/susi-gawd-acp" }
@@ -118,9 +127,12 @@ susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
 susi-tools = { path = "crates/susi-tools" }
+susi-server = { path = "crates/susi-server" }
 susi-paths = { path = "crates/susi-paths" }
 susi-error = { path = "crates/susi-error" }
 susi-config = { path = "crates/susi-config" }
+susi-leaf-services = { path = "crates/susi-leaf-services", features = ["all-services"] }
+susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
@@ -136,15 +148,28 @@ susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 
 [dependencies]
+susi-daemon = { path = "crates/susi-daemon", default-features = false }
+susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
+susi-sandbox-client = { workspace = true }
+susi-gemi = { workspace = true }
+susi-gmcp = { workspace = true }
+susi-gawd-a2a = { workspace = true }
+susi-gawd = { workspace = true }
+susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
+susi-cli-defs = { workspace = true }
+susi-wire-client = { workspace = true }
+susi-leaf-services = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
+tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
+tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-windows-runtime = { workspace = true }
 
@@ -162,9 +187,18 @@ idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 native-tls = { path = "vendor/native-tls" }
 hashbrown = { path = "vendor/hashbrown" }
-# Concrete model/tool feature selection belongs to the commercial runtime.
+# CPU inference is portable. Metal remains an explicit platform feature.
+# CUDA/MKL are retired: their foreign implementation/license requirements
+# fail the product gates. Unknown feature requests fail instead of falling back.
 [features]
 default = []
+metal = ["susi-gemi/metal"]
+# Bulk specialist tools (browser, full-text index, embeddings, syn AST).
+tools-rich = ["susi-daemon/tools-rich", "susi-gmcp/tools-rich"]
+# Built-in Candle local model engine. Off in the default protocol socket.
+local-engine = ["susi-gemi/local-engine", "susi-daemon/local-engine"]
+# Opt-in bundle of the pieces the default core leaves out.
+plugins = ["tools-rich", "local-engine"]
 
 [profile.release]
 # Optimized builds: `cargo local-build production` and the installer's

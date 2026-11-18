@@ -2,7 +2,7 @@
 // Build scripts are not production runtime modules: a failed invariant must
 // abort the build loudly, so panic-on-error is the intended failure mode here.
 #![allow(missing_docs)]
-//! Root package build script: native link policy and agent-ledger version sync.
+//! Root package build script: GPU feature warning + agent-ledger version sync.
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -19,6 +19,7 @@ mod console;
 fn main() {
     susi_build_os_ucrt::configure_all_bins()
         .expect("Windows OS-UCRT boundary configuration failed");
+    warn_if_gpu_available_but_unused();
     enable_repository_hooks();
 
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");
@@ -128,4 +129,32 @@ fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
     fs::write(&tmp, contents)?;
     fs::rename(&tmp, path)
+}
+
+/// Report the selected CPU backend when an NVIDIA device is present.
+/// GPU acceleration is optional and requires separate platform, toolchain,
+/// license and runtime qualification; device detection is not that evidence.
+fn warn_if_gpu_available_but_unused() {
+    if env::var_os("CARGO_FEATURE_METAL").is_some() {
+        return;
+    }
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        return;
+    }
+
+    let has_nvidia_gpu = console::background_command("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false);
+
+    if has_nvidia_gpu {
+        println!(
+            "cargo:warning=NVIDIA GPU detected; this build uses CPU inference. \
+             The supported native local CPU workflow is `cargo local-build debug` or \
+             `cargo local-build production`. CUDA/MKL product features are retired because \
+             their dependencies fail license/native-code gates. Hardware discovery remains \
+             available, and external model providers may use their own GPU implementations."
+        );
+    }
 }

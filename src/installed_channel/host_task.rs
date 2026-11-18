@@ -151,7 +151,7 @@ pub(super) fn run(request: super::transaction::Request<'_>) -> Result<String> {
 }
 
 pub(super) fn schedule(executable: &Path, arguments: &str) -> Result<String> {
-    let name = format!("{PREFIX}{}", susi_config::random_nonce_hex());
+    let name = format!("{PREFIX}{}", susi_config::cluster_key::random_nonce_hex());
     let scratch = std::env::temp_dir().join(&name);
     fs::create_dir(&scratch)?;
     let directory = scratch.canonicalize()?;

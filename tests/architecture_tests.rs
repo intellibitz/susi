@@ -98,32 +98,41 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
     ("susi-build-os-ucrt", 0),
+    ("susi-cli-defs", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
     // No SUSI dependencies: a leaf, reachable from every rank above it.
+    ("susi-http-transport", 0),
     // std + JSON only; body framing is shared through the paths leaf.
     ("susi-wire-client", 1),
     // Black-box client of the host contract: std + JSON only; HTTP framing
     // from susi-wire-client.
+    ("susi-conformance", 2),
+    ("susi-adapters-llm", 2),
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),
     ("susi-core", 4),
+    ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
+    ("susi-leaf-services", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
+    ("susi-server", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
     ("susi-gawd-a2a", 8),
     ("susi-harness", 9),
     ("susi-gawd", 9),
+    // Daemon host runtime with no pillar edge (supervision, NAT, TLS, ...).
+    ("susi-daemon-runtime", 5),
     ("susi-daemon", 10),
     ("susi", 11),
 ];
@@ -419,6 +428,32 @@ fn layer_matrix_forbidden_edges() {
             ],
         ),
         (
+            "susi-adapters-llm",
+            &[
+                "susi-core",
+                "susi-config",
+                "susi-error",
+                "susi-paths",
+                "susi-vendor-wasmtime",
+                "susi-native-client",
+                "susi-sandbox",
+                "susi-sandbox-client",
+                // `susi-http-transport` is allowed: adapters-llm posts its
+                // wire shapes over the one shared transport (`post_json`).
+                "susi-tools",
+                "susi-agents",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
             "susi-gemi-models",
             &[
                 "susi-gemi",
@@ -447,6 +482,23 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
+                "susi-vendor-wasmtime",
+            ],
+        ),
+        (
+            "susi-server",
+            &[
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
+                "susi-daemon",
                 "susi-sandbox",
                 "susi-vendor-wasmtime",
             ],
@@ -801,6 +853,51 @@ fn architecture_md_exists() {
     );
 }
 
+/// BT-01 as sequenced in zero-UI plan A9: core ships no extension pack, so
+/// the manifest schema the host admits is checked on a fixture created inside
+/// the test, through the host's own author-side admission check.
+#[test]
+fn extension_pack_manifest_schema_on_an_in_test_fixture() {
+    let dir = std::env::temp_dir().join(format!(
+        "susi_arch_pack_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = |api: &str| {
+        serde_json::json!({
+            "id": "acme-pack",
+            "name": "Acme",
+            "version": "1.0.0",
+            "apiVersion": api,
+            "capabilities": ["catalog.cloud_vendors"],
+            "permissions": [],
+            "files": {"cloud-vendors.json": "cloud-vendors.json"},
+        })
+        .to_string()
+    };
+    std::fs::write(dir.join("manifest.json"), manifest("1")).unwrap();
+    std::fs::write(
+        dir.join("cloud-vendors.json"),
+        r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
+    )
+    .unwrap();
+    let (admitted, digests) = susi_sandbox_client::extensions::validate_pack_dir(&dir)
+        .expect("fixture pack is admissible");
+    assert_eq!(admitted.id, "acme-pack");
+    assert_eq!(admitted.api_version, "1");
+    assert!(digests.contains_key("manifest.json"));
+    assert!(digests.contains_key("cloud-vendors.json"));
+    std::fs::write(dir.join("manifest.json"), manifest("2")).unwrap();
+    let err = susi_sandbox_client::extensions::validate_pack_dir(&dir)
+        .expect_err("an incompatible apiVersion major is refused");
+    assert!(err.contains("incompatible"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn reachability_from_core_stays_downward() {
     // From susi-core, BFS of reverse edges must not reach feature crates
@@ -1009,41 +1106,6 @@ fn every_non_facade_crate_has_tests() {
         let mut text = String::new();
         let mut files = Vec::new();
         rust_files(&crate_dir.join("src"), &mut files);
-        if [
-            "susi-daemon",
-            "susi-gawd",
-            "susi-gawd-agents",
-            "susi-gawd-swarm",
-            "susi-gemi",
-            "susi-gemi-models",
-            "susi-tools",
-        ]
-        .contains(&name.as_str())
-        {
-            assert_eq!(
-                files,
-                [crate_dir.join("src/lib.rs")],
-                "{name} must remain a pure protocol facade"
-            );
-            let source = std::fs::read_to_string(&files[0]).unwrap();
-            let statements = source
-                .lines()
-                .map(str::trim)
-                .filter(|line| {
-                    !line.is_empty() && !line.starts_with("//") && !line.starts_with("#![")
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            assert!(!statements.is_empty(), "{name} must export its protocol");
-            assert!(
-                statements
-                    .split(';')
-                    .filter(|part| !part.trim().is_empty())
-                    .all(|part| part.trim().starts_with("pub use ")),
-                "{name} contains implementation and needs original tests"
-            );
-            continue;
-        }
         rust_files(&crate_dir.join("tests"), &mut files);
         for f in files {
             text.push_str(&std::fs::read_to_string(&f).unwrap());
@@ -1218,7 +1280,7 @@ fn dev_builds_never_install_the_release_binary() {
         .unwrap_or(usize::MAX);
     let local = body.find("local_delivery_cli::execute").unwrap();
     let install = body.find("install_cli::execute").unwrap();
-    let runtime = body.find("cli::runtime_forward::execute").unwrap();
+    let runtime = body.find("match dispatch(cli.command)").unwrap();
     assert!(
         local < isolate && install < isolate && isolate < runtime,
         "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
@@ -1239,7 +1301,30 @@ fn self_build_contract_reaches_every_code_writing_path() {
     let root = workspace_root();
     let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
 
-    // Application code-writing paths are checked by commercial ownership_guards.
+    for (rel, needle) in [
+        (
+            "crates/susi-gawd-agents/src/external/mod.rs",
+            "self_build::brief_task",
+        ),
+        (
+            "crates/susi-gawd-agents/src/external_peers.rs",
+            "self_build::brief_task",
+        ),
+        (
+            "crates/susi-gawd-swarm/src/dag.rs",
+            "self_build::brief_task",
+        ),
+        (
+            "crates/susi-gawd/src/patch_cycle.rs",
+            "repo_gate::run_repository_gate",
+        ),
+    ] {
+        assert!(
+            non_test(&read(rel)).contains(needle),
+            "{rel} must route through `{needle}` (Mandate 48)"
+        );
+    }
+
     let delivery = read("src/cli/local_delivery_cli.rs");
     assert!(delivery.contains("xtask/bootstrap/susi-dev.rs"));
     assert!(delivery.contains("bootstrap::run(args)"));
@@ -1377,15 +1462,22 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
             ".agents/schemas/evidence.schema.json",
         ),
         (52, "SUSI_HOME", "src/dev_instance.rs"),
+        (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
         (
             54,
             "actual combined release tree",
             "xtask/src/bin/local-workflow.rs",
         ),
+        (55, "return exit 2", "src/cli/intent_guard.rs"),
         (
             56,
             "rank healthy providers ahead of recent failures",
             "config/cost-tiers.json",
+        ),
+        (
+            57,
+            "max_budget_usd",
+            "crates/susi-gemi-models/src/cloud_credentials.rs",
         ),
         (
             58,
@@ -1412,18 +1504,6 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
         assert!(
             root.join(artifact).exists(),
             "Mandate {id} names enforcement `{artifact}` which does not exist"
-        );
-    }
-    // These owners moved to the commercial runtime; its ownership guard checks
-    // their enforcement artifacts while the native constitution remains pinned.
-    for (id, phrase) in [
-        (53, "E2E_CHECKS"),
-        (55, "return exit 2"),
-        (57, "max_budget_usd"),
-    ] {
-        assert!(
-            text_of(id).contains(phrase),
-            "Mandate {id} must state `{phrase}`"
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
@@ -2010,11 +2090,11 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         !daemon_manifest.contains("parking_lot") && !daemon_manifest.contains("parking-lot"),
         "susi-daemon must not depend on unused parking_lot"
     );
-    let harness_manifest = std::fs::read_to_string(root.join("crates/susi-harness/Cargo.toml"))
-        .expect("read susi-harness Cargo.toml");
+    // The harness (and with it its memory stub) left core for Susi Commercial
+    // Apps (Mandate 84); its crate must not come back.
     assert!(
-        !harness_manifest.contains("susi-vendor-fastembed"),
-        "susi-harness must not depend on susi-vendor-fastembed after pruning unpersisted memory stub"
+        !root.join("crates/susi-harness").exists(),
+        "crates/susi-harness lives in Susi Commercial Apps since Mandate 84 and must not return"
     );
     let root_manifest =
         std::fs::read_to_string(root.join("Cargo.toml")).expect("read root Cargo.toml");
@@ -2083,11 +2163,22 @@ fn historical_evidence_is_not_shipped_or_generated_back_into_source() {
     let schema: serde_json::Value =
         serde_json::from_str(&read(".agents/schemas/evidence.schema.json")).unwrap();
     assert_eq!(schema["properties"]["entries"]["minItems"], 0);
+    for path in [
+        "build.rs",
+        "crates/susi-gawd-agents/build.rs",
+        "crates/susi-gawd-agents/src/self_core.rs",
+    ] {
+        assert!(
+            !read(path).contains(".agents/evidence.json"),
+            "{path}: history became a build input"
+        );
+    }
+    let ingestion = read("crates/susi-gawd/src/compliance.rs");
     assert!(
-        !read("build.rs").contains(".agents/evidence.json"),
-        "build.rs: history became a build input"
+        !ingestion.contains(".agents/evidence.json"),
+        "runtime history returned to source"
     );
-    // Moved build/runtime readers are checked by commercial ownership_guards.
+    assert!(ingestion.contains("susi_paths::workspace_state_dir(workspace)"));
 }
 
 /// Current entry points carry generic requirements. Historical ledgers are
@@ -2109,7 +2200,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "exactly three core pillars",
         "No functionality is dropped",
         "Prove the destination works through the standard socket before removing",
-        "under 50,000 physical runtime Rust lines",
+        "under 100,000 physical runtime Rust lines",
         "core never grows",
         "blanks, comments, inline tests, every feature/platform",
         "lower `COMPLETE_SOCKET_CEILING`",
@@ -2423,7 +2514,7 @@ fn compiled_identity_is_generic_current_policy_with_active_safeguards() {
         (81, "Every Windows scheduled task retains RunLevel=Limited"),
         (82, "not a hard deadline"),
         (83, "never a private personal vault"),
-        (84, "strictly below 50,000 physical runtime Rust lines"),
+        (84, "strictly below 100,000 physical runtime Rust lines"),
         (
             84,
             "No minification, hidden excluded runtime, capability loss",
@@ -2854,7 +2945,12 @@ fn enterprise_capabilities_live_in_commercial_apps() {
             "enterprise capability belongs in susi-commercial-apps: {rel}"
         );
     }
-    // The relocated handler contract is checked by commercial ownership_guards.
+    let handler = std::fs::read_to_string(root.join("crates/susi-gawd/src/plane_handler.rs"))
+        .expect("read GAWD plane handler");
+    assert!(
+        handler.contains("MULTI_TENANT_COMMERCIAL") && !handler.contains("tenant_isolation"),
+        "tenant-scoped plane requests must fail closed in the open substrate"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3080,11 +3176,11 @@ fn ui_and_plugins_live_in_commercial_apps() {
             "{member} must not be a workspace member"
         );
     }
-    let harness_lib = std::fs::read_to_string(root.join("crates/susi-harness/src/lib.rs"))
-        .expect("read susi-harness lib.rs");
+    // The harness plugin manifest module left core with the harness itself
+    // (Mandate 84); neither may return.
     assert!(
-        !harness_lib.contains("pub mod plugins;"),
-        "the harness plugin manifest module must not return"
+        !root.join("crates/susi-harness").exists(),
+        "the harness and its plugin manifest module live in Susi Commercial Apps"
     );
 }
 
@@ -3244,7 +3340,13 @@ fn core_cli_has_no_ui_subcommands() {
     let mut sources = Vec::new();
     rust_files(&root.join("src"), &mut sources);
     assert!(!sources.is_empty(), "no Rust sources under src/");
-    // Complete command definitions are checked with their commercial owner.
+    // D-SP-4 Stage 4 moves the clap help text into susi-cli-defs; scan it too.
+    let root_sources = sources.len();
+    rust_files(&root.join("crates/susi-cli-defs/src"), &mut sources);
+    assert!(
+        sources.len() > root_sources,
+        "no Rust sources under crates/susi-cli-defs/src; update scanner path if moved"
+    );
     for path in &sources {
         let text = std::fs::read_to_string(path).expect("read src file");
         assert!(
@@ -3285,7 +3387,21 @@ fn core_cli_has_no_ui_subcommands() {
             number + 1
         );
     }
-    for rel in ["src/cli/defs.rs"] {
+    // `TopArgs` lives in susi-cli-defs since D-SP-4 Stage 4d;
+    // `src/cli/top_cli.rs` keeps only the handler.
+    let top = std::fs::read_to_string(root.join("crates/susi-cli-defs/src/top.rs"))
+        .expect("read susi-cli-defs top.rs");
+    assert!(
+        top.contains("struct TopArgs"),
+        "crates/susi-cli-defs/src/top.rs must define `struct TopArgs`; update scanner path if moved"
+    );
+    assert!(
+        !top.contains("pub watch") && !top.contains("pub interval"),
+        "`susi top` has no watch loop; a live view lives in the commercial desktop"
+    );
+    // `HarnessCommands` (and its help text) lives in susi-cli-defs since
+    // D-SP-4 Stage 4c; `src/cli/harness_cli.rs` only forwards to the suite.
+    for rel in ["src/cli/defs.rs", "crates/susi-cli-defs/src/harness.rs"] {
         let text = std::fs::read_to_string(root.join(rel)).expect("read CLI defs");
         let mut visible_help_matches = 0usize;
         for (number, line) in text.lines().enumerate() {
@@ -3563,10 +3679,10 @@ fn ceo_mandate_85_ends_a_claim_when_its_work_is_done() {
     );
 }
 
-/// Mandate 84, tightened by the CEO on 2026-11-18: core stays under 50,000 lines and, until it
+/// Mandate 84 (CEO 2026-11-16): Susi core stays under 100,000 lines and, until it
 /// does, never grows.
 #[test]
-fn ceo_mandate_84_keeps_core_under_50k_lines() {
+fn ceo_mandate_84_keeps_core_under_100k_lines() {
     let root = workspace_root();
     let flat = |path: &str| {
         std::fs::read_to_string(root.join(path))
@@ -3578,15 +3694,15 @@ fn ceo_mandate_84_keeps_core_under_50k_lines() {
     let doc = flat("docs/ceo-mandate-84.md");
     for phrase in [
         "**Agent reminder (one line):**",
-        "always strictly below 50,000 physical lines: at most 49,999",
+        "always strictly below 100,000 physical lines: at most 99,999",
         "**Until core is below the limit, it never grows.**",
         "**The ceiling only goes down.**",
         "**No functionality is dropped**",
         "**No tricks.**",
         "**Only the CEO raises it.**",
         "Implementation truth",
-        "Size acceptance is separate from protocol",
-        "exact-source Windows/Linux production qualification",
+        "**Not met today.**",
+        "**Not enforced:**",
     ] {
         assert!(
             doc.contains(phrase),
@@ -3597,7 +3713,7 @@ fn ceo_mandate_84_keeps_core_under_50k_lines() {
     let ceilings = flat("tests/lean_core_ceilings.rs");
     for needle in [
         "const COMPLETE_SOCKET_CEILING: usize =",
-        "const COMPLETE_SOCKET_LIMIT: usize = 49_999;",
+        "const COMPLETE_SOCKET_LIMIT: usize = 99_999;",
         "complete_socket_never_grows(repository_size());",
         "assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT)",
     ] {

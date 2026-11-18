@@ -325,7 +325,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let ws = prepare_workspace(&opts)?;
     let cache_state = detect_cache_state(&ws.target_dir);
 
-    // Stage 1: Core Build (`susi` under `--profile fast-release`).
+    // Stage 1: Core Build (`susi` + `susi-harness` under `--profile fast-release`).
     let build_started = Instant::now();
     let (build_fresh_units, build_recompiled_units) = run_build_stage(&ws, &opts)?;
     let build_ms = millis_u64(build_started.elapsed().as_millis());
@@ -688,7 +688,17 @@ fn make_staged_executable(path: &Path) -> Result<(), String> {
 
 fn run_build_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<(usize, usize), String> {
     let mut cmd = base_cargo_command(ws, "build")?;
-    cmd.args(["--message-format=json", "-p", "susi", "--bin", "susi"]);
+    cmd.args([
+        "--message-format=json",
+        "-p",
+        "susi",
+        "--bin",
+        "susi",
+        "-p",
+        "susi-harness",
+        "--bin",
+        "susi-harness",
+    ]);
     if opts.local_engine {
         cmd.args(["--features", "susi/local-engine"]);
     }
@@ -714,12 +724,14 @@ fn run_build_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<(usize, usize), 
     }
 
     let profile_dir = ws.target_dir.join("fast-release");
-    let exe = profile_dir.join(binary_filename("susi"));
-    if !exe.is_file() {
-        return Err(format!(
-            "Stage 1 succeeded but expected candidate executable is missing: {}",
-            exe.display()
-        ));
+    for stem in ["susi", "susi-harness"] {
+        let exe = profile_dir.join(binary_filename(stem));
+        if !exe.is_file() {
+            return Err(format!(
+                "Stage 1 succeeded but expected candidate executable is missing: {}",
+                exe.display()
+            ));
+        }
     }
     Ok((fresh, recompiled))
 }
@@ -1249,7 +1261,7 @@ fn stage_one_binary(
 }
 
 fn stage_and_smoke_verify_binaries(ws: &WorkspaceEnv) -> Result<Vec<DistilledArtifact>, String> {
-    let stems = ["susi"];
+    let stems = ["susi", "susi-harness"];
     let results: Mutex<Vec<(usize, DistilledArtifact)>> = Mutex::new(Vec::new());
     let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
 

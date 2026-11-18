@@ -32,11 +32,11 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use std::net::{TcpListener, UdpSocket};
-    use std::process::Stdio;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
     use std::string::{String, ToString};
     use std::time::{Duration, Instant};
     use std::{format, vec::Vec};
-    use susi_paths::console::background_command;
 
     #[test]
     #[ignore = "helper: plays a daemon that dies while its child lives"]
@@ -51,8 +51,9 @@ mod tests {
         let udp_clone = udp.try_clone().unwrap();
         super::forbid_inheritance(&tcp_clone).unwrap();
         super::forbid_inheritance(&udp_clone).unwrap();
-        let child = background_command("ping")
+        let child = Command::new("ping")
             .args(["-n", "60", "127.0.0.1"])
+            .creation_flags(0x0800_0000)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -79,12 +80,13 @@ mod tests {
             std::process::id()
         ));
         let _ = std::fs::remove_file(&report);
-        let mut daemon = background_command(std::env::current_exe().unwrap())
+        let mut daemon = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
                 "--exact",
                 "socket::tests::daemon_that_dies_with_a_child_alive",
             ])
+            .creation_flags(0x0800_0000)
             .env("SUSI_SOCKFIX_REPORT", &report)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -114,16 +116,18 @@ mod tests {
         struct Reap(u32);
         impl Drop for Reap {
             fn drop(&mut self) {
-                let _ = background_command("taskkill")
+                let _ = Command::new("taskkill")
                     .args(["/F", "/PID", &self.0.to_string()])
+                    .creation_flags(0x0800_0000)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status();
             }
         }
         let _reap = Reap(child);
-        let output = background_command("tasklist")
+        let output = Command::new("tasklist")
             .args(["/FI", &format!("PID eq {child}"), "/FO", "CSV", "/NH"])
+            .creation_flags(0x0800_0000)
             .output()
             .unwrap();
         assert!(output.status.success());

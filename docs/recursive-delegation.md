@@ -76,7 +76,8 @@ turn an unsigned envelope into a scope.
 
 ## Harness supervision and `daemon.harness` bridge (T-AGYCLOUD-2)
 
-`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, `T-CARBONDRIVER-1`) provides
+`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, `T-CARBONDRIVER-1`; in Susi Commercial
+Apps since Mandate 84) provides
 worker isolation sandboxes (`worktree_dir`, `target_dir`, `scratch_home`,
 disjoint 5-port offsets) and content-addressed `susi-recursive-container-v1`
 provenance receipts. `T-AGYCLOUD-2` wires that runtime into production and
@@ -142,7 +143,7 @@ layers it over `susi_core::delegation`:
 
 ```text
 cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry
-cargo test --offline --locked -p susi-harness --lib -- recursive operator
+cargo test --offline --locked -p susi-harness --lib -- recursive operator daemon_ops   # in Susi Commercial Apps
 cargo test --offline --locked -p susi-daemon --lib -- plane_handler
 cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation
 cargo clippy --offline --locked -p susi-core -p susi-harness -p susi-daemon --all-targets -- -D warnings

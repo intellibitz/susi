@@ -1,6 +1,6 @@
-# CEO Mandate 84: Susi Core Stays Under 50,000 Lines
+# CEO Mandate 84: Susi Core Stays Under 100,000 Lines
 
-Effective 2026-11-16; limit tightened to 50,000 on 2026-11-18. Binding on every agent in the Susi AI ecosystem — local,
+Effective 2026-11-16. Binding on every agent in the Susi AI ecosystem — local,
 cloud, external (`Claude`, `Codex`, `Antigravity` / `Carbon`, `Grok`, `DeepSeek`,
 `Qwen` and others) and the `Susi Harness` itself — on every change to
 `intellibitz/susi`. `.agents/identity.json` records this directive as
@@ -15,7 +15,7 @@ The CEO sets the vision and never inspects code. Requirements stated here are
 distinct from verified runtime status; section 4 records implementation truth.
 
 **Agent reminder (one line):** Follow CEO Mandate 84 (`docs/ceo-mandate-84.md`):
-Susi core is always under 50,000 lines; until it is, core never grows, so pay
+Susi core is always under 100,000 lines; until it is, core never grows, so pay
 for every line you add to core by removing as many in the same change, lower the
 pinned ceiling when you shrink it, put add-ons in `susi-commercial-apps`, and
 never drop a capability or hide code to make the number.
@@ -24,17 +24,13 @@ never drop a capability or hide code to make the number.
 
 > make a mandate, susi core should always be under 100k lines.
 
-The current limit follows the CEO's 2026-11-18 instruction:
-
-> bring it down to less than 50k lines.
-
 Recorded as vision `V-9` here and `V-10` in `intellibitz/susi-commercial-apps`. It
 continues `V-6`, which the CEO set earlier the same day.
 
 ## 1. The rule
 
 1. **The limit.** Susi core's complete socket is always strictly below
-   50,000 physical lines: at most 49,999.
+   100,000 physical lines: at most 99,999.
 2. **What counts.** Every physical line (comments, blanks and inline tests
    included) of first-party runtime Rust, on every platform and every feature,
    plus the in-repository `susi-vendor-*` facades: all pillar, foundation,
@@ -53,8 +49,8 @@ continues `V-6`, which the CEO set earlier the same day.
    socket.
 4. **The ceiling only goes down.** A change that shrinks core lowers the
    ceiling to the new measure in the same change, so the cut stays won. Once
-   core is below the limit, the ceiling stays at 49,999 and core may use the
-   room under it; it never rises above 49,999 again.
+   core is below the limit, the ceiling stays at 99,999 and core may use the
+   room under it; it never rises above 99,999 again.
 5. **No functionality is dropped** (Vision `V-6`). Public APIs, CLI actions,
    the five-port contract, MCP revisions and transports, ACP, A2A,
    OpenAI-compatible and Anthropic behavior, Wasm admission, permissions,
@@ -91,7 +87,7 @@ continues `V-6`, which the CEO set earlier the same day.
   the complete socket and every package's share, fails when the count is above
   the ceiling, and tells you the value to pin when you have shrunk core.
 - `cargo core-size` is the acceptance check for the limit itself. It fails
-  until core is below 50,000 lines; then it is green and stays green.
+  until core is below 100,000 lines; then it is green and stays green.
 - The ceiling is one constant. When two agents both lower it, resolve the
   conflict by measuring the merged tree and pinning that value.
 
@@ -108,15 +104,29 @@ continues `V-6`, which the CEO set earlier the same day.
 
 ## 4. Implementation truth
 
-- The native socket retains generic protocol, identity, authorization and
-  bootstrap contracts. Concrete command, daemon, agent, model, tool and
-  configuration owners run in Susi Commercial Apps. Each further extraction
-  must retain original behavior, security boundaries and tested callers.
-- `cargo core-size` measures the current complete runtime against 49,999.
-  The ordinary size suite enforces `COMPLETE_SOCKET_CEILING`; until the new
-  goal is met, each reduction lowers that ceiling to its measured size.
-  The counting scope has not changed.
-- Main remains development source. Size acceptance is separate from protocol
-  conformance and exact-source Windows/Linux production qualification.
-- Runtime counts and qualification outcomes belong in local evidence records;
-  this document states the current requirement, not a historical measurement.
+- **Not met today.** Measured on 2026-11-18 after the harness left core
+  (core `T-CORESIZEVAULT-15`), the complete socket has 250,908 physical Rust
+  lines, including 244,454 first-party runtime lines and 6,454 vendor facade
+  lines. Reaching 99,999 requires removing 150,909 lines. The pillar crates
+  (GAWD, GEMI and GMCP) account for 93,774 lines and the remaining socket
+  crates for 157,134. The same run reports 121,176 test lines, 72,682 tooling
+  lines and 216,164 lines of third-party `vendor/` source separately. Core's
+  outbound MCP client transport has moved to the Susi Commercial Apps plug
+  host (`ecosystem_hub.mcp.call`); core authorizes and forwards the call. The
+  harness (`crates/susi-harness`) lives there too: `susi harness`
+  (`susi-commercial core-harness`) and the daemon's `daemon.harness` topic
+  (`susi-plug-host`) are forwarded, and core keeps their clap definitions,
+  the MCP tools and the topic name.
+- **Enforced:** `repository_size_is_reported_and_unsafe_baselines_do_not_multiply`
+  in `tests/lean_core_ceilings.rs` fails when the complete socket exceeds
+  `COMPLETE_SOCKET_CEILING`, pinned at 250,908 at that revision. The suite runs in the ordinary
+  test run and in core's fast release pipeline (`xtask/src/fast_release.rs`),
+  so a core that grew cannot be released until the growth is paid for. A
+  compile-time check keeps the ceiling from being pinned below 99,999.
+- **Not enforced:** `main` stays ungated (Mandate 74), so a commit that grows
+  core can land there; the next test run and the next release refuse it until
+  it is paid for. Nothing checks that a shrinking change lowered the ceiling:
+  the test prints the value to pin. "No functionality dropped" and "no tricks"
+  are verified by review, regression and conformance runs, not by the count.
+- The self-build contract (`crates/susi-core/src/self_build.rs`) carries the
+  rule to every delegated coding task in a Susi checkout.

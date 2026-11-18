@@ -1,0 +1,335 @@
+//! Test for audit logging choke point (T-DEEPSEEK-108).
+//! Verifies that every state-changing action emits one audit record through one choke point.
+//!
+//! This test exercises:
+//! - Action classification (query vs state-changing)
+//! - Single choke point for all audit emissions
+//! - Audit record structure (action, actor, timestamp, evidence)
+//! - No duplicate emissions or missed actions
+//! - Never delete audit records (Mandate 56)
+
+use std::sync::{Arc, Mutex};
+
+/// Types of actions that change system state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum ActionKind {
+    /// Query - no state change
+    Query,
+    /// Create a new resource
+    Create,
+    /// Update existing resource
+    Update,
+    /// Delete a resource
+    Delete,
+    /// Transition to a new state
+    Transition,
+    /// Admit a new mission
+    AdmitMission,
+    /// Release a resource lease
+    ReleaseLease,
+    /// Record evidence
+    RecordEvidence,
+}
+
+/// Represents one auditable action.
+#[derive(Debug, Clone)]
+pub struct Action {
+    /// Kind of action (determines if audit needed)
+    pub kind: ActionKind,
+    /// Actor who performed the action (e.g., task ID, agent name)
+    pub actor: String,
+    /// Description of what changed
+    pub description: String,
+    /// Timestamp when action occurred
+    pub timestamp_unix: u64,
+}
+
+/// Audit record emitted for state-changing actions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuditRecord {
+    pub action_kind: ActionKind,
+    pub actor: String,
+    pub description: String,
+    pub timestamp_unix: u64,
+    /// Evidence (e.g., hash, signature, trace ID)
+    pub evidence_id: String,
+}
+
+/// The audit choke point: single function through which all audit emissions flow.
+pub struct AuditChokePoint {
+    records: Arc<Mutex<Vec<AuditRecord>>>,
+}
+
+impl AuditChokePoint {
+    pub fn new() -> Self {
+        Self {
+            records: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Central choke point: all state-changing actions must emit through here.
+    /// Queries are silently dropped (no audit needed).
+    pub fn emit(&self, action: &Action) {
+        // Only audit state-changing actions
+        match action.kind {
+            ActionKind::Query => {
+                // No audit for queries
+                return;
+            }
+            ActionKind::Create
+            | ActionKind::Update
+            | ActionKind::Delete
+            | ActionKind::Transition
+            | ActionKind::AdmitMission
+            | ActionKind::ReleaseLease
+            | ActionKind::RecordEvidence => {
+                // All of these must emit a record
+            }
+        }
+
+        let record = AuditRecord {
+            action_kind: action.kind.clone(),
+            actor: action.actor.clone(),
+            description: action.description.clone(),
+            timestamp_unix: action.timestamp_unix,
+            evidence_id: format!("{:x}-{}", action.actor.len(), action.timestamp_unix),
+        };
+
+        let mut records = self.records.lock().unwrap();
+        records.push(record);
+    }
+
+    /// Get all audit records (for verification only, never delete).
+    pub fn get_records(&self) -> Vec<AuditRecord> {
+        self.records.lock().unwrap().clone()
+    }
+
+    /// Count state-changing actions audited.
+    pub fn action_count(&self) -> usize {
+        self.records.lock().unwrap().len()
+    }
+}
+
+#[test]
+fn audit_action_choke_point() {
+    // Foundation test: verify choke point pattern works.
+    // In production, this will:
+    // 1. Enforce that every state-changing operation uses the choke point
+    // 2. Prove no state changes escape audit
+    // 3. Store records durably (never delete, per Mandate 56)
+    // 4. Enable queries: which actions by which actor, when, with what result
+    // 5. Support archive: retention policy, hash-chain verification, evidence export
+
+    let choke = AuditChokePoint::new();
+
+    // Verify queries are NOT audited
+    let query = Action {
+        kind: ActionKind::Query,
+        actor: "agent-1".to_string(),
+        description: "SELECT * FROM models".to_string(),
+        timestamp_unix: 1000,
+    };
+    choke.emit(&query);
+    assert_eq!(choke.action_count(), 0, "Queries should not be audited");
+
+    // Verify state-changing actions ARE audited
+    let create = Action {
+        kind: ActionKind::Create,
+        actor: "agent-1".to_string(),
+        description: "Create new mission".to_string(),
+        timestamp_unix: 1001,
+    };
+    choke.emit(&create);
+    assert_eq!(choke.action_count(), 1, "Create should be audited");
+
+    // Emit multiple state changes
+    let update = Action {
+        kind: ActionKind::Update,
+        actor: "agent-2".to_string(),
+        description: "Update mission status".to_string(),
+        timestamp_unix: 1002,
+    };
+    choke.emit(&update);
+
+    let delete = Action {
+        kind: ActionKind::Delete,
+        actor: "agent-1".to_string(),
+        description: "Delete expired lease".to_string(),
+        timestamp_unix: 1003,
+    };
+    choke.emit(&delete);
+
+    let transition = Action {
+        kind: ActionKind::Transition,
+        actor: "system".to_string(),
+        description: "Transition node to maintenance".to_string(),
+        timestamp_unix: 1004,
+    };
+    choke.emit(&transition);
+
+    // Verify all state changes were audited
+    assert_eq!(
+        choke.action_count(),
+        4,
+        "Should have audited 4 state-changing actions"
+    );
+
+    // Verify records are immutable (get returns a clone, not a reference)
+    let records = choke.get_records();
+    assert_eq!(records.len(), 4, "Should have 4 records");
+    assert_eq!(
+        records[0].action_kind,
+        ActionKind::Create,
+        "First record should be Create"
+    );
+    assert_eq!(records[0].actor, "agent-1", "Should record the actor");
+    assert!(
+        !records[0].evidence_id.is_empty(),
+        "Should have evidence_id"
+    );
+
+    // Verify all action kinds are covered
+    let has_create = records.iter().any(|r| r.action_kind == ActionKind::Create);
+    let has_update = records.iter().any(|r| r.action_kind == ActionKind::Update);
+    let has_delete = records.iter().any(|r| r.action_kind == ActionKind::Delete);
+    let has_transition = records
+        .iter()
+        .any(|r| r.action_kind == ActionKind::Transition);
+
+    assert!(
+        has_create && has_update && has_delete && has_transition,
+        "Should have records for all state-changing action types"
+    );
+
+    // Verify records are ordered by timestamp
+    for i in 1..records.len() {
+        assert!(
+            records[i - 1].timestamp_unix <= records[i].timestamp_unix,
+            "Records should be ordered by timestamp"
+        );
+    }
+
+    // Summary: audit choke point ensures every state change is recorded.
+    // Full implementation will:
+    // - Enforce at compile time: #[audit] macro on state-changing functions
+    // - Record to durable storage with hash-chain verification
+    // - Support queries by actor, action kind, time range
+    // - Never delete records (Mandate 56: mark as archived, never removed)
+    // - Export evidence for compliance audits
+}
+
+#[test]
+fn audit_action_choke_point_production_dispatch() {
+    use crate::susi_core::audit_export::{
+        AuditAction, AuditActionKind, AuditChokePoint, AuditOutcome, AuditTarget,
+        RecordingAuditSink,
+    };
+
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    let action = AuditAction::new(
+        AuditActionKind::MissionTransition,
+        "swarm-coordinator",
+        AuditTarget::identifier("mission-42"),
+        AuditOutcome::Partial,
+        9,
+        3,
+        "mission-42/transition-2",
+    )
+    .unwrap();
+
+    choke.dispatch(&action).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].action_kind.as_str(), "mission_transition");
+    assert_eq!(records[0].target.id, "mission-42");
+    assert_eq!(records[0].outcome, AuditOutcome::Partial);
+    assert!(records[0].redacted);
+}
+
+#[test]
+fn audit_action_choke_point_mission_lease_and_evidence_variants() {
+    let choke = AuditChokePoint::new();
+    let actions = [
+        Action {
+            kind: ActionKind::AdmitMission,
+            actor: "planner".to_string(),
+            description: "Admit mission M-100".to_string(),
+            timestamp_unix: 2001,
+        },
+        Action {
+            kind: ActionKind::ReleaseLease,
+            actor: "lease-mgr".to_string(),
+            description: "Release GPU lease L-9".to_string(),
+            timestamp_unix: 2002,
+        },
+        Action {
+            kind: ActionKind::RecordEvidence,
+            actor: "verifier".to_string(),
+            description: "Attach SHA-256 receipt".to_string(),
+            timestamp_unix: 2003,
+        },
+    ];
+    for action in &actions {
+        choke.emit(action);
+    }
+    assert_eq!(choke.action_count(), 3);
+    let records = choke.get_records();
+    assert_eq!(records[0].action_kind, ActionKind::AdmitMission);
+    assert_eq!(records[0].evidence_id, "7-2001");
+    assert_eq!(records[1].action_kind, ActionKind::ReleaseLease);
+    assert_eq!(records[1].evidence_id, "9-2002");
+    assert_eq!(records[2].action_kind, ActionKind::RecordEvidence);
+    assert_eq!(records[2].evidence_id, "8-2003");
+}
+
+#[test]
+fn audit_action_choke_point_concurrent_emissions_preserve_all_state_changes() {
+    let choke = Arc::new(AuditChokePoint::new());
+    let mut handles = Vec::new();
+    for idx in 0..4_u64 {
+        let shared = Arc::clone(&choke);
+        handles.push(std::thread::spawn(move || {
+            shared.emit(&Action {
+                kind: ActionKind::Query,
+                actor: format!("worker-{idx}"),
+                description: "read-only status check".to_string(),
+                timestamp_unix: 3000 + idx,
+            });
+            shared.emit(&Action {
+                kind: ActionKind::Update,
+                actor: format!("worker-{idx}"),
+                description: format!("checkpoint {idx}"),
+                timestamp_unix: 3100 + idx,
+            });
+        }));
+    }
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
+    assert_eq!(choke.action_count(), 4);
+    let records = choke.get_records();
+    for idx in 0..4_u64 {
+        let expected_actor = format!("worker-{idx}");
+        assert!(records
+            .iter()
+            .any(|r| r.actor == expected_actor && r.action_kind == ActionKind::Update));
+    }
+}
+
+#[test]
+fn audit_action_choke_point_get_records_returns_defensive_clone() {
+    let choke = AuditChokePoint::new();
+    choke.emit(&Action {
+        kind: ActionKind::Create,
+        actor: "owner".to_string(),
+        description: "initial create".to_string(),
+        timestamp_unix: 4000,
+    });
+    let mut snapshot = choke.get_records();
+    snapshot.clear();
+    assert_eq!(choke.action_count(), 1);
+    assert_eq!(choke.get_records().len(), 1);
+}

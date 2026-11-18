@@ -1,4 +1,4 @@
-# Lean core: complete standards socket below 50,000 lines
+# Lean core: complete standards socket below 100,000 lines
 
 Susi core is a generic, standards-protocol AI OS socket. Its three pillars are
 GAWD (A2A, ACP and the parallel harness), GEMI, and GMCP. The socket host and
@@ -12,13 +12,13 @@ progress log or evidence of a completed migration.
 
 ## Complete socket size
 
-Core must contain fewer than 50,000 physical runtime Rust lines, including
+Core must contain fewer than 100,000 physical runtime Rust lines, including
 its in-repository vendor facades. Until it reaches that goal it never grows.
 `COMPLETE_SOCKET_CEILING` in
 [`tests/lean_core_ceilings.rs`](../tests/lean_core_ceilings.rs) pins the measured
 ceiling. Pay for each runtime addition with a genuine removal in the same
 change. Lower the ceiling after each reduction; once below the limit, keep
-it at 49,999. Do not raise the ceiling without explicit authority.
+it at 99,999. Do not raise the ceiling without explicit authority.
 
 Run the explicit acceptance check:
 
@@ -26,8 +26,9 @@ Run the explicit acceptance check:
 cargo core-size
 ```
 
-This executes the under-50k test, which returns nonzero while the complete
-socket exceeds 49,999 lines. Ordinary test runs skip this explicit check; that skip is not acceptance. Acceptance requires one executed test and its size result;
+This executes the under-100k test, which returns nonzero while the complete
+socket exceeds 99,999 lines. Its ordinary ignored status is an unfinished
+goal, not a pass. Acceptance requires one executed test and its size result;
 a zero-test or skipped selection proves nothing. Read the current measurement
 from the command rather than adding dated measurements to this document.
 

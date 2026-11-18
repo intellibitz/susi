@@ -21,7 +21,7 @@ pub fn message_send_request(text: &str) -> Value {
             "message": {
                 "role": "ROLE_USER",
                 "parts": [{"text": text}],
-                "messageId": format!("susi-{}", crate::susi_config::random_nonce_hex()),
+                "messageId": format!("susi-{}", crate::susi_config::cluster_key::random_nonce_hex()),
             }
         }
     })

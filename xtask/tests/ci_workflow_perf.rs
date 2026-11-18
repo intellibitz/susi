@@ -226,6 +226,7 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     for path in [
         "scripts/parallel-workflow.sh",
         ".githooks/pre-push",
+        "crates/susi-harness/src/adapter.rs",
         "scripts/workflow-session-start.sh",
         "scripts/susi-worktree.sh",
         ".githooks/post-merge",
@@ -279,8 +280,25 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
         read("scripts/workflow-session-start.sh").contains("seed-target.sh"),
         "workflow-session-start.sh must seed the worktree's own target"
     );
-    // The complete harness assertions live with its commercial owner in
-    // susi-cli-runtime/tests/relocated_build_guards.rs.
+    let adapter = read("crates/susi-harness/src/adapter.rs");
+    assert!(
+        adapter.contains("target_is_link"),
+        "the native harness adapter must reject shared target links"
+    );
+    assert!(
+        adapter.contains("CARGO_TARGET_DIR") && adapter.contains("cwd.join(\"target\")"),
+        "the native harness adapter must use the worktree's private target"
+    );
+    // Keep the adapter's native worktree test as a second source-level
+    // witness, so moving the implementation cannot silently remove the
+    // behavior this guard protects.
+    let adapter_tests = read("crates/susi-harness/src/tests/adapter.rs");
+    assert!(
+        adapter_tests
+            .contains("fn start_worktree_uses_native_private_target_without_shell_seeding()")
+            && adapter_tests.contains("scripts/seed-target.sh"),
+        "crates/susi-harness/src/tests/adapter.rs must pin the adapter's own native target"
+    );
     assert!(
         read("scripts/susi-worktree.sh").contains("exec \"$bin\" workflow start \"$@\""),
         "scripts/susi-worktree.sh is the stub for `susi workflow start`"

@@ -1,0 +1,531 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+//! HTTP shells for the microkernel's leaf services.
+//!
+//! `susi-paths`, `susi-error` and `susi-config` are foundation libraries
+//! every crate links, and `susi-sandbox-client` / `susi-vendor-wasmtime` (wasmtime)
+//! provide the sandbox and native reflex surfaces; none of them carries an HTTP framework. This
+//! crate is the one place the leaf services meet the shared std server: one runtime/bind helper, one pair of
+//! bearer policies, one `service-run` dispatch. Standalone service bins enable
+//! only their own feature so Wasmtime stays out of unrelated binaries.
+//! The service logic stays in each library as plain functions, so a shell is only routing.
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+mod auth;
+#[cfg(feature = "service-config")]
+mod config_svc;
+#[cfg(feature = "service-error")]
+mod error_svc;
+#[cfg(feature = "service-native")]
+mod native_svc;
+#[cfg(feature = "service-paths")]
+mod paths_svc;
+#[cfg(feature = "service-sandbox")]
+mod sandbox_svc;
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+use susi_http_transport::server::{self, get, Router};
+
+/// Serve leaf service `name` on `port` (blocks). Dispatched by the root
+/// binary's `service-run` mode and by the standalone service binaries.
+///
+/// # Errors
+/// Unknown service name, or the listener cannot bind/serve.
+pub fn serve(name: &str, port: u16) -> std::io::Result<()> {
+    // Zero-feature builds still parse the dispatch table; `port` is used by
+    // every feature-gated arm.
+    let _ = port;
+    match name {
+        #[cfg(feature = "service-paths")]
+        "susi-paths" => run(name, port, paths_svc::router()),
+        #[cfg(feature = "service-error")]
+        "susi-error" => {
+            susi_error::enter_service_mode();
+            run(name, port, error_svc::router())
+        }
+        #[cfg(feature = "service-config")]
+        "susi-config" => {
+            susi_config::enter_service_mode();
+            run(name, port, config_svc::router())
+        }
+        #[cfg(feature = "service-sandbox")]
+        "susi-sandbox" => {
+            susi_sandbox_client::enter_service_mode();
+            run(name, port, sandbox_svc::router())
+        }
+        #[cfg(feature = "service-native")]
+        "susi-native" => run(name, port, native_svc::router()),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("leaf service '{name}' has no embedded serve entry"),
+        )),
+    }
+}
+
+/// Standalone-binary entry: resolve the port from the service table (env
+/// override, else default + instance offset from env or config) and serve.
+///
+/// # Errors
+/// See [`serve`].
+pub fn run_standalone(name: &str) -> std::io::Result<()> {
+    let port = susi_core::service_table::leaf_service(name)
+        .map(susi_core::service_table::LeafService::port)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("'{name}' is not in LEAF_SERVICES"),
+            )
+        })?;
+    serve(name, port)
+}
+
+/// One multi-threaded runtime, loopback bind, serve `app` until shutdown.
+/// Every leaf service also answers an unauthenticated `GET /healthz`
+/// (`{"service": name}`) so supervisors and CI can probe liveness without
+/// the host token.
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+pub(crate) fn with_healthz(name: &str, app: Router) -> Router {
+    let service = name.to_string();
+    app.route_public(
+        "/healthz",
+        get(move |_| {
+            let service = service.clone();
+            async move { server::Json(serde_json::json!({ "service": service, "status": "ok" })) }
+        }),
+    )
+}
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+fn run(name: &str, port: u16, app: Router) -> std::io::Result<()> {
+    let app = with_healthz(name, app);
+    let listener =
+        std::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async move {
+            let addr = listener.local_addr()?;
+            eprintln!("{name} service listening on {addr}");
+            server::serve_std(
+                vec![listener],
+                app,
+                server::Peer::Withhold,
+                None,
+                std::future::pending::<()>(),
+            )
+            .await
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unknown_service_name_rejected() {
+        let err = super::serve("definitely-not-a-service", 0).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("definitely-not-a-service"));
+    }
+
+    #[test]
+    fn run_standalone_rejects_names_outside_the_leaf_table() {
+        let err = super::run_standalone("definitely-not-a-service").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+/// Router-level tests drive the feature-gated service shells through the
+/// shared server's in-process dispatcher — no listener needed.
+/// `cargo test -p susi-leaf-services --all-features` exercises every router;
+/// a default-feature build compiles this module empty.
+/// Serialises every test in this crate that reads or mutates process-wide
+/// env (`SUSI_HOME`, `SUSI_HOST_TOKEN`, `DOCKER_HOST`): the router tests set
+/// `SUSI_HOME` to a temp dir, and a service test that reads the paths
+/// contract meanwhile compares a response against a different root (seen
+/// once in the 2026-11-07 gate, 1 of ~40). Async-aware because the guard
+/// must span the `.await`s that read the env it protects.
+#[cfg(all(
+    test,
+    any(
+        feature = "service-paths",
+        feature = "service-error",
+        feature = "service-config",
+        feature = "service-sandbox",
+        feature = "service-native"
+    )
+))]
+pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(all(
+    test,
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+mod router_tests {
+    use super::ENV_LOCK;
+    use susi_http_transport::server::{
+        Body, HeaderMap, HeaderValue, Request, Response, Router, StatusCode,
+    };
+
+    fn request(method: &str, uri: &str, body: &str) -> Request {
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        Request {
+            method: method.to_string(),
+            path: path.to_string(),
+            query: query.to_string(),
+            headers: HeaderMap::new(),
+            body: body.as_bytes().to_vec(),
+            peer: None,
+        }
+    }
+
+    fn get(uri: &str) -> Request {
+        request("GET", uri, "")
+    }
+
+    fn post_json(uri: &str, json: &str) -> Request {
+        let mut request = request("POST", uri, json);
+        request
+            .headers
+            .insert("content-type", HeaderValue::from_static("application/json"));
+        request
+    }
+
+    fn bearer(mut request: Request, token: &str) -> Request {
+        request.headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}"))
+                .expect("test bearer token is a valid header"),
+        );
+        request
+    }
+
+    /// `SUSI_HOME` gives the test a fully isolated substrate root; seeding
+    /// `<root>/api_token` arms the host-token policy.
+    fn isolated_home() -> susi_paths::tempfile::TempDir {
+        let dir = susi_paths::tempfile::tempdir().unwrap();
+        std::env::set_var("SUSI_HOME", dir.path());
+        dir
+    }
+
+    fn seed_host_token(home: &std::path::Path, token: &str) {
+        std::fs::write(home.join("api_token"), token).unwrap();
+    }
+
+    async fn status(app: Router, req: Request) -> StatusCode {
+        app.call(req).await.status()
+    }
+
+    async fn body_bytes(response: Response) -> Vec<u8> {
+        match response.into_body() {
+            Body::Full(bytes) => bytes,
+            Body::Stream(mut stream) => {
+                let mut bytes = Vec::new();
+                while let Some(chunk) = stream.recv().await {
+                    bytes.extend_from_slice(&chunk);
+                }
+                bytes
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn paths_router_answers_the_contract_without_auth() {
+        let _g = ENV_LOCK.lock().await;
+        let _home = isolated_home();
+        assert_eq!(
+            status(super::paths_svc::router(), get("/paths")).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status(super::paths_svc::router(), get("/ports")).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn config_router_fails_closed_until_the_host_token_matches() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        // No api_token seeded: the write/read policy must fail closed.
+        assert_eq!(
+            status(super::config_svc::router(), get("/config")).await,
+            StatusCode::UNAUTHORIZED
+        );
+        seed_host_token(home.path(), "test-host-token");
+        assert_eq!(
+            status(super::config_svc::router(), get("/config")).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(
+                super::config_svc::router(),
+                bearer(get("/config"), "test-host-token")
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn error_router_logs_events_and_gates_history() {
+        let _g = ENV_LOCK.lock().await;
+        let _home = isolated_home();
+        // SUSI_HOST_TOKEN unset: supervisor policy is open by contract.
+        std::env::remove_var("SUSI_HOST_TOKEN");
+        let logged = status(
+            super::error_svc::router(),
+            post_json(
+                "/log_error",
+                r#"{"message":"router test","crate":"susi-leaf-services"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(logged, StatusCode::NO_CONTENT);
+        assert_eq!(
+            status(super::error_svc::router(), get("/errors/recent?n=5")).await,
+            StatusCode::OK
+        );
+        // With the supervisor token armed, a wrong bearer is rejected.
+        std::env::set_var("SUSI_HOST_TOKEN", "sup-token");
+        assert_eq!(
+            status(
+                super::error_svc::router(),
+                bearer(get("/errors/recent"), "wrong")
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(
+                super::error_svc::router(),
+                bearer(get("/errors/recent"), "sup-token")
+            )
+            .await,
+            StatusCode::OK
+        );
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    #[tokio::test]
+    async fn sandbox_router_gates_everything_on_the_host_token() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                post_json("/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#)
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        seed_host_token(home.path(), "test-host-token");
+        // Without a docker daemon the exec surfaces a typed 500, not a panic.
+        std::env::set_var("DOCKER_HOST", "unix:///nonexistent-susi-test.sock");
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    post_json("/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#),
+                    "test-host-token"
+                )
+            )
+            .await,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        // Daemon status over a temp workspace answers a typed bool.
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    get(&format!(
+                        "/daemon/status?workspace={}&global_dir={}",
+                        home.path().join("ws").display(),
+                        home.path().display()
+                    )),
+                    "test-host-token"
+                )
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn native_router_executes_reflexes_and_surfaces_errors() {
+        let _g = ENV_LOCK.lock().await;
+        let _home = isolated_home();
+        std::env::set_var("SUSI_HOST_TOKEN", "sup-token");
+        assert_eq!(
+            status(
+                super::native_svc::router(),
+                post_json("/wasm/execute", "{}")
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        let res = super::native_svc::router()
+            .call(bearer(
+                post_json(
+                    "/wasm/execute",
+                    r#"{"wasm_path":"/nonexistent/reflex.wasm","arg":""}"#,
+                ),
+                "sup-token",
+            ))
+            .await;
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    async fn body_json(app: Router, req: Request) -> (StatusCode, serde_json::Value) {
+        let resp = app.call(req).await;
+        let code = resp.status();
+        let bytes = body_bytes(resp).await;
+        let val = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        };
+        (code, val)
+    }
+
+    #[tokio::test]
+    async fn healthz_is_unauthenticated_across_all_five_leaf_routers() {
+        let _g = ENV_LOCK.lock().await;
+        let _home = isolated_home();
+        std::env::set_var("SUSI_HOST_TOKEN", "strict-sup-token");
+
+        let cases = [
+            ("susi-paths", super::paths_svc::router()),
+            ("susi-error", super::error_svc::router()),
+            ("susi-config", super::config_svc::router()),
+            ("susi-sandbox", super::sandbox_svc::router()),
+            ("susi-native", super::native_svc::router()),
+        ];
+
+        for (name, router) in cases {
+            let app = super::with_healthz(name, router);
+            let (code, body) = body_json(app, get("/healthz")).await;
+            assert_eq!(code, StatusCode::OK, "healthz failed for {name}");
+            assert_eq!(body["service"], name);
+            assert_eq!(body["status"], "ok");
+        }
+
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    #[tokio::test]
+    async fn config_router_persists_and_reloads_global_config_with_host_token() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        seed_host_token(home.path(), "cfg-token");
+
+        let (code, mut cfg_json) = body_json(
+            super::config_svc::router(),
+            bearer(get("/config"), "cfg-token"),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        cfg_json["instance_offset"] = serde_json::json!(42);
+
+        let save_status = status(
+            super::config_svc::router(),
+            bearer(post_json("/config", &cfg_json.to_string()), "cfg-token"),
+        )
+        .await;
+        assert_eq!(save_status, StatusCode::NO_CONTENT);
+
+        let (reload_code, reloaded) = body_json(
+            super::config_svc::router(),
+            bearer(post_json("/config/reload", ""), "cfg-token"),
+        )
+        .await;
+        assert_eq!(reload_code, StatusCode::OK);
+        assert_eq!(reloaded["instance_offset"], 42);
+    }
+
+    #[tokio::test]
+    async fn sandbox_router_executes_ensure_global_hash_cached_and_verify_integrity() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        seed_host_token(home.path(), "sbx-token");
+
+        let global_dir = home.path().join("global-sbx");
+        let ensure_payload = serde_json::json!({ "global_dir": global_dir }).to_string();
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    post_json("/sandbox/ensure_global", &ensure_payload),
+                    "sbx-token"
+                )
+            )
+            .await,
+            StatusCode::NO_CONTENT
+        );
+
+        let bin_path = home.path().join("fake-susi-bin");
+        std::fs::write(&bin_path, b"deterministic-binary-bytes-1104").unwrap();
+        let bin_payload = serde_json::json!({
+            "bin_path": bin_path,
+            "global_dir": global_dir,
+        })
+        .to_string();
+
+        let (hash_code, hash_val) = body_json(
+            super::sandbox_svc::router(),
+            bearer(post_json("/daemon/hash_cached", &bin_payload), "sbx-token"),
+        )
+        .await;
+        assert_eq!(hash_code, StatusCode::OK);
+        let digest = hash_val.as_str().unwrap_or("");
+        assert_eq!(digest.len(), 64);
+
+        let (verify_code, verify_val) = body_json(
+            super::sandbox_svc::router(),
+            bearer(
+                post_json("/daemon/verify_integrity", &bin_payload),
+                "sbx-token",
+            ),
+        )
+        .await;
+        assert_eq!(verify_code, StatusCode::OK);
+        assert_eq!(verify_val, serde_json::json!(true));
+    }
+}
