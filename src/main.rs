@@ -12,8 +12,6 @@
 
 //! Native Susi launcher, installation owner and public command contract.
 #![allow(missing_docs)]
-#[cfg(windows)]
-extern crate susi_windows_runtime;
 
 mod cli;
 mod dev_instance;

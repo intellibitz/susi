@@ -216,7 +216,7 @@ pub(super) fn start_selected(exe: &Path, restart: bool) -> Result<()> {
         .env("SUSI_CORE_BIN", &image)
         .env("SUSI_COMMERCIAL_BIN", &runtime.path)
         .env("SUSI_CORE_INSTANCE_READY", "1");
-    let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut command)?.wait()?;
+    let status = susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?.wait()?;
     if !status.success() {
         return Err(format!("installed runtime start failed: {status}").into());
     }
@@ -266,7 +266,7 @@ fn dispatch_words(
     // The release still gets this caller's console or pipes as its own stdio,
     // but not the dispatcher's originals as extra inheritable handles: a
     // daemon it detaches would otherwise keep `$(susi start)` pipes open.
-    let mut child = susi_windows_runtime::spawn_without_inheriting_stdio(command.args(words))?;
+    let mut child = susi_paths::stdio::spawn_without_inheriting_stdio(command.args(words))?;
     drop(pinned);
     Ok(child.wait()?)
 }

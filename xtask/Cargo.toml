@@ -7,7 +7,6 @@ publish = false
 default-run = "xtask"
 
 [dependencies]
-susi-build-os-ucrt = { workspace = true, features = ["link-map", "policy"] }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
 serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
 susi-config = { workspace = true }
@@ -15,7 +14,6 @@ susi-core = { workspace = true }
 susi-paths = { workspace = true }
 
 [build-dependencies]
-susi-build-os-ucrt = { workspace = true }
 
 [features]
 release-tooling = []
@@ -28,8 +26,6 @@ name = "local-release"
 path = "src/bin/local-release.rs"
 required-features = ["release-tooling"]
 
-[target.'cfg(windows)'.dependencies]
-susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
 
 [[bin]]
 name = "release-lanes"

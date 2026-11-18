@@ -498,7 +498,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "susi"
 version = "0.21.72"
 dependencies = [
- "susi-build-os-ucrt",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -510,8 +509,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-winapi",
- "susi-windows-runtime",
 ]
 
 [[package]]
@@ -520,13 +517,6 @@ version = "0.14.1"
 dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
-]
-
-[[package]]
-name = "susi-build-os-ucrt"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-sha2",
 ]
 
 [[package]]
@@ -745,10 +735,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-windows-runtime"
-version = "0.1.0"
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -896,13 +882,11 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "susi-build-os-ucrt",
  "susi-config",
  "susi-core",
  "susi-paths",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-windows-runtime",
 ]
 
 [[package]]

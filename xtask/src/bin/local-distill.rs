@@ -1,8 +1,6 @@
 //! Distill labelled development contributions and compose feature/release branches using Git only.
 #![forbid(unsafe_code)]
 
-#[cfg(windows)]
-extern crate susi_windows_runtime;
 
 use xtask::distill_compose;
 

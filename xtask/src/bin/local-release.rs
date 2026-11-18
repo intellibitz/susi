@@ -3,9 +3,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use sha2::{Digest, Sha256};
-#[cfg(windows)]
-extern crate susi_windows_runtime;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
@@ -45,8 +42,12 @@ mod release_coordinator;
 mod sysroot_license;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
-use susi_build_os_ucrt::policy as vendor_regressions;
-use susi_build_os_ucrt::{native_link, pe_imports};
+#[path = "../vendor_regressions.rs"]
+mod vendor_regressions;
+#[path = "../pe_imports.rs"]
+mod pe_imports;
+#[path = "../native_link.rs"]
+mod native_link;
 
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())

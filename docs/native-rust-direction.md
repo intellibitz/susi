@@ -24,7 +24,7 @@ acceptance contract is `step1-acceptance.md`; agents and Susi own its execution.
 
 Windows runtime inspection also found that eliminating redistributable DLL
 imports alone did not eliminate copied Microsoft CRT startup implementation.
-The original `susi-windows-runtime` Rust crate now supplies executable entry,
+The Windows PE `susi-windows-runtime` crate (now in Susi Commercial Apps) supplies executable entry,
 TLS metadata and initializer/termination handling. Its qualified compiler is
 Rust 1.99.0 at commit `b940084d7eb6a299eb4bfeb8e34901bc051e7ac4` on native
 x64 Windows MSVC. Changing that ABI requires fresh qualification, not removal
