@@ -1074,10 +1074,7 @@ fn rendezvous_is_dead(dir: &Path, pid: u32, live: &mut LiveProcesses) -> bool {
 /// Live-process view for legacy rendezvous dirs, read at most once per
 /// sweep (and only when such a dir exists).
 #[derive(Default)]
-struct LiveProcesses {
-    #[cfg(windows)]
-    images: Option<std::collections::HashMap<u32, String>>,
-}
+struct LiveProcesses;
 
 impl LiveProcesses {
     /// Linux keeps its `/proc` liveness rule for legacy dirs.
@@ -1086,54 +1083,12 @@ impl LiveProcesses {
         PathBuf::from(format!("/proc/{pid}")).exists()
     }
 
-    /// True when `pid` names a live susi process. A pid that was reused by
-    /// an unrelated program (observed: dead daemons' dirs whose numbers now
-    /// belong to `conhost`, `rustc`, `svchost`) does not count.
-    #[cfg(windows)]
-    fn is_susi(&mut self, pid: u32) -> bool {
-        let images = self.images.get_or_insert_with(windows_process_images);
-        if images.is_empty() {
-            // The listing failed: keep every legacy dir rather than guess.
-            return true;
-        }
-        images
-            .get(&pid)
-            .is_some_and(|image| image.to_ascii_lowercase().starts_with("susi"))
-    }
-
     /// Other platforms have no cheap, safe liveness probe here: legacy dirs
     /// are kept (owner-locked dirs are still swept).
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(target_os = "linux"))]
     fn is_susi(&mut self, _pid: u32) -> bool {
         true
     }
-}
-
-/// `pid → image name` for every process, from one `tasklist` call.
-#[cfg(windows)]
-fn windows_process_images() -> std::collections::HashMap<u32, String> {
-    let Ok(out) = susi_paths::console::background_command("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-    else {
-        return std::collections::HashMap::new();
-    };
-    parse_tasklist_csv(&String::from_utf8_lossy(&out.stdout))
-}
-
-/// Parse `tasklist /FO CSV /NH` rows (`"image","pid",…`).
-#[cfg(any(windows, test))]
-fn parse_tasklist_csv(text: &str) -> std::collections::HashMap<u32, String> {
-    text.lines()
-        .filter_map(|line| {
-            let mut fields = line.split("\",\"");
-            let image = fields.next()?.trim().trim_start_matches('"').to_string();
-            let pid = fields.next()?.trim().trim_end_matches('"').parse().ok()?;
-            Some((pid, image))
-        })
-        .collect()
 }
 
 /// Whether `dir` looks like a rendezvous dir — what a sweep may remove.
@@ -1205,7 +1160,7 @@ fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
         return true;
     };
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let mut live = LiveProcesses::default();
+    let mut live = LiveProcesses;
     let mut trash = Vec::new();
     for entry in rd.flatten() {
         let path = entry.path();
@@ -1707,18 +1662,6 @@ mod tests {
         assert!(foreign.join("notes.txt").exists());
         let _ = std::fs::remove_dir_all(&other);
         let _ = std::fs::remove_dir_all(root.parent().unwrap());
-    }
-
-    #[test]
-    fn tasklist_rows_parse_to_pid_and_image() {
-        let rows = "\"System Idle Process\",\"0\",\"Services\",\"0\",\"8 K\"\r\n\
-                    \"susi.exe\",\"43644\",\"Console\",\"1\",\"812,100 K\"\r\n\
-                    \"conhost.exe\",\"16904\",\"Console\",\"1\",\"7,000 K\"\r\n\
-                    INFO: No tasks are running which match the specified criteria.\r\n";
-        let map = parse_tasklist_csv(rows);
-        assert_eq!(map.get(&43644).map(String::as_str), Some("susi.exe"));
-        assert_eq!(map.get(&16904).map(String::as_str), Some("conhost.exe"));
-        assert_eq!(map.len(), 3);
     }
 
     #[test]

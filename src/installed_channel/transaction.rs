@@ -7,8 +7,6 @@ use std::env;
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -99,15 +97,6 @@ const ENTRY_RECEIPT: &str = "entry-receipt-v1.txt";
 /// Identity of the entry file as last proven byte-equal to `release`.
 fn entry_stamp(release: &str, exe: &Path) -> Result<String> {
     let meta = fs::metadata(exe)?;
-    #[cfg(windows)]
-    {
-        Ok(format!(
-            "release={release}\nbytes={}\ncreated={}\nwritten={}\n",
-            meta.file_size(),
-            meta.creation_time(),
-            meta.last_write_time()
-        ))
-    }
     #[cfg(unix)]
     {
         Ok(format!(
@@ -119,7 +108,7 @@ fn entry_stamp(release: &str, exe: &Path) -> Result<String> {
             meta.mtime_nsec()
         ))
     }
-    #[cfg(not(any(windows, unix)))]
+    #[cfg(not(unix))]
     {
         let modified = meta
             .modified()
@@ -171,8 +160,7 @@ pub(super) fn run_in_place(exe: &Path) -> Result<bool> {
 // The dispatcher runs before CLI initialization or worker threads. A selected
 // package owns its daemon and built-in services, including implicit starts.
 fn set_installed_environment(_release: &str) -> Result<()> {
-    #[cfg(windows)]
-    env::set_var("SUSI_INSTALLED_RELEASE", _release);
+    let _ = _release;
     if env::var_os("SUSI_HOME").is_none() {
         let home = crate::get_home_dir().join(".susi");
         if !home.is_absolute() {
@@ -180,54 +168,6 @@ fn set_installed_environment(_release: &str) -> Result<()> {
         }
         // Still single-threaded: `dispatch` runs first in `main`.
         env::set_var("SUSI_HOME", home);
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-pub(super) fn start_selected(exe: &Path, restart: bool) -> Result<()> {
-    let root = exe
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("missing installed channel")?;
-    let selection: Selection =
-        get(&root.join(ACTIVE))?.ok_or("missing installed release receipt")?;
-    selection.validate()?;
-    // A rollback may select an older release whose daemon still belongs to
-    // its core image. Let the verified selected executable own that contract.
-    if selection.current != selection.dispatcher {
-        let status = dispatch_words(exe, [if restart { "restart" } else { "start" }])?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(format!("selected core start failed: {status}").into())
-        };
-    }
-    let package = installed(root, &selection.current)?;
-    package.verify_sidecars()?;
-    let _pin = package.pinned_executable()?;
-    let image = package.executable().canonicalize()?;
-    set_installed_environment(&selection.current)?;
-    let runtime =
-        super::paired_runtime()?.ok_or("selected core has no admitted runtime binding")?;
-    let mut command = Command::new(&runtime.path);
-    command
-        .args(["core-runtime", if restart { "restart" } else { "start" }])
-        .env("SUSI_CORE_BIN", &image)
-        .env("SUSI_COMMERCIAL_BIN", &runtime.path)
-        .env("SUSI_CORE_INSTANCE_READY", "1");
-    let status = susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?.wait()?;
-    if !status.success() {
-        return Err(format!("installed runtime start failed: {status}").into());
-    }
-    let ports = susi_paths::ports::live_daemon_ports()
-        .ok_or("ready endpoints have no installed daemon owner")?;
-    let running = susi_config::process_probe::exe_path(ports.pid)
-        .ok_or("cannot identify the running daemon image")?;
-    if running.canonicalize()? != runtime.path
-        && file_hash(&mut regular(&running)?)? != file_hash(&mut regular(&runtime.path)?)?
-    {
-        return Err("ready daemon is running a different executable".into());
     }
     Ok(())
 }
@@ -251,8 +191,6 @@ fn dispatch_words(
     let pinned = package.pinned_executable()?;
     // Shell-launched processes need the verbatim Windows path for deep release slots.
     let mut command = Command::new(package.executable().canonicalize()?);
-    #[cfg(windows)]
-    command.env("SUSI_INSTALLED_RELEASE", &selection.current);
     if env::var_os("SUSI_HOME").is_none() {
         // An immutable production slot is outside ~/.susi/bin. Select the same
         // native user state explicitly so the child's development-isolation

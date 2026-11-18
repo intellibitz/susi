@@ -4,16 +4,10 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-#[cfg(windows)]
-use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub(super) const BIN_NAME: &str = if cfg!(windows) { "susi.exe" } else { "susi" };
-// SHA and length of the published Windows v0.21.51 release, also pinned by
-// the original Commercial v3.1.3 installer (certified/core-release.json).
-pub(super) const FLAT_051: &str =
-    "f4f04134f5aa715e7142f40ef791f42865d2fd6f4d1509e780931647d84e1cbb";
+pub(super) const BIN_NAME: &str = "susi";
 pub(super) const SIDECARS: [(&str, &str); 3] = [
     ("sbom.json", "sbom-sha256"),
     ("THIRD-PARTY-NOTICES.txt", "notices-sha256"),
@@ -22,24 +16,11 @@ pub(super) const SIDECARS: [(&str, &str); 3] = [
 pub(super) const QUALIFICATION_POLICY: &[u8] = include!("qualification_policy.rs").as_bytes();
 
 pub(super) fn expected_host_target_triple() -> String {
-    if cfg!(target_os = "windows") {
-        format!("{}-pc-windows-msvc", std::env::consts::ARCH)
-    } else if cfg!(target_os = "macos") {
-        format!("{}-apple-darwin", std::env::consts::ARCH)
-    } else {
-        format!("{}-unknown-linux-gnu", std::env::consts::ARCH)
-    }
+    format!("{}-unknown-linux-gnu", std::env::consts::ARCH)
 }
 
 pub(super) fn is_reparse_or_symlink(meta: &fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        meta.file_type().is_symlink() || (meta.file_attributes() & 0x400) != 0
-    }
-    #[cfg(not(windows))]
-    {
-        meta.file_type().is_symlink()
-    }
+    meta.file_type().is_symlink()
 }
 
 pub(super) fn id(value: &str) -> bool {
@@ -82,11 +63,7 @@ pub(super) fn regular(path: &Path) -> Result<File> {
         return Err(format!("not an ordinary release file: {}", path.display()).into());
     }
     // FILE_SHARE_READ pins these immutable bytes through hashing and process creation.
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    options.share_mode(1);
-    Ok(options.open(path)?)
+    Ok(OpenOptions::new().read(true).open(path)?)
 }
 
 pub(super) fn small(path: &Path) -> Result<Vec<u8>> {
@@ -208,18 +185,6 @@ impl Package {
     pub(super) fn open(root: &Path, release: &str) -> Result<Self> {
         if !id(release) {
             return Err("a trusted lowercase release SHA-256 is required".into());
-        }
-        if cfg!(all(windows, target_arch = "x86_64")) && release == FLAT_051 {
-            // This named original release predates portable release receipts.
-            // Its trust anchor is the independently published SHA, not local metadata.
-            return Ok(Self {
-                root: root.into(),
-                release: release.into(),
-                artifact: FLAT_051.into(),
-                bytes: 41_664_512,
-                gates: None,
-                sidecars: Vec::new(),
-            });
         }
         let manifest = small(&root.join("manifest.txt"))?;
         if digest_bytes(&manifest) != release {
@@ -431,16 +396,8 @@ mod tests {
     fn expected_host_target_triple_matches_current_platform() {
         let triple = expected_host_target_triple();
         assert!(triple.starts_with(std::env::consts::ARCH));
-        if cfg!(target_os = "windows") {
-            assert!(triple.ends_with("-pc-windows-msvc"));
-            assert_eq!(BIN_NAME, "susi.exe");
-        } else if cfg!(target_os = "macos") {
-            assert!(triple.ends_with("-apple-darwin"));
-            assert_eq!(BIN_NAME, "susi");
-        } else {
-            assert!(triple.ends_with("-unknown-linux-gnu"));
-            assert_eq!(BIN_NAME, "susi");
-        }
+        assert!(triple.ends_with("-unknown-linux-gnu"));
+        assert_eq!(BIN_NAME, "susi");
     }
 
     #[test]

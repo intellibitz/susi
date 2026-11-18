@@ -35,13 +35,7 @@ pub(crate) fn directory(path: &Path) -> Result<()> {
     }
     match fs::symlink_metadata(path) {
         Ok(meta) => {
-            let redirected = meta.file_type().is_symlink();
-            #[cfg(windows)]
-            let redirected = {
-                use std::os::windows::fs::MetadataExt;
-                redirected || meta.file_attributes() & 0x400 != 0
-            };
-            if redirected || !meta.is_dir() {
+            if meta.file_type().is_symlink() || !meta.is_dir() {
                 return Err(format!(
                     "installation directory is redirected or not a directory: {}",
                     path.display()

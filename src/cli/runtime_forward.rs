@@ -22,11 +22,6 @@ fn run(
     words: &[OsString],
     prepare_instance: impl FnOnce() -> std::io::Result<()>,
 ) -> Result<ExitCode> {
-    #[cfg(windows)]
-    let paired = super::install_cli::installed_channel::paired_runtime()?;
-    #[cfg(windows)]
-    let program = paired.as_ref().map(|pair| pair.path.clone());
-    #[cfg(not(windows))]
     let program: Option<PathBuf> = None;
     let program = program
         .or_else(susi_config::vault_exec::commercial_executable)

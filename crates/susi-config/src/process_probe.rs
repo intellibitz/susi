@@ -18,17 +18,11 @@
 /// Whether `pid` names a running process: `Some(true)` running, `Some(false)`
 /// gone, `None` when this platform cannot tell.
 ///
-/// Linux: `/proc/<pid>` exists. Windows: the process object opens and has not
-/// exited; a pid that names no process is gone, and one that exists but is not
-/// ours to query (another session, a protected process) is running.
+/// Linux: `/proc/<pid>` exists. Other platforms return `None`.
 pub fn pid_alive(pid: u32) -> Option<bool> {
     #[cfg(target_os = "linux")]
     {
         Some(std::path::Path::new(&format!("/proc/{pid}")).exists())
-    }
-    #[cfg(windows)]
-    {
-        windows::pid_alive(pid)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -99,9 +93,9 @@ pub fn kill_child_group(pid: u32) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Resident memory of a running `pid` in KiB: `VmRSS` from
-/// `/proc/<pid>/status` on Linux, the working set on Windows. `None` when the
-/// process is gone, cannot be read, or this platform cannot tell.
+/// Resident memory of a running `pid` in KiB (`VmRSS` from
+/// `/proc/<pid>/status` on Linux). `None` when the process is gone, cannot be
+/// read, or this platform cannot tell.
 pub fn rss_kb(pid: u32) -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
@@ -109,10 +103,6 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
         text.lines()
             .find_map(|l| l.strip_prefix("VmRSS:"))
             .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-    }
-    #[cfg(windows)]
-    {
-        windows::rss_kb(pid)
     }
     #[cfg(not(target_os = "linux"))]
     {

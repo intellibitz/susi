@@ -12,9 +12,6 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
-# Process liveness and footprint (process_probe): Windows has no /proc, so a
-# lockfile holder's pid is asked about through the process object itself.
-[target.'cfg(windows)'.dependencies]
 
 [target.'cfg(unix)'.dependencies]
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }

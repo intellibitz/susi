@@ -22,8 +22,6 @@ pub mod progress;
 pub mod redaction;
 pub use redaction::{redact_credentials, GovernancePatterns};
 pub mod vault_exec;
-#[cfg(windows)]
-pub mod windows_model_identity;
 pub use nonce::random_nonce_hex;
 
 pub use json_util::{
