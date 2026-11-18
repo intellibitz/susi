@@ -1,0 +1,29 @@
+{
+  "id": "T-CLAUDERECORDS-1",
+  "title": "Cut agent-record history from tracked core source",
+  "goal": "Remove frozen agent-record history from tracked source per the AGENTS.md records rule (history and audit records belong outside checked-out source): 82 committed gate receipts, 46 unsafe-review drafts already embedded in the baselines, 22 evidence files not used as release provenance, and 1,094 completed-task records that no live check reads. Keep live gate data: unsafe baselines, GMCP spec/ledger/evidence, roadmap verdicts, release provenance evidence, and done records still read for roadmap links, GMCP requirement counts, open-task dependencies or published close receipts.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "task_records",
+      "--test",
+      "gmcp_roadmap",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "no_github_coupling"
+    ]
+  },
+  "created_by": "CLAUDERECORDS",
+  "created_unix": 1794988046
+}
