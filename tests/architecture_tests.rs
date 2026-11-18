@@ -2109,7 +2109,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "exactly three core pillars",
         "No functionality is dropped",
         "Prove the destination works through the standard socket before removing",
-        "under 50,000 physical runtime Rust lines",
+        "under 25,000 physical runtime Rust lines",
         "core never grows",
         "blanks, comments, inline tests, every feature/platform",
         "lower `COMPLETE_SOCKET_CEILING`",
@@ -2423,7 +2423,7 @@ fn compiled_identity_is_generic_current_policy_with_active_safeguards() {
         (81, "Every Windows scheduled task retains RunLevel=Limited"),
         (82, "not a hard deadline"),
         (83, "never a private personal vault"),
-        (84, "strictly below 50,000 physical runtime Rust lines"),
+        (84, "strictly below 25,000 physical runtime Rust lines"),
         (
             84,
             "No minification, hidden excluded runtime, capability loss",
@@ -3563,10 +3563,10 @@ fn ceo_mandate_85_ends_a_claim_when_its_work_is_done() {
     );
 }
 
-/// Mandate 84, tightened by the CEO on 2026-11-18: core stays under 50,000 lines and, until it
+/// Mandate 84, tightened by the CEO on 2026-11-18: core stays under 25,000 lines and, until it
 /// does, never grows.
 #[test]
-fn ceo_mandate_84_keeps_core_under_50k_lines() {
+fn ceo_mandate_84_keeps_core_under_25k_lines() {
     let root = workspace_root();
     let flat = |path: &str| {
         std::fs::read_to_string(root.join(path))
@@ -3578,7 +3578,7 @@ fn ceo_mandate_84_keeps_core_under_50k_lines() {
     let doc = flat("docs/ceo-mandate-84.md");
     for phrase in [
         "**Agent reminder (one line):**",
-        "always strictly below 50,000 physical lines: at most 49,999",
+        "always strictly below 25,000 physical lines: at most 24,999",
         "**Until core is below the limit, it never grows.**",
         "**The ceiling only goes down.**",
         "**No functionality is dropped**",
@@ -3597,7 +3597,7 @@ fn ceo_mandate_84_keeps_core_under_50k_lines() {
     let ceilings = flat("tests/lean_core_ceilings.rs");
     for needle in [
         "const COMPLETE_SOCKET_CEILING: usize =",
-        "const COMPLETE_SOCKET_LIMIT: usize = 49_999;",
+        "const COMPLETE_SOCKET_LIMIT: usize = 24_999;",
         "complete_socket_never_grows(repository_size());",
         "assert!(COMPLETE_SOCKET_CEILING >= COMPLETE_SOCKET_LIMIT)",
     ] {

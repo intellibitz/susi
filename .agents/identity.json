@@ -730,7 +730,7 @@
         {
           "id": 84,
           "title": "Strict core size goal",
-          "imperative": "The complete socket must be strictly below 50,000 physical runtime Rust lines, including every platform/feature, blanks, comments, inline tests and susi-vendor-* facades under docs/lean-core.md. Until met, core never grows; any runtime addition is paid for in the same change. Lower COMPLETE_SOCKET_CEILING after reductions and retain 49,999 as the maximum once below target. No minification, hidden excluded runtime, capability loss or weakened protocol/security acceptance. Only explicit user authority may change the limit. Keep runtime/current docs generic while preserving protocol identifiers and mandatory attribution."
+          "imperative": "The complete socket must be strictly below 25,000 physical runtime Rust lines, including every platform/feature, blanks, comments, inline tests and susi-vendor-* facades under docs/lean-core.md. Until met, core never grows; any runtime addition is paid for in the same change. Lower COMPLETE_SOCKET_CEILING after reductions and retain 24,999 as the maximum once below target. No minification, hidden excluded runtime, capability loss or weakened protocol/security acceptance. Only explicit user authority may change the limit. Keep runtime/current docs generic while preserving protocol identifiers and mandatory attribution."
         },
         {
           "id": 85,

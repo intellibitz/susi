@@ -1,6 +1,6 @@
-# CEO Mandate 84: Susi Core Stays Under 50,000 Lines
+# CEO Mandate 84: Susi Core Stays Under 25,000 Lines
 
-Effective 2026-11-16; limit tightened to 50,000 on 2026-11-18. Binding on every agent in the Susi AI ecosystem — local,
+Effective 2026-11-16; limit tightened to 50,000 and then to 25,000 on 2026-11-18. Binding on every agent in the Susi AI ecosystem — local,
 cloud, external (`Claude`, `Codex`, `Antigravity` / `Carbon`, `Grok`, `DeepSeek`,
 `Qwen` and others) and the `Susi Harness` itself — on every change to
 `intellibitz/susi`. `.agents/identity.json` records this directive as
@@ -15,7 +15,7 @@ The CEO sets the vision and never inspects code. Requirements stated here are
 distinct from verified runtime status; section 4 records implementation truth.
 
 **Agent reminder (one line):** Follow CEO Mandate 84 (`docs/ceo-mandate-84.md`):
-Susi core is always under 50,000 lines; until it is, core never grows, so pay
+Susi core is always under 25,000 lines; until it is, core never grows, so pay
 for every line you add to core by removing as many in the same change, lower the
 pinned ceiling when you shrink it, put add-ons in `susi-commercial-apps`, and
 never drop a capability or hide code to make the number.
@@ -24,9 +24,13 @@ never drop a capability or hide code to make the number.
 
 > make a mandate, susi core should always be under 100k lines.
 
-The current limit follows the CEO's 2026-11-18 instruction:
+The CEO tightened it twice on 2026-11-18, first:
 
 > bring it down to less than 50k lines.
+
+and then, setting the current limit:
+
+> core under 25k
 
 Recorded as vision `V-9` here and `V-10` in `intellibitz/susi-commercial-apps`. It
 continues `V-6`, which the CEO set earlier the same day.
@@ -34,7 +38,7 @@ continues `V-6`, which the CEO set earlier the same day.
 ## 1. The rule
 
 1. **The limit.** Susi core's complete socket is always strictly below
-   50,000 physical lines: at most 49,999.
+   25,000 physical lines: at most 24,999.
 2. **What counts.** Every physical line (comments, blanks and inline tests
    included) of first-party runtime Rust, on every platform and every feature,
    plus the in-repository `susi-vendor-*` facades: all pillar, foundation,
@@ -53,8 +57,8 @@ continues `V-6`, which the CEO set earlier the same day.
    socket.
 4. **The ceiling only goes down.** A change that shrinks core lowers the
    ceiling to the new measure in the same change, so the cut stays won. Once
-   core is below the limit, the ceiling stays at 49,999 and core may use the
-   room under it; it never rises above 49,999 again.
+   core is below the limit, the ceiling stays at 24,999 and core may use the
+   room under it; it never rises above 24,999 again.
 5. **No functionality is dropped** (Vision `V-6`). Public APIs, CLI actions,
    the five-port contract, MCP revisions and transports, ACP, A2A,
    OpenAI-compatible and Anthropic behavior, Wasm admission, permissions,
@@ -91,7 +95,7 @@ continues `V-6`, which the CEO set earlier the same day.
   the complete socket and every package's share, fails when the count is above
   the ceiling, and tells you the value to pin when you have shrunk core.
 - `cargo core-size` is the acceptance check for the limit itself. It fails
-  until core is below 50,000 lines; then it is green and stays green.
+  until core is below 25,000 lines; then it is green and stays green.
 - The ceiling is one constant. When two agents both lower it, resolve the
   conflict by measuring the merged tree and pinning that value.
 
@@ -112,7 +116,7 @@ continues `V-6`, which the CEO set earlier the same day.
   bootstrap contracts. Concrete command, daemon, agent, model, tool and
   configuration owners run in Susi Commercial Apps. Each further extraction
   must retain original behavior, security boundaries and tested callers.
-- `cargo core-size` measures the current complete runtime against 49,999.
+- `cargo core-size` measures the current complete runtime against 24,999.
   The ordinary size suite enforces `COMPLETE_SOCKET_CEILING`; until the new
   goal is met, each reduction lowers that ceiling to its measured size.
   The counting scope has not changed.
