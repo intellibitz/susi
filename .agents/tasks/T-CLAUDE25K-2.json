@@ -1,0 +1,30 @@
+{
+  "id": "T-CLAUDE25K-2",
+  "title": "Bring core under 25,000 lines",
+  "goal": "Vision: V-9. CEO decision 2026-11-18 (Mandate 84, options 1 and 2 together): remove from core, after Susi Commercial Apps holds each piece (T-CLAUDE25K-1), (1) the unused Provider trait, (2) the installed channel, keeping only the paired-runtime forward core's launcher needs, and (3) the Windows facade modules core no longer uses; then find the last lines needed so the complete socket is strictly below 25,000, lowering the ceiling to the measure at every step.",
+  "size": "xl",
+  "deps": [],
+  "scopes": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "src/",
+    "crates/",
+    "xtask/",
+    "tests/",
+    "scripts/",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "docs/",
+    ".agents/tasks/T-CLAUDE25K-2.json",
+    ".agents/claims/T-CLAUDE25K-2.json"
+  ],
+  "accept": {
+    "cmd": ["cargo", "core-size"]
+  },
+  "created_by": "CLAUDE25K",
+  "created_unix": 1795003222,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Susi Commercial Apps receives each piece by transplant (T-CLAUDE25K-1); core keeps contracts and forwards."
+  }
+}
