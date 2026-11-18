@@ -189,8 +189,8 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-// The typed plane-bus call wrappers moved to Susi Commercial Apps (CEO option A).
-const COMPLETE_SOCKET_CEILING: usize = 38_148;
+// Private-file, override and secret helpers moved out of susi-config's json_util.
+const COMPLETE_SOCKET_CEILING: usize = 37_613;
 /// The CEO's limit: strictly below 25,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 24_999;
 
