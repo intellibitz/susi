@@ -469,6 +469,7 @@ pub mod hex;
 pub mod http_body;
 pub mod loopback;
 pub mod native_path;
+pub mod platform;
 pub mod ports;
 pub mod stdio;
 pub mod sync;

@@ -14,7 +14,8 @@ pub const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
 /// inside a line — `writeln!` could split a record across writes. Error text
 /// is redacted, but only with the bundled patterns (see
 /// `contract::redact_for_metrics`), so a file this call creates is
-/// owner-only from birth: `0600` on Unix. Create-or-open
+/// owner-only from birth: `0600` on Unix, and elsewhere the installed
+/// platform service (`susi_paths::platform`) or no file at all. Create-or-open
 /// is one call, so no concurrent writer or reader can open the file before
 /// it is restricted, and a failure creates nothing, so nothing is ever
 /// deleted (a delete by name could remove a replacement another writer made
@@ -39,10 +40,7 @@ fn open_owner_only_append(path: &std::path::Path) -> std::io::Result<std::fs::Fi
     }
     #[cfg(not(unix))]
     {
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
+        (susi_paths::platform::required("owner-only metrics append")?.open_owner_only_append)(path)
     }
 }
 

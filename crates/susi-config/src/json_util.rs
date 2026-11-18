@@ -122,7 +122,10 @@ pub fn atomic_replace_unsynced(path: &Path, bytes: &[u8]) -> std::io::Result<()>
 
 /// Read one complete snapshot of a file published by atomic replacement.
 pub fn read_atomic_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
-    fs::read(path)
+    match susi_paths::platform::services() {
+        Some(services) if cfg!(not(unix)) => (services.read_published)(path),
+        _ => fs::read(path),
+    }
 }
 
 fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
@@ -151,7 +154,12 @@ fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
         .write_all(bytes)
         .and_then(|()| if sync { file.sync_all() } else { Ok(()) });
     drop(file);
+    #[cfg(unix)]
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
+    #[cfg(not(unix))]
+    let result = result.and_then(|()| {
+        (susi_paths::platform::required("atomic file replacement")?.replace_staged)(&tmp_path, path)
+    });
     if result.is_err() {
         let _ = fs::remove_file(&tmp_path);
     }

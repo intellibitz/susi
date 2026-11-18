@@ -633,19 +633,18 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
     let Some(candidate) = fresh() else {
         return read().unwrap_or_default();
     };
-    // Owner-only from birth: `0600` on Unix. No other handle can be opened
-    // against a wider list before the key is written, and a failure creates
-    // nothing.
+    // Owner-only from birth: `0600` on Unix, the installed platform service
+    // elsewhere (no service, no key). No other handle can be opened against a
+    // wider list before the key is written, and a failure creates nothing.
+    #[cfg(unix)]
     let created = {
+        use std::os::unix::fs::OpenOptionsExt;
         let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        opts.open(&path)
+        opts.write(true).create_new(true).mode(0o600).open(&path)
     };
+    #[cfg(not(unix))]
+    let created = susi_paths::platform::required("owner-only bus key")
+        .and_then(|services| (services.create_new_owner_only)(&path));
     if let Ok(mut f) = created {
         if f.write_all(candidate.as_bytes()).is_ok() {
             return candidate;
@@ -1074,7 +1073,11 @@ fn rendezvous_is_dead(dir: &Path, pid: u32, live: &mut LiveProcesses) -> bool {
 /// Live-process view for legacy rendezvous dirs, read at most once per
 /// sweep (and only when such a dir exists).
 #[derive(Default)]
-struct LiveProcesses;
+struct LiveProcesses {
+    /// One process listing per sweep.
+    #[cfg(not(target_os = "linux"))]
+    rows: Option<Vec<susi_config::process_probe::ProcessSnapshot>>,
+}
 
 impl LiveProcesses {
     /// Linux keeps its `/proc` liveness rule for legacy dirs.
@@ -1083,11 +1086,19 @@ impl LiveProcesses {
         PathBuf::from(format!("/proc/{pid}")).exists()
     }
 
-    /// Other platforms have no cheap, safe liveness probe here: legacy dirs
-    /// are kept (owner-locked dirs are still swept).
+    /// Elsewhere a pid counts only while it names a live susi process in the
+    /// installed platform services' process table (a reused pid does not).
+    /// Without services, or when the listing fails, legacy dirs are kept
+    /// (owner-locked dirs are still swept).
     #[cfg(not(target_os = "linux"))]
-    fn is_susi(&mut self, _pid: u32) -> bool {
-        true
+    fn is_susi(&mut self, pid: u32) -> bool {
+        let rows = self
+            .rows
+            .get_or_insert_with(|| susi_config::process_probe::processes(false));
+        rows.is_empty()
+            || rows
+                .iter()
+                .any(|row| row.pid == pid && row.name.to_ascii_lowercase().starts_with("susi"))
     }
 }
 
@@ -1160,7 +1171,7 @@ fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
         return true;
     };
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let mut live = LiveProcesses;
+    let mut live = LiveProcesses::default();
     let mut trash = Vec::new();
     for entry in rd.flatten() {
         let path = entry.path();
@@ -1628,7 +1639,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn sweep_removes_legacy_dirs_of_processes_that_are_gone() {
         let root = bus_root("sweep-legacy");

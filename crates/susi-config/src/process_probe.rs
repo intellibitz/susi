@@ -1,24 +1,20 @@
 //! Liveness and memory footprint of a process named only by its pid: the
 //! holder recorded in a lockfile, a supervised leaf service.
 //!
-//! Linux answers from `/proc`. Windows answers from the process object
-//! itself (`OpenProcess`, then `GetExitCodeProcess` /
-//! `K32GetProcessMemoryInfo`); that FFI is the only `unsafe` here, wrapped in
-//! an owned handle so callers stay safe code. Elsewhere the answer is unknown
-//! (`None`) and callers keep their own conservative default.
-//!
-//! Process enumeration and identity ([`processes`], [`exe_path`], [`argv`],
-//! [`environment_var`]) read `/proc` on Linux (the raw `/proc/<pid>/exe`
-//! link carries the ` (deleted)` marker of a replaced binary, and trust
-//! checks must see it) and the Win32 process table, image path and PEB
-//! on Windows (now served by Susi Commercial Apps). Until 2026-11-07
+//! Linux answers from `/proc` (the raw `/proc/<pid>/exe` link carries the
+//! ` (deleted)` marker of a replaced binary, and trust checks must see it).
+//! Elsewhere the platform services a distribution installs answer
+//! (`susi_paths::platform`; Susi Commercial Apps installs Windows ones);
+//! without them the answer is unknown (`None`, no rows) and callers keep
+//! their own conservative default. Until 2026-11-07
 //! this went through the `sysinfo` facade (lean-core: 85 s of `windows`
 //! crate on every build's critical path).
 
 /// Whether `pid` names a running process: `Some(true)` running, `Some(false)`
 /// gone, `None` when this platform cannot tell.
 ///
-/// Linux: `/proc/<pid>` exists. Other platforms return `None`.
+/// Linux: `/proc/<pid>` exists. Elsewhere the installed platform services
+/// answer (`susi_paths::platform`), or `None`.
 pub fn pid_alive(pid: u32) -> Option<bool> {
     #[cfg(target_os = "linux")]
     {
@@ -26,8 +22,7 @@ pub fn pid_alive(pid: u32) -> Option<bool> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = pid;
-        None
+        (susi_paths::platform::services()?.pid_alive)(pid)
     }
 }
 
@@ -106,27 +101,11 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = pid;
-        None
+        (susi_paths::platform::services()?.rss_kb)(pid)
     }
 }
 
-/// One process as the OS reports it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProcessSnapshot {
-    /// Process id.
-    pub pid: u32,
-    /// Parent process id as the OS records it (the parent may be gone).
-    pub parent_pid: Option<u32>,
-    /// Short process name (`comm` on Linux, the image name on Windows).
-    pub name: String,
-    /// Executable path, when the OS lets this process read it.
-    pub exe: Option<std::path::PathBuf>,
-    /// Command line, when requested and readable (empty otherwise).
-    pub cmd: Vec<String>,
-    /// Resident memory in KiB (0 when unreadable).
-    pub rss_kb: u64,
-}
+pub use susi_paths::platform::ProcessSnapshot;
 
 /// Every process the OS lists, sorted by pid, with its name, exe, resident
 /// memory and (when `with_cmd`) its command line. Processes the caller may
@@ -262,24 +241,27 @@ mod platform {
     }
 }
 
+/// Elsewhere the installed platform services answer (`susi_paths::platform`);
+/// without them every probe is unknown.
 #[cfg(not(target_os = "linux"))]
 mod platform {
     use super::ProcessSnapshot;
+    use susi_paths::platform::services;
 
-    pub(super) fn processes(_with_cmd: bool) -> Vec<ProcessSnapshot> {
-        Vec::new()
+    pub(super) fn processes(with_cmd: bool) -> Vec<ProcessSnapshot> {
+        services().map_or_else(Vec::new, |s| (s.processes)(with_cmd))
     }
 
-    pub(super) fn exe_path(_pid: u32) -> Option<std::path::PathBuf> {
-        None
+    pub(super) fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
+        (services()?.exe_path)(pid)
     }
 
-    pub(super) fn argv(_pid: u32) -> Option<Vec<String>> {
-        None
+    pub(super) fn argv(pid: u32) -> Option<Vec<String>> {
+        (services()?.argv)(pid)
     }
 
-    pub(super) fn environment(_pid: u32) -> Option<Vec<String>> {
-        None
+    pub(super) fn environment(pid: u32) -> Option<Vec<String>> {
+        (services()?.environment)(pid)
     }
 }
 
@@ -290,7 +272,7 @@ mod tests {
     /// A process that has run and exited, with its pid. The `Child` stays
     /// alive with it: on Windows that keeps the exited process object (and so
     /// its pid) from being recycled while the test asks about it.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     fn exited_process() -> (std::process::Child, u32) {
         let exe = std::env::current_exe().unwrap();
         let mut child = std::process::Command::new(exe)
@@ -307,7 +289,7 @@ mod tests {
     // Linux, Windows and macOS are the platforms with a liveness source; on
     // every other target `pid_alive`/`rss_kb` answer `None`, which
     // `unknown_platforms_answer_none` below pins.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_running_process_is_alive_and_an_exited_one_is_gone() {
         assert_eq!(pid_alive(std::process::id()), Some(true));
@@ -318,7 +300,7 @@ mod tests {
         assert_eq!(pid_alive(4_194_304 * 4 + 4), Some(false));
     }
 
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn rss_reads_a_running_process_and_none_for_an_exited_one() {
         assert!(rss_kb(std::process::id()).is_some_and(|kb| kb > 0));
@@ -333,7 +315,7 @@ mod tests {
         assert_eq!(rss_kb(std::process::id()), None);
     }
 
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn this_process_is_listed_with_its_identity() {
         let own = std::process::id();
@@ -354,20 +336,20 @@ mod tests {
     }
 
     /// Variable the environment probe child is started with, and its value.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     const PROBE_CHILD_MARKER: (&str, &str) = ("SUSI_PROBE_CHILD_MARKER", "present-9f3a");
     /// Variable the environment probe child is started without.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     const PROBE_CHILD_UNSET: &str = "SUSI_DEFINITELY_UNSET_VARIABLE_9F3A";
     /// Line the probe child prints once it runs, before it parks.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     const PROBE_CHILD_READY: &str = "susi-environ-probe-ready";
 
     /// Body of the environment probe child: when started by
     /// [`another_process_environment_is_read`] (marker variable set), announce
     /// readiness and park until the parent closes stdin. Run any other way it
     /// returns at once, so `--ignored` runs never block.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "helper process for another_process_environment_is_read"]
     fn environ_probe_child() {
@@ -391,7 +373,7 @@ mod tests {
     /// unreadable or torn snapshot of our own environment is a property of
     /// that race, not of the probe. Production callers only ask about other
     /// processes, whose blocks no thread of ours rewrites.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn another_process_environment_is_read() {
         use std::io::BufRead;
