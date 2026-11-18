@@ -23,7 +23,7 @@ the requester to inspect code or perform routine engineering steps.
   match, is not dropped (a recorded decision): core forwards to it, and an
   installation without it names the command that serves it. Keep proprietary
   source out of core.
-- The complete socket must be under 25,000 physical runtime Rust lines,
+- The complete socket must be under 10,000 physical runtime Rust lines,
   including blanks, comments, inline tests, every feature/platform and the
   `susi-vendor-*` facades. Until that goal is met, core never grows. Pay for any
   runtime addition in the same change and lower `COMPLETE_SOCKET_CEILING` in

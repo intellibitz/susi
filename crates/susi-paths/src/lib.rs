@@ -10,26 +10,17 @@
     )
 )]
 
-//! Host path and port contract.
-//!
-//! [`SusiDirs`] asks the standalone `susi-paths` service (`127.0.0.1:18080`,
-//! override via `SUSI_PATHS_PORT`) and falls back to the local XDG/legacy
-//! resolver when the service is unreachable, so path lookup never hard-fails.
-//! The service itself answers from the same local resolver.
+//! Host directory contract for Susi core on Linux.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-/// Host directory contract, resolved via the `susi-paths` service with a
-/// local XDG/legacy fallback when it is unreachable.
+/// Host directory contract resolved from local XDG/legacy rules.
 pub struct SusiDirs;
 
-const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
-
 /// Sample the wall clock once, returning zero if it precedes the Unix epoch.
-/// Callers choose the timestamp unit and retain their own conversion policy.
 #[inline]
 pub fn unix_epoch_elapsed() -> Duration {
     std::time::SystemTime::now()
@@ -38,190 +29,30 @@ pub fn unix_epoch_elapsed() -> Duration {
 }
 
 impl SusiDirs {
-    /// Cached while the service is healthy; while it is down the local
-    /// resolver answers and the service is retried on a bounded backoff
-    /// ([`loopback::request_with_fallback`]).
-    fn fetch_paths() -> HashMap<String, PathBuf> {
-        Self::cached_for(&LocalDirs::home_dir(), Self::fetch_paths_uncached)
-    }
-
-    /// The service's answer, cached per home directory. A process whose
-    /// home moves (a test's `EnvGuard` swapping `HOME`/`USERPROFILE`) must
-    /// never be handed the map the service gave for the previous home: one
-    /// process-wide entry resolved every later lookup to the real
-    /// `~/.susi` — `cloud.env` included — whenever an earlier call had
-    /// reached a live paths service.
-    fn cached_for(
-        home: &Path,
-        fetch: impl FnOnce() -> HashMap<String, PathBuf>,
-    ) -> HashMap<String, PathBuf> {
-        /// Home directory → the path map the service answered for it.
-        type PerHome = HashMap<PathBuf, HashMap<String, PathBuf>>;
-        static CACHE: OnceLock<Mutex<PerHome>> = OnceLock::new();
-        let cache = CACHE.get_or_init(Mutex::default);
-        if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(home) {
-            return hit.clone();
-        }
-        let map = fetch();
-        // Only a map the service resolved for *this* home is kept (the
-        // fetch already refuses any other); an empty answer is retried.
-        if map
-            .get("home_dir")
-            .is_some_and(|served| same_path(served, home))
-        {
-            cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(home.to_path_buf(), map.clone());
-        }
-        map
-    }
-
-    fn fetch_paths_uncached() -> HashMap<String, PathBuf> {
-        // Explicit SUSI_PATHS_PORT wins, else the default rides the instance
-        // offset like every other susi port.
-        let port = std::env::var("SUSI_PATHS_PORT")
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or_else(|| ports::effective(ports::PATHS_SERVICE));
-        let fetch = || -> Option<HashMap<String, PathBuf>> {
-            let ep = loopback::Endpoint {
-                port,
-                timeout: SERVICE_TIMEOUT,
-                auth: loopback::Auth::None,
-            };
-            // The local resolver is the fallback, so a closed service port
-            // is backed off instead of re-dialled on every lookup.
-            let resp = loopback::request_with_fallback(&ep, "GET", "/paths", None)?;
-            serde_json::from_str::<HashMap<String, PathBuf>>(resp.ok_body()?).ok()
-        };
-        let map = fetch().unwrap_or_default();
-        // The service answers for whichever user/HOME started it. Only trust
-        // it when it resolves *our* home — otherwise another user's (or
-        // another HOME's) daemon would silently hand us its substrate paths.
-        match map.get("home_dir") {
-            Some(home) if same_path(home, &LocalDirs::home_dir()) => map,
-            _ => HashMap::new(),
-        }
-    }
-
-    /// Explicit local env config (`SUSI_HOME`, `SUSI_XDG`, `XDG_*_HOME`)
-    /// beats the service — a second instance's root must not resolve to the
-    /// primary host substrate's paths.
-    fn local_override() -> bool {
-        [
-            "SUSI_HOME",
-            "SUSI_XDG",
-            "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME",
-            "XDG_CACHE_HOME",
-        ]
-        .iter()
-        .any(|v| std::env::var_os(v).is_some())
-    }
-
-    fn get(key: &str) -> PathBuf {
-        if Self::local_override() {
-            return LocalDirs::get(key);
-        }
-        Self::fetch_paths()
-            .remove(key)
-            .unwrap_or_else(|| LocalDirs::get(key))
-    }
-
     /// User home directory.
     #[must_use]
     pub fn home_dir() -> PathBuf {
-        Self::get("home_dir")
+        LocalDirs::home_dir()
     }
-    /// Substrate config dir (`~/.susi` legacy or the platform config dir).
+    /// Substrate config dir (`~/.susi` legacy or `$XDG_CONFIG_HOME/susi`).
     #[must_use]
     pub fn config_dir() -> PathBuf {
-        Self::get("config_dir")
+        LocalDirs::config_dir()
     }
-    /// Substrate data dir (`~/.susi` legacy or the platform data dir).
+    /// Substrate data dir (`~/.susi` legacy or `$XDG_DATA_HOME/susi`).
     #[must_use]
     pub fn data_dir() -> PathBuf {
-        Self::get("data_dir")
+        LocalDirs::data_dir()
     }
-    /// Substrate cache dir (`~/.susi` legacy or the platform cache dir).
+    /// Substrate cache dir (`~/.susi` legacy or `$XDG_CACHE_HOME/susi`).
     #[must_use]
     pub fn cache_dir() -> PathBuf {
-        Self::get("cache_dir")
+        LocalDirs::cache_dir()
     }
-    /// Host substrate root the daemon binds to (the data dir). This is
-    /// **not** a project workspace — CLI intents use the caller's cwd.
+    /// Host substrate root the daemon binds to (the data dir).
     #[must_use]
     pub fn substrate_home() -> PathBuf {
-        Self::get("substrate_home")
-    }
-
-    /// `true` when running as the primary user host instance (`SUSI_HOME` unset,
-    /// ignored by the hermetic test guard, or equal to `<home>/.susi`).
-    #[must_use]
-    pub fn is_primary_instance() -> bool {
-        LocalDirs::instance_root()
-            .is_none_or(|root| same_path(&root, &LocalDirs::home_dir().join(".susi")))
-    }
-}
-
-fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for comp in path.components() {
-        match comp {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                if !out.pop() {
-                    out.push(comp);
-                }
-            }
-            std::path::Component::Prefix(_)
-            | std::path::Component::RootDir
-            | std::path::Component::Normal(_) => out.push(comp),
-        }
-    }
-    if out.as_os_str().is_empty() {
-        PathBuf::from(".")
-    } else {
-        out
-    }
-}
-
-fn same_resolved_dir(a: &Path, b: &Path) -> bool {
-    same_path(&normalize_lexical(a), &normalize_lexical(b))
-}
-
-/// Resolve the `.susi` state directory for `workspace` without ever nesting
-/// `.susi` inside a path that is already a Susi state root (`substrate_home`,
-/// `config_dir`, `data_dir`, or any path whose normalized final component is
-/// `.susi`, including `.` resolved from one of those directories).
-#[must_use]
-pub fn workspace_state_dir(workspace: &Path) -> PathBuf {
-    let resolved = if workspace.is_relative() {
-        std::env::current_dir()
-            .map(|cwd| normalize_lexical(&cwd.join(workspace)))
-            .unwrap_or_else(|_| normalize_lexical(workspace))
-    } else {
-        normalize_lexical(workspace)
-    };
-    let already_susi_root = resolved
-        .file_name()
-        .is_some_and(|name| name == std::ffi::OsStr::new(".susi"))
-        || same_resolved_dir(&resolved, &SusiDirs::substrate_home())
-        || same_resolved_dir(&resolved, &SusiDirs::config_dir())
-        || same_resolved_dir(&resolved, &SusiDirs::data_dir());
-    if already_susi_root {
-        let is_cur_dir_only = workspace.as_os_str().is_empty()
-            || workspace
-                .components()
-                .all(|c| matches!(c, std::path::Component::CurDir));
-        if is_cur_dir_only {
-            resolved
-        } else {
-            workspace.to_path_buf()
-        }
-    } else {
-        workspace.join(".susi")
+        LocalDirs::data_dir()
     }
 }
 
@@ -233,152 +64,16 @@ fn same_path(a: &Path, b: &Path) -> bool {
         )
 }
 
-/// Drop a Windows verbatim local-disk prefix (`\\?\C:\...` → `C:\...`).
-/// UNC (`\\?\UNC\...`) and ordinary paths stay as given. The directory does
-/// not have to exist.
-fn plain_disk_path(path: &Path) -> PathBuf {
-    let Some(text) = path.to_str() else {
-        return path.to_path_buf();
-    };
-    let Some(plain) = text.strip_prefix(r"\\?\") else {
-        return path.to_path_buf();
-    };
-    if plain.len() >= 2 && plain.as_bytes().get(1) == Some(&b':') {
-        PathBuf::from(plain)
-    } else {
-        path.to_path_buf()
-    }
-}
-
-/// Same directory, including the verbatim spelling Windows `canonicalize`
-/// returns for a local disk.
-fn same_instance_path(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
-    }
-    let a = plain_disk_path(a);
-    let b = plain_disk_path(b);
-    a == b || same_path(&a, &b)
-}
-
-/// Resolve the host API bearer token file path from `config_dir` (`B8`).
-///
-/// Honors `ports.json` `api_token_path` when present and non-empty (falling back
-/// to `<config_dir>/api_token` if absent or if the fallback token already exists
-/// while the advertised path does not).
-#[must_use]
-pub fn host_token_path_in(config_dir: &Path) -> PathBuf {
-    let fallback = config_dir.join("api_token");
-    if let Some(pf) = zc_ports_file::PortsFile::read_from_home(config_dir) {
-        if !pf.api_token_path.as_os_str().is_empty()
-            && (pf.api_token_path.is_file() || !fallback.is_file())
-        {
-            return pf.api_token_path;
-        }
-    }
-    fallback
-}
-
-/// Resolve the active host API bearer token file path from
-/// [`SusiDirs::config_dir`].
-#[must_use]
-pub fn host_token_path() -> PathBuf {
-    host_token_path_in(&SusiDirs::config_dir())
-}
-
-/// Read the host API bearer token from `config_dir` (`B8`).
-///
-/// Honors `ports.json` `api_token_path` when present and non-empty, falling
-/// back to `<config_dir>/api_token`.
-#[must_use]
-pub fn host_token_in(config_dir: &Path) -> Option<String> {
-    let read_nonempty = |p: &Path| {
-        std::fs::read_to_string(p)
-            .ok()
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty())
-    };
-    if let Some(pf) = zc_ports_file::PortsFile::read_from_home(config_dir) {
-        if !pf.api_token_path.as_os_str().is_empty() {
-            if let Some(tok) = read_nonempty(&pf.api_token_path) {
-                return Some(tok);
-            }
-        }
-    }
-    read_nonempty(&config_dir.join("api_token"))
-}
-
-/// Host API bearer token (`<config_dir>/api_token`), when seeded. The
-/// susi-config and susi-sandbox leaf services require it on every request.
-#[must_use]
-pub fn host_token() -> Option<String> {
-    host_token_in(&SusiDirs::config_dir())
-}
-
-/// Constant-time check of an `Authorization` header value against the host
-/// token. Fails closed when no token is seeded.
-#[must_use]
-pub fn bearer_authorized(header: Option<&str>) -> bool {
-    let (Some(expected), Some(presented)) =
-        (host_token(), header.and_then(|h| h.strip_prefix("Bearer ")))
-    else {
-        return false;
-    };
-    let (a, b) = (presented.trim().as_bytes(), expected.as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-/// Supervisor bearer check for leaf services the daemon spawns: the token
-/// arrives in `SUSI_HOST_TOKEN`. A bare instance started without it (local
-/// dev, CI harness) stays open; with it, the header must match in constant
-/// time. Contrast [`bearer_authorized`], which fails closed.
-#[must_use]
-pub fn supervisor_bearer_authorized(header: Option<&str>) -> bool {
-    let Some(expected) = std::env::var("SUSI_HOST_TOKEN")
-        .ok()
-        .filter(|t| !t.trim().is_empty())
-    else {
-        return true;
-    };
-    let Some(presented) = header.and_then(|h| h.strip_prefix("Bearer ")) else {
-        return false;
-    };
-    let (a, b) = (presented.trim().as_bytes(), expected.trim().as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-/// Local XDG/legacy resolver: the rule the service answers with and the
-/// fallback every client uses when the service is unreachable.
 struct LocalDirs;
 
 impl LocalDirs {
-    fn get(key: &str) -> PathBuf {
-        match key {
-            "home_dir" => Self::home_dir(),
-            "config_dir" => Self::config_dir(),
-            "cache_dir" => Self::cache_dir(),
-            "substrate_home" => Self::substrate_home(),
-            _ => Self::data_dir(),
-        }
-    }
-
-    /// `SUSI_HOME` selects a fully isolated instance root — the multi-instance
-    /// knob: `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start` runs a
-    /// second node beside the primary with its own config, lock, and state.
-    ///
-    /// Mandate 52: an inherited launch-time `SUSI_HOME` (e.g. `~/.susi-dev`)
-    /// must not receive test writes. `scripts/check-hermetic-tests.sh` exports
-    /// `SUSI_HERMETIC_FORBIDDEN` to the throwaway it set as `SUSI_HOME`; that
-    /// path is ignored here so unit tests fall back to the (also throwaway)
-    /// `HOME`/`XDG_*` the script provides. A test that points `SUSI_HOME` at a
-    /// *different* absolute path still gets a real instance root.
     fn instance_root() -> Option<PathBuf> {
         let p = std::env::var_os("SUSI_HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())?;
         if std::env::var_os("SUSI_HERMETIC_FORBIDDEN")
             .map(PathBuf::from)
-            .is_some_and(|f| same_instance_path(&f, &p))
+            .is_some_and(|f| same_path(&f, &p))
         {
             return None;
         }
@@ -406,13 +101,6 @@ impl LocalDirs {
         }
     }
 
-    /// Whether the legacy `~/.susi` root existed the first time this process
-    /// resolved it. Pinned per path: workspace-scoped state (`<ws>/.susi`)
-    /// creates `~/.susi` whenever the workspace is `$HOME`, and re-checking
-    /// on every call would then flip an XDG install to the legacy layout
-    /// mid-process, so state written before the flip is read from a
-    /// different file after it. Keyed by path (not one global answer) so a
-    /// repointed `HOME` is decided afresh; `SUSI_XDG` stays live.
     fn legacy_present(legacy: &Path) -> bool {
         static SEEN: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
         let mut seen = SEEN
@@ -424,7 +112,6 @@ impl LocalDirs {
             .or_insert_with(|| legacy.is_dir())
     }
 
-    #[must_use]
     fn config_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = xdg::config_dir() {
@@ -434,7 +121,6 @@ impl LocalDirs {
         Self::legacy_base()
     }
 
-    #[must_use]
     fn data_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = xdg::data_dir() {
@@ -444,7 +130,6 @@ impl LocalDirs {
         Self::legacy_base()
     }
 
-    #[must_use]
     fn cache_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = xdg::cache_dir() {
@@ -453,51 +138,17 @@ impl LocalDirs {
         }
         Self::legacy_base()
     }
-
-    /// Host substrate root the background daemon is always bound to
-    /// (`~/.susi` or the XDG data dir). This is **not** a project workspace —
-    /// CLI intents use the caller's cwd; the daemon only owns host-global
-    /// state (models, ports, lock, rediscovery).
-    #[must_use]
-    fn substrate_home() -> PathBuf {
-        Self::data_dir()
-    }
 }
 
 pub mod console;
 pub mod hex;
-pub mod http_body;
-pub mod loopback;
-pub mod native_path;
 pub mod platform;
-pub mod ports;
 pub mod stdio;
 pub mod sync;
 pub mod tempfile;
 #[doc(hidden)]
 pub mod test_env;
 mod xdg;
-pub mod zc_ports_file;
-
-/// Percent-encode a string for a query component (RFC 3986 unreserved
-/// plus the extra bytes in `keep`). Used by live search and sandbox IPC
-/// so those callers do not each keep a forked encoder.
-#[must_use]
-pub fn percent_encode(s: &str, keep: &[u8]) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        let unreserved = matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~')
-            || keep.contains(&b);
-        if unreserved {
-            out.push(b as char);
-        } else if b == b' ' {
-            out.push_str("%20");
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
 
 /// Encode a substrate topic or key for use as a single filename component.
 #[must_use]
@@ -512,392 +163,30 @@ pub fn encode_file_component(key: &str) -> String {
     out
 }
 
-/// Query-string component encoding (spaces and commas encoded).
-#[must_use]
-pub fn percent_encode_query(s: &str) -> String {
-    percent_encode(s, &[])
-}
-
-/// Path encoding that leaves `/` intact (sandbox IPC workspace paths).
-#[must_use]
-pub fn percent_encode_path(s: &str) -> String {
-    percent_encode(s, b"/")
-}
-
-/// The host path contract as the `susi-paths` service answers it: always
-/// the local resolver (the service *is* the source of truth).
-#[must_use]
-pub fn local_paths_json() -> serde_json::Value {
-    serde_json::json!({
-        "home_dir": LocalDirs::home_dir(),
-        "config_dir": LocalDirs::config_dir(),
-        "data_dir": LocalDirs::data_dir(),
-        "cache_dir": LocalDirs::cache_dir(),
-        "substrate_home": LocalDirs::substrate_home(),
-    })
-}
-
-/// The effective host port contract (after the instance offset).
-#[must_use]
-pub fn ports_json() -> serde_json::Value {
-    serde_json::json!({
-        "gmcp": ports::effective(ports::GMCP),
-        "gemi": ports::effective(ports::GEMI),
-        "udp_discovery": ports::effective(ports::UDP_DISCOVERY),
-        "gmcp_http": ports::effective(ports::GMCP_HTTP),
-        "a2a_http": ports::effective(ports::A2A_HTTP),
-    })
-}
-
-/// `true` while this process IS the substrate service (daemon or a leaf
-/// service): local client surfaces resolve locally and never post back to
-/// themselves. One flag in the leaf crate — `susi-error`, `susi-config`,
-/// and `susi-sandbox-client` delegate their `enter_service_mode` here.
-static SERVICE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Marks this process as the substrate service.
-pub fn enter_service_mode() {
-    SERVICE_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// `true` when running as the substrate service.
-#[must_use]
-pub fn is_service_mode() -> bool {
-    SERVICE_MODE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 /// Serialises tests that read or mutate process-wide env (`HOME`, `SUSI_HOME`).
 #[cfg(test)]
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn host_contract_ports_are_stable() {
-        assert_eq!(ports::GMCP, 9090);
-        assert_eq!(ports::GEMI, 9091);
-        assert_eq!(ports::UDP_DISCOVERY, 9092);
-        assert_eq!(ports::GMCP_HTTP, 9093);
-        assert_eq!(ports::A2A_HTTP, 9094);
-        assert_eq!(ports::ALL.len(), 5);
-        let mut seen = std::collections::BTreeSet::new();
-        for (port, _) in ports::ALL {
-            assert!(seen.insert(port), "duplicate host-contract port {port}");
-        }
-    }
-
-    #[test]
-    fn substrate_home_is_not_a_project_cwd() {
+    fn substrate_home_and_hermetic_forbidden_susi_home_follow_contract() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let home = SusiDirs::substrate_home();
-        // A pinned instance root (`SUSI_HOME`, e.g. a dev instance) is the
-        // substrate home verbatim, whatever it is named. Ask `instance_root()`,
-        // not the environment: under `scripts/check-hermetic-tests.sh` the
-        // `SUSI_HOME` it sets is the one Mandate 52 makes `instance_root()`
-        // ignore, and re-reading the variable here asserted the opposite.
-        if let Some(root) = LocalDirs::instance_root() {
-            assert_eq!(home, root);
-            return;
-        }
-        assert!(
-            home.ends_with(".susi") || home.to_string_lossy().contains("susi"),
-            "substrate_home should be the host substrate root, got {}",
-            home.display()
-        );
-        // Distinct from a typical project folder under github.com/...
-        assert!(
-            !home.to_string_lossy().contains("/github.com/"),
-            "{}",
-            home.display()
-        );
-    }
-
-    /// A paths-service answer cached while home was A is never served once
-    /// `HOME`/`USERPROFILE` move to B: the swapped home resolves its own
-    /// substrate, not A's (the real `~/.susi`, whose `cloud.env` a
-    /// home-swapped test then overwrote).
-    #[test]
-    fn a_service_map_cached_for_one_home_is_never_served_to_another() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let root = std::env::temp_dir().join(format!("susi_paths_cache_{}", std::process::id()));
-        let (a, b) = (root.join("a"), root.join("b"));
-        // Legacy roots pin the layout under each home on every OS.
-        std::fs::create_dir_all(a.join(".susi")).unwrap();
-        std::fs::create_dir_all(b.join(".susi")).unwrap();
-        // Nothing listens here: B's lookup never reaches a live service.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|l| l.local_addr())
-            .map(|addr| addr.port())
-            .unwrap();
+        let forbidden = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
         let mut env = test_env::EnvGuard::isolated();
-        for var in [
-            "SUSI_XDG",
-            "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME",
-            "XDG_CACHE_HOME",
-        ] {
-            env.remove(var);
-        }
-        env.set("SUSI_PATHS_PORT", closed.to_string());
-        env.set("HOME", &a);
-        // The service answered for A — say, a live daemon's leaf service.
-        let served = a.join("served-substrate");
-        let map: HashMap<String, PathBuf> = [
-            ("home_dir", a.clone()),
-            ("config_dir", served.clone()),
-            ("data_dir", served.clone()),
-            ("cache_dir", served.clone()),
-            ("substrate_home", served.clone()),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-        assert_eq!(
-            SusiDirs::cached_for(&LocalDirs::home_dir(), || map.clone()),
-            map
-        );
-        assert_eq!(SusiDirs::substrate_home(), served, "A is served from cache");
-        env.set("HOME", &b);
-        for resolved in [
-            SusiDirs::home_dir(),
-            SusiDirs::config_dir(),
-            SusiDirs::substrate_home(),
-        ] {
-            assert!(
-                resolved.starts_with(&b) && !resolved.starts_with(&a),
-                "after the swap to B, {} must resolve under B",
-                resolved.display()
-            );
-        }
-        assert_eq!(SusiDirs::config_dir(), b.join(".susi"));
-        drop(env);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn percent_encode_query_and_path() {
-        assert_eq!(percent_encode_query("Chennai, India"), "Chennai%2C%20India");
-        assert_eq!(percent_encode_path("/tmp/my ws"), "/tmp/my%20ws");
-    }
-
-    #[test]
-    fn host_token_in_honors_ports_json_api_token_path_and_falls_back_to_api_token() {
-        let dir = std::env::temp_dir().join(format!("susi_host_token_test_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // 1. No token seeded -> None
-        assert_eq!(host_token_in(&dir), None);
-
-        // 2. Fallback to <config_dir>/api_token
-        std::fs::write(dir.join("api_token"), "  fallback-token-123 \n").unwrap();
-        assert_eq!(host_token_in(&dir).as_deref(), Some("fallback-token-123"));
-
-        // 3. ports.json api_token_path overrides <config_dir>/api_token when present
-        let custom_token_path = dir.join("custom_api_token");
-        std::fs::write(&custom_token_path, "ports-json-token-456\n").unwrap();
-        let mut pf = zc_ports_file::PortsFile::for_home(dir.clone(), 0, false);
-        pf.api_token_path = custom_token_path;
-        pf.write_to_home().unwrap();
-        assert_eq!(host_token_in(&dir).as_deref(), Some("ports-json-token-456"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn bearer_and_supervisor_bearer_authorization_enforce_constant_time_matching() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("susi_bearer_auth_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let mut env = test_env::EnvGuard::isolated();
-        env.remove("SUSI_HERMETIC_FORBIDDEN");
-        env.set("SUSI_HOME", &dir);
-
-        // Fail closed when no host token is seeded
-        assert!(!bearer_authorized(Some("Bearer secret-token")));
-        assert!(!bearer_authorized(None));
-
-        // Seed host token and verify constant-time match
-        std::fs::write(dir.join("api_token"), "secret-token\n").unwrap();
-        assert!(bearer_authorized(Some("Bearer secret-token")));
-        assert!(bearer_authorized(Some("Bearer   secret-token  ")));
-        assert!(!bearer_authorized(Some("Bearer wrong-token")));
-        assert!(!bearer_authorized(Some("Basic secret-token")));
-
-        // supervisor_bearer_authorized is open when SUSI_HOST_TOKEN is unset,
-        // and enforces constant-time matching when SUSI_HOST_TOKEN is set.
-        env.remove("SUSI_HOST_TOKEN");
-        assert!(supervisor_bearer_authorized(None));
-        env.set("SUSI_HOST_TOKEN", "sup-token-99");
-        assert!(supervisor_bearer_authorized(Some("Bearer sup-token-99")));
-        assert!(!supervisor_bearer_authorized(Some("Bearer wrong")));
-        assert!(!supervisor_bearer_authorized(None));
-
-        drop(env);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-#[cfg(test)]
-mod hermetic_forbidden_tests {
-    use super::*;
-    #[test]
-    fn hermetic_forbidden_susi_home_is_ignored() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let forbidden =
-            std::env::temp_dir().join(format!("susi_hermetic_forbid_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&forbidden);
-        let home = std::env::temp_dir().join(format!("susi_hermetic_home_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&home);
-        // `EnvGuard` swaps `USERPROFILE` with `HOME` on Windows (where the
-        // profile is the home) and restores everything on drop, even when an
-        // assertion fails; setting `HOME` alone left Windows resolving the
-        // operator's real profile.
-        let mut env = test_env::EnvGuard::isolated();
-        env.set("HOME", &home);
-        env.set("SUSI_HOME", &forbidden);
-        env.set("SUSI_HERMETIC_FORBIDDEN", &forbidden);
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", forbidden.path());
+        env.set("SUSI_HERMETIC_FORBIDDEN", forbidden.path());
         env.remove("XDG_CONFIG_HOME");
-        assert_eq!(LocalDirs::home_dir(), home, "the swapped home is the home");
-        // Without a pre-existing ~/.susi, XDG layout applies under HOME.
-        let cfg = LocalDirs::config_dir();
-        assert_ne!(
-            cfg, forbidden,
-            "forbidden SUSI_HOME must not be the config root"
-        );
-        // An explicit different SUSI_HOME still pins the instance.
-        let other =
-            std::env::temp_dir().join(format!("susi_hermetic_other_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&other);
-        env.set("SUSI_HOME", &other);
-        assert_eq!(LocalDirs::config_dir(), other);
-        drop(env);
-        let _ = std::fs::remove_dir_all(&forbidden);
-        let _ = std::fs::remove_dir_all(&home);
-        let _ = std::fs::remove_dir_all(&other);
-    }
-
-    /// Windows `canonicalize` spells a local path as `\\?\C:\...`. That
-    /// verbatim form is the same directory as the plain spelling, so a
-    /// hermetic forbidden root must still be ignored when only one side
-    /// uses it.
-    #[test]
-    fn hermetic_forbidden_ignores_verbatim_disk_spelling() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let forbidden =
-            std::env::temp_dir().join(format!("susi_hermetic_verbatim_{}", std::process::id()));
-        let home = std::env::temp_dir().join(format!(
-            "susi_hermetic_verbatim_home_{}",
-            std::process::id()
-        ));
-        let _ = std::fs::create_dir_all(&forbidden);
-        let _ = std::fs::create_dir_all(&home);
-        let verbatim = std::fs::canonicalize(&forbidden).expect("canonicalize forbidden home");
-        let mut env = test_env::EnvGuard::isolated();
-        env.set("HOME", &home);
-        env.set("SUSI_HOME", &verbatim);
-        env.set("SUSI_HERMETIC_FORBIDDEN", &forbidden);
-        env.remove("XDG_CONFIG_HOME");
-        let cfg = LocalDirs::config_dir();
-        assert!(
-            !same_path(&cfg, &forbidden),
-            "verbatim SUSI_HOME {} must not resolve config to forbidden {}",
-            cfg.display(),
-            forbidden.display()
-        );
-        drop(env);
-        let _ = std::fs::remove_dir_all(&forbidden);
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn host_token_path_in_honors_ports_json_and_falls_back_to_api_token() {
-        let dir = std::env::temp_dir().join(format!("susi_token_path_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-
-        assert_eq!(host_token_path_in(&dir), dir.join("api_token"));
-
-        let custom = dir.join("custom.token");
-        std::fs::write(&custom, "tok-custom\n").expect("write custom token");
-        let ports_json = serde_json::json!({
-            "ports": { "gmcp": 9090 },
-            "api_token_path": custom.display().to_string(),
-        });
-        std::fs::write(dir.join("ports.json"), ports_json.to_string()).expect("write ports.json");
-        assert_eq!(host_token_path_in(&dir), custom);
-
-        // If ports.json points to a missing path while <dir>/api_token exists,
-        // fall back to the existing <dir>/api_token file.
-        let _ = std::fs::remove_file(&custom);
-        let fallback = dir.join("api_token");
-        std::fs::write(&fallback, "tok-fallback\n").expect("write fallback token");
-        assert_eq!(host_token_path_in(&dir), fallback);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn is_primary_instance_distinguishes_primary_from_isolated_susi_home() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let base = std::env::temp_dir().join(format!("susi_primary_check_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let fake_home = base.join("home");
-        let isolated = base.join("isolated");
-        std::fs::create_dir_all(&fake_home).expect("create fake home");
-        std::fs::create_dir_all(&isolated).expect("create isolated home");
-
-        let mut env = test_env::EnvGuard::isolated();
-        env.set("HOME", &fake_home);
-        env.remove("SUSI_HOME");
-        assert!(SusiDirs::is_primary_instance());
-
-        env.set("SUSI_HOME", fake_home.join(".susi"));
-        assert!(SusiDirs::is_primary_instance());
-
-        env.set("SUSI_HOME", &isolated);
-        assert!(!SusiDirs::is_primary_instance());
-
-        drop(env);
-        let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn workspace_state_dir_prevents_nested_dot_susi_dirs() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let base = std::env::temp_dir().join(format!("susi_ws_state_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let fake_home = base.join("home");
-        let isolated = base.join("isolated-home");
-        let normal_ws = base.join("workspace");
-        let already_dot_susi = base.join("explicit/.susi");
-        std::fs::create_dir_all(&fake_home).expect("fake home");
-        std::fs::create_dir_all(&isolated).expect("isolated home");
-        std::fs::create_dir_all(&normal_ws).expect("normal workspace");
-        std::fs::create_dir_all(&already_dot_susi).expect("dot susi dir");
-
-        let mut env = test_env::EnvGuard::isolated();
-        env.set("HOME", &fake_home);
-        env.set("SUSI_HOME", &isolated);
-        env.remove("XDG_CONFIG_HOME");
-        env.remove("XDG_DATA_HOME");
-
-        assert_eq!(workspace_state_dir(&normal_ws), normal_ws.join(".susi"));
-        assert_eq!(workspace_state_dir(&already_dot_susi), already_dot_susi);
-        assert_eq!(workspace_state_dir(&isolated), isolated);
-        assert_eq!(workspace_state_dir(&fake_home), fake_home.join(".susi"));
-
-        let prev_cwd = std::env::current_dir().expect("capture cwd");
-        std::env::set_current_dir(&isolated).expect("chdir to isolated SUSI_HOME");
-        let dot_resolved = workspace_state_dir(Path::new("."));
-        std::env::set_current_dir(&prev_cwd).expect("restore cwd");
-        assert!(same_path(&dot_resolved, &isolated));
-
-        drop(env);
-        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(SusiDirs::home_dir(), home.path());
+        assert_ne!(SusiDirs::config_dir(), forbidden.path());
+        env.set("SUSI_HOME", other.path());
+        assert_eq!(SusiDirs::config_dir(), other.path());
+        assert_eq!(SusiDirs::substrate_home(), other.path());
+        assert_eq!(encode_file_component("a/b:c"), "a%2Fb%3Ac");
     }
 }

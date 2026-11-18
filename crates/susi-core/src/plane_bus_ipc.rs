@@ -251,14 +251,6 @@ impl IpcPlaneBus {
         }
     }
 
-    /// Already-bound listener tag without triggering lazy listener bind.
-    pub fn bound_endpoint_tag(&self) -> String {
-        self.endpoint
-            .get()
-            .map(ToString::to_string)
-            .unwrap_or_default()
-    }
-
     /// Defer route-manifest disk writes until the matching [`Self::end_batch`].
     pub fn begin_batch(&self) {
         self.batch_depth.fetch_add(1, Ordering::AcqRel);
@@ -633,18 +625,16 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
     let Some(candidate) = fresh() else {
         return read().unwrap_or_default();
     };
-    // Owner-only from birth: `0600` on Unix, the installed platform service
-    // elsewhere (no service, no key). No other handle can be opened against a
-    // wider list before the key is written, and a failure creates nothing.
-    #[cfg(unix)]
+    // Owner-only from birth (`0600` on Linux): no other handle can be opened
+    // before the key is written, and a failure creates nothing.
     let created = {
         use std::os::unix::fs::OpenOptionsExt;
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true).mode(0o600).open(&path)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
     };
-    #[cfg(not(unix))]
-    let created = susi_paths::platform::required("owner-only bus key")
-        .and_then(|services| (services.create_new_owner_only)(&path));
     if let Ok(mut f) = created {
         if f.write_all(candidate.as_bytes()).is_ok() {
             return candidate;
@@ -1053,8 +1043,8 @@ fn claim_rendezvous(rendezvous: &Path) -> Option<std::fs::File> {
 /// Whether the copy that owns `dir` is gone. A dir with an owner lock is
 /// dead exactly when the lock can be taken. A dir without one was written
 /// by a binary that predates the lock (or is being created this instant):
-/// it is dead when its pid is not a live susi process.
-fn rendezvous_is_dead(dir: &Path, pid: u32, live: &mut LiveProcesses) -> bool {
+/// it is dead when `/proc/<pid>` is gone.
+fn rendezvous_is_dead(dir: &Path, pid: u32) -> bool {
     match std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -1065,40 +1055,10 @@ fn rendezvous_is_dead(dir: &Path, pid: u32, live: &mut LiveProcesses) -> bool {
             Err(std::fs::TryLockError::WouldBlock) => false,
             Err(std::fs::TryLockError::Error(_)) => false,
         },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => !live.is_susi(pid),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            !Path::new(&format!("/proc/{pid}")).exists()
+        }
         Err(_) => false,
-    }
-}
-
-/// Live-process view for legacy rendezvous dirs, read at most once per
-/// sweep (and only when such a dir exists).
-#[derive(Default)]
-struct LiveProcesses {
-    /// One process listing per sweep.
-    #[cfg(not(target_os = "linux"))]
-    rows: Option<Vec<susi_config::process_probe::ProcessSnapshot>>,
-}
-
-impl LiveProcesses {
-    /// Linux keeps its `/proc` liveness rule for legacy dirs.
-    #[cfg(target_os = "linux")]
-    fn is_susi(&mut self, pid: u32) -> bool {
-        PathBuf::from(format!("/proc/{pid}")).exists()
-    }
-
-    /// Elsewhere a pid counts only while it names a live susi process in the
-    /// installed platform services' process table (a reused pid does not).
-    /// Without services, or when the listing fails, legacy dirs are kept
-    /// (owner-locked dirs are still swept).
-    #[cfg(not(target_os = "linux"))]
-    fn is_susi(&mut self, pid: u32) -> bool {
-        let rows = self
-            .rows
-            .get_or_insert_with(|| susi_config::process_probe::processes(false));
-        rows.is_empty()
-            || rows
-                .iter()
-                .any(|row| row.pid == pid && row.name.to_ascii_lowercase().starts_with("susi"))
     }
 }
 
@@ -1171,7 +1131,6 @@ fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
         return true;
     };
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let mut live = LiveProcesses::default();
     let mut trash = Vec::new();
     for entry in rd.flatten() {
         let path = entry.path();
@@ -1189,7 +1148,7 @@ fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
         if pid == std::process::id() {
             continue;
         }
-        if looks_like_rendezvous(&path) && rendezvous_is_dead(&path, pid, &mut live) {
+        if looks_like_rendezvous(&path) && rendezvous_is_dead(&path, pid) {
             let swept = dir.join(format!(
                 "{SWEPT_PREFIX}{name}-{}-{}",
                 std::process::id(),

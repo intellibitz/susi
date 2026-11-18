@@ -1,4 +1,4 @@
-//! Integer micro-USD wire unit (`$0.000001`) carried by [`crate::event::Event`].
+//! Integer micro-USD wire unit (`$0.000001`) carried by harness events.
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -16,5 +16,16 @@ impl MicroUsd {
     #[must_use]
     pub const fn micros(self) -> u64 {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MicroUsd;
+
+    #[test]
+    fn micro_usd_roundtrips_zero_and_non_zero_amounts() {
+        assert_eq!(MicroUsd::ZERO.micros(), 0);
+        assert_eq!(MicroUsd::from_micros(42).micros(), 42);
     }
 }

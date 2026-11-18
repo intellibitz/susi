@@ -50,7 +50,7 @@ no client is mid-mission; verify its artifact, keep rollback. Keep releases and 
 6. Keep core a generic standards socket with exactly three core pillars: GAWD (A2A, ACP and \
 parallel harness), GEMI and GMCP. Concrete implementations belong in separate packages; \
 prove each destination works through the standard socket before removing core implementation. \
-No functionality is dropped. Core stays under 100,000 physical runtime Rust lines, including \
+No functionality is dropped. Core stays under 10,000 physical runtime Rust lines, including \
 all platforms/features, comments, blanks, inline tests and facades; until then it never grows. \
 Lower COMPLETE_SOCKET_CEILING after each reduction. Never hide or minify code or weaken a \
 check to pass. Core has no UI or bundled plug content; keep proprietary code out of core.
@@ -124,7 +124,7 @@ mod tests {
             "RunLevel=Limited",
             "exactly three core pillars",
             "No functionality is dropped",
-            "under 100,000 physical runtime Rust lines",
+            "under 10,000 physical runtime Rust lines",
             "until then it never grows",
             "destination works through the standard socket",
             "Lower COMPLETE_SOCKET_CEILING",

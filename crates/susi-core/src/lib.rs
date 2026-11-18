@@ -33,7 +33,6 @@ pub use crate::susi_error::redact;
 pub use susi_config::progress;
 pub mod scoped_tools;
 pub mod self_build;
-pub mod zc_egress_allowlist;
 
 pub use acp::{
     AcpCapabilities, AcpContentBlock, AcpDiscoveryDocument, AcpHistoryBounds, AcpInferenceMessage,
