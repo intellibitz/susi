@@ -1,0 +1,27 @@
+{
+  "id": "T-SLIM17LEDGER-2",
+  "title": "Move complete MCP administration and patch CLI owners",
+  "goal": "Vision: V-10. Preserve the original MCP/admin/patch owner bodies and dedicated security/process tests in commercial susi-cli-runtime before root removes the public implementations during the whole CLI owner move. Reuse source de7379321 without behavior changes; original standard CLI signatures and public launcher continue. Root owns shared CLI/boot composition and all source deletion waits for mandatory original test acceptance on the actual integrated destination.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "mcp_call_cli_tests",
+      "--test",
+      "vc_201_051_checks_run_from_a_command",
+      "--test",
+      "vc_201_079_cli_verify"
+    ]
+  },
+  "created_by": "SLIM17LEDGER",
+  "created_unix": 1794939138,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reuse complete MCP/admin/patch owners and dedicated original command tests from core de73793214c04fda17618f4a97840968322459b9 in commercial susi-cli-runtime; destination checkpoint 140a32c1 preserves owner bodies and all 84 explicit assertions."
+  },
+  "limitations": "Core source is intact. Shared commercial CLI/daemon composition and Windows/Linux destination process qualification are required before deletion; parent owns shared launcher and dispatch integration."
+}
