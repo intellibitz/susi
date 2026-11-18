@@ -9,5 +9,8 @@ description = "SUSI vendor facade: sole workspace owner of `winapi`; susi-* crat
 [dependencies]
 winapi = { version = "0.3", features = ["accctrl", "aclapi", "errhandlingapi", "fileapi", "jobapi2", "handleapi", "memoryapi", "minwinbase", "minwindef", "ntdef", "processthreadsapi", "psapi", "securitybaseapi", "shellapi", "stringapiset", "sysinfoapi", "tlhelp32", "winbase", "winerror", "winnt"] }
 
+[dev-dependencies]
+susi-paths = { path = "../susi-paths" }
+
 [lints]
 workspace = true

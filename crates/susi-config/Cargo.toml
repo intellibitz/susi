@@ -12,9 +12,6 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
-ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
-x25519-dalek = { package = "susi-vendor-x25519-dalek", path = "../susi-vendor-x25519-dalek" }
-chacha20poly1305 = { package = "susi-vendor-chacha20poly1305", path = "../susi-vendor-chacha20poly1305" }
 # Host metrics and process inspection on every OS (host_metrics,
 # process_probe): the one portable source instead of Linux-only /proc reads.
 

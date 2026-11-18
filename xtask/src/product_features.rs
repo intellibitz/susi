@@ -1,15 +1,10 @@
-//! The Cargo feature selection of the shipped Susi product.
+//! Cargo feature selection for the retained native product and legacy fixtures.
 //!
-//! The default `susi` graph is the slim protocol socket (`default = []`): it
-//! leaves the Candle local model engine out (T-GROKSLIM1104-1). A qualified
-//! release must answer its first goals with local inference (Step 1 acceptance:
-//! two audited nonempty Candle generations), so every release step (local
-//! builds, the production build gate, the dependency inventory and the advisory
-//! scan) selects the same product features: no defaults, plus `local-engine`.
-//! The inventory and scans therefore cover exactly the graph that ships.
-//!
-//! Minimal release-machinery fixtures that do not declare `local-engine` keep
-//! the bare `--no-default-features` selection, so their gates still run.
+//! The native executable now owns protocol and bootstrap contracts. Its shipped
+//! graph has no local inference feature; the paired commercial CLI selects the
+//! complete local engine. Build, inventory and advisory receipts must describe
+//! the graph that actually ships. Older fixture manifests that still declare
+//! `local-engine` retain their explicit feature-selection behavior.
 
 use std::path::Path;
 
@@ -76,11 +71,7 @@ pub fn select_product_features(args: &mut Vec<String>, root: &Path) {
 /// from `Cargo.toml`; the shipped product policy is already fixed by this
 /// release machinery source and is recorded in the gate argv.
 pub fn select_qualified_product_features(args: &mut Vec<String>) {
-    let product = [
-        "--no-default-features".to_string(),
-        "--features".to_string(),
-        PRODUCT_ENGINE_FEATURE.to_string(),
-    ];
+    let product = ["--no-default-features".to_string()];
     select_feature_args(args, &product);
 }
 
@@ -188,8 +179,6 @@ mod tests {
                 "build",
                 "--release",
                 "--no-default-features",
-                "--features",
-                "local-engine",
                 "--target",
                 "x"
             ]
@@ -197,11 +186,15 @@ mod tests {
     }
 
     #[test]
-    fn this_workspace_ships_with_the_local_engine() {
+    fn this_workspace_ships_only_its_native_protocol_and_bootstrap_graph() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .to_path_buf();
-        assert!(declares_engine_feature(&root));
+        assert!(!declares_engine_feature(&root));
+        assert_eq!(product_feature_args(&root), ["--no-default-features"]);
+        let mut qualified = vec!["--no-default-features".to_string()];
+        select_qualified_product_features(&mut qualified);
+        assert_eq!(qualified, product_feature_args(&root));
     }
 }

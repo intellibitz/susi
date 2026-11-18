@@ -1,0 +1,19 @@
+{
+  "id": "T-SLIM17ROOT-3",
+  "title": "Integrate the under50k socket and exact release source",
+  "goal": "Vision: V-10. Reduce the complete native socket below50,000 physical runtime Rust lines under the unchanged counting scope, preserve real capabilities through commercial owners, fix release blockers, and integrate the exact shared source for native Windows/Linux production qualification. User goal2026-11-18; no completion before final qualified shipping evidence.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "core-size"
+    ]
+  },
+  "created_by": "SLIM17ROOT",
+  "created_unix": 1794954420,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reuse the original Apache-2.0 native owners, original security and protocol tests, existing commercial runtime packages, current pinned dependency graph, native source-size counter, enrolled signed release-agent workflow and local exact-tree qualification. Preserve native generic wire and bootstrap contracts; no replacement library or license exception is introduced."
+  }
+}

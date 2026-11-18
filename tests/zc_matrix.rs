@@ -107,123 +107,12 @@ fn assert_native_runtime_graph(tree: &str, model_runtime: bool) {
 }
 
 #[test]
-fn windows_resolves_rust_runtime_and_native_tls() {
-    // Both native Windows MSVC targets (ARM64 per the CEO decision of
-    // 2026-11-03) resolve the same Rust runtime and Schannel TLS graph.
-    for target in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
-        let tree = dep_tree(target);
-        assert_native_runtime_graph(&tree, false);
-        let packages = packages(&tree);
-        for required in [
-            "native-tls",
-            "tokio-native-tls",
-            "schannel",
-            "windows-sys",
-            "rcgen",
-            "pkcs1",
-            "pkcs8",
-        ] {
-            assert!(
-                packages.contains(required),
-                "{target} lost {required}: {tree}"
-            );
-        }
-        for forbidden in ["openssl", "openssl-sys", "openssl-src"] {
-            assert!(
-                !packages.contains(forbidden),
-                "{target} must use Schannel, found {forbidden}: {tree}"
-            );
-        }
-    }
-}
-
-#[test]
-fn linux_resolves_rust_runtime_and_platform_openssl() {
-    let tree = dep_tree("x86_64-unknown-linux-gnu");
-    assert_native_runtime_graph(&tree, false);
-    let packages = packages(&tree);
-    for required in [
-        "native-tls",
-        "tokio-native-tls",
-        "openssl",
-        "openssl-sys",
-        "rcgen",
-        "pkcs1",
-        "pkcs8",
-    ] {
-        assert!(packages.contains(required), "Linux lost {required}: {tree}");
-    }
-    for forbidden in ["openssl-src", "schannel", "security-framework"] {
-        assert!(
-            !packages.contains(forbidden),
-            "Linux must use installed platform OpenSSL, found {forbidden}: {tree}"
-        );
-    }
-}
-
-#[test]
-fn apple_resolves_rust_runtime_and_security_framework() {
-    let tree = dep_tree("aarch64-apple-darwin");
-    assert_native_runtime_graph(&tree, false);
-    let packages = packages(&tree);
-    for required in [
-        "native-tls",
-        "tokio-native-tls",
-        "security-framework",
-        "security-framework-sys",
-        "core-foundation",
-        "rcgen",
-        "pkcs1",
-        "pkcs8",
-    ] {
-        assert!(packages.contains(required), "Apple lost {required}: {tree}");
-    }
-    for forbidden in ["openssl", "openssl-sys", "openssl-src", "schannel"] {
-        assert!(
-            !packages.contains(forbidden),
-            "Apple must use Security.framework, found {forbidden}: {tree}"
-        );
-    }
-}
-
-#[test]
 fn graph_assertions_cannot_confuse_facades_with_runtime_packages() {
     let names =
         packages("susi-vendor-wasmtime v0.1.0\nwasmi v1.0.9\nsusi-vendor-tokio-rustls v0.1.0\n");
     assert!(names.contains("wasmi"));
     assert!(!names.contains("wasmtime"));
     assert!(!names.contains("rustls"));
-}
-
-#[test]
-#[ignore = "Rust model runtime removed from core by ungated iterations 341-347 (2026-11-07) with no destination on the commercial origin; restore list ANTIGRAVITY-NEXT-100.md item 4; re-enable when a plug or the restored engine is in (CEO decision 2026-11-08 02:00: land with ignores)"]
-fn all_supported_features_exclude_retired_accelerator_dependencies() {
-    for target in [
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
-        "x86_64-pc-windows-msvc",
-        "aarch64-pc-windows-msvc",
-        "x86_64-apple-darwin",
-        "aarch64-apple-darwin",
-    ] {
-        let tree = dep_tree_with_features(target, true);
-        assert_native_runtime_graph(&tree, true);
-        let names = packages(&tree);
-        for retired in [
-            "intel-mkl-src",
-            "intel-mkl-tool",
-            "cudarc",
-            "candle-kernels",
-            "libloading",
-            "option-ext",
-            "ocipkg",
-        ] {
-            assert!(
-                !names.contains(retired),
-                "{target} selected retired {retired}: {tree}"
-            );
-        }
-    }
 }
 
 #[test]
@@ -258,12 +147,30 @@ fn retired_feature_requests_fail_explicitly_before_building() {
 }
 
 #[test]
-#[ignore = "Rust model runtime removed from core by ungated iterations 341-347 (2026-11-07) with no destination on the commercial origin; restore list ANTIGRAVITY-NEXT-100.md item 4; re-enable when a plug or the restored engine is in (CEO decision 2026-11-08 02:00: land with ignores)"]
-fn plugins_bundle_restores_the_rust_model_runtime() {
-    // The slim default leaves Candle out; `--features plugins` is the
-    // documented way to get the built-in local model engine back.
-    for target in ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
-        let tree = dep_tree_with_args(target, &["--features", "plugins"]);
-        assert_native_runtime_graph(&tree, true);
+fn native_socket_keeps_runtime_and_excludes_concrete_http_tls_owners() {
+    for target in [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+    ] {
+        let tree = dep_tree(target);
+        assert_native_runtime_graph(&tree, false);
+        let names = packages(&tree);
+        for owner in [
+            "susi-http-transport",
+            "native-tls",
+            "tokio-native-tls",
+            "openssl",
+            "openssl-sys",
+            "openssl-src",
+            "schannel",
+            "security-framework",
+        ] {
+            assert!(
+                !names.contains(owner),
+                "{target} linked concrete transport {owner}: {tree}"
+            );
+        }
     }
 }

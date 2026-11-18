@@ -1363,7 +1363,164 @@ impl Drop for QualificationPlugHost {
     }
 }
 
+/// The release coordinator supplies the digest of a host-qualified commercial
+/// manifest. This boundary verifies that admission and its exact artifact; it
+/// does not acquire commercial signing secrets or claim to verify their HMAC.
+struct QualificationRuntime {
+    binary: PathBuf,
+    manifest_path: PathBuf,
+    binary_sha256: String,
+    manifest_sha256: String,
+    manifest: serde_json::Value,
+    _pins: [fs::File; 2],
+}
+
+impl QualificationRuntime {
+    fn open(binary: &Path, manifest_path: &Path, trusted_manifest: &str) -> Result<Self> {
+        if !binary.is_absolute() || !manifest_path.is_absolute() || !hex(trusted_manifest, &[64]) {
+            return Err("qualification runtime requires absolute artifact/manifest paths and a trusted manifest SHA-256".into());
+        }
+        let binary = binary.canonicalize()?;
+        let manifest_path = manifest_path.canonicalize()?;
+        let pin = |path: &Path, budget: u64| -> Result<fs::File> {
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                options.share_mode(1); // FILE_SHARE_READ: hold against writes and replacement.
+            }
+            let file = options.open(path)?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file() || metadata.len() == 0 || metadata.len() > budget {
+                return Err("qualification runtime input is not a bounded regular file".into());
+            }
+            Ok(file)
+        };
+        let binary_pin = pin(&binary, ARTIFACT_BUDGET_BYTES)?;
+        let mut manifest_pin = pin(&manifest_path, 8 * 1024 * 1024)?;
+        let mut bytes = Vec::new();
+        std::io::Read::by_ref(&mut manifest_pin)
+            .take(8 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > 8 * 1024 * 1024 || digest(&bytes) != trusted_manifest {
+            return Err(
+                "qualification commercial manifest differs from its coordinator admission".into(),
+            );
+        }
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes)?;
+        let binary_sha256 = file_digest(&binary)?;
+        let size = binary_pin.metadata()?.len();
+        let host = &manifest["host_artifact"];
+        let target = if cfg!(windows) {
+            "windows_x86_64"
+        } else {
+            "linux_x86_64"
+        };
+        let source = host["source_commit"].as_str().unwrap_or_default();
+        let tree = host["source_tree"].as_str().unwrap_or_default();
+        if manifest["test_artifact"].as_bool().unwrap_or(false)
+            || manifest["native_header_verified"] != true
+            || manifest["binary_sha256"] != binary_sha256
+            || manifest["binary_size_bytes"].as_u64() != Some(size)
+            || host["schema"] != "susi/host-artifact/v1"
+            || host["target"] != target
+            || host["binary_sha256"] != binary_sha256
+            || host["binary_size_bytes"].as_u64() != Some(size)
+            || host["version"] != manifest["version"]
+            || manifest["version"]
+                .as_str()
+                .is_none_or(|value| value.trim().is_empty())
+            || !hex(source, &[40, 64])
+            || !hex(tree, &[40, 64])
+            || manifest["harvest_audit"]["head_oid"] != source
+            || host["qualified_at_unix"]
+                .as_u64()
+                .is_none_or(|value| value == 0)
+            || host["qualified_at_unix"] != manifest["qualified_at_unix"]
+            || !hex(
+                host["attestation_signature"].as_str().unwrap_or_default(),
+                &[64],
+            )
+            || !hex(
+                manifest["manifest_hmac_sha256"]
+                    .as_str()
+                    .unwrap_or_default(),
+                &[64],
+            )
+        {
+            return Err(
+                "qualification commercial artifact is not the admitted native host/source pair"
+                    .into(),
+            );
+        }
+        Ok(Self {
+            binary,
+            manifest_path,
+            binary_sha256,
+            manifest_sha256: trusted_manifest.into(),
+            manifest,
+            _pins: [binary_pin, manifest_pin],
+        })
+    }
+
+    fn from_environment() -> Result<Self> {
+        let binary = env::var_os("SUSI_QUALIFICATION_COMMERCIAL_BIN")
+            .ok_or("SUSI_QUALIFICATION_COMMERCIAL_BIN must select the admitted paired runtime")?;
+        let manifest = env::var_os("SUSI_QUALIFICATION_COMMERCIAL_MANIFEST")
+            .ok_or("SUSI_QUALIFICATION_COMMERCIAL_MANIFEST is required")?;
+        let trusted = env::var("SUSI_QUALIFICATION_COMMERCIAL_MANIFEST_SHA256")
+            .map_err(|_| "SUSI_QUALIFICATION_COMMERCIAL_MANIFEST_SHA256 is required")?;
+        Self::open(Path::new(&binary), Path::new(&manifest), &trusted)
+    }
+
+    fn apply(&self, command: &mut Command) {
+        command.env("SUSI_COMMERCIAL_BIN", &self.binary);
+    }
+
+    fn pin_plug_host(&self, path: &Path) -> Result<fs::File> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.share_mode(1);
+        }
+        let pin = options.open(path)?;
+        let name = format!("susi-plug-host{}", env::consts::EXE_SUFFIX);
+        if !pin.metadata()?.is_file()
+            || self.manifest["companion_binary_sha256s"][&name] != file_digest(path)?
+        {
+            return Err(
+                "qualification plug host differs from the admitted commercial bundle".into(),
+            );
+        }
+        Ok(pin)
+    }
+
+    fn recheck(&self) -> Result<()> {
+        if file_digest(&self.binary)? != self.binary_sha256
+            || file_digest(&self.manifest_path)? != self.manifest_sha256
+        {
+            return Err(
+                "admitted commercial runtime changed during inference qualification".into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn evidence(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema":"susi/qualification-runtime/v1",
+            "binary":self.binary, "binary_sha256":self.binary_sha256,
+            "manifest_path":self.manifest_path, "manifest_sha256":self.manifest_sha256,
+            "admission":"coordinator-pinned-host-manifest", "manifest":self.manifest,
+        })
+    }
+}
+
 fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
+    let paired_runtime = QualificationRuntime::from_environment()?;
     let artifact_before = file_digest(binary)?;
     let native_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
@@ -1379,6 +1536,10 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         .unwrap_or(default_cache);
     let cached = STARTER_FILES.iter().all(|name| cache.join(name).is_file());
     let plug_binary = qualification_plug_host()?;
+    let _plug_pin = plug_binary
+        .as_deref()
+        .map(|path| paired_runtime.pin_plug_host(path))
+        .transpose()?;
     let plug_artifact_before = plug_binary.as_deref().map(file_digest).transpose()?;
     let scratch = attempt.join("inference");
     let home = scratch.join("home");
@@ -1439,6 +1600,7 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     if cached {
         command.env("SUSI_OFFLINE", "1").env("HF_HUB_OFFLINE", "1");
     }
+    paired_runtime.apply(&mut command);
     let mut cleanup = Command::new(binary);
     cleanup.env_clear().current_dir(&workspace).arg("stop");
     for (key, value) in command.get_envs() {
@@ -1606,6 +1768,7 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
             }
         }
     }
+    paired_runtime.recheck()?;
     let plug_evidence = match plug_binary.as_deref() {
         Some(path) => serde_json::json!({
             "binary": path.display().to_string(),
@@ -1619,8 +1782,9 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     };
     let evidence = serde_json::json!({
         "schema":"susi-inference-acceptance-v2", "artifact_sha256":artifact_before,
-        "backend":if plug_binary.is_some() {"commercial-plug-host"} else {"in-process-candle"},
+        "backend":if plug_binary.is_some() {"commercial-plug-host"} else {"paired-commercial-runtime"},
         "qualification_plug_host":plug_evidence,
+        "paired_runtime":paired_runtime.evidence(),
         "provisioning":if cached {"copied-cache-validated-by-candidate"} else {"uncached-native-install-and-public-model-download"},
         "provisioning_resources":provisioning,"models":models,
         "cleanup_resources":serde_json::from_str::<serde_json::Value>(&cleanup_resources)?,
@@ -2338,6 +2502,140 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
+    fn paired_runtime_fixture() -> (
+        susi_paths::tempfile::TempDir,
+        PathBuf,
+        PathBuf,
+        serde_json::Value,
+    ) {
+        let temp = susi_paths::tempfile::tempdir().unwrap();
+        let binary = temp.path().join("paired-runtime");
+        let manifest = temp.path().join("release-manifest.json");
+        let bytes = b"unit fixture; never executed or qualified as a release";
+        fs::write(&binary, bytes).unwrap();
+        let hash = digest(bytes);
+        let source = "a".repeat(40);
+        let value = serde_json::json!({
+            "version":"3.1.9", "binary_sha256":hash, "binary_size_bytes":bytes.len(),
+            "native_header_verified":true, "test_artifact":false, "qualified_at_unix":1,
+            "manifest_hmac_sha256":"d".repeat(64), "harvest_audit":{"head_oid":source},
+            "host_artifact":{"schema":"susi/host-artifact/v1", "version":"3.1.9",
+                "target":if cfg!(windows) {"windows_x86_64"} else {"linux_x86_64"},
+                "binary_sha256":hash, "binary_size_bytes":bytes.len(),
+                "source_commit":source, "source_tree":"b".repeat(40),
+                "qualified_at_unix":1, "attestation_signature":"c".repeat(64)}
+        });
+        (temp, binary, manifest, value)
+    }
+
+    fn write_runtime_manifest(path: &Path, value: &serde_json::Value) -> String {
+        let bytes = serde_json::to_vec(value).unwrap();
+        fs::write(path, &bytes).unwrap();
+        digest(&bytes)
+    }
+
+    #[test]
+    fn paired_runtime_binds_the_selected_image_source_and_only_its_child_override() {
+        let (_temp, binary, manifest, value) = paired_runtime_fixture();
+        let trusted = write_runtime_manifest(&manifest, &value);
+        let runtime = QualificationRuntime::open(&binary, &manifest, &trusted).unwrap();
+        runtime.recheck().unwrap();
+        let proof = runtime.evidence();
+        assert_eq!(proof["manifest"], value);
+        assert_eq!(proof["manifest_sha256"], trusted);
+        assert_eq!(proof["binary_sha256"], file_digest(&binary).unwrap());
+        let mut command = Command::new("fixture-never-executed");
+        command.env_clear();
+        runtime.apply(&mut command);
+        let vars: Vec<_> = command.get_envs().collect();
+        assert_eq!(vars.len(), 1);
+        assert_eq!(vars[0].0, "SUSI_COMMERCIAL_BIN");
+        assert_eq!(vars[0].1, Some(binary.canonicalize().unwrap().as_os_str()));
+    }
+
+    #[test]
+    fn paired_runtime_refuses_untrusted_paths_artifacts_and_manifest_substitution() {
+        let (_temp, binary, manifest, value) = paired_runtime_fixture();
+        let trusted = write_runtime_manifest(&manifest, &value);
+        assert!(
+            QualificationRuntime::open(Path::new("paired-runtime"), &manifest, &trusted).is_err()
+        );
+        assert!(
+            QualificationRuntime::open(&binary, Path::new("release-manifest.json"), &trusted)
+                .is_err()
+        );
+        assert!(QualificationRuntime::open(&binary, &manifest, &"0".repeat(64)).is_err());
+        fs::write(&binary, b"substituted image").unwrap();
+        assert!(QualificationRuntime::open(&binary, &manifest, &trusted).is_err());
+    }
+
+    #[test]
+    fn paired_runtime_refuses_test_foreign_or_unbound_source_admissions() {
+        let (_temp, binary, manifest, original) = paired_runtime_fixture();
+        for (pointer, replacement) in [
+            ("/test_artifact", serde_json::json!(true)),
+            ("/native_header_verified", serde_json::json!(false)),
+            ("/host_artifact/target", serde_json::json!("foreign_host")),
+            (
+                "/host_artifact/source_commit",
+                serde_json::json!("unproven"),
+            ),
+            ("/harvest_audit/head_oid", serde_json::json!("e".repeat(40))),
+            (
+                "/host_artifact/binary_sha256",
+                serde_json::json!("e".repeat(64)),
+            ),
+            ("/host_artifact/qualified_at_unix", serde_json::json!(0)),
+            (
+                "/host_artifact/attestation_signature",
+                serde_json::json!(""),
+            ),
+        ] {
+            let mut value = original.clone();
+            *value.pointer_mut(pointer).unwrap() = replacement;
+            let trusted = write_runtime_manifest(&manifest, &value);
+            assert!(
+                QualificationRuntime::open(&binary, &manifest, &trusted).is_err(),
+                "{pointer}"
+            );
+        }
+    }
+
+    #[test]
+    fn paired_runtime_holds_windows_images_and_detects_unix_mutation() {
+        let (_temp, binary, manifest, value) = paired_runtime_fixture();
+        let trusted = write_runtime_manifest(&manifest, &value);
+        let runtime = QualificationRuntime::open(&binary, &manifest, &trusted).unwrap();
+        #[cfg(windows)]
+        {
+            assert!(fs::write(&binary, b"replacement").is_err());
+            assert!(fs::write(&manifest, b"replacement").is_err());
+            assert!(fs::rename(&binary, binary.with_extension("moved")).is_err());
+            runtime.recheck().unwrap();
+        }
+        #[cfg(unix)]
+        {
+            fs::write(&binary, b"replacement").unwrap();
+            assert!(runtime.recheck().is_err());
+        }
+        drop(runtime);
+        fs::write(&binary, b"released").unwrap();
+    }
+
+    #[test]
+    fn paired_runtime_refuses_a_plug_host_from_another_bundle() {
+        let (_temp, binary, manifest, mut value) = paired_runtime_fixture();
+        let plug = binary.with_file_name("fixture-plug");
+        fs::write(&plug, b"original plug fixture").unwrap();
+        let name = format!("susi-plug-host{}", env::consts::EXE_SUFFIX);
+        value["companion_binary_sha256s"] = serde_json::json!({name:file_digest(&plug).unwrap()});
+        let trusted = write_runtime_manifest(&manifest, &value);
+        let runtime = QualificationRuntime::open(&binary, &manifest, &trusted).unwrap();
+        drop(runtime.pin_plug_host(&plug).unwrap());
+        fs::write(&plug, b"different plug fixture").unwrap();
+        assert!(runtime.pin_plug_host(&plug).is_err());
+    }
+
     // Machinery fixtures deliberately do not masquerade as a working AI OS.
     // The production entry point always calls the real inference acceptance.
     fn qualify(ctx: &Context) -> Result<String> {
@@ -2435,10 +2733,11 @@ mod tests {
         let fixture = Fixture::new();
         let ctx = fixture.context();
         let result = qualify_with(&ctx, |_, _| Err("inference acceptance rejected".into()));
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("inference acceptance rejected"));
+        let failure = result.unwrap_err().to_string();
+        assert!(
+            failure.contains("inference acceptance rejected"),
+            "{failure}"
+        );
         assert!(git(
             &fixture.root(),
             &[

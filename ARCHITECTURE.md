@@ -30,7 +30,7 @@ composition roots (wire hooks, packs, discovery, bind)
 three primary core pillars: GAWD (swarm/agents/A2A/ACP/harness) · GEMI (inference/models) · GMCP (MCP socket)
         ↕  (in-process only: `susi_core::plane_bus` — no Cargo edges between planes)
         ↓
-susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)
+susi-core (protocol contracts, authorization, audit socket, plane_bus)
         ↓
 susi-error · susi-paths
         ↑
@@ -79,6 +79,33 @@ cross-process serialized and readers traverse every retained generation.
 Semantic-index watermarks advance only after durable vector/index writes and
 never consume an unterminated source tail.
 
+## Implementation ownership
+
+Core owns the public launcher, installation, protocol contracts, authorization,
+and generic socket machinery. Susi Commercial Apps owns the command handlers,
+agent state/evidence, concrete HTTP server, daemon services and provider adapters.
+The implementation descriptions below apply in that owning repository; they do
+not imply that these concrete packages remain in the native core workspace.
+
+The complete HTTP owner is `crates/susi-server` (package `susi-server-runtime`)
+in `susi-commercial-apps`. That repository also owns `susi-daemon-runtime`,
+`susi-leaf-services` and `susi-adapters-llm`. Its `susi-agent-runtime` owns the
+broker, capture, context graph, evidence, mission trace, parallel execution,
+pattern matching, receipt archive, registry, registry IPC, truth and verification.
+The commercial agent runtime also owns transactions, intent planning and buses,
+telemetry, mission task management, memory provenance, service supervision tables,
+worktree orchestration, board transport, adapter upgrades and the pulse queue.
+Core retains the board schema and validation used by native publication checks.
+Commercial `susi-config-runtime` owns cloud eligibility/quota, extension packs,
+external peer discovery, resource admission, state migration and operator-facing
+configuration explanation/validation. It re-exports the native `SusiConfig`;
+configuration identity, socket security, credentials and storage protections stay
+with their single native owner. Native filesystem metrics needed by build tooling
+and the checkout's self-build contract also remain in core.
+
+The native `susi-core` keeps the shared wire types and generic dispatch contracts;
+commercial owners reuse those types rather than compiling a second contract copy.
+
 ## Crate boundaries
 
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |
@@ -86,14 +113,14 @@ never consume an unterminated source tail.
 | `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; the std-only cell TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` | std, serde, serde_json | all workspace crates | no | no | cell TCP when a cell binary serves |
 | `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports` (host contract 9090–9094, gossip 9095, and the leaf-service defaults `PATHS_SERVICE`…`NATIVE_SERVICE` 18080–18084), `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
 | `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
-| `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-gawd-acp` for the public ACP compatibility path; std, serde, concurrency libs (no async runtime: the peer MCP session client runs on `plain_http`, a std `http://` HTTP/1.1 module, and provider futures are runtime-agnostic) | feature planes; HTTP client crates; `susi-adapters-llm`, `susi-http-transport`, tokio | providers/tools via registry | process registry | receipt archive paths |
+| `susi-core` | Generic protocol contracts, authorization, audit socket, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | shared wire types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-gawd-acp` for the public ACP compatibility path; std, serde, concurrency libs (no async runtime: the peer MCP session client runs on `plain_http`, a std `http://` HTTP/1.1 module, and provider futures are runtime-agnostic) | feature planes; HTTP client crates; `susi-adapters-llm`, `susi-http-transport`, tokio | providers/tools via registry | process registry | receipt archive paths |
 | `susi-vendor-wasmtime` | The one wasm crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses. Inputs are compiled binary `.wasm` only — the WebAssembly text format is a dev-dependency of this crate's own tests, never a host input | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmi, wasmparser, wasm-encoder (normal), `wat` (dev only) | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | `susi-vendor-wasmtime`, feature planes | no | no | loopback HTTP |
 | `susi-config` | Configuration, extension packs, versioned JSON store and shared authorized MCP protocol client | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode`, `mcp`, `mcp_client`, `mcp_session` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP client libraries, everything above paths/error; applications supply HTTP transport | MCP providers through registry | config files, owned sessions | config I/O and authorized stdio; HTTP through injected transport |
-| `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
+| `susi-leaf-services` (commercial) | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` / `http_post_utf8` | `dual_transport`, `http_conn`, `http_call`, `http_post_utf8`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
-| `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
+| `susi-adapters-llm` (commercial) | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
 | `susi-tools` | Tool registry + MCP client contract + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy/plane_bus over the bus rendezvous); `susi-sandbox-client`; `susi-native-client` | workspace crates except core/sandbox/native clients; rmcp/reqwest; peers via `plane_bus` | tools | registry | yes |
 | `susi-gemi-models` | Model select / provision / lifecycle, provider contracts (`cloud`, `frontier`, `openrouter`, `open_weight`, `hf_discovery`), and `set_selected_model_override` | lifecycle, coding_models, hardware, `set_selected_model_override` | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-http-transport` (downloads) | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes | providers | model weights | yes |
@@ -105,9 +132,9 @@ never consume an unterminated source tail.
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`; the MCP server itself is GMCP's own (`crates/susi-gmcp/src/mcp`: wire model, sessions, stdio and Streamable HTTP; no MCP SDK linked); optional `susi-vendor-syn` (`tools-rich`) | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
 | `susi-unsafe-ratchet` | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
+| `susi-server` (commercial) | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (no cloud CLI probe at boot or on the tick; `susi os provision probe` runs one on request), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
-| `susi-daemon-runtime` | The daemon's host runtime that needs no pillar crate: leaf-service process supervisor and in-process `service_supervision`, watchdogs, NAT traversal (STUN/TURN), contract TLS, port fallback, resource governor, OS provisioning and the startup checks; compiles beside the pillars instead of after them | `supervisor`, `service_supervision::{Supervisor, ServiceStatus, WorkerState, RestartEvent}`, `nat`, `tls`, `port_fallback`, `resource_governor` (re-exported by `susi-daemon` under the same paths) | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-http-transport` | `susi-daemon` | no | `supervision.json`, service table | yes |
+| `susi-daemon-runtime` (commercial) | The daemon's host runtime that needs no pillar crate: leaf-service process supervisor and in-process `service_supervision`, watchdogs, NAT traversal (STUN/TURN), contract TLS, port fallback, resource governor, OS provisioning and the startup checks; compiles beside the pillars instead of after them | `supervisor`, `service_supervision::{Supervisor, ServiceStatus, WorkerState, RestartEvent}`, `nat`, `tls`, `port_fallback`, `resource_governor` (re-exported by `susi-daemon` under the same paths) | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-http-transport` | `susi-daemon` | no | `supervision.json`, service table | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo

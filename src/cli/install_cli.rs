@@ -9,7 +9,7 @@ use std::{
     process::{Command, ExitCode},
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-fn digest(path: &Path) -> Result<String> {
+pub(crate) fn digest(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
     let mut bytes = [0; 65536];
@@ -26,7 +26,7 @@ fn digest(path: &Path) -> Result<String> {
         .map(|byte| format!("{byte:02x}"))
         .collect())
 }
-fn directory(path: &Path) -> Result<()> {
+pub(crate) fn directory(path: &Path) -> Result<()> {
     if let Some(parent) = path
         .parent()
         .filter(|p| *p != path && !p.as_os_str().is_empty())
@@ -135,7 +135,7 @@ pub(crate) fn execute() -> ExitCode {
     match result {
         Ok(path) => {
             println!("Susi installed: {}", path.display());
-            println!("Open Susi and enter your first goal. Susi never downloads a model by itself: to answer locally, {}.", susi_gemi::models::NoLocalModelInstalled::starter().install_hint());
+            println!("Open Susi and enter your first goal. Susi never downloads a model by itself: to answer locally, run `susi os manage model install starter` to download qwen2.5-0.5b-instruct-q4 (about 429 MB); cloud models work without a download.");
             if cfg!(debug_assertions) {
                 println!("This is a debug candidate; production qualification and promotion remain separate.");
             }

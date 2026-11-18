@@ -24,6 +24,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "harvest_corrections.rs"]
+mod corrections;
+
 type Result<T> = std::result::Result<T, String>;
 
 const MANIFEST_SCHEMA: &str = "susi-harvest-manifest-v1";
@@ -3193,22 +3196,8 @@ fn audit(git: &Git, cli: &Cli) -> Result<Report> {
             ));
         }
     }
-    let mut trailer_commits = 0;
-    if let Some(range) = cli.optional("range")? {
-        let known: BTreeSet<String> = load_manifest_values(&root)?
-            .into_iter()
-            .map(|(name, _)| name.trim_end_matches(".json").to_owned())
-            .collect();
-        for (commit, ids) in harvest_trailers(git, &range)? {
-            trailer_commits += 1;
-            for id in ids.iter().filter(|id| !known.contains(*id)) {
-                violations.push(format!(
-                    "commit {} has `Harvest: {id}` but {MANIFEST_DIR}/{id}.json does not exist",
-                    &commit[..commit.len().min(12)]
-                ));
-            }
-        }
-    }
+    let trailer_commits =
+        corrections::audit_history(git, &manifests, cli.optional("range")?, &mut violations)?;
     let ok = violations.is_empty();
     let text = if ok {
         format!(
@@ -3993,4 +3982,5 @@ mod tests {
         assert_eq!(ui["target"], "commercial");
         assert_eq!(ui["allowed_in_core"], false);
     }
+    include!("harvest_corrections_tests.rs");
 }

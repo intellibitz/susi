@@ -1,36 +1,15 @@
 [package]
 name = "susi-gmcp"
-version = "0.21.71"
-license = "Apache-2.0"
+version = "0.21.72"
 edition = "2021"
+license = "Apache-2.0"
+publish = false
+autobins = false
 
 [dependencies]
-susi-abi = { workspace = true }
 susi-core = { workspace = true }
-susi-http-transport = { workspace = true }
-susi-sandbox-client = { workspace = true }
-susi-config = { workspace = true }
-susi-error = { workspace = true }
-susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
-sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-
-hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
-libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
-
-# Heavy specialist tools (syn AST),
-# each behind its own `susi-vendor-*` crate. Off in the default core.
-# Enable with `--features tools-rich` (or the root `plugins` feature).
-susi-vendor-syn = { workspace = true, optional = true }
-
-[dev-dependencies]
-susi-wire-client = { path = "../susi-wire-client" }
-
-[features]
-default = []
-tools-rich = ["dep:susi-vendor-syn"]
 
 [lints]
 workspace = true

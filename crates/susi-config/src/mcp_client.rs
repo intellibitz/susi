@@ -83,6 +83,27 @@ pub trait Transport: Send {
     }
 }
 
+impl Transport for Box<dyn Transport> {
+    fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
+        self.as_mut().exchange(request)
+    }
+    fn notify(&mut self, request: &Value) -> EaiResult<()> {
+        self.as_mut().notify(request)
+    }
+    fn set_protocol_version(&mut self, version: &str) {
+        self.as_mut().set_protocol_version(version);
+    }
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.as_mut().set_timeout(timeout);
+    }
+    fn set_call_timeout(&mut self, timeout: Option<Duration>) {
+        self.as_mut().set_call_timeout(timeout);
+    }
+    fn close(&mut self) -> EaiResult<()> {
+        self.as_mut().close()
+    }
+}
+
 /// Upper bound on `tools/list` pages one listing follows.
 pub const MAX_LIST_PAGES: usize = 50;
 
@@ -226,7 +247,8 @@ impl<T: Transport> McpClient<T> {
         self.read_tool_catalog(false)
     }
 
-    pub(crate) fn read_tool_catalog(&mut self, require_names: bool) -> EaiResult<Vec<McpTool>> {
+    /// Read the complete catalog, optionally refusing unidentified tool declarations.
+    pub fn read_tool_catalog(&mut self, require_names: bool) -> EaiResult<Vec<McpTool>> {
         self.initialize()?;
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
@@ -517,9 +539,9 @@ fn receive_stdio<T>(
 }
 
 /// A JSON-RPC transport over a child process's stdio.
-#[derive(Debug)]
 pub struct StdioTransport {
     child: Child,
+    tree: Option<crate::workload_process::Tree>,
     writes: Option<SyncSender<StdioWrite>>,
     responses: Option<StdioResponses>,
     reader: Option<StdioWorker>,
@@ -530,7 +552,21 @@ pub struct StdioTransport {
 
 impl StdioTransport {
     /// Connect an already authorized child with piped stdin and stdout.
-    pub fn from_child(mut child: Child) -> EaiResult<Self> {
+    pub fn from_child(child: Child) -> EaiResult<Self> {
+        Self::from_child_with_tree(child, None)
+    }
+
+    /// Spawn a private provider process tree, owned until this transport closes.
+    pub fn spawn(command: &mut std::process::Command) -> EaiResult<Self> {
+        let (child, tree) = crate::workload_process::spawn(command)
+            .map_err(|error| EaiError::io(format!("mcp provider spawn: {error}")))?;
+        Self::from_child_with_tree(child, Some(tree))
+    }
+
+    fn from_child_with_tree(
+        mut child: Child,
+        mut tree: Option<crate::workload_process::Tree>,
+    ) -> EaiResult<Self> {
         if child.stdin.is_none() || child.stdout.is_none() {
             let _ = child.kill();
             let _ = child.wait();
@@ -547,6 +583,7 @@ impl StdioTransport {
         let (responses, reader) = match start_stdio_reader(BufReader::new(stdout)) {
             Ok(reader) => reader,
             Err(error) => {
+                drop(tree.take());
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error);
@@ -555,6 +592,7 @@ impl StdioTransport {
         let (writes, writer) = match start_stdio_writer(stdin) {
             Ok(writer) => writer,
             Err(error) => {
+                drop(tree.take());
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error);
@@ -562,6 +600,7 @@ impl StdioTransport {
         };
         Ok(Self {
             child,
+            tree,
             writes: Some(writes),
             responses: Some(responses),
             reader: Some(reader),
@@ -587,6 +626,9 @@ impl StdioTransport {
     fn stop_child(&mut self) {
         self.writes.take();
         self.responses.take();
+        // Stop descendants before reaping the group leader: its PID must not be
+        // reusable while the Unix process-group guard can still signal it.
+        drop(self.tree.take());
         let _ = self.child.kill();
         let _ = self.child.wait();
         // A descendant can retain either pipe after the root is reaped.
@@ -638,6 +680,17 @@ impl StdioTransport {
                 }
             }
         }
+    }
+}
+
+impl std::fmt::Debug for StdioTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StdioTransport")
+            .field("child", &self.child)
+            .field("timeout", &self.timeout)
+            .field("call_timeout", &self.call_timeout)
+            .finish_non_exhaustive()
     }
 }
 

@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const NAMES: [&str; 7] = [
+const NAMES: [&str; 6] = [
     "susi",
     "susi-daemon",
     "susi-gawd",
     "susi-gemi",
     "susi-gmcp",
     "susi-harness",
-    "susi-server",
 ];
 const META: [&str; 3] = [
     ".agents/evidence.json",

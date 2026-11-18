@@ -730,7 +730,7 @@
         {
           "id": 84,
           "title": "Strict core size goal",
-          "imperative": "The complete socket must be strictly below 100,000 physical runtime Rust lines, including every platform/feature, blanks, comments, inline tests and susi-vendor-* facades under docs/lean-core.md. Until met, core never grows; any runtime addition is paid for in the same change. Lower COMPLETE_SOCKET_CEILING after reductions and retain 99,999 as the maximum once below target. No minification, hidden excluded runtime, capability loss or weakened protocol/security acceptance. Only explicit user authority may change the limit. Keep runtime/current docs generic while preserving protocol identifiers and mandatory attribution."
+          "imperative": "The complete socket must be strictly below 50,000 physical runtime Rust lines, including every platform/feature, blanks, comments, inline tests and susi-vendor-* facades under docs/lean-core.md. Until met, core never grows; any runtime addition is paid for in the same change. Lower COMPLETE_SOCKET_CEILING after reductions and retain 49,999 as the maximum once below target. No minification, hidden excluded runtime, capability loss or weakened protocol/security acceptance. Only explicit user authority may change the limit. Keep runtime/current docs generic while preserving protocol identifiers and mandatory attribution."
         },
         {
           "id": 85,
@@ -823,5 +823,5 @@
   },
   "schema": "susi/identity/v1",
   "title": "Susi current core contract",
-  "version": "0.21.71"
+  "version": "0.21.72"
 }

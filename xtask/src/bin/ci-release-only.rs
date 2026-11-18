@@ -7,14 +7,13 @@ extern crate susi_windows_runtime;
 use std::collections::BTreeSet;
 use std::process::{Command, Stdio};
 
-const MANIFESTS: [(&str, &str); 7] = [
+const MANIFESTS: [(&str, &str); 6] = [
     ("Cargo.toml", "susi"),
     ("crates/susi-daemon/Cargo.toml", "susi-daemon"),
     ("crates/susi-gawd/Cargo.toml", "susi-gawd"),
     ("crates/susi-gemi/Cargo.toml", "susi-gemi"),
     ("crates/susi-gmcp/Cargo.toml", "susi-gmcp"),
     ("crates/susi-harness/Cargo.toml", "susi-harness"),
-    ("crates/susi-server/Cargo.toml", "susi-server"),
 ];
 const META: [&str; 3] = [
     ".agents/evidence.json",

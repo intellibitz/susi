@@ -193,27 +193,53 @@ pub(super) fn start_selected(exe: &Path, restart: bool) -> Result<()> {
     let selection: Selection =
         get(&root.join(ACTIVE))?.ok_or("missing installed release receipt")?;
     selection.validate()?;
+    // A rollback may select an older release whose daemon still belongs to
+    // its core image. Let the verified selected executable own that contract.
+    if selection.current != selection.dispatcher {
+        let status = dispatch_words(exe, [if restart { "restart" } else { "start" }])?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("selected core start failed: {status}").into())
+        };
+    }
     let package = installed(root, &selection.current)?;
     package.verify_sidecars()?;
     let _pin = package.pinned_executable()?;
     let image = package.executable().canonicalize()?;
     set_installed_environment(&selection.current)?;
-    let global_dir = susi_paths::SusiDirs::config_dir();
-    let cwd = env::current_dir()?;
-    if restart {
-        crate::cli::control_plane_cli::control_plane_stop(&global_dir);
+    let runtime =
+        super::paired_runtime()?.ok_or("selected core has no admitted runtime binding")?;
+    let mut command = Command::new(&runtime.path);
+    command
+        .args(["core-runtime", if restart { "restart" } else { "start" }])
+        .env("SUSI_CORE_BIN", &image)
+        .env("SUSI_COMMERCIAL_BIN", &runtime.path)
+        .env("SUSI_CORE_INSTANCE_READY", "1");
+    let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut command)?.wait()?;
+    if !status.success() {
+        return Err(format!("installed runtime start failed: {status}").into());
     }
-    susi_daemon::SusiDaemon::ensure_daemon_image(&global_dir, Some(&image))?;
-    crate::cli::control_plane_cli::control_plane_start(&cwd, &global_dir);
-    let running = susi_daemon::SusiDaemon::find_running_daemon(&global_dir)
+    let ports = susi_paths::ports::live_daemon_ports()
         .ok_or("ready endpoints have no installed daemon owner")?;
-    if !susi_daemon::SusiDaemon::same_daemon_image(running.pid, &image)? {
+    let running = susi_config::process_probe::exe_path(ports.pid)
+        .ok_or("cannot identify the running daemon image")?;
+    if running.canonicalize()? != runtime.path
+        && file_hash(&mut regular(&running)?)? != file_hash(&mut regular(&runtime.path)?)?
+    {
         return Err("ready daemon is running a different executable".into());
     }
     Ok(())
 }
 
 pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
+    dispatch_words(exe, env::args_os().skip(1))
+}
+
+fn dispatch_words(
+    exe: &Path,
+    words: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> Result<ExitStatus> {
     let root = exe
         .parent()
         .and_then(Path::parent)
@@ -240,8 +266,7 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
     // The release still gets this caller's console or pipes as its own stdio,
     // but not the dispatcher's originals as extra inheritable handles: a
     // daemon it detaches would otherwise keep `$(susi start)` pipes open.
-    let mut child =
-        susi_windows_runtime::spawn_without_inheriting_stdio(command.args(env::args_os().skip(1)))?;
+    let mut child = susi_windows_runtime::spawn_without_inheriting_stdio(command.args(words))?;
     drop(pinned);
     Ok(child.wait()?)
 }
