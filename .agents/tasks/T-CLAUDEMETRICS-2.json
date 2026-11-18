@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEMETRICS-2",
+  "title": "Remove host metrics from core",
+  "goal": "Vision: V-9. CEO direction 2026-11-18: core under 25,000 lines; after the MCP wire client, the host helpers. process_probe and vault_exec stay (core's install channel, process cleanup and forwarding use them). host_metrics has no runtime caller in core; its one core use is the local workflow's free-disk check, which core's existing disk_space contract already answers. Once Susi Commercial Apps owns host_metrics (T-CLAUDEMETRICS-1), switch that check to disk_space, delete core's copy and lower COMPLETE_SOCKET_CEILING. The winapi facade keeps its host readings: Susi Commercial Apps forbids unsafe code and calls them there.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    "crates/susi-config/src/host_metrics.rs",
+    "crates/susi-config/src/lib.rs",
+    "xtask/src/local_workflow/gates.rs",
+    "tests/lean_core_ceilings.rs",
+    ".agents/tasks/T-CLAUDEMETRICS-2.json",
+    ".agents/claims/T-CLAUDEMETRICS-2.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDEMETRICS",
+  "created_unix": 1794992982,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's susi-config disk_space (the free-disk contract the workflow now uses), host_metrics and the winapi facade's host module; Susi Commercial Apps' config runtime. Delete-only: no new code and no dependency."
+  }
+}
