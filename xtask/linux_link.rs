@@ -94,11 +94,6 @@ pub fn configure_all_bins() -> io::Result<()> {
         println!("cargo:rustc-link-arg-bins=-Wl,-Map={map}");
         return Ok(());
     }
-    if target.contains("windows") {
-        return Err(io::Error::other(
-            "Susi core ships for Linux only; Windows PE/UCRT link configuration is served by Susi Commercial Apps (susi-build-os-ucrt)",
-        ));
-    }
     Ok(())
 }
 
@@ -128,10 +123,6 @@ pub fn configure_for(binaries: &[&str]) -> io::Result<()> {
         }
         return Ok(());
     }
-    if target.contains("windows") {
-        return Err(io::Error::other(
-            "Susi core ships for Linux only; Windows PE/UCRT link configuration is served by Susi Commercial Apps (susi-build-os-ucrt)",
-        ));
-    }
     Ok(())
 }
+
