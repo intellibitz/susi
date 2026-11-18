@@ -607,7 +607,8 @@ binary: 2.4-7.8 s by crate. The first delivery after this change pays a
 one-time 94.6 s and 2.4 GB to fill `deliver-tests`; a delivery whose diff spans
 root and core runs both suites (18.4-18.6 s). A stale snapshot in the root
 package was refused with the channel digest and `refs/susi/dev-live`
-unchanged. Evidence: `.agents/evidence/loop10-T-CLAUDELOOP10-1.json`.
+unchanged. Evidence (2026-11-11, kept in history):
+`git show 56429b716:.agents/evidence/loop10-T-CLAUDELOOP10-1.json`.
 
 What this does and does not establish:
 

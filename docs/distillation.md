@@ -159,7 +159,8 @@ did not name. Commercial commit `4d9f344` keeps them with a
 `close_keeps_every_labelling_field_of_the_record`. The claim-ref fallback for
 scopes in `distill lint` stays for older records closed before the fix.
 
-The first full report is `.agents/evidence/labels-T-GROKLABEL-1.json`: counts
+The first full report (2026-11-11, kept in history; read it with
+`git show 08d939d35:.agents/evidence/labels-T-GROKLABEL-1.json`) has counts
 and the list of tasks whose work is on main while the record is still open,
 for each owner to reconcile. Records were not mass-edited.
 
