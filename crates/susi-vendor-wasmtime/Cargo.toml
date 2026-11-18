@@ -1,0 +1,27 @@
+[package]
+name = "susi-vendor-wasmtime"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-error = { workspace = true }
+# Pure Rust interpreter: native JIT/compiler/WASI dependencies are not linked.
+wasmi = { version = "=1.0.9", default-features = false, features = ["std", "simd", "extra-checks"] }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+# The declared-max memory cap (`cell.rs`) rewrites the module's memory
+# section with a std-only section walker; no wasm parser or encoder crate is
+# compiled beside Wasmi.
+tracing = { workspace = true }
+
+# The WebAssembly text format is a test-time convenience, never a host input:
+# the crate accepts binary `.wasm` only (docs/lean-core.md, compile budget),
+# so this dependency is dev-scoped and takes `wat` + `wast` out of every
+# shipped build. Tests compile their readable fixtures here and hand the
+# product the same bytes rustc's wasm32 targets emit.
+[dev-dependencies]
+wat = "1.259"
+
+[lints]
+workspace = true
