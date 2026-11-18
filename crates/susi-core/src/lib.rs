@@ -57,7 +57,6 @@ pub use agent_types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
     MissionBlackboard, SwarmBlackboard,
 };
-pub use plane_bus::agents::AgentMetaRegistry;
 pub use plane_bus::{PlaneBus, PlaneHandler};
 pub use provider::Provider;
 
