@@ -10,8 +10,6 @@
     "crates/susi-config/src/json_util.rs",
     "crates/susi-config/src/process_probe.rs",
     "crates/susi-core/src/plane_bus_ipc.rs",
-    "tests/lean_core_ceilings.rs",
-    "docs/",
     ".agents/tasks/T-CLAUDE25K-3.json",
     ".agents/claims/T-CLAUDE25K-3.json"
   ],
