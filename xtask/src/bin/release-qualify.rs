@@ -31,7 +31,7 @@
 )]
 #[cfg(windows)]
 extern crate susi_windows_runtime;
-use xtask::{harvest, release_qualification, release_version_guard, test_runner};
+use xtask::{harvest, product_features, release_qualification, release_version_guard, test_runner};
 
 use release_qualification::{
     package_version, record_path, release_version, sha256_hex, toolchain_channel,
@@ -105,7 +105,7 @@ fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|w| (*w).to_owned()).collect()
 }
 
-fn gates(jobs: Option<&str>) -> Vec<Gate> {
+fn gates(root: &Path, jobs: Option<&str>) -> Vec<Gate> {
     let with_jobs = |mut argv: Vec<String>| {
         if let Some(n) = jobs {
             argv.push("-j".into());
@@ -174,18 +174,22 @@ fn gates(jobs: Option<&str>) -> Vec<Gate> {
         },
         Gate {
             name: "build",
-            argv: with_jobs(words(&[
-                "cargo",
-                "build",
-                "--offline",
-                "--locked",
-                "--profile",
-                "dist",
-                "-p",
-                "susi",
-                "--features",
-                "susi/local-engine",
-            ])),
+            // The shipped graph: the engine feature only where the manifest
+            // still declares it (it left with the pillar move).
+            argv: with_jobs({
+                let mut argv = words(&[
+                    "cargo",
+                    "build",
+                    "--offline",
+                    "--locked",
+                    "--profile",
+                    "dist",
+                    "-p",
+                    "susi",
+                ]);
+                argv.extend(product_features::product_feature_args(root));
+                argv
+            }),
             env: vec![
                 ("CARGO_PROFILE_DIST_LTO", "false"),
                 ("CARGO_PROFILE_DIST_CODEGEN_UNITS", "16"),
@@ -1282,7 +1286,7 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
     let gate_phase = (|| -> Result<GatePhaseOutcome, String> {
         std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
         let mut records = Vec::new();
-        for gate in gates(jobs.as_deref()) {
+        for gate in gates(&root, jobs.as_deref()) {
             let step = if gate.name == "tests" && !test_runner::serial_requested() {
                 run_parallel_tests_gate(&root, &logs, &gate, jobs.as_deref())
             } else {
@@ -1456,6 +1460,28 @@ mod tests {
             super::resolve_target_dir_from(root, Some(abs.as_os_str())),
             abs
         );
+    }
+
+    #[test]
+    fn build_gate_selects_only_features_the_manifest_declares() {
+        let dir = std::env::temp_dir().join(format!("rq-build-gate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let build = |manifest: &str| {
+            std::fs::write(dir.join("Cargo.toml"), manifest).unwrap();
+            super::gates(&dir, None)
+                .into_iter()
+                .find(|gate| gate.name == "build")
+                .unwrap()
+                .argv
+        };
+        let slim = build("[package]\nname = \"susi\"\n\n[features]\ndefault = []\n");
+        assert!(!slim.iter().any(|word| word == "--features"), "{slim:?}");
+        assert!(slim.iter().any(|word| word == "--no-default-features"));
+        let engine = build("[package]\nname = \"susi\"\n\n[features]\nlocal-engine = []\n");
+        assert!(engine
+            .windows(2)
+            .any(|pair| pair == ["--features", "local-engine"]));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
