@@ -1,6 +1,3 @@
-#![forbid(unsafe_code)]
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-
 //! Regression gates for standalone platform adapters excluded from the workspace.
 use std::io;
 use std::path::Path;

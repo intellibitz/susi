@@ -1,9 +1,6 @@
 //! Submit development source and freeze qualification candidates using Git only.
 #![forbid(unsafe_code)]
 
-#[cfg(windows)]
-extern crate susi_windows_runtime;
-
 use xtask::{git_publish, storage_guard};
 
 use std::process::ExitCode;

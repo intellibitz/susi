@@ -8,6 +8,9 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+#[path = "xtask/linux_link.rs"]
+mod linux_link;
+
 // The one `CREATE_NO_WINDOW` owner, compiled here from its single source: a
 // build script run by a windowless supervisor must not open a console window
 // for `nvidia-smi` (and a build dependency on `susi-paths` would put the whole
@@ -17,8 +20,7 @@ use std::path::Path;
 mod console;
 
 fn main() {
-    susi_build_os_ucrt::configure_all_bins()
-        .expect("Windows OS-UCRT boundary configuration failed");
+    linux_link::configure_all_bins().expect("Linux linker map configuration failed");
     enable_repository_hooks();
 
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");

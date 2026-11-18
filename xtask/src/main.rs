@@ -12,9 +12,6 @@
 
 use xtask::{build_time, extension_watch, fast_release, gate_receipt, local_build, test_runner};
 
-#[cfg(windows)]
-extern crate susi_windows_runtime;
-
 use serde_json::Value;
 use std::env;
 use std::fs;

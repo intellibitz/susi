@@ -1,5 +1,8 @@
+#[path = "linux_link.rs"]
+mod linux_link;
+
 fn main() -> std::io::Result<()> {
-    susi_build_os_ucrt::configure_for(&[
+    linux_link::configure_for(&[
         "xtask",
         "release-lanes",
         "local-workflow",

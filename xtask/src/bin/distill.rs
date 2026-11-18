@@ -3,9 +3,6 @@
 //! Changes no branch, ref, index or working tree; writes only `--out`.
 #![forbid(unsafe_code)]
 
-#[cfg(windows)]
-extern crate susi_windows_runtime;
-
 use xtask::distill;
 
 use std::process::ExitCode;

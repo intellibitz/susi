@@ -29,8 +29,6 @@
         clippy::wildcard_enum_match_arm
     )
 )]
-#[cfg(windows)]
-extern crate susi_windows_runtime;
 use xtask::{harvest, product_features, release_qualification, release_version_guard, test_runner};
 
 use release_qualification::{

@@ -3,9 +3,6 @@
 //! manifests, notices and audits (CEO Mandates 74 & 75).
 #![forbid(unsafe_code)]
 
-#[cfg(windows)]
-extern crate susi_windows_runtime;
-
 use xtask::harvest;
 
 use std::process::ExitCode;

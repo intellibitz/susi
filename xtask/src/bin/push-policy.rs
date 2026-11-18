@@ -1,7 +1,5 @@
 //! Native Git pre-push transport safety entrypoint.
 #![forbid(unsafe_code)]
-#[cfg(windows)]
-extern crate susi_windows_runtime;
 use std::io::Read;
 use xtask::push_policy;
 fn main() -> std::process::ExitCode {

@@ -130,9 +130,10 @@ continues `V-6`, which the CEO set earlier the same day.
   The counting scope has not changed.
 - Main remains development source. Size acceptance is separate from protocol
   conformance and exact-source Linux production qualification.
-- Windows code still in core (the installed entry's launch path, the Windows
-  runtime and build shim, the Windows API facade and the Windows branches of
-  shared crates) is migration debt that only shrinks; Susi Commercial Apps
-  serves the Windows installed channel.
+- Windows code still in core (the installed entry's launch path and Windows
+  branches of shared crates) is migration debt that only shrinks. Susi
+  Commercial Apps owns the Windows installed channel, PE runtime
+  (`susi-windows-runtime`), OS-UCRT build boundary (`susi-build-os-ucrt`),
+  and the Windows API facade (`susi-vendor-winapi`).
 - Runtime counts and qualification outcomes belong in local evidence records;
   this document states the current requirement, not a historical measurement.

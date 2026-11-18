@@ -498,7 +498,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "susi"
 version = "0.21.72"
 dependencies = [
- "susi-build-os-ucrt",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -510,8 +509,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-winapi",
- "susi-windows-runtime",
 ]
 
 [[package]]
@@ -520,13 +517,6 @@ version = "0.14.1"
 dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
-]
-
-[[package]]
-name = "susi-build-os-ucrt"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-sha2",
 ]
 
 [[package]]
@@ -540,7 +530,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-winapi",
 ]
 
 [[package]]
@@ -556,7 +545,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-winapi",
 ]
 
 [[package]]
@@ -573,7 +561,6 @@ dependencies = [
  "susi-paths",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-winapi",
 ]
 
 [[package]]
@@ -738,17 +725,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-winapi"
-version = "0.1.0"
-dependencies = [
- "winapi",
-]
-
-[[package]]
-name = "susi-windows-runtime"
-version = "0.1.0"
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -856,28 +832,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
-name = "winapi"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
-dependencies = [
- "winapi-i686-pc-windows-gnu",
- "winapi-x86_64-pc-windows-gnu",
-]
-
-[[package]]
-name = "winapi-i686-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
-
-[[package]]
-name = "winapi-x86_64-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
-
-[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -896,13 +850,11 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "susi-build-os-ucrt",
  "susi-config",
  "susi-core",
  "susi-paths",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-windows-runtime",
 ]
 
 [[package]]

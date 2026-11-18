@@ -419,10 +419,11 @@ all acceptance checks against the final integrated source still remain required.
 (`crates/susi-windows-sys` there); core no longer used it (Mandate 84). The
 record below describes it as accepted on 2026-11-02.
 
-The Windows worktree seeder uses the safe `susi-vendor-winapi::detached::spawn`
+The Windows worktree seeder used the safe `susi-vendor-winapi::detached::spawn`
 wrapper. Its only unsafe implementation is the narrowly annotated function
 that calls documented Windows process, string-comparison and handle APIs;
-`susi-vendor-winapi` retains `#![deny(unsafe_code)]`. This is an operating-system
+`susi-vendor-winapi` retains `#![deny(unsafe_code)]` (now owned by Susi
+Commercial Apps; core no longer ships the facade). This is an operating-system
 ABI boundary, not permission to add unsafe application logic or redistribute
 foreign runtime implementations.
 

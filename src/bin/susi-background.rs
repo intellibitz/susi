@@ -2,9 +2,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
-extern crate susi_windows_runtime;
-
-#[cfg(windows)]
 fn start() -> std::io::Result<std::process::ExitStatus> {
     let engine = std::env::current_exe()?.with_file_name("susi.exe");
     let mut command = susi_paths::console::background_command(engine);
@@ -13,7 +10,7 @@ fn start() -> std::io::Result<std::process::ExitStatus> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    susi_windows_runtime::spawn_without_inheriting_stdio(&mut command)?.wait()
+    susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?.wait()
 }
 
 #[cfg(windows)]

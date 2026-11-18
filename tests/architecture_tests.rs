@@ -97,8 +97,6 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
-    ("susi-build-os-ucrt", 0),
-    ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
@@ -133,7 +131,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-sha2",
     "susi-vendor-tokio",
     "susi-vendor-tracing",
-    "susi-vendor-winapi",
 ];
 
 #[test]

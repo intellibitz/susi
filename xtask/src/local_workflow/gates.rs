@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use susi_build_os_ucrt::policy as vendor_regressions;
+use crate::vendor_regressions;
 
 pub(in crate::local_workflow) fn valid_oid(value: &str) -> bool {
     common::is_hex_oid(value)

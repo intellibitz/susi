@@ -14,10 +14,7 @@ pub const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
 /// inside a line — `writeln!` could split a record across writes. Error text
 /// is redacted, but only with the bundled patterns (see
 /// `contract::redact_for_metrics`), so a file this call creates is
-/// owner-only from birth: `0600` on Unix, and on Windows a protected DACL
-/// for the process token's user applied inside the create call itself
-/// (`susi_vendor_winapi::acl::open_owner_only_append`, no `icacls` process,
-/// which opened a console window from a windowless caller). Create-or-open
+/// owner-only from birth: `0600` on Unix. Create-or-open
 /// is one call, so no concurrent writer or reader can open the file before
 /// it is restricted, and a failure creates nothing, so nothing is ever
 /// deleted (a delete by name could remove a replacement another writer made
@@ -31,10 +28,6 @@ pub fn append_metrics_line(
 
 /// Create-or-open `path` for appending, owner-only when created.
 fn open_owner_only_append(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    #[cfg(windows)]
-    {
-        winapi::acl::open_owner_only_append(path)
-    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -44,7 +37,7 @@ fn open_owner_only_append(path: &std::path::Path) -> std::io::Result<std::fs::Fi
             .mode(0o600)
             .open(path)
     }
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(unix))]
     {
         std::fs::OpenOptions::new()
             .create(true)
@@ -97,22 +90,6 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
-        }
-        #[cfg(windows)]
-        {
-            // Exactly one entry: the current user's full control, not
-            // inherited; no Everyone, no BUILTIN\Users.
-            let aces = winapi::acl::read_dacl(&path).unwrap().unwrap();
-            assert_eq!(
-                aces,
-                vec![winapi::acl::Ace {
-                    sid: winapi::acl::current_user_sid().unwrap(),
-                    deny: false,
-                    inherited: false,
-                    mask: winapi::acl::FILE_ALL_ACCESS,
-                }],
-                "unexpected ACL on metrics sink"
-            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -242,51 +219,6 @@ mod tests {
             &serde_json::json!({"n": 1})
         )
         .is_err());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The exact interleaving behind the review finding, made deterministic:
-    /// writer A holds the newly created sink open and has written nothing;
-    /// writer B appends. B's line lands in a file that is already owner-only.
-    /// Then the file passes the cap while A still holds it: B's next append
-    /// rotates it (A's handle shares delete) and starts an owner-only file.
-    #[cfg(windows)]
-    #[test]
-    fn a_concurrent_writer_only_ever_appends_to_an_owner_only_file() {
-        use std::io::Write;
-        let dir = scratch("interleave");
-        let path = dir.join("error_metrics.jsonl");
-        let owner_only = vec![winapi::acl::Ace {
-            sid: winapi::acl::current_user_sid().unwrap(),
-            deny: false,
-            inherited: false,
-            mask: winapi::acl::FILE_ALL_ACCESS,
-        }];
-        let mut writer_a = winapi::acl::open_owner_only_append(&path).unwrap();
-        assert_eq!(winapi::acl::read_dacl(&path).unwrap().unwrap(), owner_only);
-        super::append_metrics_line(&path, &serde_json::json!({"w": "b"})).unwrap();
-        writer_a.write_all(b"{\"w\":\"a\"}\n").unwrap();
-        assert_eq!(winapi::acl::read_dacl(&path).unwrap().unwrap(), owner_only);
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "{\"w\":\"b\"}\n{\"w\":\"a\"}\n"
-        );
-
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .unwrap()
-            .set_len(super::METRICS_CAP_BYTES + 1)
-            .unwrap();
-        super::append_metrics_line(&path, &serde_json::json!({"w": "b2"})).unwrap();
-        let rotated = dir.join("error_metrics.jsonl.1");
-        assert_eq!(
-            std::fs::metadata(&rotated).unwrap().len(),
-            super::METRICS_CAP_BYTES + 1
-        );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"w\":\"b2\"}\n");
-        assert_eq!(winapi::acl::read_dacl(&path).unwrap().unwrap(), owner_only);
-        drop(writer_a);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

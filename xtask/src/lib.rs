@@ -43,6 +43,7 @@ pub mod test_binary_evidence;
 pub mod test_fixture_fs;
 pub mod test_runner;
 pub mod trusted_sysroot;
+pub mod vendor_regressions;
 pub mod workspace_test_count;
 pub mod workspace_test_proof;
 pub mod worktree_admin;

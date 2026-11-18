@@ -4,8 +4,6 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
-    "crates/susi-build-os-ucrt",
-    "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
     "crates/susi-config",
@@ -28,8 +26,7 @@ members = [
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha2",
     "crates/susi-vendor-tokio",
-    "crates/susi-vendor-tracing",
-    "crates/susi-vendor-winapi"]
+    "crates/susi-vendor-tracing"]
 # Vendored, patched third-party crates (see vendor/README.md): not workspace
 # members, so workspace lints/clippy gates do not apply to upstream code.
 exclude = ["vendor"]
@@ -90,8 +87,6 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
-susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
-susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
@@ -129,12 +124,9 @@ susi-config = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
-winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
-susi-windows-runtime = { workspace = true }
 
 [build-dependencies]
-susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
 # Ship the exact patched sources with Susi: a fresh checkout must not need

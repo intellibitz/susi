@@ -3,9 +3,9 @@
 //! The detached daemon has no console, so a console program it launches
 //! (`icacls`, `tasklist`, `netstat`, `taskkill`, `nvidia-smi`) gets a new,
 //! visible console window from Windows (CEO, 2026-11-09: error 0x800700e8
-//! launching `icacls` on `node.key`). Owner-only ACLs are set and read through
-//! `susi_vendor_winapi::acl`, which starts no process; every other helper
-//! starts through `susi_paths::console::background_command`, which owns
+//! launching `icacls` on `node.key`). Owner-only ACLs must not be set by
+//! spawning `icacls`/`cacls`; every helper that starts a console program
+//! goes through `susi_paths::console::background_command`, which owns
 //! `CREATE_NO_WINDOW`.
 //!
 //! The guard tokenizes every first-party Rust source in the repository (crate
@@ -942,7 +942,7 @@ fn no_source_launches_a_console_helper_directly() {
         unexpected.is_empty(),
         "unattended console launches must use susi_paths::console::background_command, or \
          susi_core::bounded_cmd::output_within(Command::new(..), ..) with the full path \
-         (and `icacls` must not be launched at all; use susi_vendor_winapi::acl): {unexpected:#?}"
+         (and `icacls` must not be launched at all): {unexpected:#?}"
     );
 }
 

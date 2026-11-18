@@ -325,8 +325,6 @@ pub fn bins_are_fresh(workspace_root: &std::path::Path, bins: &[&std::path::Path
         "xtask",
         "crates/susi-paths",
         "crates/susi-config",
-        "crates/susi-build-os-ucrt",
-        "crates/susi-windows-runtime",
         "crates/susi-vendor-sha2",
         "crates/susi-vendor-serde-json",
     ];

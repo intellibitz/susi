@@ -53,7 +53,7 @@ fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut parser)?.wait()?;
+    let status = susi_paths::stdio::spawn_without_inheriting_stdio(&mut parser)?.wait()?;
     if status.code() != Some(64) {
         return Ok(ExitCode::from(status.code().unwrap_or(1) as u8));
     }
@@ -70,7 +70,7 @@ fn run(
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = susi_windows_runtime::spawn_without_inheriting_stdio(&mut command)?.wait()?;
+    let status = susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?.wait()?;
     Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
 }
 

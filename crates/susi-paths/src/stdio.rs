@@ -189,3 +189,14 @@ mod tests {
         }
     }
 }
+
+/// Spawn a child without Windows stdio-handle inheritance surprises.
+///
+/// On Linux this is `Command::spawn`. Core is Linux-only; the Windows PE
+/// stdio clear lives in Susi Commercial Apps (`susi-windows-sys` /
+/// `susi-windows-runtime`).
+pub fn spawn_without_inheriting_stdio(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<std::process::Child> {
+    cmd.spawn()
+}
