@@ -26,6 +26,7 @@
     "crates/susi-core/src/pillars.rs",
     "crates/susi-core/src/self_build.rs",
     "crates/susi-core/src/plane_bus.rs",
+    "toolchain/linux_link.rs",
     ".agents/tasks/T-ANTIGRAVITYSLIM-2.json"
   ],
   "accept": {
