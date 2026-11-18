@@ -345,7 +345,7 @@ pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
                 let output = storage.join(format!("consumer-check-{}-{nonce}", std::process::id()));
                 fs::create_dir(&output)?;
                 reject_redirects(&output)?;
-                qualify_consumer(root, &destination, host, &output)?;
+                qualify_consumer(root, &destination, &output)?;
                 if identity(root, &compiler)? != key {
                     return Err("sysroot consumer source changed during recheck".into());
                 }
@@ -385,7 +385,7 @@ pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         return Err("tracked sysroot builder failed; private evidence retained".into());
     }
     // Stable consumer execution, not an imported receipt, is required.
-    qualify_consumer(root, &staging, host, &staging)?;
+    qualify_consumer(root, &staging, &staging)?;
     let _ = admit_destination(
         root, &staging, &installed, &compiler, host, &key, started, false,
     )?;
@@ -477,6 +477,7 @@ mod tests {
         fs::remove_dir(directory).unwrap();
     }
 }
+
 
 
 
