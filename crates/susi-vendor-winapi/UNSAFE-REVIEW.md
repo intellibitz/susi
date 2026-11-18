@@ -1,36 +1,13 @@
-# Native detached process boundary
+# Native Windows boundaries
 
-The original Apache-2.0 `detached::spawn` safe wrapper and the `acl` module
-(native owner-only file ACLs, added 2026-11-09) are the first-party unsafe
-allowances reviewed here; `host` and `environment` are also in the scan below.
-Every allowance is per-function with a `// SAFETY:` justification. The crate denies unsafe code by default.
-The caller in `susi-gawd` retains `forbid(unsafe_code)`.
+The `acl` module (native owner-only file ACLs, added 2026-11-09) is the
+first-party unsafe allowance reviewed here; `host`, `environment` and
+`file_replace` are also in the scan below. Every allowance is per-function with
+a `// SAFETY:` justification. The crate denies unsafe code by default.
 
-The wrapper uses the installed Windows operating system. It bundles no process
-launcher, shell, executable, or foreign runtime implementation. References:
-[CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw),
-[argument parsing](https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments),
-[CompareStringOrdinal](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-comparestringordinal).
-
-## Boundary review
-
-- Absolute executable and working-directory paths; explicit application pointer
-  avoids executable-search ambiguity. NUL and invalid executable quotes rejected.
-- Owned UTF-16 buffers remain alive throughout the synchronous call. Command-line
-  arguments use Windows backslash/quote escaping, including empty and non-ASCII
-  arguments. The complete command line has the documented 32,767-unit bound.
-- Full explicit environment, with NUL/invalid-name/duplicate-key rejection.
-  OS ordinal case-insensitive sorting avoids shipping Unicode tables. Comparison
-  errors fail closed. Legal drive-current-directory entries are preserved.
-- `bInheritHandles=FALSE` prevents both standard and unrelated inheritable handles
-  from crossing the boundary. No process-global handle flags or environment are
-  modified. Detached/new-group flags and `SW_HIDE` avoid an interactive window.
-- POD startup/output structures are zero initialized; the startup size is exact.
-  Successful calls return two owned handles, both closed immediately. The API
-  reports creation only; the child opens its own log and completion is observed
-  by the existing workflow marker protocol.
-- Seed callers remove all three inherited Cargo output-directory variables
-  case-insensitively, retaining compiler, rustdoc and verified-sysroot context.
+On 2026-11-18 (Mandate 84) the `detached`, `process_job`, `socket` and `stdio`
+modules, which core no longer used, moved with their review to Susi Commercial
+Apps (`crates/susi-windows-sys` there); their sections left this file with them.
 
 ## Native owner-only ACLs (`acl`)
 
@@ -142,14 +119,6 @@ It calls only the installed OS: `SetNamedSecurityInfoW` /
 
 ## Executed evidence
 
-`cargo test -p susi-vendor-winapi --offline --lib` passed all three tests, including
-actual detached child argument round-trips, caller EOF while the child remains
-alive, invalid input and missing executable errors. The test releases its bounded
-owned child before checking the EOF timing assertion.
-
-`cargo clippy -p susi-vendor-winapi -p susi-gawd --offline --lib --tests -- -D warnings`
-passed. The integrated seed fixture regression remains a separate required gate.
-
 `unsafe-review.json` is actual cargo-geiger (0.14.0) output, regenerated
 2026-11-09 after the atomic owner-only creation (174 unsafe expressions
 before it, 189 after it, all 15 in production code: the descriptor
@@ -178,27 +147,12 @@ changed.
 
 Reviewed SHA-256 (UTF-8, LF):
 
-- `src/detached.rs`: `08ad0c1994c531ad00a111abb48a0c3e257dfcfa892614eedcd344467aa37140`
-  (the previously recorded `3aa44740...` was stale: `detached.rs` changed in
-  582d887c9 after that review)
 - `src/acl.rs`: `0bd041cf942d9392d748cdbb09e7be1d75551b0fdb94b8dcd8b3e52fae4d30e7`
   (atomic owner-only creation; previously `ed69183a...`)
 
-
-## Windows caller pipe inheritance (2026-11-14)
-
-The daemon's existing handle isolation moved into `src/stdio.rs` so the
-commercial CLI can use it without linking the core executable's C runtime entry.
-The facade borrows the three standard handles from Rust, reads their Win32
-inherit flags, clears each set bit for the spawn and restores it afterwards.
-A mutex serializes concurrent calls to this helper. No raw handle leaves the
-function. A child only needs the stdio explicitly configured by its caller.
-
-An isolated pair of native x64 Windows cargo-geiger 0.14.0 scans at
-`d6abda72b2b04ad2e36903e7ad909fee0f9569e6` found 287 used unsafe expressions
-before the move and 300 afterwards. The moved Win32 calls account for all 13
-additional expressions in the facade. The previous recorded 189 predates other
-facade modules already on this revision. The final scan has 40 safe functions,
-0 unsafe functions, 4 safe implementations, 0 unsafe implementations, 4 safe
-methods and 0 unsafe methods. The actual JSON report is committed alongside
-this review. SHA-256 of `src/stdio.rs` (UTF-8, LF) is `486a70cba4d54a7cc203519bc76f77c085d4da8d6534c2f554ee51d5092fc8b2`.
+`unsafe-review.json` itself is the later native x64 Windows scan of
+2026-11-14 at `d6abda72b2b04ad2e36903e7ad909fee0f9569e6` (300 used unsafe
+expressions, taken when `stdio` joined the facade). Both scans include modules
+that moved out on 2026-11-18, so they over-count what remains; they were not
+regenerated for the removal, which adds no unsafe code. No ratchet baseline
+changed.

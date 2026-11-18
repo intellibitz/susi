@@ -12,17 +12,8 @@ pub use winapi::*;
 #[cfg(windows)]
 pub mod acl;
 #[cfg(windows)]
-pub mod detached;
-#[cfg(windows)]
 pub mod environment;
 #[cfg(windows)]
 pub mod file_replace;
 #[cfg(windows)]
 pub mod host;
-#[cfg(windows)]
-pub mod process_job;
-#[cfg(windows)]
-pub mod stdio;
-
-#[cfg(windows)]
-pub mod socket;

@@ -415,6 +415,10 @@ all acceptance checks against the final integrated source still remain required.
 
 ## Audited native detached-process boundary
 
+2026-11-18: this boundary, with its review, now lives in Susi Commercial Apps
+(`crates/susi-windows-sys` there); core no longer used it (Mandate 84). The
+record below describes it as accepted on 2026-11-02.
+
 The Windows worktree seeder uses the safe `susi-vendor-winapi::detached::spawn`
 wrapper. Its only unsafe implementation is the narrowly annotated function
 that calls documented Windows process, string-comparison and handle APIs;

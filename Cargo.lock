@@ -742,7 +742,6 @@ dependencies = [
 name = "susi-vendor-winapi"
 version = "0.1.0"
 dependencies = [
- "susi-paths",
  "winapi",
 ]
 
