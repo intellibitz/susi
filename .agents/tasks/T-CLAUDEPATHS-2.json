@@ -1,0 +1,37 @@
+{
+  "id": "T-CLAUDEPATHS-2",
+  "title": "Remove the web-URL, shell-word and SHA-1 helpers from core's susi-paths",
+  "goal": "Vision: V-9. CEO direction 2026-11-18: core under 25,000 lines; Tier 3 starts with the file-paths crate. susi-paths' weburl, shlex and sha1 modules have no caller in core; every user is in Susi Commercial Apps. Once Commercial Apps owns them with their tests (T-CLAUDEPATHS-1), delete core's copies and the SHA-1 compatibility test, and lower COMPLETE_SOCKET_CEILING to the new measure.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    "crates/susi-paths/src/lib.rs",
+    "crates/susi-paths/src/weburl.rs",
+    "crates/susi-paths/src/shlex.rs",
+    "crates/susi-paths/src/sha1.rs",
+    "crates/susi-paths/tests/sha1_compatibility.rs",
+    "tests/lean_core_ceilings.rs",
+    ".agents/tasks/T-CLAUDEPATHS-2.json",
+    ".agents/claims/T-CLAUDEPATHS-2.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "CLAUDEPATHS",
+  "created_unix": 1794993852,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's susi-paths modules and Susi Commercial Apps' new susi-paths-extras. Delete-only: no new code and no dependency."
+  }
+}
