@@ -470,14 +470,11 @@ pub mod http_body;
 pub mod loopback;
 pub mod native_path;
 pub mod ports;
-pub mod sha1;
-pub mod shlex;
 pub mod stdio;
 pub mod sync;
 pub mod tempfile;
 #[doc(hidden)]
 pub mod test_env;
-pub mod weburl;
 mod xdg;
 pub mod zc_ports_file;
 
