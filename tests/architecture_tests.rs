@@ -131,7 +131,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-serde",
     "susi-vendor-serde-json",
     "susi-vendor-sha2",
-    "susi-vendor-windows-registry",
     "susi-vendor-tokio",
     "susi-vendor-tracing",
     "susi-vendor-winapi",
@@ -2166,7 +2165,7 @@ fn active_contract_preserves_delivery_authority_and_capability_boundaries() {
         "two days after its lease ends",
         "Nested work cannot amplify permissions",
         "Default-driver status requires measured parity",
-        "current native x86_64 Windows or Linux host",
+        "qualify releases only on a native x86_64 Linux host",
         "native MSVC and OS APIs",
         "no Bash/WSL/MSYS, Python, Node or container prerequisite",
         "Keep portable source for other targets",
@@ -3535,7 +3534,7 @@ fn ceo_mandate_84_keeps_core_under_25k_lines() {
         "**Only the CEO raises it.**",
         "Implementation truth",
         "Size acceptance is separate from protocol",
-        "exact-source Windows/Linux production qualification",
+        "exact-source Linux production qualification",
     ] {
         assert!(
             doc.contains(phrase),

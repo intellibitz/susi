@@ -13,9 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[path = "../src/channel_bindings/shell_link.rs"]
-mod shell_link;
-
 fn hex(data: &[u8]) -> String {
     Sha256::digest(data)
         .iter()
@@ -487,42 +484,6 @@ fn run_installed_entry(deep: bool) {
             format!("stderr-{tag}")
         );
     }
-    let work = root.join("workspace Ω");
-    fs::create_dir(&work).unwrap();
-    let link = profile.join("Susi 启动.lnk");
-    assert!(shell_link::legacy_local_target(b"unrecognized link").is_err());
-    let encoded = shell_link::encode(&entry, &work).unwrap();
-    // The link opens bare `susi` (usage): no HasArguments flag, no "shell".
-    // Susi's retired encoding launched the removed `susi shell` REPL.
-    let flags = u32::from_le_bytes(encoded[20..24].try_into().unwrap());
-    assert_eq!(flags & 0x20, 0, "Start Menu link must carry no arguments");
-    let retired = shell_link::retired_shell_encoding(&entry, &work).unwrap();
-    let retired_flags = u32::from_le_bytes(retired[20..24].try_into().unwrap());
-    assert_eq!(retired_flags & 0x20, 0x20);
-    assert_ne!(encoded, retired);
-    fs::write(&link, encoded).unwrap();
-    // Windows PowerShell supplies an independent ShellExecute test oracle. No
-    // script executes in the installed entry point or in its native installer.
-    let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let mut child=command(&powershell,&profile).env("SUSI_FIXTURE_SHORTCUT",&link)
-        .args(["-NoProfile","-NonInteractive","-Command","$ErrorActionPreference='Stop'; Start-Process -FilePath $env:SUSI_FIXTURE_SHORTCUT -WindowStyle Hidden -Wait"]).spawn().unwrap();
-    let started = Instant::now();
-    while child.try_wait().unwrap().is_none() && started.elapsed() < Duration::from_secs(30) {
-        std::thread::sleep(Duration::from_millis(30));
-    }
-    if child.try_wait().unwrap().is_none() {
-        child.kill().unwrap();
-    }
-    assert!(child.wait().unwrap().success());
-    let opened = fs::read_to_string(slot.join("susi.opened")).unwrap();
-    let mut observed = opened.lines();
-    assert_eq!(observed.next(), Some("A"));
-    assert_eq!(observed.next(), Some("0"), "the link passed arguments");
-    assert_eq!(
-        Path::new(observed.next().unwrap()).canonicalize().unwrap(),
-        work.canonicalize().unwrap()
-    );
     fs::write(slot.join("susi.exe"), b"tamper").unwrap();
     let failed = command(&entry, &profile).arg("--version").output().unwrap();
     assert!(!failed.status.success());

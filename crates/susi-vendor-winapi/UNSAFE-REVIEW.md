@@ -1,13 +1,15 @@
 # Native Windows boundaries
 
 The `acl` module (native owner-only file ACLs, added 2026-11-09) is the
-first-party unsafe allowance reviewed here; `host`, `environment` and
-`file_replace` are also in the scan below. Every allowance is per-function with
+first-party unsafe allowance reviewed here; `host` and `file_replace` are
+also in the scan below. Every allowance is per-function with
 a `// SAFETY:` justification. The crate denies unsafe code by default.
 
 On 2026-11-18 (Mandate 84) the `detached`, `process_job`, `socket` and `stdio`
 modules, which core no longer used, moved with their review to Susi Commercial
 Apps (`crates/susi-windows-sys` there); their sections left this file with them.
+The `environment` broadcast followed the same day with the Windows installed
+channel, when core became Linux-only.
 
 ## Native owner-only ACLs (`acl`)
 

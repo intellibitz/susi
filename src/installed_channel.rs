@@ -3,9 +3,6 @@
 use crate::cli::defs::Commands;
 use std::process::ExitCode;
 
-#[cfg(windows)]
-#[path = "installed_channel/host_task.rs"]
-mod host_task;
 #[path = "installed_channel/package.rs"]
 mod package;
 #[cfg(windows)]
@@ -23,6 +20,13 @@ pub(crate) fn management(command: Option<&Commands>) -> Option<ExitCode> {
 }
 
 pub(crate) fn manage(command: &Commands) -> ExitCode {
+    // Susi core ships for Linux only (Mandate 84, 2026-11-18). A Windows build
+    // names the suite that installs and manages the Windows channel instead of
+    // performing a partial install without its launch bindings.
+    if cfg!(windows) {
+        eprintln!("the Windows installed channel is served by Susi Commercial Apps: run `susi-commercial install-release` with the same arguments (and `--core <package>\\susi.exe` to install a package)");
+        return ExitCode::FAILURE;
+    }
     let Commands::InstallRelease {
         id,
         previous,

@@ -1,5 +1,6 @@
 //! Export qualified packages and deploy the already-promoted release to the user's
-//! ordinary Windows entry points. The portable target never needs this Git checkout.
+//! ordinary Windows entry points through Susi Commercial Apps, which serves the
+//! Windows channel. The portable target never needs this Git checkout.
 use super::{
     checked_package, digest, file_digest, git, resolve, stamp, Context, Lock, Manifest, Result,
     CURRENT, PREVIOUS,
@@ -167,10 +168,16 @@ fn checked_command(
     Ok(fs::read_to_string(scratch.join(format!("{label}.stdout")))?)
 }
 
-fn supports_installer(ctx: &Context, exe: &Path) -> Result<bool> {
-    Ok(checked_command(ctx, exe, &["--help"], "help", false)?
-        .lines()
-        .any(|line| line.split_whitespace().next() == Some("install-release")))
+/// Susi core ships for Linux only (Mandate 84, 2026-11-18); on Windows, Susi
+/// Commercial Apps installs and manages the ordinary channel. Its executable is
+/// named explicitly: a PATH search could select an unqualified development build.
+fn commercial_controller() -> Result<PathBuf> {
+    std::env::var_os("SUSI_COMMERCIAL_BIN")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_file())
+        .ok_or_else(|| {
+            "set SUSI_COMMERCIAL_BIN to the absolute path of the qualified Susi Commercial Apps executable; it installs the Windows channel (`susi-commercial install-release`)".into()
+        })
 }
 
 fn status(ctx: &Context, exe: &Path, id: &str) -> Result<()> {
@@ -194,32 +201,13 @@ pub(super) fn install_current(ctx: &Context) -> Result<()> {
     let previous = resolve(&ctx.root, PREVIOUS)?
         .map(|old| checked_package(ctx, &old))
         .transpose()?;
-    let manager = if supports_installer(ctx, &exe)? {
-        let mut args = vec!["install-release", "--id", &id];
-        if let Some((previous, _)) = &previous {
-            args.extend(["--previous", previous]);
-        }
-        checked_command(ctx, &exe, &args, "install", true)?;
-        exe
-    } else {
-        // A previously promoted release can predate native ordinary-channel
-        // management. Its verified successor performs the exact-target rollback.
-        let (_, manager) = previous
-            .ok_or("this release predates the native installer and has no qualified controller")?;
-        if !supports_installer(ctx, &manager)? {
-            return Err("no qualified ordinary-channel controller is available".into());
-        }
-        if status(ctx, &manager, &id).is_err() {
-            checked_command(
-                ctx,
-                &manager,
-                &["install-release", "--rollback", "--expect", &id],
-                "rollback",
-                true,
-            )?;
-        }
-        manager
-    };
+    let manager = commercial_controller()?;
+    let core = exe.to_str().ok_or("non-Unicode release package path")?;
+    let mut args = vec!["install-release", "--id", &id, "--core", core];
+    if let Some((previous, _)) = &previous {
+        args.extend(["--previous", previous]);
+    }
+    checked_command(ctx, &manager, &args, "install", true)?;
     status(ctx, &manager, &id)?;
     println!("Ordinary Windows production verified at release {id}");
     Ok(())

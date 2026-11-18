@@ -12,8 +12,6 @@ pub use winapi::*;
 #[cfg(windows)]
 pub mod acl;
 #[cfg(windows)]
-pub mod environment;
-#[cfg(windows)]
 pub mod file_replace;
 #[cfg(windows)]
 pub mod host;

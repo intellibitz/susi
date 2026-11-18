@@ -94,7 +94,6 @@ const HARNESS_SOAK_SKIP_FILTERS: &[&str] = &[
     "executor::tests::",
     "gateway::tests::",
     "worker::tests::a_turn_the_paced_queue_turned_away_is_sent_again_after_its_retry_after",
-    "channel_bindings::tests::",
     "secrets::tests::registry_environment_isolation_covers_keys_settings_homes_and_cached_values",
     "intent_ladder_startup_tests::intent_ladder_startup_process_runner_env_is_hermetic",
     "compliance::intent_classify_tests::first_goal_evidence_labels_do_not_infer",

@@ -8,15 +8,20 @@ qualified ID with `cargo local-release promote <id>`, launch it with
 `cargo local-release rollback`. Use `cargo local-release status` to inspect
 both release IDs. These commands work locally.
 
-For Windows user deployment, the agent invokes `cargo local-release install-current`
-after verified promotion or rollback. This command installs and checks the promoted
-ID for ordinary launches. For a clean machine, `cargo local-release export-qualified
-<id> <new-absolute-directory>` exports the admitted release and its qualified
-predecessor when available. The agent transfers the bundle and release IDs through
-its trusted connection and invokes the current bundle's `susi.exe install-release
---id <id> --previous <previous-id>`. Omit the predecessor argument for the first
-qualified release. The target verifies the executable, evidence, notices and SBOM
-offline. The producer retains the full qualification log.
+Susi core ships for Linux only (Mandate 84, 2026-11-18). The Windows ordinary
+channel is installed and managed by Susi Commercial Apps. For a Windows user
+deployment, the agent sets `SUSI_COMMERCIAL_BIN` to the qualified Susi
+Commercial Apps executable and invokes `cargo local-release install-current`
+after verified promotion or rollback; it runs `susi-commercial install-release
+--id <id> --core <package>\susi.exe [--previous <previous-id>]` and checks the
+promoted ID for ordinary launches. For a clean machine, `cargo local-release
+export-qualified <id> <new-absolute-directory>` exports the admitted release and
+its qualified predecessor when available. The agent transfers the bundle and
+release IDs through its trusted connection and runs Susi Commercial Apps there
+with `install-release --id <id> --core <bundle>\susi.exe --previous
+<previous-id>`. Omit the predecessor argument for the first qualified release.
+The target verifies the executable, evidence, notices and SBOM offline. The
+producer retains the full qualification log.
 
 The user can then give Susi a goal with `susi "<what you want done>"` in a new
 terminal; the core CLI takes one-shot goals, and the interactive conversation
@@ -26,7 +31,7 @@ and the `susi` command use the same installed selector. Its atomic update
 selects an immutable executable for each new launch. Running processes continue
 from their original slot. Repeating an interrupted installation recovers its
 recorded transition. The agent can inspect the deployment with
-`susi install-release --status`.
+`susi-commercial install-release --status`.
 
 A Windows distributor migrating the flat Commercial v3.1.3 installation runs
 the updated migration controller before removing the old programs:
@@ -34,6 +39,11 @@ the updated migration controller before removing the old programs:
 ```text
 susi-rollback-manager.exe install-release --import-legacy --id <trusted-current-core-id> --controller-sha256 <trusted-controller-sha256>
 ```
+
+Migration controllers published before 2026-11-18 carry this command
+themselves; the same migration is now `susi-commercial install-release
+--import-legacy --id <trusted-current-core-id> --controller-sha256
+<trusted-controller-sha256> --core <controller.exe>`.
 
 Place the qualified current core in the adjacent `slots/<trusted-current-core-id>`
 directory. The controller authenticates the original published Windows v0.21.51

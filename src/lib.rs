@@ -24,10 +24,6 @@
 // stability via this re-export.
 pub use susi_error;
 
-#[cfg(windows)]
-#[doc(hidden)] // The installed channel's own launch bindings, not a public API.
-pub mod channel_bindings;
-
 /// Error types and handling
 pub mod error {
     pub use susi_error::*;
