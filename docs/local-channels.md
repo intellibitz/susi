@@ -1,20 +1,20 @@
 # Agent-operated local Windows channels
 
-Agents build development executables with `cargo local-build debug` in a
-reserved worktree. For production, `cargo local-release qualify` verifies the
+Agents build development executables with `xtask local-build debug` in a
+reserved worktree. For production, `local-release qualify` verifies the
 accepted integration head and returns the release ID. Agents promote the
-qualified ID with `cargo local-release promote <id>`, launch it with
-`cargo local-release run`, and restore its verified predecessor with
-`cargo local-release rollback`. Use `cargo local-release status` to inspect
+qualified ID with `local-release promote <id>`, launch it with
+`local-release run`, and restore its verified predecessor with
+`local-release rollback`. Use `local-release status` to inspect
 both release IDs. These commands work locally.
 
 Susi core ships for Linux only (Mandate 84, 2026-11-18). The Windows ordinary
 channel is installed and managed by Susi Commercial Apps. For a Windows user
 deployment, the agent sets `SUSI_COMMERCIAL_BIN` to the qualified Susi
-Commercial Apps executable and invokes `cargo local-release install-current`
+Commercial Apps executable and invokes `local-release install-current`
 after verified promotion or rollback; it runs `susi-commercial install-release
 --id <id> --core <package>\susi.exe [--previous <previous-id>]` and checks the
-promoted ID for ordinary launches. For a clean machine, `cargo local-release
+promoted ID for ordinary launches. For a clean machine, `local-release
 export-qualified <id> <new-absolute-directory>` exports the admitted release and
 its qualified predecessor when available. The agent transfers the bundle and
 release IDs through its trusted connection and runs Susi Commercial Apps there

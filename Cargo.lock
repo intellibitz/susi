@@ -844,17 +844,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xtask"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-paths",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
-]
-
-[[package]]
 name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

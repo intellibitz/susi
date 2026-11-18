@@ -541,7 +541,7 @@ Release F (0.21.43) is the current qualified Windows production release, with E 
 
 ## Change to live on the dev channel under 60 seconds (2026-11-06)
 
-`cargo run -p xtask --bin local-channel -- deliver [--prove-rollback] [-- <susi args>]`
+`local-channel deliver [--prove-rollback] [-- <susi args>]`
 (task T-STEP1LOOP-1) takes the worktree's committed `HEAD` to the live dev
 channel in one command and times every phase:
 
@@ -623,10 +623,10 @@ What this does and does not establish:
   host or a larger change can exceed the budget, and the record says so
   (`within_budget`).
 - Tests of packages that depend on the changed one are not run by this loop.
-  They run in the integration gate (`cargo local-workflow ship`, about 19 min
+  They run in the integration gate (`local-workflow ship`, about 19 min
   for core), which still precedes `origin/main`.
 - The **production** channel is unchanged: an optimized executable still needs
-  `cargo local-release qualify` (about 25 min of gates in prior evidence) before
+  `local-release qualify` (about 25 min of gates in prior evidence) before
   promotion. This loop does not make a production release live in 60 s.
 - Step 1's other open items stay open: millisecond user-response budgets, the
   cold first-answer speed target and byte-identical standard-library rebuilds.
@@ -636,7 +636,7 @@ What this does and does not establish:
 met by `local-channel deliver` with the measurements above, and agents keep it
 met: a delivery whose record shows `within_budget: false` is a regression to
 fix, not an accepted result. The decision does not change production: an
-installed release still goes live only through `cargo local-release qualify`
+installed release still goes live only through `local-release qualify`
 and promotion, and the integration gate still precedes `origin/main`. Step 1
 itself stays open on its other items (millisecond user-response budgets, the
 cold first-answer speed target, byte-identical standard-library rebuilds).
@@ -706,8 +706,8 @@ file count dropped `440 -> 3` (`-99.3%`), `goal_first_output` down/up improved
 `73.03 / 82.63 ms -> 67.56 / 73.92 ms`.
 
 2026-11-12 (`T-CARBONCLOUD-7`): Production release qualification
-(`xtask/src/bin/release-qualify.rs`) and tag verification
-(`xtask/src/release_qualification.rs` `verify_tag` / `push-policy` for releases
+(`tools/core-xtask/src/bin/release-qualify.rs`) and tag verification
+(`tools/core-xtask/src/release_qualification.rs` `verify_tag` / `push-policy` for releases
 after `v0.21.66`) now run and enforce both `startup-gate` (`startup` gate,
 `--runs 5` against `dist/susi` in an isolated private home with
 `SUSI_NO_REGISTRY_ENV=1`) and the `2000 ms` host-contract conformance budget
@@ -731,5 +731,5 @@ isolated `susi-conformance --max-ms 2000 --susi-bin ... --json`
 
 Closed `2026-11-15` (`T-AGYREL068-2`): quiet-host Windows `x86_64` (`Intel(R) Xeon(R) CPU E3-1505M v5 @ 2.80GHz`) standalone `startup-gate --runs 5` measurements of `v0.21.68` `target/dist/susi.exe` (`27,990,016` bytes) showed Win32 process-spawn `floor` medians of `15.75–18.97 ms`:
 - Pre-split baseline (`port_offset` `42100` / `43200`, exit `1`): `floor = 17.65 / 18.97 ms`, `version = 33.14 / 32.89 ms`, `help = 37.96 / 34.20 ms`, `status_daemon_down = 48.59 / 52.03 ms`, `status_daemon_up = 51.65 / 49.46 ms`, `goal_first_output_daemon_down = 408.96 / 435.94 ms`, `goal_completion_daemon_down = 422.29 / 446.86 ms`, `goal_first_output_daemon_up = 409.17 / 419.74 ms`, `goal_completion_daemon_up = 420.98 / 436.53 ms`.
-- Because Windows spawn/CRT floor (`~16–19 ms`) alone uses over half of the `30 ms` `--version`/`--help` budget and pushes quiet-host `status` runs slightly past `50 ms` (`51.65–52.03 ms`), `xtask/src/bin/startup-gate.rs` splits Windows-only `#[cfg(windows)]` ceilings to `VERSION_HELP_BUDGET_MS = 50.0` and `STATUS_BUDGET_MS = 75.0` while keeping `#[cfg(not(windows))]` unchanged at `30.0 ms` / `50.0 ms` and keeping goal budgets unchanged (`600.0 ms` / `750.0 ms`).
+- Because Windows spawn/CRT floor (`~16–19 ms`) alone uses over half of the `30 ms` `--version`/`--help` budget and pushes quiet-host `status` runs slightly past `50 ms` (`51.65–52.03 ms`), `tools/core-xtask/src/bin/startup-gate.rs` splits Windows-only `#[cfg(windows)]` ceilings to `VERSION_HELP_BUDGET_MS = 50.0` and `STATUS_BUDGET_MS = 75.0` while keeping `#[cfg(not(windows))]` unchanged at `30.0 ms` / `50.0 ms` and keeping goal budgets unchanged (`600.0 ms` / `750.0 ms`).
 - Post-split confirmation (`port_offset` `41500`, `startup-gate --runs 5`, exit `0`, `"pass": true`): `floor = 15.75 ms`, `version = 30.43 ms`, `help = 31.80 ms`, `status_daemon_down = 41.24 ms`, `goal_first_output_daemon_down = 376.44 ms`, `goal_completion_daemon_down = 389.18 ms`, `status_daemon_up = 46.60 ms`, `goal_first_output_daemon_up = 410.98 ms`, `goal_completion_daemon_up = 420.02 ms` (`daemon.start = 744.13 ms`, `daemon.stop = 1203.09 ms`).

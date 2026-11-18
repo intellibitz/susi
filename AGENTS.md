@@ -53,7 +53,9 @@ the requester to inspect code or perform routine engineering steps.
    working directory. Roots never nest or overlap; register an existing root in
    place. Reuse your own idle worktrees where appropriate.
 2. Inspect current changes and active claims before editing. Reserve disjoint
-   scopes using available native `cargo local-workflow` tooling. Keep one live
+   scopes using available native `local-workflow` tooling (core's development
+   and release tools are built from Susi Commercial Apps' `tools/core-xtask`
+   and run from a core checkout). Keep one live
    claim per worker and renew active progress. Do not hold a claim for work you
    have stopped, handed off or completed; release it in the same step. The lease
    is a last resort, not the release. Preserve unpublished work or deliberately
@@ -87,7 +89,7 @@ the requester to inspect code or perform routine engineering steps.
    as a branch. Agent handoffs use `refs/agents/<agent>`; qualified release lines
    use fast-forward-only `refs/candidates/release/<name>`. Release tags are
    immutable. Preserve the source, artifact and license binding of each release.
-9. Use `cargo local-build debug` for a native development candidate. Guarded
+9. Use `xtask local-build debug` for a native development candidate. Guarded
    commits carry task ownership (`Task: T-<AGENT>-<n>` or native
    `Task: LOCAL-<name>`). Keep active task scopes and meaningful acceptance
    available to native tooling; a reservation or successful compile is not

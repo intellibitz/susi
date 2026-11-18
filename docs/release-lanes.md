@@ -10,7 +10,7 @@ in any checkout, including `susi-commercial-apps`.
 ## Commands
 
 ```text
-cargo build --locked -p xtask --bin release-lanes
+cargo build --locked --manifest-path tools/core-xtask/Cargo.toml --bin release-lanes
 release-lanes init    --name 2026-11-12-rc1 --base <rev> --from origin/main --select T-A-1,T-B-1
 release-lanes status  --name 2026-11-12-rc1 [--json]
 release-lanes claim   --name 2026-11-12-rc1 --lane lane-01 [--stale-secs 7200]
@@ -77,7 +77,7 @@ offer a pull request for it and shows no merge button. The final immutable
 
 ## Verified
 
-- `cargo test --locked -p xtask --bin release-lanes release_lanes::`: 6 tests on
+- `cargo test --locked --manifest-path tools/core-xtask/Cargo.toml --bin release-lanes release_lanes::`: 6 tests on
   throwaway repositories. They cover lane grouping, ref-name validation, two
   agents racing one release (the loser re-picks and lands), exact-tree evidence,
   conflict reporting with resume, stale-claim takeover and create-only releases.

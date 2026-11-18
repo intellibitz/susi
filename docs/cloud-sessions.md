@@ -35,8 +35,8 @@ Cargo offline resolution alone does not prevent dependency build scripts from
 downloading binaries. Neither a container nor a warm cache establishes Rust-only
 or license compliance.
 
-The available native commands are `cargo local-workflow` and
-`cargo local-build debug|production`. They are migration building blocks; consult
+The available native commands are `local-workflow` and
+`xtask local-build debug|production`. They are migration building blocks; consult
 `docs/native-rust-direction.md` and actual test evidence for current capabilities.
 Do not treat a missing local integration feature as permission to skip its gate
 or force work through hosted CI. Agents implement the missing capability.

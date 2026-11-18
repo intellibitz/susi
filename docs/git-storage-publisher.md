@@ -15,10 +15,10 @@ Reserve an isolated worktree and commit scoped work normally. Build both native
 tools together once per source update, then submit:
 
 ```text
-cargo build --offline --locked -p xtask --bin local-snapshot --bin push-policy
-cargo run --offline --locked -p xtask --bin local-snapshot -- submit worker-unique-change
-cargo run --offline --locked -p xtask --bin local-snapshot -- status-main worker-unique-change
-cargo run --offline --locked -p xtask --bin local-snapshot -- retry-main worker-unique-change
+cargo build --locked --manifest-path tools/core-xtask/Cargo.toml --bin local-snapshot --bin push-policy
+local-snapshot submit worker-unique-change
+local-snapshot status-main worker-unique-change
+local-snapshot retry-main worker-unique-change
 ```
 
 The publisher makes an adjacent `push-policy` executable discoverable to its Git
@@ -66,7 +66,7 @@ since 2026-11-18); core's command hands the check there, and without Susi
 Commercial Apps installed it refuses and says so:
 
 ```text
-cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]
+local-snapshot guard [<remote>]
 ```
 
 Every clone that runs it is a witness. It reads the remote's refs
@@ -172,7 +172,7 @@ is exactly when someone has to act.
 
 The witness is `susi-commercial workflow storage-guard --witness origin`, run
 in the publishing clone; `local-snapshot` and `local-workflow ship` call it
-through [`xtask/src/storage_guard.rs`](../xtask/src/storage_guard.rs). Without
+through `tools/core-xtask/src/storage_guard.rs`. Without
 Susi Commercial Apps the publish still succeeds and prints that the guard did
 not run.
 `submit-main`, `integrate` and `release-promote` run the advisory witness after
@@ -182,7 +182,7 @@ or replaying an accepted publication. See the
 [implementation-service boundary](architecture.md#implementation-services-and-protocol-adapters)
 for registry and native environment permissions.
 
-`cargo local-workflow ship` and `ship --retry`, the gated landing, do it as
+`local-workflow ship` and `ship --retry`, the gated landing, do it as
 well, whatever the ship's result. Susi Commercial Apps ships with this same
 binary through its cargo alias, so its ship path is covered by the same code.
 
@@ -200,11 +200,11 @@ without Git is skipped, and `SUSI_NO_HOOK_SETUP=1` opts out.
 From an isolated claimed worktree:
 
 ```text
-cargo run --offline --locked -p xtask --bin local-snapshot -- cut 2026-11-10-rc1
-cargo run --offline --locked -p xtask --bin local-snapshot -- status 2026-11-10-rc1
-cargo run --offline --locked -p xtask --bin local-snapshot -- retry 2026-11-10-rc1
+local-snapshot cut 2026-11-10-rc1
+local-snapshot status 2026-11-10-rc1
+local-snapshot retry 2026-11-10-rc1
 # On a fresh clone of the same repository:
-cargo run --offline --locked -p xtask --bin local-snapshot -- adopt 2026-11-10-rc1
+local-snapshot adopt 2026-11-10-rc1
 ```
 
 `cut` reads the full `origin/main` commit, fetches that immutable object, and
@@ -280,7 +280,7 @@ does not install a daemon, scheduled job or cross-laptop coordinator.
 The `local-snapshot` binary owns unit and real bare-Git integration tests. Run:
 
 ```text
-cargo test --offline --locked -p xtask --bin local-snapshot
+cargo test --offline --locked --manifest-path tools/core-xtask/Cargo.toml --bin local-snapshot
 ```
 
 Tests cover independent-clone main submissions, history-preserving composition,
@@ -295,7 +295,7 @@ own `.githooks/pre-push`, with the build directory removed from `PATH` so the
 hook can reach `push-policy` only through the publisher's adjacent discovery:
 
 ```text
-cargo test --offline --locked -p xtask --test git_publisher_native_hook
+cargo test --offline --locked --manifest-path tools/core-xtask/Cargo.toml --test git_publisher_native_hook
 ```
 
 It covers a divergent-main `submit` composed and verified on the remote,

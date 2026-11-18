@@ -84,7 +84,7 @@ not evidence of a fresh upstream observation.
 
 The optional live `--drift` path still defaults to GitHub's raw host and is not
 rewritten by this change. Legacy shell branch handoff must never substitute
-remote CI for the native gate; use `cargo local-workflow check` and `ship`.
+remote CI for the native gate; use `local-workflow check` and `ship`.
 This change does not qualify the legacy shell gate. No Actions workflow is
 added or enabled. Repository protection, community
 links, clean-cache provisioning, installation and upgrade against a non-GitHub

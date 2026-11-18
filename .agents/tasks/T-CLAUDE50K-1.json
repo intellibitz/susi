@@ -42,5 +42,5 @@
     "decision": "existing",
     "searched": "Core's own xtask, transplanted whole; precedent: the unsafe ratchet's tools already moved to Susi Commercial Apps and run against a core checkout."
   },
-  "progress": "2026-11-19: Susi Commercial Apps' copy is built and tested (tools/core-xtask); core's deletion waits for T-CLAUDE25K-3 to release its xtask/ and toolchain/ scopes."
+  "progress": "2026-11-19: done in source. xtask left core after Susi Commercial Apps took it as tools/core-xtask (c1d58b09); core's total first-party Rust is 39,456 by the size test's own categories (runtime 17,765, facades 93, tests 20,371, tooling 1,227), down from 117,968. Acceptance cannot pass yet for reasons that predate this task: architecture_tests fails the lockfile/candle, vendor-patch and roadmap-link checks on unmodified main too. Linux: compile check only on this host. 2026-11-19: Susi Commercial Apps' copy is built and tested (tools/core-xtask); core's deletion waits for T-CLAUDE25K-3 to release its xtask/ and toolchain/ scopes."
 }

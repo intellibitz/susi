@@ -93,7 +93,7 @@ Measure wall time, total and workspace CPU-seconds, critical path, host load,
 toolchain, target, feature set and source revision. Report cold and warm runs
 separately; cache reuse does not establish a cold result.
 
-`cargo xtask build-time` performs the cold build in a temporary target with
+`xtask build-time` performs the cold build in a temporary target with
 `--timings`, reports wall time, CPU-seconds and the critical path, and retains
 measurements in ignored local state at `.susi/records/build-time.jsonl`.
 Historical measurements may be absent. Keep results and comparisons in local

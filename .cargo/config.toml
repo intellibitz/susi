@@ -1,11 +1,8 @@
 [alias]
-xtask = "run --offline --locked --package xtask --bin xtask --"
-xb = "run --package xtask -- build"
-local-build = "run --offline --locked --package xtask --bin xtask -- local-build"
-fast-release = "run --offline --locked --package xtask --bin xtask -- fast-release"
+# Core's development and release tools (local-build, local-workflow,
+# local-release, fast-release) moved to Susi Commercial Apps'
+# tools/core-xtask on 2026-11-19; they run from this checkout.
 core-size = "test --offline --locked --package susi --test lean_core_ceilings complete_socket_is_under_25k_lines -- --exact --ignored --nocapture"
-local-workflow = "run --offline --locked --package xtask --bin local-workflow --"
-local-release = "run --offline --locked --package xtask --features release-tooling --bin local-release --"
 # Faster test runner: per-test process isolation, better scheduling than
 # libtest's per-binary thread pools. Requires `cargo install cargo-nextest`.
 xn = "nextest run --workspace --locked"

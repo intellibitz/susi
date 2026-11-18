@@ -362,10 +362,10 @@ examples (`crates/susi-gmcp/examples/01_minimal_tool.rs` through
   sealed in `T-CODEXGMCPROADMAP-113` (`[GMCP 203.020.M] Mastery`) once all six
   stage gates (`01`..`06`) and `gmcp_vc_203_020_mastery` pass on the shipped
   runtime. Because `docs/gmcp` and `tests/gmcp_requirements*` participate in the
-  shared GMCP artifact tree digest (`xtask/src/gmcp_evidence.rs`), every commit
+  shared GMCP artifact tree digest (`tools/core-xtask/src/gmcp_evidence.rs`), every commit
   series in `T-CODEXGMCPROADMAP-107`..`112` refreshes existing delivered vector
-  evidence files via two-phase `cargo local-release record-gmcp` +
-  `cargo local-release record-gmcp --mastery`.
+  evidence files via two-phase `local-release record-gmcp` +
+  `local-release record-gmcp --mastery`.
 
 ## Ambiguities resolved
 
@@ -464,8 +464,8 @@ cargo run --offline --locked -p susi-gmcp --example 06_production_plugin_server
 # 3. Run deterministic air-gapped standards drift check and VC-203-020 operations gate
 susi mcp ledger --drift --refetched .agents/gmcp/spec
 cargo test --locked --test gmcp_requirements gmcp_req_203_020_06_operations
-cargo local-release record-gmcp
-cargo local-release record-gmcp --mastery
+local-release record-gmcp
+local-release record-gmcp --mastery
 ```
 
 ### Incident triage

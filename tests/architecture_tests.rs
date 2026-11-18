@@ -172,8 +172,8 @@ fn susi_crates_declare_zero_external_dependencies() {
     let root = workspace_root();
     let root_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("root Cargo.toml");
 
-    // Workspace member names = root package + every members[] dir + xtask.
-    let mut members: HashSet<String> = ["susi".to_string(), "xtask".to_string()].into();
+    // Workspace member names = root package + every members[] dir.
+    let mut members: HashSet<String> = ["susi".to_string()].into();
     let mut in_members = false;
     for line in root_toml.lines() {
         let t = line.trim();
@@ -185,15 +185,12 @@ fn susi_crates_declare_zero_external_dependencies() {
             for entry in t.split('"').skip(1).step_by(2) {
                 if let Some(name) = entry.strip_prefix("crates/") {
                     members.insert(name.to_string());
-                } else if entry == "xtask" {
-                    members.insert("xtask".to_string());
                 }
             }
         }
     }
 
     let mut manifests: Vec<std::path::PathBuf> = vec![root.join("Cargo.toml")];
-    manifests.push(root.join("xtask/Cargo.toml"));
     for entry in std::fs::read_dir(root.join("crates")).expect("crates/") {
         let entry = entry.expect("entry");
         let name = entry.file_name().to_string_lossy().to_string();
@@ -671,7 +668,6 @@ fn ureq_types_stay_inside_http_transport() {
     let mut files = Vec::new();
     rust_files(&root.join("crates"), &mut files);
     rust_files(&root.join("src"), &mut files);
-    rust_files(&root.join("xtask/src"), &mut files);
     for path in files {
         let rel = path
             .strip_prefix(&root)
@@ -1133,17 +1129,10 @@ fn every_panic_path_allow_is_justified() {
 fn dev_builds_never_install_the_release_binary() {
     let root = workspace_root();
 
-    let xtask = std::fs::read_to_string(root.join("xtask/src/main.rs")).unwrap();
-    let xtask = non_test(&xtask);
-    for forbidden in ["fs::copy", "fs::rename", "\".susi\""] {
-        assert!(
-            !xtask.contains(forbidden),
-            "xtask must build only, never install (Mandate 48): found `{forbidden}`"
-        );
-    }
-
+    // Core's build and release tools, and their "build only, never install"
+    // guard, moved to Susi Commercial Apps (tools/core-xtask) on 2026-11-19.
     let mut files = Vec::new();
-    for dir in ["crates", "src", "xtask"] {
+    for dir in ["crates", "src"] {
         rust_files(&root.join(dir), &mut files);
     }
     let self_deploy: Vec<String> = files
@@ -1172,11 +1161,6 @@ fn dev_builds_never_install_the_release_binary() {
         local < isolate && install < isolate && isolate < runtime,
         "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
     );
-
-    assert!(
-        root.join("xtask/src/bin/local-release.rs").is_file(),
-        "native release qualification and promotion implementation missing"
-    );
 }
 
 /// Mandate 48 ("SUSI writes SUSI"): every code-writing path into a SUSI
@@ -1189,13 +1173,11 @@ fn self_build_contract_reaches_every_code_writing_path() {
     let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
 
     // Application code-writing paths are checked by commercial ownership_guards.
+    // Guarded local delivery (the `susi-dev` launcher and the tools it builds)
+    // moved to Susi Commercial Apps, which checks it there; core names it.
     let delivery = read("src/cli/local_delivery_cli.rs");
-    assert!(delivery.contains("xtask/bootstrap/susi-dev.rs"));
-    assert!(delivery.contains("bootstrap::run(args)"));
-    let bootstrap = read("xtask/bootstrap/susi-dev.rs");
-    assert!(bootstrap.contains("CARGO_BUILD_BUILD_DIR"));
-    assert!(bootstrap.contains("local-workflow"));
-    assert!(bootstrap.contains("local-release"));
+    assert!(delivery.contains("susi-dev"));
+    assert!(delivery.contains("tools/core-xtask"));
 }
 
 /// Mandate 49 regression guard: the worktree-workflow guard exists, is
@@ -1232,18 +1214,12 @@ fn worktree_workflow_guard_is_wired_into_every_hook() {
             .any(|line| line.trim() == "exec push-policy \"$@\""),
         "pre-push must exec the native push-policy"
     );
-    let policy = std::fs::read_to_string(root.join("xtask/src/push_policy.rs"))
-        .expect("xtask/src/push_policy.rs missing");
-    for rule in [
-        "branch deletion prohibited",
-        "\"merge-base\", \"--is-ancestor\"",
-        "tags are immutable",
-    ] {
-        assert!(
-            policy.contains(rule),
-            "push-policy no longer enforces `{rule}`"
-        );
-    }
+    // The push-policy rules themselves moved with the tool to Susi Commercial
+    // Apps (tools/core-xtask), which pins them; the hook still fails closed.
+    assert!(
+        pre_push.contains("refusing the push (transport safety)"),
+        "pre-push must refuse a push when push-policy cannot be found or built"
+    );
     // The guard is a stub for `susi workflow guard`: the rules are Rust's,
     // reached through `.githooks/run-susi`, which needs sh and git only.
     let guard_body = std::fs::read_to_string(&guard).unwrap_or_default();
@@ -1308,29 +1284,13 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
     // Existing machinery must be named accurately; the constitution must not
     // pretend an implementation gap is a working gate.
     for (id, phrase, artifact) in [
-        (
-            49,
-            "Reserve disjoint scopes",
-            "xtask/src/bin/local-workflow.rs",
-        ),
         (49, "AGENTS.md", "AGENTS.md"),
-        (50, "Task: T-<AGENT>-<n>", "xtask/src/bin/local-workflow.rs"),
-        (
-            50,
-            "one live claim per worker",
-            "xtask/src/bin/local-workflow.rs",
-        ),
         (
             51,
             "absence is never acceptance evidence",
             ".agents/schemas/evidence.schema.json",
         ),
         (52, "SUSI_HOME", "src/dev_instance.rs"),
-        (
-            54,
-            "actual combined release tree",
-            "xtask/src/bin/local-workflow.rs",
-        ),
         (
             56,
             "rank healthy providers ahead of recent failures",
@@ -1343,11 +1303,6 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
         ),
         (59, "forbid(unsafe_code)", "crates/susi-core/src/lib.rs"),
         (60, "susi-vendor-", "tests/architecture_tests.rs"),
-        (
-            61,
-            "Missing native capabilities",
-            "xtask/src/local_build.rs",
-        ),
         (68, "AND obligations", "deny.toml"),
     ] {
         assert!(
@@ -1361,7 +1316,14 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
     }
     // These owners moved to the commercial runtime; its ownership guard checks
     // their enforcement artifacts while the native constitution remains pinned.
+    // Core's workflow and build tools (local-workflow, local_build) moved to
+    // Susi Commercial Apps' tools/core-xtask on 2026-11-19 and are checked there.
     for (id, phrase) in [
+        (49, "Reserve disjoint scopes"),
+        (50, "Task: T-<AGENT>-<n>"),
+        (50, "one live claim per worker"),
+        (54, "actual combined release tree"),
+        (61, "Missing native capabilities"),
         (53, "E2E_CHECKS"),
         (55, "return exit 2"),
         (57, "max_budget_usd"),
@@ -1372,7 +1334,7 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
-    for needle in ["cargo local-workflow", "Hosting is optional", "hermetic"] {
+    for needle in ["local-workflow", "Hosting is optional", "hermetic"] {
         assert!(
             susi_core::self_build::BRIEF.contains(needle),
             "the self-build brief must carry `{needle}`"
@@ -1490,8 +1452,8 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
     let mandates = text.find("## Engineering rules").unwrap();
     assert!(start < mandates, "START HERE must precede the mandates");
     for step in [
-        "cargo local-workflow",
-        "cargo local-build debug",
+        "local-workflow",
+        "xtask local-build debug",
         "Task: T-<AGENT>-<n>",
         // Main is unqualified development (Mandate 73); exact-tree gates
         // belong to release branches and snapshots.
@@ -1513,8 +1475,8 @@ fn readme_covers_the_workflow_ecosystem_and_brain() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
     for needle in [
-        "cargo local-workflow",
-        "cargo local-build debug",
+        "local-workflow",
+        "xtask local-build debug",
         "Task: T-<AGENT>-<n>",
         "actual combined tree",
         "Agents own authorized development",
@@ -1756,11 +1718,7 @@ fn workspace_enforces_apache_mit_bsd_license_policy() {
     let root = workspace_root();
 
     // 1. Every workspace crate manifest explicitly declares `license = "Apache-2.0"`.
-    let mut manifests = vec![
-        root.join("Cargo.toml"),
-        root.join("xtask/Cargo.toml"),
-        root.join("fuzz/Cargo.toml"),
-    ];
+    let mut manifests = vec![root.join("Cargo.toml"), root.join("fuzz/Cargo.toml")];
     for entry in std::fs::read_dir(root.join("crates")).expect("crates/") {
         let entry = entry.expect("entry");
         let p = entry.path().join("Cargo.toml");
@@ -2956,7 +2914,7 @@ fn core_ships_zero_ui_assets() {
 fn core_serves_no_html() {
     let root = workspace_root();
     let mut files = Vec::new();
-    for dir in ["src", "crates", "xtask"] {
+    for dir in ["src", "crates"] {
         zero_ui_walk(&root.join(dir), true, &mut files);
     }
     let mut offenders = Vec::new();

@@ -20,7 +20,7 @@ or configuration the CEO must create:
 $env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target/bootstrap'
 $env:CARGO_BUILD_TARGET_DIR = $env:CARGO_TARGET_DIR
 $env:CARGO_BUILD_BUILD_DIR = $env:CARGO_TARGET_DIR
-cargo build --offline --locked --target x86_64-pc-windows-msvc -p xtask --bin susi-dev
+cargo build --offline --locked --manifest-path tools/core-xtask/Cargo.toml --bin susi-dev
 ```
 
 Before doing this, the agent verifies that the checkout and target paths are

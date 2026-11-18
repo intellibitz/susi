@@ -1,8 +1,8 @@
 # Gate receipts
 
-`cargo local-workflow ship` retains the results of its gates in local Git
+`local-workflow ship` retains the results of its gates in local Git
 metadata. Receipts bind the exact source tree, commands, results, toolchain and
-lockfile. `cargo xtask verify-receipt <commit>` checks a retained receipt and
+lockfile. `xtask verify-receipt <commit>` checks a retained receipt and
 can re-run its commands. Missing history is not evidence of a passing gate.
 
 ## Publication and retention
@@ -110,8 +110,8 @@ evidence lines but no test totals or harness list.
 
 ```text
 cargo fetch --locked            # once; the gates run --offline
-cargo xtask verify-receipt <H>   # retained receipt in this clone
-cargo xtask verify-receipt <H> --receipt <file>  # separately supplied receipt
+xtask verify-receipt <H>   # retained receipt in this clone
+xtask verify-receipt <H> --receipt <file>  # separately supplied receipt
 ```
 
 `<H>` is the verified merge (the receipt's `integration.commit`); the receipt
@@ -181,7 +181,7 @@ a different toolchain is reported as a skip unless explicitly overridden.
 
 ## For the gate host
 
-Nothing changes in how a landing is run: `cargo local-workflow ship <agent>`
+Nothing changes in how a landing is run: `local-workflow ship <agent>`
 does everything above. Two details worth knowing:
 
 - The receipt is built in `record_acceptance`, from the native gate plan
@@ -195,8 +195,8 @@ does everything above. Two details worth knowing:
   produce a new receipt.
 
 Unit tests for the writer, the parser and the verifier are in
-`xtask/src/gate_receipt.rs`; the ship tests in
-`xtask/src/local_workflow/tests.rs` check that publication preserves the
+`tools/core-xtask/src/gate_receipt.rs`; the ship tests in
+`tools/core-xtask/src/local_workflow/tests.rs` check that publication preserves the
 verified source tree, local proof is required, and explicitly supplied receipts
 remain verifiable after an ordinary clone.
 

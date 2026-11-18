@@ -382,7 +382,8 @@ fn every_qualification_record_belongs_to_a_release_record() {
         // Where the qualified tree came from: no `source` (records written
         // before the field existed) or `snapshot`, without a `distillation`
         // block; or `distill`, with a complete one. push-policy re-proves the
-        // block from the tagged tree (`xtask/src/release_qualification.rs`).
+        // block from the tagged tree (`src/release_qualification.rs` in Susi Commercial
+        // Apps' tools/core-xtask, where core's tools moved on 2026-11-19).
         let distillation = value.get("distillation").filter(|v| !v.is_null());
         match value.get("source") {
             None => assert!(

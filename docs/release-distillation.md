@@ -15,13 +15,13 @@ coordinator prerequisites.
 From a Susi checkout or isolated agent worktree:
 
 ```text
-cargo build --offline --locked -p xtask --bin local-distill --bin push-policy
-cargo run --offline --locked -p xtask --bin local-distill -- plan --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --json
-cargo run --offline --locked -p xtask --bin local-distill -- compose --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --verify-accept --release-candidate --strict
-cargo run --offline --locked -p xtask --bin local-distill -- orchestrate --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --tasks-from-range <base-rev>..<stream-rev> --verify-accept --publish-snapshot --strict
-cargo run --offline --locked -p xtask --bin local-distill -- submit-main --rev HEAD --json
-cargo run --offline --locked -p xtask --bin local-distill -- status 2026-11-11-rc1
-cargo run --offline --locked -p xtask --bin local-distill -- publish 2026-11-11-rc1
+cargo build --locked --manifest-path tools/core-xtask/Cargo.toml --bin local-distill --bin push-policy
+local-distill plan --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --json
+local-distill compose --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --verify-accept --release-candidate --strict
+local-distill orchestrate --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --tasks-from-range <base-rev>..<stream-rev> --verify-accept --publish-snapshot --strict
+local-distill submit-main --rev HEAD --json
+local-distill status 2026-11-11-rc1
+local-distill publish 2026-11-11-rc1
 ```
 
 `local-distill` complements the plan-only `distill` binary (`docs/distillation.md`),
@@ -127,8 +127,8 @@ as it does on main.
 ## Evidence bound to a commit is re-recorded, not carried
 
 GMCP vector proof binds the exact tested source and artifact digest. Refresh
-it on the candidate using `cargo local-release record-gmcp`, then
-`cargo local-release record-gmcp --mastery`, before `release-qualify`. Both phases
+it on the candidate using `local-release record-gmcp`, then
+`local-release record-gmcp --mastery`, before `release-qualify`. Both phases
 use the same clean committed source tree and retain current snapshots under
 ignored `.susi/records/gmcp/evidence/`; no source commit is needed for the records.
 Mastery also binds the exact requirement records it consumed. Missing or stale
@@ -166,5 +166,5 @@ immutable `v*` release-tag promotion remain separate steps before production use
 Run the focused unit, push-policy, and bare-Git hook integration suites:
 
 ```text
-cargo test --offline --locked -p xtask --bin local-distill --test native_push_policy --test git_publisher_native_hook
+cargo test --offline --locked --manifest-path tools/core-xtask/Cargo.toml --bin local-distill --test native_push_policy --test git_publisher_native_hook
 ```

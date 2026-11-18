@@ -1,7 +1,6 @@
 [workspace]
 members = [
     ".",
-    "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
     "crates/susi-error",

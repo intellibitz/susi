@@ -35,6 +35,13 @@ for a new one in the same change. The rules agents work by are in
 
 ## Building, evidence and releases
 
+Core's development and release tools (`local-workflow`, `local-release`,
+`local-harvest`, `local-snapshot`, `release-lanes`, `release-qualify`,
+`push-policy`, `susi-dev` and `xtask` itself) live in Susi Commercial Apps since
+2026-11-19: build them there from `tools/core-xtask` and run them from a core
+checkout. Paths under `tools/core-xtask/` in these documents are in that
+repository.
+
 - [Native development bootstrap](native-bootstrap.md)
 - [Evidence: verification and qualification](evidence.md)
 - [Gate receipts](gate-receipts.md)

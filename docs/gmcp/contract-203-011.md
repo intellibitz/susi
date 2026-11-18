@@ -134,8 +134,8 @@ susi mcp ledger --drift --refetched .agents/gmcp/spec
 
 # 3. Verify VC-203-011 operations and refresh current local evidence
 cargo test --offline --locked --test gmcp_requirements gmcp_req_203_011_06_operations
-cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp
-cargo run --offline --locked -p xtask --features release-tooling --bin local-release -- record-gmcp --mastery
+local-release record-gmcp
+local-release record-gmcp --mastery
 ```
 
 ### Incident triage

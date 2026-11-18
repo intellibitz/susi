@@ -10,7 +10,7 @@
 //!
 //! The guard tokenizes every first-party Rust source in the repository (crate
 //! sources with their inline test modules and `tests.rs` files, crate and root
-//! integration tests, `xtask`, `fuzz`, the root `build.rs`, and this file):
+//! integration tests, `fuzz`, the root `build.rs`, and this file):
 //! comments are dropped and string literals (plain, raw, byte) are single
 //! tokens, so spacing, line breaks, comments between the pieces, raw strings,
 //! path prefixes and `.exe` do not hide a launch, and a fixture quoted inside
@@ -1110,7 +1110,6 @@ fn the_scan_reaches_test_build_and_tool_sources() {
         "build.rs",
         "tests/lean_core_ceilings.rs",
         "tests/no_console_window.rs",
-        "xtask/src/main.rs",
         "crates/susi-paths/src/console.rs",
         "crates/susi-core/src/bounded_cmd.rs",
         "src/cli/runtime_forward.rs",

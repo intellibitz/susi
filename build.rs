@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-#[path = "xtask/linux_link.rs"]
+#[path = "toolchain/linux_link.rs"]
 mod linux_link;
 
 // The one `CREATE_NO_WINDOW` owner, compiled here from its single source: a

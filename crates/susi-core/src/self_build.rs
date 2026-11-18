@@ -37,8 +37,9 @@ Agents own authorized development, verification, integration and production qual
 Do not ask the requester to inspect code or perform routine engineering steps. Requirements \
 are not evidence of completed implementation; keep unmet goals open.
 1. Read AGENTS.md and active local state. Work under your own agent root in an isolated \
-worktree and branch with unique identity and disjoint scopes. Use cargo local-workflow for \
-available reservations and guarded commits, and cargo local-build debug for candidates. \
+worktree and branch with unique identity and disjoint scopes. Use local-workflow for \
+available reservations and guarded commits, and xtask local-build debug for candidates; \
+core's tools are built from Susi Commercial Apps' tools/core-xtask. \
 Never edit the primary or requester's checkout or another agent's files. Keep one live claim \
 per worker, renew active progress, and release claims when work ends, is handed off or stops. \
 Preserve unpublished work. Cleanup requires every commit on origin/main, a clean tree, no \
@@ -145,8 +146,8 @@ mod tests {
     fn the_contract_carries_active_boundaries_without_identity_history() {
         for needle in [
             "canonical active rules in AGENTS.md",
-            "cargo local-workflow",
-            "cargo local-build debug",
+            "local-workflow",
+            "xtask local-build debug",
             "native MSVC",
             "Hosting is optional",
             "hermetic",

@@ -84,14 +84,14 @@ Main is unqualified development. A release is cut from a snapshot of it and
 qualified on the exact tree it ships (CEO mandate 73):
 
 1. Snapshot main and take the release branch locally:
-   `cargo run -p xtask --bin local-snapshot -- cut vX-Y-Z-rcN` (publishes the
+   `local-snapshot cut vX-Y-Z-rcN` (publishes the
    immutable `refs/tags/susi-snapshot/vX-Y-Z-rcN` and creates the local branch
    `release/vX-Y-Z-rcN`).
 2. On that branch, commit only the version bump (the engine manifests,
    `Cargo.lock`, the README badge and the governance ledgers) with its task
    record. A defect found from here on is fixed on main and the snapshot is cut
    again (`rcN+1`); the release branch takes nothing else.
-3. Qualify: `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z [--jobs N]` from
+3. Qualify: `release-qualify vX.Y.Z [--jobs N]` from
    the clean release checkout. This profile keeps the running Windows qualification
    executable outside the debug directory rebuilt by workspace tests. It runs `format`, `check`, `clippy`, `licenses`,
    `tests` (the whole workspace), `build` (the reference binaries, profile
@@ -115,9 +115,9 @@ qualified on the exact tree it ships (CEO mandate 73):
    `vX.Y.Z` tag only when the tagged commit adds exactly its record to the
    qualified tree and the record shows every gate at exit 0 with tests run
    and none failed — including, for releases after `v0.21.66` on trees carrying
-   `xtask/src/bin/startup-gate.rs` (or any record carrying `performance_gates`),
+   `tools/core-xtask/src/bin/startup-gate.rs` (or any record carrying `performance_gates`),
    passing `startup` and `conformance` (`max_check_ms <= 2000`) gates
-   (`xtask/src/release_qualification.rs`; historical tags `v0.21.54`..`v0.21.66`
+   (`tools/core-xtask/src/release_qualification.rs`; historical tags `v0.21.54`..`v0.21.66`
    remain valid). Every other tag
    name, and any tag replacement or deletion, is refused.
 5. Write `releases/<tag>.json` (the record below) with the reference digests
@@ -148,7 +148,7 @@ request or composition happens on the Git host:
 
 Before any gate runs, `release-qualify` asks the storage remote (`--remote`,
 default `origin`) whether the version is free, and reserves it
-(`xtask/src/release_version_guard.rs`):
+(`tools/core-xtask/src/release_version_guard.rs`):
 
 - a tag that is already published is refused: cut the next version;
 - an open release line `refs/candidates/release/vX.Y.Z` (`docs/release-lanes.md`)
@@ -178,10 +178,10 @@ candidate:
    release" step 2. If the candidate's tasks change what the GMCP evidence
    checks, re-record it there as well (`scripts/gmcp-record-evidence.sh`, then
    `--mastery`, each on a committed tree; `docs/release-distillation.md`).
-3. Qualify: `cargo run --profile fast-release -p xtask --bin release-qualify -- vX.Y.Z --from-distill
+3. Qualify: `release-qualify vX.Y.Z --from-distill
    <name> [--jobs N]`. Before any gate runs it refuses, with the reason, unless
    all of these hold (`verify_distilled_source` in
-   `xtask/src/release_qualification.rs`):
+   `tools/core-xtask/src/release_qualification.rs`):
    - the receipt is in the release tree, parses, and its `receipt_sha256`
      re-computes (SHA-256 of the compact JSON without that field, as
      `local-distill` writes it);

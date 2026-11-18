@@ -115,7 +115,7 @@ unmodified ships or raw Cargo invocations. It is **not yet safe to declare the
 100-agent workflow ready**.
 
 Any retained heavy verification path in the separately owned
-`xtask/src/bin/local-workflow.rs` needs a reviewed change to
+`tools/core-xtask/src/bin/local-workflow.rs` needs a reviewed change to
 use the same stable coordinator, reserve resources around every heavy command,
 hold the reservation through real child completion, retain failure/cancellation
 evidence, and keep private targets. Verification must remain parallel within

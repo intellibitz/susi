@@ -580,8 +580,8 @@ susi brain
 susi brain classify "fix this bug in my parser"
 
 # Building susi: agents follow AGENTS.md in isolated worktrees
-cargo local-workflow list
-cargo local-build debug
+local-workflow list
+xtask local-build debug
 # Production candidates require passing policy gates; never overwrite production
 
 # Automation (evidence-gated swarm mission)

@@ -98,11 +98,12 @@ See [current limitations](docs/evidence.md) and [delivery acceptance](docs/step1
 
 Full acceptance requires the exact combined source and artifact to pass the
 installed journey, promotion, health and rollback checks. The separate warm
-`cargo fast-release` budget is <10 s; it does not replace full release
+`xtask fast-release` budget is <10 s; it does not replace full release
 qualification. The cold compile target is <60 s. Report current-tree measurements
 and platform coverage explicitly; retained historical timings are not current
-qualification. Core releases target native x86_64 Windows and Linux; other
-platforms remain portable source without release qualification.
+qualification. Core releases target native x86_64 Linux only (Windows is
+served by Susi Commercial Apps since 2026-11-18); other platforms remain
+portable source without release qualification.
 
 ## Install
 
@@ -146,8 +147,10 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 
 Agents own authorized development, verification, integration and production
 qualification under the [active engineering contract](AGENTS.md). Work in an
-isolated worktree with disjoint scopes (`cargo local-workflow start <agent>
---scope <path>`, `cargo local-build debug`) and private build/runtime state.
+isolated worktree with disjoint scopes (`local-workflow start <agent>
+--scope <path>`, `xtask local-build debug`; core's development and release tools
+are built from Susi Commercial Apps' `tools/core-xtask`) and private
+build/runtime state.
 
 Use portable Git transport and reconcile the current remote before work and
 commits. Commit, push, merge and pull meaningful work about every ten minutes.

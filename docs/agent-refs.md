@@ -19,7 +19,7 @@ open a pull request from or into it.
 
 | Where | Ref | What |
 |---|---|---|
-| Agent worktree (local) | `refs/heads/local-agent/<agent>` | The branch the agent works and commits on. The name is unchanged: worktrees, claims and `cargo local-workflow start` still use it. |
+| Agent worktree (local) | `refs/heads/local-agent/<agent>` | The branch the agent works and commits on. The name is unchanged: worktrees, claims and `local-workflow start` still use it. |
 | Storage remote | `refs/agents/<agent>` | The agent's published work. Created, fast-forwarded, or deleted at its tip. |
 | Storage remote | `refs/heads/main` | Unqualified development main, the only remote branch. |
 | Integrating host | `refs/remotes/<remote>-agents/<agent>` | Local mirror of the remote's `refs/agents/*` (for `origin`: `refs/remotes/origin-agents/<agent>`). |
@@ -28,7 +28,7 @@ open a pull request from or into it.
 used. Agent refs, like candidates and claims, never appear in `git branch -r`
 on a plain clone, and a plain `git fetch` does not download them.
 
-## Push rules (`push-policy`, core `xtask/src/push_policy.rs`)
+## Push rules (`push-policy`, core `tools/core-xtask/src/push_policy.rs`)
 
 The pre-push hook (`.githooks/pre-push`) runs `push-policy`, which admits:
 
@@ -89,7 +89,7 @@ Then integrate in Susi, never on the host:
 - `susi-harness submit-main --rev refs/remotes/origin-agents/<agent>` submits
   one fetched agent ref.
 - A gated host merges `refs/remotes/origin-agents/<agent>` into a claimed
-  worktree and ships it with `cargo local-workflow ship <claim>`. The core
+  worktree and ships it with `local-workflow ship <claim>`. The core
   `local-workflow` tool reads no remote agent branch itself; it gates the
   claimed worktree it is given.
 

@@ -10,8 +10,8 @@ replace it.
 ## What it does
 
 ```text
-cargo run --offline --locked -p xtask --bin distill -- plan --tasks T-A-1 T-B-1 [--base <rev>] [--out plan.json] [--json] [--isolate]
-cargo run --offline --locked -p xtask --bin distill -- plan --tasks-from-range v0.21.52..v0.21.53 [--out plan.json]
+distill plan --tasks T-A-1 T-B-1 [--base <rev>] [--out plan.json] [--json] [--isolate]
+distill plan --tasks-from-range v0.21.52..v0.21.53 [--out plan.json]
 ```
 
 1. It resolves `--base` (default `HEAD`; with `--tasks-from-range` the default
@@ -121,9 +121,9 @@ rules make development main distillable:
 changing anything:
 
 ```text
-cargo run --offline --locked -p xtask --bin distill -- lint --range origin/main..HEAD [--strict]
-cargo run --offline --locked -p xtask --bin distill -- lint --range v0.21.53..origin/main [--json] [--out report.json]
-cargo run --offline --locked -p xtask --bin distill -- lint --range origin/main            # whole history
+distill lint --range origin/main..HEAD [--strict]
+distill lint --range v0.21.53..origin/main [--json] [--out report.json]
+distill lint --range origin/main            # whole history
 ```
 
 - One `git log --no-merges --name-only` pass over the range, one record read
@@ -253,9 +253,9 @@ and [`docs/harvest.md`](harvest.md).
 ## Verification
 
 ```text
-cargo test --offline --locked -p xtask --bin distill
-cargo clippy --offline --locked -p xtask --bin distill --all-targets -- -D warnings
-cargo fmt -p xtask --check
+cargo test --offline --locked --manifest-path tools/core-xtask/Cargo.toml --bin distill
+cargo clippy --offline --locked --manifest-path tools/core-xtask/Cargo.toml --bin distill --all-targets -- -D warnings
+cargo fmt --manifest-path tools/core-xtask/Cargo.toml --check
 ```
 
 Twelve unit tests cover:

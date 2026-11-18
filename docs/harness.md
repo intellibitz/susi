@@ -451,7 +451,7 @@ narrows a batch to one vector.
 Mandate 61 requires the harness to own the complete native local loop. The
 legacy `workflow finish` publication path described above is implementation
 history; it cannot remain a GitHub prerequisite. The available native
-`cargo local-workflow` and `cargo local-build` commands are migration building
+`local-workflow` and `xtask local-build` commands are migration building
 blocks. Agents complete missing coordination and verification without handing
 engineering work to the requester or weakening acceptance.
 

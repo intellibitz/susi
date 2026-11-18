@@ -1,10 +1,12 @@
 #!/bin/sh
 # Git's compatibility boundary only. All policy lives in the native Rust tool:
 # transport safety (no force, no unsafe deletion, real ancestry), no tests, no
-# network. A push never stops because the tool is not installed: push-policy on
-# PATH, else this checkout's own build, else it is built once here (offline,
-# about 10 s warm) and used from then on. Only a tool that cannot be built
-# fails closed.
+# network. Core's tools, push-policy among them, are built from Susi Commercial
+# Apps (tools/core-xtask) since 2026-11-19. A push never stops because the tool
+# is not installed: push-policy on PATH, else this checkout's earlier build,
+# else a build in a Susi Commercial Apps checkout beside this one, else it is
+# built once there (offline) and used from then on. Only a tool that cannot be
+# found or built fails closed.
 if command -v push-policy >/dev/null 2>&1; then
     exec push-policy "$@"
 fi
@@ -13,12 +15,25 @@ for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe" \
     "$top/target/release/push-policy" "$top/target/release/push-policy.exe"; do
     [ -x "$bin" ] && exec "$bin" "$@"
 done
-echo "pre-push: building push-policy once for this checkout" >&2
-(cd "$top" && cargo build --offline --locked --quiet -p xtask --bin push-policy </dev/null >&2) || {
+tools=
+for manifest in "$top"/../*/tools/core-xtask/Cargo.toml; do
+    [ -f "$manifest" ] || continue
+    tools=$(dirname "$manifest")
+    for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe" \
+        "$tools/target/release/push-policy" "$tools/target/release/push-policy.exe"; do
+        [ -x "$bin" ] && exec "$bin" "$@"
+    done
+done
+if [ -z "$tools" ]; then
+    echo "pre-push: push-policy is not on PATH and no Susi Commercial Apps checkout is beside this one; refusing the push (transport safety)" >&2
+    exit 1
+fi
+echo "pre-push: building push-policy once in $tools" >&2
+(cd "$tools" && cargo build --offline --locked --quiet --bin push-policy </dev/null >&2) || {
     echo "pre-push: push-policy could not be built; refusing the push (transport safety)" >&2
     exit 1
 }
-for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe"; do
+for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe"; do
     [ -x "$bin" ] && exec "$bin" "$@"
 done
 echo "pre-push: push-policy missing after build; refusing the push" >&2

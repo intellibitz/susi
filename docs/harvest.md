@@ -4,7 +4,7 @@
 and [CEO Mandate 75](ceo-mandate-75.md). Use it to discover, route, and pick up
 Apache-2.0 code, and **only** pure `Apache-2.0` code (CEO decision 2026-11-12,
 Mandate 75), from any public Git repository on any host while keeping every
-Apache-2.0 section 4 license obligation. It is native Rust (`xtask/src/harvest.rs`)
+Apache-2.0 section 4 license obligation. It is native Rust (`tools/core-xtask/src/harvest.rs`)
 and depends only on the `git` executable. It uses no hosting API and no network
 beyond `git fetch`.
 
@@ -12,7 +12,7 @@ It runs in whatever Git checkout is the current directory, so
 `susi-commercial-apps` runs the same binary.
 
 ```sh
-cargo run --offline --locked -p xtask --bin local-harvest -- <command> [--json]
+local-harvest <command> [--json]
 ```
 
 Every command prints text by default. With `--json` it prints machine output

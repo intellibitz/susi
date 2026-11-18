@@ -10,4 +10,4 @@ Every worktree now has a cargo target of its own, copied from a warm snapshot of
 
 ### Does a commit sync my branch with origin/main?
 
-A commit does not sync. Hooks are fast and local: a commit never waits on the network and never merges `origin/main` into your branch (that per-commit merge cost a fetch on every commit and pulled unqualified main into release branches). Your branch is reconciled with the current main when you publish it: `cargo run -p xtask --bin local-snapshot -- submit <name>` composes it with main and fast-forwards; on a conflict it stops and you merge `origin/main` in your own worktree and submit again (`docs/git-storage-publisher.md`).
+A commit does not sync. Hooks are fast and local: a commit never waits on the network and never merges `origin/main` into your branch (that per-commit merge cost a fetch on every commit and pulled unqualified main into release branches). Your branch is reconciled with the current main when you publish it: `local-snapshot submit <name>` composes it with main and fast-forwards; on a conflict it stops and you merge `origin/main` in your own worktree and submit again (`docs/git-storage-publisher.md`).
