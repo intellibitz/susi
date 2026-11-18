@@ -332,10 +332,32 @@ fn installed_start_replaces_the_running_legacy_image_on_the_saved_offset() {
     let (new_pid, new_image) = image();
     assert_ne!(new_pid, old_pid);
     assert_eq!(new_image, selected_exe);
+    // Observe the persisted service protocol directly; its process manager is
+    // owned by Commercial Apps and is not a native installer dependency.
+    #[derive(Debug, serde::Deserialize)]
+    struct ObservedService {
+        name: String,
+        pid: u32,
+        #[serde(default)]
+        external: bool,
+    }
+    let expected_services = [
+        "susi-paths",
+        "susi-error",
+        "susi-config",
+        "susi-sandbox",
+        "susi-native",
+    ];
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
-        let services = susi_core::service_table::load_from(&instance.join("services.json"));
-        if services.len() == susi_core::service_table::LEAF_SERVICES.len()
+        let services: Vec<ObservedService> = fs::read(instance.join("services.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        if services.len() == expected_services.len()
+            && expected_services
+                .iter()
+                .all(|name| services.iter().any(|service| service.name == *name))
             && services.iter().all(|service| {
                 !service.external
                     && susi_config::process_probe::exe_path(service.pid)

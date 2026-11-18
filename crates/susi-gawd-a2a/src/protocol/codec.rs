@@ -1,10 +1,31 @@
+// Modified by SLIM17FEATURES: retain generic codecs independently of the HTTP server and cluster authority.
 //! The value formats the A2A wire carries: standard base64 for raw parts,
 //! UUIDs for generated ids (version 7 for tasks, contexts and messages,
 //! version 4 for push configs) and RFC 3339 UTC timestamps.
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-pub use susi_http_transport::encode_base64 as base64_encode;
+/// Encode bytes with the standard Base64 alphabet and RFC 4648 padding.
+pub fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for (index, shift) in [18u32, 12, 6, 0].into_iter().enumerate() {
+            if index <= chunk.len() {
+                out.push(char::from(TABLE[((n >> shift) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
 
 fn morsel(byte: u8) -> Option<u8> {
     ALPHABET.iter().position(|&a| a == byte).map(|p| p as u8)
@@ -79,7 +100,7 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 }
 
 fn random_bytes() -> [u8; 16] {
-    let hex = susi_config::cluster_key::random_nonce_hex();
+    let hex = susi_config::random_nonce_hex();
     let mut bytes = [0u8; 16];
     for (i, byte) in bytes.iter_mut().enumerate() {
         *byte = hex

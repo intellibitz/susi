@@ -1,26 +1,14 @@
 [package]
 name = "susi-gemi-models"
 version = "0.1.0"
-license = "Apache-2.0"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
+autobins = false
 
 [dependencies]
 susi-core = { workspace = true }
-susi-sandbox-client = { workspace = true }
-susi-config = { workspace = true }
-susi-error = { workspace = true }
-susi-paths = { workspace = true }
-susi-http-transport = { workspace = true }
-serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
-serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
-[features]
-default = []
-local-engine = []
-metal = ["local-engine"]
 
 [lints]
 workspace = true

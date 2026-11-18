@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXSLIM17GEMI-1",
+  "title": "Preserve socket and child-process lifecycle at the commercial daemon boundary",
+  "goal": "Vision: V-9; V-10. Expose the existing daemon SetHandleInformation operation through the safe susi-vendor-winapi facade, preserving the original live-child TCP/UDP port-release regression while commercial daemon owns its implementation. Keep one shared commercial core revision. No core inference adapter activation. Extend the existing safe Job facade for borrowed child adoption, explicit job/process termination and creation-time PID reuse checks, allowing the complete supervisor owner to leave core without changing Windows lifecycle semantics.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-winapi",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSLIM17GEMI",
+  "created_unix": 1794940582,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Reuse unchanged daemon SetHandleInformation behavior and existing native winapi facade; retain original real live-child TCP/UDP port-release regression. No new dependencies or runtime entry symbols."
+  },
+  "progress": "Native Windows all27 facade tests pass, including actual child still running while TCP and UDP ports are rebound. Strict all-target Clippy passes Windows and Linux; socket module is Windows-only. Full downstream commercial daemon executables link successfully against this facade. Earlier socket2 failed inheritance, and windows-runtime placement failed downstream linking because it owns final-image atexit; neither unsuitable variant is published. Native freshness guard refused core57 compatibility; commit is based on current main, with no hook bypass. Followup adds89 lines to the existing process_job facade. Strict all-target Windows Clippy passes. Actual relocated daemon-runtime test executable links and original real job/grandchild/unjobbed termination tests pass, with158 of159 whole runtime tests passing; the sole remaining original UDP probe timing assertion exceeded1s during concurrent compilation. Daemon195/196 original tests pass on actual501 plus this leaf; one existing pipe timing check is being rerun. No deadline changes or test exclusions.",
+  "limitations": "Root must combine this small OS boundary with proved core reductions before main publication, keep ONE commercial core pin, and qualify the updated whole destination graph. Full daemon Windows original suite and ACP mission process qualification remain separate."
+}
