@@ -32,7 +32,7 @@ production dependency graph scan.
 
 The existing unsafe ratchet classifies path packages as first-party and records
 their exposure separately from third-party exposure growth. That existing rule
-is unchanged. `.agents/baseline/unsafe-default.json` was not regenerated or edited.
+is unchanged. `.agents/baseline/unsafe-default.json` was not regenerated to admit it.
 The new exposure must remain visible in current reports and this source review;
 it is not zero and must never be hidden behind a fabricated baseline. Installed
 Geiger reports use the `unsafe_` JSON key, so readers must preserve that schema

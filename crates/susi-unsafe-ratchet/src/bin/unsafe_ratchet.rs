@@ -18,6 +18,8 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<BTreeMap<String
                 | "--write-baseline"
                 | "--base-measurement"
                 | "--review"
+                | "--write-proof"
+                | "--verify-proof"
         ) {
             return Err(format!("unknown argument {key}; complete native --measurement required; raw geiger exports are inadmissible"));
         }
@@ -38,22 +40,32 @@ fn run() -> Result<(), String> {
             .ok_or_else(|| format!("{key} is required"))
     };
     if let Some(output) = values.get("--write-baseline") {
-        if values.contains_key("--receipt") {
+        if values.contains_key("--receipt") || values.contains_key("--verify-proof") {
             return Err("migration does not issue a clean gate receipt".into());
         }
-        let baseline = inventory::migrate(
+        let (baseline, proof) = inventory::migrate(
             get("--baseline")?,
             get("--base-measurement")?,
             get("--measurement")?,
             get("--review")?,
         )?;
+        // Proof first: no baseline exists without the evidence that verifies it.
+        measurement::write_json_atomic(get("--write-proof")?, &proof)?;
         measurement::write_json_atomic(Path::new(output), &baseline)?;
         println!(
             "reviewed complete baseline written: {} full package identities",
             baseline.allowances.len()
         );
+    } else if let Some(proof) = values.get("--verify-proof") {
+        if values.len() != 2 {
+            return Err("--verify-proof takes only --baseline".into());
+        }
+        let baseline = inventory::read_baseline(get("--baseline")?)?;
+        inventory::verify_proof(&baseline, &inventory::read_proof(Path::new(proof))?)?;
+        println!("baseline proof verified: every allowance re-derived from its bound scans");
     } else {
-        if values.contains_key("--base-measurement") || values.contains_key("--review") {
+        let migration = ["--base-measurement", "--review", "--write-proof"];
+        if migration.iter().any(|key| values.contains_key(*key)) {
             return Err("migration arguments require --write-baseline".into());
         }
         let measured = measurement::read_measurement(get("--measurement")?)?;

@@ -75,6 +75,10 @@ fn fixture() -> Measurement {
 }
 
 fn baseline(measured: &Measurement) -> inventory::Baseline {
+    baseline_and_proof(measured).0
+}
+
+fn baseline_and_proof(measured: &Measurement) -> (inventory::Baseline, inventory::Proof) {
     let selected = measurement::validate(measured).unwrap();
     let mut base = measured.clone();
     base.source_commit = "b".repeat(40);
@@ -110,7 +114,12 @@ fn baseline(measured: &Measurement) -> inventory::Baseline {
         scanner_sha256: measured.scanner_sha256.clone(),
         components: vec![],
     };
-    inventory::Baseline {
+    let proof = inventory::Proof {
+        historical_json: historical_json.clone(),
+        base_measurement: base.clone(),
+        candidate_measurement: measured.clone(),
+    };
+    let baseline = inventory::Baseline {
         schema: inventory::BASELINE_SCHEMA.into(),
         features: measured.features.clone(),
         exposure: measured
@@ -142,9 +151,6 @@ fn baseline(measured: &Measurement) -> inventory::Baseline {
         candidate_measurement_sha256: review.candidate_measurement_sha256.clone(),
         review_sha256: measurement::json_sha256(&review).unwrap(),
         review,
-        historical_json,
-        base_measurement: base,
-        candidate_measurement: measured.clone(),
         allowances: measured
             .packages
             .iter()
@@ -175,7 +181,8 @@ fn baseline(measured: &Measurement) -> inventory::Baseline {
                 .into(),
             })
             .collect(),
-    }
+    };
+    (baseline, proof)
 }
 
 #[test]
@@ -355,6 +362,7 @@ fn newly_selected_optional_feature_cannot_reuse_an_unselected_feature_review() {
     package.forbids_unsafe = false;
     package.files[0].forbids_unsafe = false;
     let old = baseline(&measured);
+    let previous = measured.clone();
     measured.metadata["resolve"]["nodes"][1]["features"] = json!(["foreign-code"]);
     measured.selection_tree = measured
         .selection_tree
@@ -375,8 +383,7 @@ fn newly_selected_optional_feature_cannot_reuse_an_unselected_feature_review() {
     // Removing selected capabilities is a decrease; it does not introduce a
     // newly selected foreign-code boundary.
     let accepted = baseline(&measured);
-    let previous = &old.candidate_measurement;
-    assert!(inventory::check_inventory(previous, &accepted)
+    assert!(inventory::check_inventory(&previous, &accepted)
         .unwrap()
         .is_empty());
 }
@@ -465,14 +472,14 @@ fn malformed_ambiguous_or_unexpanded_cargo_tree_contexts_fail_closed() {
 #[test]
 fn baseline_cannot_forge_carry_forward_or_discard_matched_scan_proof() {
     let measured = fixture();
-    let good = baseline(&measured);
-    inventory::validate_baseline(&good).unwrap();
-    let mut bad = good.clone();
+    let (good, proof) = baseline_and_proof(&measured);
+    inventory::verify_proof(&good, &proof).unwrap();
+    let mut bad = proof.clone();
     bad.base_measurement.packages.pop();
-    assert!(inventory::validate_baseline(&bad).is_err());
-    let mut bad = good.clone();
+    assert!(inventory::verify_proof(&good, &bad).is_err());
+    let mut bad = proof.clone();
     bad.historical_json = "{}".into();
-    assert!(inventory::validate_baseline(&bad).is_err());
+    assert!(inventory::verify_proof(&good, &bad).is_err());
     let mut bad = good.clone();
     bad.sbom.clear();
     assert!(inventory::validate_baseline(&bad).is_err());
@@ -490,16 +497,36 @@ fn baseline_cannot_forge_carry_forward_or_discard_matched_scan_proof() {
     for f in &mut p.files {
         f.forbids_unsafe = false;
     }
-    let historical = serde_json::from_str(&good.historical_json).unwrap();
+    let historical = serde_json::from_str(&proof.historical_json).unwrap();
     let required =
-        inventory::migration_reviews(&historical, &good.base_measurement, &changed).unwrap();
+        inventory::migration_reviews(&historical, &proof.base_measurement, &changed).unwrap();
     assert_eq!(required.len(), 1);
-    let mut wrong_tool = good.base_measurement.clone();
+    let mut wrong_tool = proof.base_measurement.clone();
     wrong_tool.scanner_sha256 = "a".repeat(64);
     assert!(inventory::migration_reviews(&historical, &wrong_tool, &changed).is_err());
-    let mut wrong_cargo = good.base_measurement;
+    let mut wrong_cargo = proof.base_measurement;
     wrong_cargo.cargo_version = "cargo another-version".into();
     assert!(inventory::migration_reviews(&historical, &wrong_cargo, &changed).is_err());
+}
+
+#[test]
+fn a_pre_v3_baseline_is_its_own_proof_bundle() {
+    // Older baselines embedded the proof beside the allowances; reading one as
+    // a proof keeps the scans it was written from verifiable.
+    let temp = Temp::new();
+    let measured = fixture();
+    let (good, proof) = baseline_and_proof(&measured);
+    let mut legacy = serde_json::to_value(&good).unwrap();
+    for (key, value) in serde_json::to_value(&proof).unwrap().as_object().unwrap() {
+        legacy[key] = value.clone();
+    }
+    let path = temp.0.join("pre-v3-baseline.json");
+    measurement::write_json_atomic(&path, &legacy).unwrap();
+    let read = inventory::read_proof(&path).unwrap();
+    inventory::verify_proof(&good, &read).unwrap();
+    assert!(inventory::read_baseline(&path)
+        .unwrap_err()
+        .contains("needs complete reviewed v3 migration"));
 }
 
 struct Temp(PathBuf);
@@ -645,6 +672,7 @@ fn rejected_input_cannot_overwrite_a_baseline_or_issue_a_clean_receipt() {
     let report = temp.0.join("partial.json");
     let baseline = temp.0.join("baseline.json");
     let receipt = temp.0.join("receipt.json");
+    let proof = temp.0.join("proof.json");
     std::fs::write(&report, "{\"packages\":[],\"packages_without_metrics\":[]}").unwrap();
     std::fs::write(&baseline, "historical sentinel").unwrap();
     for migration in [false, true] {
@@ -663,6 +691,8 @@ fn rejected_input_cannot_overwrite_a_baseline_or_issue_a_clean_receipt() {
                 report.to_str().unwrap(),
                 "--review",
                 report.to_str().unwrap(),
+                "--write-proof",
+                proof.to_str().unwrap(),
             ]);
         } else {
             command.args(["--receipt", receipt.to_str().unwrap()]);
@@ -674,6 +704,7 @@ fn rejected_input_cannot_overwrite_a_baseline_or_issue_a_clean_receipt() {
             "historical sentinel"
         );
         assert!(!receipt.exists());
+        assert!(!proof.exists());
     }
 }
 
@@ -697,11 +728,11 @@ fn duplicate_keys_in_dynamic_metadata_or_baseline_proof_are_rejected() {
             .unwrap_err()
             .contains("duplicate JSON object key"));
     }
-    let mut bad = baseline(&measured);
+    let (good, mut bad) = baseline_and_proof(&measured);
     bad.historical_json = bad
         .historical_json
         .replacen("{", "{\"features\":\"ignored\",", 1);
-    assert!(inventory::validate_baseline(&bad)
+    assert!(inventory::verify_proof(&good, &bad)
         .unwrap_err()
         .contains("duplicate JSON object key"));
 }
@@ -733,14 +764,6 @@ fn changed_or_missing_reviewed_module_cannot_reuse_an_unchanged_entrypoint() {
     package.files[0].forbids_unsafe = false;
     let identity = package.identity.clone();
     let mut reviewed = baseline(&measured);
-    let mut historical: susi_unsafe_ratchet::UnsafeBaseline =
-        serde_json::from_str(&reviewed.historical_json).unwrap();
-    historical
-        .sbom
-        .retain(|p| p.crate_name != identity.name || p.version != identity.version);
-    reviewed.historical_json = serde_json::to_string_pretty(&historical).unwrap();
-    reviewed.historical_baseline_sha256 = measurement::sha256(reviewed.historical_json.as_bytes());
-    reviewed.review.historical_baseline_sha256 = reviewed.historical_baseline_sha256.clone();
     let path = temp.0.join("registry-one/src/reviewed.rs");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "reviewed nested source bytes").unwrap();

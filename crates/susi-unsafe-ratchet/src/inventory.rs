@@ -1,11 +1,13 @@
-//! Full-identity inventory admission and evidence-bound baseline migration.
+//! Full-identity inventory admission and evidence-bound baseline migration. A
+//! baseline keeps what admission reads; its scan proof is evidence kept outside
+//! source, re-derived by `verify_proof` on write and on demand.
 use crate::measurement::{self, Identity, Measurement, PackageMeasurement};
 use crate::{SbomEntry, UnsafeBaseline, UnsafeExposure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
 
-pub const BASELINE_SCHEMA: &str = "susi/unsafe-baseline/v2";
+pub const BASELINE_SCHEMA: &str = "susi/unsafe-baseline/v3";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,6 +72,12 @@ pub struct Baseline {
     pub review_sha256: String,
     pub review: Review,
     pub allowances: Vec<Allowance>,
+}
+
+/// The digest-bound scan proof of a baseline. Unknown fields are accepted: a
+/// pre-v3 baseline embedded exactly these fields and is its own proof bundle.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Proof {
     pub historical_json: String,
     pub base_measurement: Measurement,
     pub candidate_measurement: Measurement,
@@ -180,12 +188,34 @@ pub fn read_baseline(path: &Path) -> Result<Baseline, String> {
     let bytes =
         std::fs::read(path).map_err(|e| format!("missing baseline {}: {e}", path.display()))?;
     let baseline: Baseline = crate::strict_json::parse(&bytes).map_err(|e| {
-        format!("baseline needs complete reviewed v2 migration; original retained: {e}")
+        format!("baseline needs complete reviewed v3 migration; original retained: {e}")
     })?;
     validate_baseline(&baseline)?;
     Ok(baseline)
 }
 
+pub fn read_proof(path: &Path) -> Result<Proof, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    crate::strict_json::parse(&bytes).map_err(|e| format!("invalid baseline proof: {e}"))
+}
+
+/// The v1 projection (exposure and SBOM) of complete allowances.
+fn projection(allowances: &[Allowance]) -> (Vec<UnsafeExposure>, Vec<SbomEntry>) {
+    let exposure = allowances.iter().filter(|a| a.unsafe_units != 0);
+    let exposure = exposure.map(|a| UnsafeExposure {
+        crate_name: a.identity.name.clone(),
+        unsafe_fns: u32::from(a.unsafe_units),
+        first_party_exception: a.first_party,
+    });
+    let sbom = allowances.iter().map(|a| SbomEntry {
+        crate_name: a.identity.name.clone(),
+        version: a.identity.version.clone(),
+        provenance: a.identity.source.clone(),
+    });
+    (exposure.collect(), sbom.collect())
+}
+
+/// Structural admission checks that need no scan proof.
 pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
     if baseline.schema != BASELINE_SCHEMA
         || baseline.unit != measurement::UNIT
@@ -197,51 +227,8 @@ pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
         return Err("invalid baseline schema/unit/context or empty inventory".into());
     }
     validate_review(&baseline.review)?;
-    let historical: UnsafeBaseline = crate::strict_json::parse(baseline.historical_json.as_bytes())
-        .map_err(|e| format!("invalid historical inventory proof: {e}"))?;
-    let required = migration_reviews(
-        &historical,
-        &baseline.base_measurement,
-        &baseline.candidate_measurement,
-    )?;
-    let candidate = &baseline.candidate_measurement;
-    let selected = measurement::validate(candidate)?;
-    let exposure: Vec<_> = candidate
-        .packages
-        .iter()
-        .filter(|p| units(p) != 0)
-        .map(|p| UnsafeExposure {
-            crate_name: p.identity.name.clone(),
-            unsafe_fns: u32::from(units(p)),
-            first_party_exception: p.first_party,
-        })
-        .collect();
-    let sbom: Vec<_> = candidate
-        .packages
-        .iter()
-        .map(|p| SbomEntry {
-            crate_name: p.identity.name.clone(),
-            version: p.identity.version.clone(),
-            provenance: p.identity.source.clone(),
-        })
-        .collect();
-    if baseline.exposure != exposure || baseline.sbom != sbom {
-        return Err("legacy baseline projection differs from complete candidate proof".into());
-    }
-    if measurement::sha256(baseline.historical_json.as_bytes())
-        != baseline.historical_baseline_sha256
-        || measurement::artifact_sha256(&baseline.base_measurement)?
-            != baseline.base_measurement_sha256
-        || measurement::artifact_sha256(candidate)? != baseline.candidate_measurement_sha256
-        || baseline.base_source_commit != baseline.base_measurement.source_commit
-        || baseline.candidate_source_commit != candidate.source_commit
-        || baseline.review.scanner_sha256 != candidate.scanner_sha256
-        || baseline.target != candidate.target
-        || baseline.features != candidate.features
-        || baseline.unit != candidate.unit
-        || baseline.allowances.len() != candidate.packages.len()
-    {
-        return Err("baseline matched-scan proof mismatch".into());
+    if (baseline.exposure.clone(), baseline.sbom.clone()) != projection(&baseline.allowances) {
+        return Err("legacy baseline projection differs from the allowances".into());
     }
     if measurement::json_sha256(&baseline.review)? != baseline.review_sha256
         || baseline.historical_baseline_sha256 != baseline.review.historical_baseline_sha256
@@ -265,28 +252,8 @@ pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
         .iter()
         .map(|c| &c.identity)
         .collect();
-    if required != reviewed.iter().map(|id| (*id).clone()).collect() {
-        return Err("baseline component review coverage differs from matched-scan proof".into());
-    }
     for allowance in &baseline.allowances {
         validate_identity(&allowance.identity)?;
-        let package = candidate
-            .packages
-            .iter()
-            .find(|p| p.identity == allowance.identity)
-            .ok_or("allowance absent from candidate proof")?;
-        let context = selected
-            .iter()
-            .find(|p| p.identity == package.identity)
-            .ok_or("allowance graph context missing")?;
-        if allowance.first_party != package.first_party
-            || allowance.unsafe_units != units(package)
-            || allowance.files_sha256 != files_digest(package)?
-            || allowance.features != context.features
-            || allowance.dependencies != context.dependencies
-        {
-            return Err("allowance differs from measured candidate proof".into());
-        }
         if !identities.insert(&allowance.identity)
             || allowance.unsafe_units > 1
             || !measurement::valid_sha256(&allowance.files_sha256)
@@ -299,7 +266,7 @@ pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
             "matched-historical-exposure"
                 if !allowance.first_party
                     && allowance.unsafe_units == 1
-                    && !required.contains(&allowance.identity) => {}
+                    && !reviewed.contains(&allowance.identity) => {}
             "component-review"
                 if !allowance.first_party
                     && allowance.unsafe_units == 1
@@ -314,6 +281,49 @@ pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
             .any(|a| &a.identity == *id && a.basis == "component-review")
     }) {
         return Err("review component is not a reviewed allowance".into());
+    }
+    Ok(())
+}
+
+/// Re-derive every allowance and the review coverage from the bound scan proof.
+/// Scans name host paths, so a proof verifies on the host it was measured on.
+pub fn verify_proof(baseline: &Baseline, proof: &Proof) -> Result<(), String> {
+    validate_baseline(baseline)?;
+    let historical: UnsafeBaseline = crate::strict_json::parse(proof.historical_json.as_bytes())
+        .map_err(|e| format!("invalid historical inventory proof: {e}"))?;
+    let (base, candidate) = (&proof.base_measurement, &proof.candidate_measurement);
+    if measurement::sha256(proof.historical_json.as_bytes()) != baseline.historical_baseline_sha256
+        || measurement::artifact_sha256(base)? != baseline.base_measurement_sha256
+        || measurement::artifact_sha256(candidate)? != baseline.candidate_measurement_sha256
+        || baseline.base_source_commit != base.source_commit
+        || baseline.candidate_source_commit != candidate.source_commit
+        || baseline.review.scanner_sha256 != candidate.scanner_sha256
+        || (&baseline.target, &baseline.features) != (&candidate.target, &candidate.features)
+        || baseline.unit != candidate.unit
+        || baseline.allowances.len() != candidate.packages.len()
+    {
+        return Err("baseline matched-scan proof mismatch".into());
+    }
+    let required = migration_reviews(&historical, base, candidate)?;
+    let reviewed = baseline.review.components.iter().map(|c| &c.identity);
+    if !required.iter().eq(reviewed.collect::<BTreeSet<_>>()) {
+        return Err("baseline component review coverage differs from matched-scan proof".into());
+    }
+    let selected = measurement::validate(candidate)?;
+    for (allowance, package) in baseline.allowances.iter().zip(&candidate.packages) {
+        let context = selected
+            .iter()
+            .find(|p| p.identity == package.identity)
+            .ok_or("allowance graph context missing")?;
+        if allowance.identity != package.identity
+            || allowance.first_party != package.first_party
+            || allowance.unsafe_units != units(package)
+            || allowance.files_sha256 != files_digest(package)?
+            || allowance.features != context.features
+            || allowance.dependencies != context.dependencies
+        {
+            return Err("allowance differs from measured candidate proof".into());
+        }
     }
     Ok(())
 }
@@ -490,7 +500,7 @@ pub fn migrate(
     base_path: &Path,
     candidate_path: &Path,
     review_path: &Path,
-) -> Result<Baseline, String> {
+) -> Result<(Baseline, Proof), String> {
     let bytes = std::fs::read(historical_path).map_err(|e| e.to_string())?;
     let historical: UnsafeBaseline = crate::strict_json::parse(&bytes)?;
     let base = measurement::read_measurement(base_path)?;
@@ -498,14 +508,9 @@ pub fn migrate(
     let required = migration_reviews(&historical, &base, &candidate)?;
     let review: Review =
         crate::strict_json::parse(&std::fs::read(review_path).map_err(|e| e.to_string())?)?;
+    // `verify_proof` below refuses a review that does not bind these exact
+    // scans and historical inventory.
     validate_review(&review)?;
-    if review.historical_baseline_sha256 != measurement::sha256(&bytes)
-        || review.base_measurement_sha256 != measurement::file_sha256(base_path)?
-        || review.candidate_measurement_sha256 != measurement::file_sha256(candidate_path)?
-        || review.scanner_sha256 != candidate.scanner_sha256
-    {
-        return Err("review does not bind the exact matched scans and historical inventory".into());
-    }
     let reviewed: BTreeSet<_> = review
         .components
         .iter()
@@ -560,28 +565,12 @@ pub fn migrate(
             basis: basis.into(),
         });
     }
+    let (exposure, sbom) = projection(&allowances);
     let baseline = Baseline {
         schema: BASELINE_SCHEMA.into(),
         features: candidate.features.clone(),
-        exposure: candidate
-            .packages
-            .iter()
-            .filter(|p| units(p) != 0)
-            .map(|p| UnsafeExposure {
-                crate_name: p.identity.name.clone(),
-                unsafe_fns: u32::from(units(p)),
-                first_party_exception: p.first_party,
-            })
-            .collect(),
-        sbom: candidate
-            .packages
-            .iter()
-            .map(|p| SbomEntry {
-                crate_name: p.identity.name.clone(),
-                version: p.identity.version.clone(),
-                provenance: p.identity.source.clone(),
-            })
-            .collect(),
+        exposure,
+        sbom,
         recorded_unix: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| e.to_string())?
@@ -596,12 +585,14 @@ pub fn migrate(
         review_sha256: measurement::json_sha256(&review)?,
         review,
         allowances,
+    };
+    let proof = Proof {
         historical_json: String::from_utf8(bytes).map_err(|e| e.to_string())?,
         base_measurement: base,
         candidate_measurement: candidate,
     };
-    validate_baseline(&baseline)?;
-    Ok(baseline)
+    verify_proof(&baseline, &proof)?;
+    Ok((baseline, proof))
 }
 
 #[cfg(test)]
@@ -692,7 +683,7 @@ mod tests {
         }
     }
 
-    fn migrate_with(env: &Env, review: &Review) -> Result<Baseline, String> {
+    fn migrate_with(env: &Env, review: &Review) -> Result<(Baseline, Proof), String> {
         measurement::write_json_atomic(&env.review, review).unwrap();
         migrate(&env.historical, &env.base, &env.candidate_path, &env.review)
     }
@@ -892,8 +883,9 @@ mod tests {
     #[test]
     fn clean_carry_forward_migrates_validates_and_issues_a_receipt() {
         let env = setup("clean", 'a');
-        let baseline = migrate_with(&env, &bound_review(&env, vec![])).unwrap();
+        let (baseline, proof) = migrate_with(&env, &bound_review(&env, vec![])).unwrap();
         assert_eq!(baseline.schema, BASELINE_SCHEMA);
+        assert!(verify_proof(&baseline, &proof).is_ok());
         assert_eq!(baseline.allowances.len(), 2);
         let basis = |name: &str| {
             baseline
@@ -954,7 +946,8 @@ mod tests {
         let err = migrate_with(&env, &bound_review(&env, vec![])).unwrap_err();
         assert!(err.contains("component review set differs"), "{err}");
 
-        let baseline = migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
+        let (baseline, _) =
+            migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
         let dep = baseline
             .allowances
             .iter()
@@ -981,14 +974,12 @@ mod tests {
         let mut review = bound_review(&env, vec![dep_component(&env)]);
         review.historical_baseline_sha256 = "d".repeat(64);
         let err = migrate_with(&env, &review).unwrap_err();
-        assert!(
-            err.contains("does not bind the exact matched scans"),
-            "{err}"
-        );
+        assert!(err.contains("baseline review binding mismatch"), "{err}");
 
         let mut review = bound_review(&env, vec![dep_component(&env)]);
         review.scanner_sha256 = "d".repeat(64);
-        assert!(migrate_with(&env, &review).is_err());
+        let err = migrate_with(&env, &review).unwrap_err();
+        assert!(err.contains("matched-scan proof mismatch"), "{err}");
 
         let mut component = dep_component(&env);
         component.reviewed_files[0].sha256 = "d".repeat(64);
@@ -1005,51 +996,65 @@ mod tests {
     }
 
     #[test]
-    fn validate_baseline_rejects_tampered_proofs() {
+    fn validate_baseline_and_verify_proof_reject_tampering() {
         let env = setup("tamper", 'b');
-        let good = migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
+        let (good, proof) =
+            migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
         assert!(validate_baseline(&good).is_ok());
+        assert!(verify_proof(&good, &proof).is_ok());
 
-        fn rejects(good: &Baseline, needle: &str, mutate: impl FnOnce(&mut Baseline)) {
+        let tampered = |mutate: &dyn Fn(&mut Baseline)| {
             let mut tampered = good.clone();
             mutate(&mut tampered);
-            let err = validate_baseline(&tampered).unwrap_err();
+            tampered
+        };
+        let rejects = |needle: &str, mutate: &dyn Fn(&mut Baseline)| {
+            let err = validate_baseline(&tampered(mutate)).unwrap_err();
             assert!(err.contains(needle), "wanted {needle:?}, got {err}");
-        }
+        };
         let schema = "invalid baseline schema/unit/context";
-        rejects(&good, schema, |b| {
-            b.schema = "susi/unsafe-baseline/v1".into()
-        });
-        rejects(&good, schema, |b| b.features = "cuda".into());
-        rejects(&good, schema, |b| b.allowances.clear());
-        rejects(&good, schema, |b| b.recorded_unix = 0);
-        rejects(&good, "missing component review identity/schema", |b| {
+        rejects(schema, &|b| b.schema = "susi/unsafe-baseline/v2".into());
+        rejects(schema, &|b| b.features = "cuda".into());
+        rejects(schema, &|b| b.allowances.clear());
+        rejects(schema, &|b| b.recorded_unix = 0);
+        rejects("missing component review identity/schema", &|b| {
             b.review.reviewer.clear();
         });
-        rejects(&good, "baseline review binding mismatch", |b| {
+        rejects("baseline review binding mismatch", &|b| {
             b.review.components[0].risk = "a different but still long rationale".into();
         });
-        rejects(&good, "baseline matched-scan proof mismatch", |b| {
-            b.base_source_commit = "0".repeat(40);
-        });
-        rejects(
-            &good,
-            "allowance differs from measured candidate proof",
-            |b| {
-                b.allowances[1].unsafe_units = 0;
-            },
-        );
-        rejects(&good, "unsupported baseline allowance basis", |b| {
+        rejects("unsupported baseline allowance basis", &|b| {
             b.allowances[1].basis = "trust-me".into();
         });
-        rejects(&good, "legacy baseline projection differs", |b| {
-            b.exposure.clear();
+        rejects("legacy baseline projection differs", &|b| {
+            b.exposure.clear()
         });
+        rejects("legacy baseline projection differs", &|b| {
+            b.allowances[1].unsafe_units = 0;
+        });
+
+        // Structurally sound edits are caught only by the bound scan proof.
+        let unproven = |needle: &str, mutate: &dyn Fn(&mut Baseline)| {
+            let baseline = tampered(mutate);
+            assert!(validate_baseline(&baseline).is_ok());
+            let err = verify_proof(&baseline, &proof).unwrap_err();
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+        };
+        unproven("baseline matched-scan proof mismatch", &|b| {
+            b.base_source_commit = "0".repeat(40);
+        });
+        unproven("allowance differs from measured candidate proof", &|b| {
+            b.allowances[1].files_sha256 = "d".repeat(64);
+        });
+        let mut forged = proof.clone();
+        forged.candidate_measurement.packages[1].files[0].sha256 = "d".repeat(64);
+        let err = verify_proof(&good, &forged).unwrap_err();
+        assert!(err.contains("matched-scan proof mismatch"), "{err}");
         let _ = std::fs::remove_dir_all(&env.dir);
     }
 
     #[test]
-    fn read_baseline_reports_missing_and_pre_v2_files() {
+    fn read_baseline_reports_missing_and_pre_v3_files() {
         let dir = fixture::scratch("read-baseline");
         let err = read_baseline(&dir.join("absent.json")).unwrap_err();
         assert!(err.contains("missing baseline"), "{err}");
@@ -1058,7 +1063,7 @@ mod tests {
         std::fs::write(&legacy, r#"{"features": "default", "exposure": []}"#).unwrap();
         let err = read_baseline(&legacy).unwrap_err();
         assert!(
-            err.contains("needs complete reviewed v2 migration"),
+            err.contains("needs complete reviewed v3 migration"),
             "{err}"
         );
         let _ = std::fs::remove_dir_all(&dir);
