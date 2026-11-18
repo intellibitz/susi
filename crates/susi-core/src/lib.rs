@@ -39,7 +39,6 @@ pub use susi_config::plain_http;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub use susi_config::progress;
-pub mod provider;
 pub mod zc_egress_allowlist;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
@@ -58,7 +57,6 @@ pub use agent_types::{
     MissionBlackboard, SwarmBlackboard,
 };
 pub use plane_bus::{PlaneBus, PlaneHandler};
-pub use provider::Provider;
 
 #[cfg(test)]
 #[path = "tests/audit_action_choke_point.rs"]

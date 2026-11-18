@@ -189,8 +189,8 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-// The crypto and TLS facades and the storage guard client moved to Susi Commercial Apps.
-const COMPLETE_SOCKET_CEILING: usize = 29_944;
+// The model Provider trait moved to Susi Commercial Apps.
+const COMPLETE_SOCKET_CEILING: usize = 29_565;
 /// The CEO's limit: strictly below 25,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 24_999;
 
