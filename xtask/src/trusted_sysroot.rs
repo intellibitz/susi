@@ -8,23 +8,20 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-#[path = "../../toolchain/windows-stdlib/native_target.rs"]
-mod native_target;
+
 
 fn target(compiler: &str) -> Result<&str> {
     let host = compiler
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .ok_or("missing compiler host")?;
-    if !native_target::supported(host) {
-        return Err("no native sysroot contract for compiler host".into());
-    }
+
     Ok(host)
 }
 const INPUTS: &[&str] = &[
     "builder.rs",
-    "native_target.rs",
-    "platform_unicode.rs",
+    
+    
     "consumer.rs",
     "Cargo.toml",
     "Cargo.lock",
@@ -267,8 +264,8 @@ fn admit_destination(
 
 // Recompile from the tracked consumer instead of trusting an old executable.
 // The sysroot identity covers source/archives, but not the current OS ICU.
-fn qualify_consumer(root: &Path, destination: &Path, host: &str, output: &Path) -> Result<()> {
-    let executable = output.join(native_target::executable(host, "consumer"));
+fn qualify_consumer(root: &Path, destination: &Path, output: &Path) -> Result<()> {
+    let executable = output.join("consumer");
     let mut consumer = Command::new("rustc");
     super::compiler_env::apply(&mut consumer);
     let mut execute = Command::new(&executable);
@@ -480,3 +477,6 @@ mod tests {
         fs::remove_dir(directory).unwrap();
     }
 }
+
+
+
