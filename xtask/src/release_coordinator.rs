@@ -7,8 +7,9 @@
 //! repository and refuses to register anything the pinned verifier rejects.
 //!
 //! Independence boundaries, stated exactly:
-//! - `unsafe_measure` / `unsafe_ratchet` are compiled from an earlier released
-//!   commit (newest reachable `v*` tag by default), never from the candidate.
+//! - `unsafe_measure` / `unsafe_ratchet` are compiled from a released `v*` tag
+//!   of the Susi Commercial Apps checkout that holds the unsafe-code ratchet
+//!   (newest tag carrying it by default), never from the candidate.
 //! - The provenance verifier must be byte-identical to the `local-workflow`
 //!   executable that recorded every admitted receipt (`coordinator_sha256`), so
 //!   its independence comes from a held snapshot pinned by digest, not from a
@@ -38,11 +39,12 @@ const RECEIPTS: &str = "refs/susi/provenance/receipts/";
 const EVIDENCE: &str = "refs/susi/evidence/objects/";
 const TOOLS_CRATE: &str = "susi-unsafe-ratchet";
 const TOOLS: [&str; 2] = ["unsafe_measure", "unsafe_ratchet"];
-const USAGE: &str = "usage: local-release coordinate [--head <rev>] [--tools-source <rev>] [--verifier <local-workflow executable>] [--home <directory outside the repository>]";
+const USAGE: &str = "usage: local-release coordinate [--head <rev>] [--tools-repo <Susi Commercial Apps checkout>] [--tools-source <rev>] [--verifier <local-workflow executable>] [--home <directory outside the repository>]";
 
 #[derive(Default)]
 struct Options {
     head: Option<String>,
+    tools_repo: Option<PathBuf>,
     tools_source: Option<String>,
     verifier: Option<PathBuf>,
     home: Option<PathBuf>,
@@ -55,6 +57,7 @@ fn parse(args: &[String]) -> Result<Options> {
         let value = rest.next().ok_or(USAGE)?;
         let duplicate = match flag.as_str() {
             "--head" => options.head.replace(value.clone()).is_some(),
+            "--tools-repo" => options.tools_repo.replace(value.into()).is_some(),
             "--tools-source" => options.tools_source.replace(value.clone()).is_some(),
             "--verifier" => options.verifier.replace(value.into()).is_some(),
             "--home" => options.home.replace(value.into()).is_some(),
@@ -395,44 +398,60 @@ fn verifier_policy(verifier: &Path, root: &Path) -> Result<String> {
     Ok(pin.to_owned())
 }
 
-/// The previously released source the gate tools are built from: an explicit
-/// revision, or the newest `v*` tag reachable from the candidate. It must be a
-/// strict ancestor of the candidate.
-fn tools_source(root: &Path, explicit: Option<&str>, head: &str) -> Result<(String, String)> {
-    let (label, source) = match explicit {
-        Some(revision) => (revision.to_owned(), commit(root, revision)?),
-        None => {
-            let tags = git(
-                root,
-                &[
-                    "tag",
-                    "--list",
-                    "v*",
-                    "--merged",
-                    head,
-                    "--sort=-creatordate",
-                ],
-            )?;
-            let tag = tags
-                .lines()
-                .find(|tag| !tag.is_empty())
-                .ok_or("no released v* tag precedes the candidate; pass --tools-source")?;
-            (tag.to_owned(), commit(root, tag)?)
-        }
+/// The Susi Commercial Apps checkout that holds the unsafe-code ratchet: the
+/// explicit `--tools-repo`, else `SUSI_COMMERCIAL_CHECKOUT`, else the
+/// `susi-commercial-apps` clone beside the primary core checkout.
+fn tools_repo(primary: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+    let repo = match explicit {
+        Some(path) => path.to_path_buf(),
+        None => env::var_os("SUSI_COMMERCIAL_CHECKOUT").map_or_else(
+            || primary.join("..").join("susi-commercial-apps"),
+            PathBuf::from,
+        ),
     };
-    if source == head || !is_ancestor(root, &source, head)? {
-        return Err("gate tools must be built from a released ancestor, not the candidate".into());
+    git(&repo, &["rev-parse", "--git-dir"]).map_err(|_| {
+        format!(
+            "the unsafe gate tools are built from Susi Commercial Apps: pass --tools-repo or set SUSI_COMMERCIAL_CHECKOUT (looked in {})",
+            repo.display()
+        )
+    })?;
+    Ok(repo)
+}
+
+/// The released source the gate tools are built from: an explicit revision of
+/// the tools repository, or its newest `v*` tag that carries the ratchet. The
+/// tools come from another repository's immutable release, so the candidate
+/// can never author them.
+fn tools_source(tools_root: &Path, explicit: Option<&str>) -> Result<(String, String)> {
+    let carries = |source: &str| {
+        git(
+            tools_root,
+            &[
+                "cat-file",
+                "-e",
+                &format!("{source}:crates/{TOOLS_CRATE}/Cargo.toml"),
+            ],
+        )
+        .is_ok()
+    };
+    if let Some(revision) = explicit {
+        let source = commit(tools_root, revision)?;
+        if !carries(&source) {
+            return Err(format!("{revision} does not contain {TOOLS_CRATE}").into());
+        }
+        return Ok((revision.to_owned(), source));
     }
-    git(
-        root,
-        &[
-            "cat-file",
-            "-e",
-            &format!("{source}:crates/{TOOLS_CRATE}/Cargo.toml"),
-        ],
+    let tags = git(tools_root, &["tag", "--list", "v*", "--sort=-creatordate"])?;
+    for tag in tags.lines().filter(|tag| !tag.is_empty()) {
+        let source = commit(tools_root, tag)?;
+        if carries(&source) {
+            return Ok((tag.to_owned(), source));
+        }
+    }
+    Err(format!(
+        "no released v* tag of the tools repository contains {TOOLS_CRATE}; pass --tools-source"
     )
-    .map_err(|_| format!("{label} does not contain {TOOLS_CRATE}"))?;
-    Ok((label, source))
+    .into())
 }
 
 fn held_tools(record: &Path) -> Result<Option<Value>> {
@@ -456,8 +475,9 @@ fn held_tools(record: &Path) -> Result<Option<Value>> {
     Ok(Some(value))
 }
 
-/// Build the unsafe gate tools from the released source in a private detached
-/// checkout and private target directory, then hold them read-only.
+/// Build the unsafe gate tools from the released source of the tools
+/// repository (`root`) in a private detached checkout and private target
+/// directory, then hold them read-only.
 fn gate_tools(root: &Path, home: &Path, label: &str, source: &str, host: &str) -> Result<Value> {
     let held = home.join("tools").join(source);
     let record = held.join("build.json");
@@ -504,12 +524,16 @@ fn gate_tools(root: &Path, home: &Path, label: &str, source: &str, host: &str) -
         let cargo = version("cargo", "-V")?;
         let log = fs::File::create(&log_path)?;
         let started = Instant::now();
+        // By manifest path: the tools repository also locks core's own copy of
+        // the crate through its pinned core dependencies, so a bare package
+        // name is ambiguous there.
+        let manifest = format!("crates/{TOOLS_CRATE}/Cargo.toml");
         let status = Command::new("cargo")
             .current_dir(&checkout)
             .args([
                 "build",
-                "-p",
-                TOOLS_CRATE,
+                "--manifest-path",
+                &manifest,
                 "--bins",
                 "--release",
                 "--offline",
@@ -561,7 +585,7 @@ fn gate_tools(root: &Path, home: &Path, label: &str, source: &str, host: &str) -
     let value = json!({
         "schema": TOOLS_SCHEMA,
         "crate": TOOLS_CRATE,
-        "source": {"label": label, "commit": source, "tree": tree(root, source)?},
+        "source": {"repository": "susi-commercial-apps", "label": label, "commit": source, "tree": tree(root, source)?},
         "target": host,
         "profile": "release",
         "rustc": rustc,
@@ -731,8 +755,9 @@ pub(super) fn run(ctx: &Context, args: &[String]) -> Result<()> {
         return Err("pinned verifier policy differs from the receipts' policy".into());
     }
     let (host, _) = compiler(&ctx.root)?;
-    let (label, source) = tools_source(&ctx.root, options.tools_source.as_deref(), &head)?;
-    let tools = gate_tools(&primary, &home, &label, &source, &host)?;
+    let tools_root = tools_repo(&primary, options.tools_repo.as_deref())?;
+    let (label, source) = tools_source(&tools_root, options.tools_source.as_deref())?;
+    let tools = gate_tools(&tools_root, &home, &label, &source, &host)?;
     let release_source = last_release_source(ctx)?;
     let diagnostics_bytes = diagnostics(
         &ctx.root,
@@ -993,23 +1018,36 @@ mod tests {
     }
 
     #[test]
-    fn coordinator_builds_tools_only_from_a_released_ancestor() {
-        let root = repo("tools");
-        let released = commit_file(&root, "crates/susi-unsafe-ratchet/Cargo.toml", "[package]");
-        git(&root, &["tag", "v0.0.1"]).unwrap();
-        let head = commit_file(&root, "src/c.txt", "c");
+    fn coordinator_builds_tools_only_from_a_released_tag_that_carries_the_ratchet() {
+        let tools = repo("tools");
+        let released = commit_file(&tools, "crates/susi-unsafe-ratchet/Cargo.toml", "[package]");
+        git(&tools, &["tag", "v0.0.1"]).unwrap();
+        // A newer release without the crate is passed over, not used.
+        commit_file(&tools, "unrelated.txt", "u");
+        git(&tools, &["rm", "-q", "-r", "crates"]).unwrap();
+        git(&tools, &["commit", "-qm", "drop crate"]).unwrap();
+        git(&tools, &["tag", "v0.0.2"]).unwrap();
         assert_eq!(
-            tools_source(&root, None, &head).unwrap(),
+            tools_source(&tools, None).unwrap(),
             ("v0.0.1".to_owned(), released.clone())
         );
-        assert!(tools_source(&root, Some(&head), &head).is_err());
-        let unrelated = repo("tools-orphan");
-        let orphan = commit_file(&unrelated, "crates/susi-unsafe-ratchet/Cargo.toml", "x");
-        git(&root, &["fetch", "-q", text(&unrelated).unwrap(), &orphan]).unwrap();
-        assert!(tools_source(&root, Some(&orphan), &head).is_err());
+        assert_eq!(
+            tools_source(&tools, Some("v0.0.1")).unwrap(),
+            ("v0.0.1".to_owned(), released)
+        );
+        let error = tools_source(&tools, Some("v0.0.2")).unwrap_err();
+        assert!(error.to_string().contains("does not contain"), "{error}");
         let bare = repo("tools-none");
-        let only = commit_file(&bare, "a.txt", "a");
-        assert!(tools_source(&bare, None, &only).is_err());
+        commit_file(&bare, "a.txt", "a");
+        let error = tools_source(&bare, None).unwrap_err();
+        assert!(error.to_string().contains("no released v* tag"), "{error}");
+        let missing = scratch("no-tools-repo");
+        let error = tools_repo(&missing, Some(&missing.join("absent"))).unwrap_err();
+        assert!(
+            error.to_string().contains("Susi Commercial Apps"),
+            "{error}"
+        );
+        assert_eq!(tools_repo(&missing, Some(&tools)).unwrap(), tools);
     }
 
     #[test]
@@ -1074,5 +1112,7 @@ mod tests {
         assert!(parse(&["--head".into(), "a".into(), "--head".into(), "b".into()]).is_err());
         let options = parse(&["--tools-source".into(), "v1".into()]).unwrap();
         assert_eq!(options.tools_source.as_deref(), Some("v1"));
+        let options = parse(&["--tools-repo".into(), "commercial".into()]).unwrap();
+        assert_eq!(options.tools_repo.as_deref(), Some(Path::new("commercial")));
     }
 }

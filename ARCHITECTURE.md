@@ -130,8 +130,8 @@ commercial owners reuse those types rather than compiling a second contract copy
 | `susi-harness` | Self-build orchestration: durable supervisor, scheduler, native worker loop, metered gateway, cost accounting, pricing catalogue, and the JSON/SSE harness API (no UI; the module keeps its `cockpit` name) (`docs/harness.md`, `docs/harness-os.md`) | `supervisor::{Supervisor, Plan}`, `scheduler::Scheduler`, `worker::NativeWorker`, `gateway::Gateway`, `budget::Budget`, `catalog::PriceCatalogue`, `ledger::CostLedger`, `cockpit::Cockpit` | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-http-transport` | `susi-daemon`, root `susi` | no | ledger, events, supervisor state | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; the A2A tier/reqwest/axum | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`; the MCP server itself is GMCP's own (`crates/susi-gmcp/src/mcp`: wire model, sessions, stdio and Streamable HTTP; no MCP SDK linked); optional `susi-vendor-syn` (`tools-rich`) | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
-| `susi-unsafe-ratchet` | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
+| `susi-vendor-syn` (commercial) | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
+| `susi-unsafe-ratchet` (commercial) | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
 | `susi-server` (commercial) | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (no cloud CLI probe at boot or on the tick; `susi os provision probe` runs one on request), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi-daemon-runtime` (commercial) | The daemon's host runtime that needs no pillar crate: leaf-service process supervisor and in-process `service_supervision`, watchdogs, NAT traversal (STUN/TURN), contract TLS, port fallback, resource governor, OS provisioning and the startup checks; compiles beside the pillars instead of after them | `supervisor`, `service_supervision::{Supervisor, ServiceStatus, WorkerState, RestartEvent}`, `nat`, `tls`, `port_fallback`, `resource_governor` (re-exported by `susi-daemon` under the same paths) | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-http-transport` | `susi-daemon` | no | `supervision.json`, service table | yes |
@@ -165,16 +165,14 @@ consumers), and a ratchet
 (`cross_crate_source_mounts_only_decrease`) keeps the remaining cross-crate
 mounts from growing.
 
-The unsafe inventory tool is **rank 1**, immediately above the rank-0
-`susi-vendor-syn` implementation. Complete measurement tokenizes each selected
-crate entrypoint through that parser; it is no longer a dependency-free
-tree reader. This is the minimum rank permitting that real Cargo edge under
-the unchanged strictly-downward rule. The parser is not added to the pure
-facade exemption. The layer-matrix test separately limits the tool to its
-parser, serialization and hash dependencies, so raising its rank does not
-admit HTTP/SDK, daemon, feature-plane or arbitrary facade dependencies.
-The root registers it as a workspace dependency; GAWD consumes it only in
-dev-dependencies for inventory tests, not as an upward runtime edge.
+The unsafe inventory tool (`susi-unsafe-ratchet`) and the parser it measures
+with (`susi-vendor-syn`) live in Susi Commercial Apps (CEO decision
+2026-11-18). Core keeps the reviewed baselines in `.agents/baseline/`; its
+release coordinator builds `unsafe_measure` and `unsafe_ratchet` from the
+newest released `v*` tag of a Susi Commercial Apps checkout that carries the
+crate (`local-release coordinate --tools-repo`, `SUSI_COMMERCIAL_CHECKOUT` or
+the sibling clone), holds them read-only and pinned by digest, and runs them
+against the candidate exactly as before.
 
 Shared code that is still compiled into each consumer through `#[path]`
 (pending conversion to a crate edge): **none**. The

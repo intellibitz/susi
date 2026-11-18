@@ -104,10 +104,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),
     ("susi-core", 4),
-    ("susi-vendor-syn", 0),
-    // Measurement uses the rank-0 parser implementation, not a pure facade.
-    // Rank 1 is the lowest valid layer; all non-facade edges still point down.
-    ("susi-unsafe-ratchet", 1),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
     ("susi-gawd-agents", 6),
@@ -466,20 +462,6 @@ fn layer_matrix_forbidden_edges() {
         ),
     ];
     let graph = workspace_graph();
-    // Raising the scanner above its parser must not admit rank-0 HTTP/SDK
-    // dependencies or arbitrary pure facades into offline evidence tooling.
-    let ratchet_allowed = [
-        "susi-vendor-syn",
-        "susi-vendor-serde",
-        "susi-vendor-serde-json",
-        "susi-vendor-sha2",
-    ];
-    for dependency in graph.get("susi-unsafe-ratchet").expect("unsafe ratchet") {
-        assert!(
-            ratchet_allowed.contains(&dependency.as_str()),
-            "susi-unsafe-ratchet must use only parser/serialization/hash dependencies, found {dependency}"
-        );
-    }
     for (crate_name, banned) in forbidden {
         let deps = graph
             .get(*crate_name)
@@ -1367,11 +1349,7 @@ fn compiled_workflow_policy_preserves_enforcement_boundaries() {
             "pinned MCP/GMCP specifications",
             "crates/susi-gmcp/src/lib.rs",
         ),
-        (
-            59,
-            "forbid(unsafe_code)",
-            "crates/susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs",
-        ),
+        (59, "forbid(unsafe_code)", "crates/susi-core/src/lib.rs"),
         (60, "susi-vendor-", "tests/architecture_tests.rs"),
         (
             61,

@@ -8,7 +8,6 @@ members = [
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-vendor-syn",
     "crates/susi-config",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -18,7 +17,7 @@ members = [
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
     "crates/susi-gawd-acp",
-    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon",
+    "crates/susi-gawd", "crates/susi-daemon",
     "crates/susi-harness",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
@@ -100,7 +99,6 @@ susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
-susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
 susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
@@ -110,7 +108,6 @@ susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
 susi-gawd-acp = { path = "crates/susi-gawd-acp" }
 susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
-susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
 susi-tools = { path = "crates/susi-tools" }
 susi-paths = { path = "crates/susi-paths" }
 susi-error = { path = "crates/susi-error" }

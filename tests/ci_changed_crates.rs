@@ -61,7 +61,7 @@ mod hosted_scripts {
     }
 
     fn script() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-changed-crates.sh")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-changed-crates.sh")
     }
 
     fn git(dir: &Path, args: &[&str]) {
@@ -629,7 +629,7 @@ mod hosted_scripts {
         metadata_file: Option<&Path>,
     ) -> Vec<String> {
         let out = script_command(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-reverse-deps.sh"),
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-reverse-deps.sh"),
         )
         .arg(pkg)
         .current_dir(dir)
@@ -690,7 +690,7 @@ mod hosted_scripts {
 
     #[test]
     fn compliance_uses_single_remote_ref_snapshot() {
-        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
         let helper = repo.join("scripts/fetch-workflow-refs.sh");
         let helper_text = std::fs::read_to_string(&helper).unwrap();
         assert_eq!(
@@ -807,7 +807,7 @@ mod hosted_scripts {
 
     #[test]
     fn finish_reuses_live_lease_and_fetched_refs() {
-        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
         let workflow = std::fs::read_to_string(repo.join("scripts/parallel-workflow.sh")).unwrap();
         let renew = workflow
             .split("renew_or_readopt() {")
@@ -906,9 +906,12 @@ mod hosted_scripts {
         assert!(workflow.contains("SUSI_PARK_REFS_FETCHED=1 \"$root/scripts/park-primary.sh\""));
     }
 
+    /// The compliance check batches one owed-receipt scan per agent through the
+    /// helper, which forwards to the native scanner in Susi Commercial Apps
+    /// (its own tests cover the scan) and names what serves it when absent.
     #[test]
     fn compliance_batches_close_receipt_scan() {
-        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
         let compliance =
             std::fs::read_to_string(repo.join("scripts/check-workflow-compliance.sh")).unwrap();
         assert!(compliance.contains("declare -A owed_cache"));
@@ -916,107 +919,25 @@ mod hosted_scripts {
         let helper = repo.join("scripts/owed-task-receipts.sh");
         let source = std::fs::read_to_string(&helper).unwrap();
         assert!(source.contains("--bin owed-task-receipts -- \"$@\""));
-        let native = std::fs::read_to_string(
-            repo.join("crates/susi-unsafe-ratchet/src/bin/owed-task-receipts.rs"),
-        )
-        .unwrap();
-        assert!(native.contains("\"cat-file\", \"--batch\""));
-        assert!(!native.contains("\"cat-file\", \"-p\""));
+        assert!(source.contains("$commercial/crates/susi-unsafe-ratchet/Cargo.toml"));
+        assert!(source.contains("SUSI_COMMERCIAL_CHECKOUT"));
 
         let ws = Workspace::new("owed-receipts");
-        git(&ws.root, &["init", "--quiet"]);
-        git(&ws.root, &["config", "user.name", "Workflow Test"]);
-        git(&ws.root, &["config", "user.email", "workflow@example.test"]);
-        ws.write(".agents/tasks/done/T-PUBLISHED-1.json", "{}\n");
-        git(&ws.root, &["add", "-A"]);
-        git(&ws.root, &["commit", "-qm", "published close"]);
-        git(
-            &ws.root,
-            &["update-ref", "refs/remotes/origin/main", "HEAD"],
-        );
-        git(
-            &ws.root,
-            &[
-                "cat-file",
-                "-e",
-                "refs/remotes/origin/main:.agents/tasks/done/T-PUBLISHED-1.json",
-            ],
-        );
-
-        // Many unrelated receipts ensure the helper handles the same ref volume
-        // that made the old per-receipt process loop slow.
-        let mut receipt_paths = String::new();
-        let mut receipt_ids = Vec::new();
-        for index in 0..90 {
-            let (id, agent) = match index {
-                0 => ("T-PUBLISHED-1".to_owned(), "WORKFLOWINERTTESTGATES"),
-                1 => ("T-OWED-1".to_owned(), "WORKFLOWINERTTESTGATES"),
-                2 => ("T-OWED-2".to_owned(), "WORKFLOWINERTTESTGATES"),
-                _ => (format!("T-OTHER-{index}"), "ANOTHERAGENT"),
-            };
-            // Cover both serializer forms; batch parsing cannot assume a separator
-            // occupies an extra line after every blob.
-            let newline = if index % 2 == 0 { "\n" } else { "" };
-            let receipt = format!("{{\"agent\":\"{agent}\",\"task\":\"{id}\"}}{newline}");
-            let path = format!("receipts/{index}.json");
-            ws.write(&path, &receipt);
-            receipt_paths.push_str(&format!("{path}\n"));
-            receipt_ids.push(id);
-        }
-        // Two Git processes prepare all 90 refs. Per-ref hash-object/update-ref
-        // launches dominated this fixture under the parallel Windows gate.
-        let git_input = |args: &[&str], input: &str| {
-            let mut child = Command::new("git")
-                .args(args)
-                .current_dir(&ws.root)
-                .env_remove("GIT_DIR")
-                .env_remove("GIT_WORK_TREE")
-                .env_remove("GIT_INDEX_FILE")
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .spawn()
-                .unwrap();
-            use std::io::Write as _;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(input.as_bytes())
-                .unwrap();
-            let output = child.wait_with_output().unwrap();
-            assert!(output.status.success());
-            String::from_utf8(output.stdout).unwrap()
-        };
-        let objects = git_input(&["hash-object", "-w", "--stdin-paths"], &receipt_paths);
-        let updates: String = receipt_ids
-            .iter()
-            .zip(objects.lines())
-            .map(|(id, object)| format!("update refs/closed/{id} {object}\n"))
-            .collect();
-        assert_eq!(objects.lines().count(), receipt_ids.len());
-        git_input(&["update-ref", "--stdin"], &updates);
-
         let output = script_command(&helper)
             .current_dir(&ws.root)
             .arg("WORKFLOWINERTTESTGATES")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
+            .env(
+                "SUSI_COMMERCIAL_CHECKOUT",
+                ws.root.join("no-commercial-checkout"),
+            )
             .output()
             .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            output.status.success(),
-            "receipt scan failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let mut ids: Vec<_> = stdout.lines().collect();
-        ids.sort_unstable();
-        assert_eq!(
-            ids,
-            ["T-OWED-1", "T-OWED-2"],
-            "receipt scan stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
+            stderr.contains("served by Susi Commercial Apps"),
+            "{stderr}"
         );
     }
 

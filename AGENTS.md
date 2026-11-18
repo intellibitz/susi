@@ -38,6 +38,8 @@ the requester to inspect code or perform routine engineering steps.
 - Core ships no UI or bundled plug content. Existing product implementation
   crates are migration debt and may only shrink. Keep the dependency, unsafe,
   license and source-size ratchets; do not raise one without explicit authority.
+  The unsafe ratchet's tools are built from a Susi Commercial Apps release and
+  run against core's reviewed baselines (`.agents/baseline/`).
 - Zero required user configuration means discovery, defaults and agent repair.
   Measure size, memory, latency and build cost. The warm build + test + release
   budget is `<10s`; the cold compile target is `<60s`. Report cold and warm

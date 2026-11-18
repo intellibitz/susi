@@ -956,16 +956,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-unsafe-ratchet"
-version = "0.1.0"
-dependencies = [
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
- "susi-vendor-syn",
-]
-
-[[package]]
 name = "susi-vendor-chacha20poly1305"
 version = "0.1.0"
 dependencies = [
@@ -1037,14 +1027,6 @@ name = "susi-vendor-sha2"
 version = "0.1.0"
 dependencies = [
  "sha2",
-]
-
-[[package]]
-name = "susi-vendor-syn"
-version = "0.1.0"
-dependencies = [
- "syn 3.0.10",
- "unicode-ident",
 ]
 
 [[package]]
