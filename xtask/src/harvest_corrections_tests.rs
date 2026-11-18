@@ -226,3 +226,111 @@ fn audit_correction_requires_ancestry_and_never_aliases_another_commit() {
         .unwrap_err()
         .contains("original-apache-2.0"));
 }
+
+/// A commit that moved first-party code within this repository under a prose
+/// Harvest label, its strictly earlier source commit, and the bound record.
+fn repository_fixture() -> (Fixture, Value, String, String) {
+    let fx = Fixture::new();
+    write(&fx.work, "src/original.rs", "pub fn original() {}\n");
+    fx.git_at(&fx.work, &["add", "src/original.rs"]);
+    fx.git_at(&fx.work, &["commit", "-q", "-m", "first-party original"]);
+    let source = fx.git_at(&fx.work, &["rev-parse", "HEAD"]);
+    write(&fx.work, "src/moved.rs", "pub fn moved() {}\n");
+    fx.git_at(&fx.work, &["add", "src/moved.rs"]);
+    fx.git_at(
+        &fx.work,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "move first-party code\n\nHarvest: original-apache-2.0",
+        ],
+    );
+    let commit = fx.git_at(&fx.work, &["rev-parse", "HEAD"]);
+    let git = Git {
+        root: fx.work.clone(),
+    };
+    let (moved, original) = (
+        list_tree(&git, &commit).unwrap(),
+        list_tree(&git, &source).unwrap(),
+    );
+    let record = json!({"schema":"susi-harvest-trailer-corrections-v1","corrections":[{
+        "commit":commit,"old_label":"original-apache-2.0","source_commit":source,
+        "files":[{"path":"src/moved.rs","commit_blob_sha1":moved["src/moved.rs"].oid,
+            "source_path":"src/original.rs","source_blob_sha1":original["src/original.rs"].oid}],
+        "reason":"First-party code moved within this repository; nothing was imported."
+    }]});
+    (fx, record, commit, source)
+}
+
+#[test]
+fn audit_correction_accepts_first_party_code_moved_from_an_earlier_commit() {
+    let (fx, record, commit, _) = repository_fixture();
+    assert!(fx
+        .run(&["audit", "--range", &commit])
+        .unwrap_err()
+        .contains("original-apache-2.0"));
+    write_correction(&fx, &record);
+    assert!(fx.run(&["audit", "--range", &commit]).is_ok());
+}
+
+#[test]
+fn audit_correction_refuses_unproven_or_ambiguous_repository_sources() {
+    let (fx, record, commit, source) = repository_fixture();
+    let tree = fx.git_at(&fx.work, &["rev-parse", "HEAD^{tree}"]);
+    let foreign = fx.git_at(&fx.work, &["commit-tree", &tree, "-m", "unrelated"]);
+    for (field, value) in [
+        ("source_commit", commit.clone()),
+        ("source_commit", foreign),
+        ("source_commit", "f".repeat(40)),
+    ] {
+        let mut bad = record.clone();
+        bad["corrections"][0][field] = value.into();
+        write_correction(&fx, &bad);
+        assert!(fx
+            .run(&["audit", "--range", &commit])
+            .unwrap_err()
+            .contains("strictly earlier"));
+    }
+    for (field, value) in [
+        ("source_path", "src/absent.rs".to_owned()),
+        ("source_path", "../src/original.rs".to_owned()),
+        ("source_blob_sha1", "0".repeat(40)),
+    ] {
+        let mut bad = record.clone();
+        bad["corrections"][0]["files"][0][field] = value.into();
+        write_correction(&fx, &bad);
+        assert!(fx
+            .run(&["audit", "--range", &commit])
+            .unwrap_err()
+            .contains("differs from the earlier commit"));
+    }
+    let mut both = record.clone();
+    both["corrections"][0]["manifest_id"] = "H-TEST-1".into();
+    write_correction(&fx, &both);
+    assert!(fx
+        .run(&["audit", "--range", &commit])
+        .unwrap_err()
+        .contains("unbound"));
+    let mut bare = record.clone();
+    let file = bare["corrections"][0]["files"][0].as_object_mut().unwrap();
+    file.remove("source_path");
+    file.remove("source_blob_sha1");
+    write_correction(&fx, &bare);
+    assert!(fx
+        .run(&["audit", "--range", &commit])
+        .unwrap_err()
+        .contains("unbound"));
+    write(&fx.work, "src/later.rs", "pub fn later() {}\n");
+    fx.git_at(&fx.work, &["add", "src/later.rs"]);
+    fx.git_at(&fx.work, &["commit", "-q", "-m", "later"]);
+    let later = fx.git_at(&fx.work, &["rev-parse", "HEAD"]);
+    let mut descendant = record.clone();
+    descendant["corrections"][0]["source_commit"] = later.into();
+    write_correction(&fx, &descendant);
+    assert!(fx
+        .run(&["audit", "--range", &commit])
+        .unwrap_err()
+        .contains("strictly earlier"));
+    assert_ne!(source, commit);
+}

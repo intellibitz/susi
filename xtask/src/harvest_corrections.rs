@@ -81,7 +81,16 @@ fn generated_metadata(path: &str) -> bool {
         })
 }
 
-fn verify_files(git: &Git, commit: &str, row: &Value, manifest: &Manifest) -> Result<()> {
+/// Where a corrected commit's added source files actually came from.
+enum Origin<'a> {
+    /// A valid harvest manifest that records the actual upstream import.
+    Manifest(&'a Manifest),
+    /// A strictly earlier commit of this repository: first-party code that
+    /// moved within the repository, was never imported, and has no manifest.
+    Repository(&'a str),
+}
+
+fn verify_files(git: &Git, commit: &str, row: &Value, origin: &Origin<'_>) -> Result<()> {
     // A correction covers an ordinary import commit, not an ambiguous merge.
     let parents = git.text(&["rev-list", "--parents", "-n", "1", commit])?;
     if parents.split_whitespace().count() != 2 {
@@ -121,9 +130,24 @@ fn verify_files(git: &Git, commit: &str, row: &Value, manifest: &Manifest) -> Re
         .filter(|files| !files.is_empty() && files.len() <= 4096)
         .ok_or("correction requires a bounded nonempty source-file list")?;
     let tree = list_tree(git, commit)?;
+    let source_tree = match origin {
+        Origin::Repository(source) => Some(list_tree(git, source)?),
+        Origin::Manifest(_) => None,
+    };
     let mut covered = BTreeSet::new();
     for file in files {
-        object(file, &["path", "commit_blob_sha1"])?;
+        match origin {
+            Origin::Manifest(_) => object(file, &["path", "commit_blob_sha1"])?,
+            Origin::Repository(_) => object(
+                file,
+                &[
+                    "path",
+                    "commit_blob_sha1",
+                    "source_path",
+                    "source_blob_sha1",
+                ],
+            )?,
+        };
         let path = text(file, "path")?;
         if normalize_rel(path, true).as_deref() != Ok(path) || !covered.insert(path.to_owned()) {
             return Err("correction source path is invalid or duplicated".into());
@@ -138,10 +162,33 @@ fn verify_files(git: &Git, commit: &str, row: &Value, manifest: &Manifest) -> Re
         {
             return Err("correction source blob differs from the immutable commit".into());
         }
-        if !manifest.files.iter().any(|source| source.dest_path == path) {
-            return Err(format!(
-                "replacement manifest does not cover imported source {path}"
-            ));
+        match (origin, &source_tree) {
+            (Origin::Manifest(manifest), _) => {
+                if !manifest.files.iter().any(|source| source.dest_path == path) {
+                    return Err(format!(
+                        "replacement manifest does not cover imported source {path}"
+                    ));
+                }
+            }
+            (Origin::Repository(_), Some(source_tree)) => {
+                let source = text(file, "source_path")?;
+                let source_blob = text(file, "source_blob_sha1")?;
+                if normalize_rel(source, true).as_deref() != Ok(source)
+                    || !full_oid(source_blob)
+                    || !source_tree.get(source).is_some_and(|entry| {
+                        entry.kind == "blob"
+                            && matches!(entry.mode.as_str(), "100644" | "100755")
+                            && entry.oid == source_blob
+                    })
+                {
+                    return Err(format!(
+                        "correction repository source for {path} differs from the earlier commit"
+                    ));
+                }
+            }
+            (Origin::Repository(_), None) => {
+                return Err("correction repository source tree is missing".into());
+            }
         }
     }
     if covered != added {
@@ -180,13 +227,21 @@ fn load(git: &Git, manifests: &[Manifest]) -> Result<BTreeMap<(String, String), 
         .ok_or("correction record requires a bounded nonempty list")?;
     let mut corrections = BTreeMap::new();
     for row in rows {
+        // Exactly one origin: a replacement manifest, or an earlier commit of
+        // this repository for first-party code that was moved, not imported.
+        let in_repository = row.get("source_commit").is_some();
+        let origin_field = if in_repository {
+            "source_commit"
+        } else {
+            "manifest_id"
+        };
         object(
             row,
-            &["commit", "old_label", "manifest_id", "files", "reason"],
+            &["commit", "old_label", origin_field, "files", "reason"],
         )?;
         let commit = text(row, "commit")?;
         let old = text(row, "old_label")?;
-        let replacement = text(row, "manifest_id")?;
+        let replacement = text(row, origin_field)?;
         let reason = text(row, "reason")?;
         if !full_oid(commit)
             || old
@@ -196,10 +251,28 @@ fn load(git: &Git, manifests: &[Manifest]) -> Result<BTreeMap<(String, String), 
         {
             return Err("invalid correction commit, exact label or reason".into());
         }
-        let manifest = manifests
-            .iter()
-            .find(|manifest| manifest.id == replacement)
-            .ok_or("correction replacement manifest does not exist or is invalid")?;
+        let origin = if in_repository {
+            if !full_oid(replacement)
+                || replacement == commit
+                || !git.has_commit(replacement)?
+                || !git
+                    .output(&["merge-base", "--is-ancestor", replacement, commit], None)?
+                    .status
+                    .success()
+            {
+                return Err(
+                    "correction repository source must be a strictly earlier commit".into(),
+                );
+            }
+            Origin::Repository(replacement)
+        } else {
+            Origin::Manifest(
+                manifests
+                    .iter()
+                    .find(|manifest| manifest.id == replacement)
+                    .ok_or("correction replacement manifest does not exist or is invalid")?,
+            )
+        };
         if manifests.iter().any(|manifest| manifest.id == old) {
             return Err("correction cannot replace an existing valid manifest label".into());
         }
@@ -225,7 +298,7 @@ fn load(git: &Git, manifests: &[Manifest]) -> Result<BTreeMap<(String, String), 
                 "correction does not match the immutable commit's exact Harvest label".into(),
             );
         }
-        verify_files(git, commit, row, manifest)?;
+        verify_files(git, commit, row, &origin)?;
         if corrections
             .insert((commit.to_owned(), old.to_owned()), replacement.to_owned())
             .is_some()
