@@ -61,6 +61,17 @@ fn panic_message<'a>(info: &'a std::panic::PanicHookInfo<'_>) -> &'a str {
     ""
 }
 
+/// Spawn a child without Windows stdio-handle inheritance surprises.
+///
+/// On Linux this is `Command::spawn`. Core is Linux-only; the Windows PE
+/// stdio clear lives in Susi Commercial Apps (`susi-windows-sys` /
+/// `susi-windows-runtime`).
+pub fn spawn_without_inheriting_stdio(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<std::process::Child> {
+    cmd.spawn()
+}
+
 #[cfg(test)]
 mod tests {
     use super::is_broken_pipe_message;
@@ -188,15 +199,4 @@ mod tests {
             }
         }
     }
-}
-
-/// Spawn a child without Windows stdio-handle inheritance surprises.
-///
-/// On Linux this is `Command::spawn`. Core is Linux-only; the Windows PE
-/// stdio clear lives in Susi Commercial Apps (`susi-windows-sys` /
-/// `susi-windows-runtime`).
-pub fn spawn_without_inheriting_stdio(
-    cmd: &mut std::process::Command,
-) -> std::io::Result<std::process::Child> {
-    cmd.spawn()
 }
