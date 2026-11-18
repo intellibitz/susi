@@ -20,20 +20,23 @@ fn validate_binary_name(binary: &str) -> io::Result<()> {
 }
 
 fn linux_profile_dir(output: &Path) -> io::Result<&Path> {
-    let profile = output
-        .ancestors()
-        .nth(3)
-        .ok_or_else(|| io::Error::other("invalid Cargo output layout"))?;
-    if output.file_name().is_none_or(|name| name != "out")
-        || output
-            .parent()
-            .and_then(Path::parent)
-            .and_then(Path::file_name)
-            .is_none_or(|name| name != "build")
-    {
+    if output.file_name().is_none_or(|name| name != "out") {
         return Err(io::Error::other("unexpected Cargo build output layout"));
     }
-    Ok(profile)
+    for depth in [3, 4] {
+        if output
+            .ancestors()
+            .nth(depth - 1)
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "build")
+        {
+            return output
+                .ancestors()
+                .nth(depth)
+                .ok_or_else(|| io::Error::other("invalid Cargo output layout"));
+        }
+    }
+    Err(io::Error::other("unexpected Cargo build output layout"))
 }
 
 fn single_bin_name_from_manifest(manifest_toml: &str, pkg_name: &str) -> String {

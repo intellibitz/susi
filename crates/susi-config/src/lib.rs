@@ -16,7 +16,6 @@ pub use susi_error;
 pub mod disk_space;
 mod json_util;
 mod nonce;
-pub mod plain_http;
 pub mod process_probe;
 pub mod progress;
 pub mod redaction;

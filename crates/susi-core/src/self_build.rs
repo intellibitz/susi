@@ -1,33 +1,4 @@
 //! The active self-build contract for code-writing tasks in this checkout.
-//!
-//! When the workspace an agent works in is the SUSI source tree itself,
-//! every code-writing path — the native swarm, delegated external agents
-//! and the self-patch cycle —
-//! must follow the same order. Some external agents read `AGENTS.md` on
-//! their own and some do not, so SUSI states the contract in the task
-//! itself instead of hoping each tool finds it.
-
-use std::path::Path;
-
-/// Whether `workspace` is a SUSI source checkout: a root `Cargo.toml`
-/// declaring `name = "susi"` next to the `.agents/identity.json` constitution.
-#[must_use]
-pub fn is_susi_repo(workspace: &Path) -> bool {
-    if !workspace.join(".agents").join("identity.json").is_file() {
-        return false;
-    }
-    std::fs::read_to_string(workspace.join("Cargo.toml")).is_ok_and(|toml| {
-        toml.lines()
-            .map(str::trim)
-            .any(|line| line.replace(' ', "") == "name=\"susi\"")
-    })
-}
-
-/// Baseline native local checks; production also requires artifact and rollback evidence.
-pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
-     && cargo clippy --workspace --all-targets --offline --locked -- -D warnings \
-     && cargo test --workspace --offline --locked \
-     && cargo deny --offline --locked check licenses";
 
 /// The active contract, prepended to every coding task in a Susi checkout.
 /// Requirements are distinct from verified implementation status.
@@ -117,30 +88,9 @@ generic; mandatory legal notices and protocol identifiers retain their original 
 
 ";
 
-/// `task` with [`BRIEF`] prepended when `workspace` is a SUSI tree;
-/// unchanged otherwise.
-#[must_use]
-pub fn brief_task(workspace: &Path, task: &str) -> String {
-    if is_susi_repo(workspace) && !task.starts_with(BRIEF) {
-        format!("{BRIEF}{task}")
-    } else {
-        task.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn tree(cargo: &str, constitution: bool) -> susi_paths::tempfile::TempDir {
-        let dir = susi_paths::tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("Cargo.toml"), cargo).unwrap();
-        if constitution {
-            std::fs::create_dir_all(dir.path().join(".agents")).unwrap();
-            std::fs::write(dir.path().join(".agents/identity.json"), "{}").unwrap();
-        }
-        dir
-    }
+    use super::BRIEF;
 
     #[test]
     fn the_contract_carries_active_boundaries_without_identity_history() {
@@ -207,9 +157,7 @@ mod tests {
 
     #[test]
     fn delegated_delivery_criteria_match_the_active_checkout_contract() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let governance = include_str!("../../../AGENTS.md");
-        let delegated = brief_task(&root, "measure the delivery loop");
         for criterion in [
             "verified live executable in under 60 seconds",
             "declared millisecond response budgets",
@@ -217,32 +165,7 @@ mod tests {
             "plugin updates over the socket without rebuilding core",
         ] {
             assert!(governance.contains(criterion));
-            assert!(delegated.contains(criterion));
+            assert!(BRIEF.contains(criterion));
         }
-        assert!(delegated.ends_with("measure the delivery loop"));
-    }
-
-    #[test]
-    fn only_a_susi_tree_gets_the_contract() {
-        let susi = tree("[package]\nname = \"susi\"\n", true);
-        let other = tree("[package]\nname = \"other\"\n", true);
-        let no_constitution = tree("[package]\nname = \"susi\"\n", false);
-
-        assert!(brief_task(susi.path(), "fix x").starts_with(BRIEF));
-        assert_eq!(brief_task(other.path(), "fix x"), "fix x");
-        assert_eq!(brief_task(no_constitution.path(), "fix x"), "fix x");
-    }
-
-    #[test]
-    fn the_contract_is_not_stacked() {
-        let susi = tree("[package]\nname = \"susi\"\n", true);
-        let once = brief_task(susi.path(), "fix x");
-        assert_eq!(brief_task(susi.path(), &once), once);
-    }
-
-    #[test]
-    fn this_checkout_is_a_susi_tree() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert!(is_susi_repo(&root));
     }
 }

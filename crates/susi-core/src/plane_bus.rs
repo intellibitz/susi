@@ -15,28 +15,7 @@ use susi_config::JsonFields as _;
 /// same `EaiError` kind instead of wrapping it in another layer, which
 /// rendered "Protocol Error: Protocol Error: ..." and lost the real kind.
 fn remote_error(display: &str) -> crate::susi_error::EaiError {
-    const KINDS: [(&str, &str); 13] = [
-        ("Governance Violation: ", "Governance"),
-        ("Hardware Error: ", "Hardware"),
-        ("Protocol Error: ", "Protocol"),
-        ("Inference Error: ", "Inference"),
-        ("Sandbox Error: ", "Sandbox"),
-        ("Configuration Error: ", "Config"),
-        ("I/O Error: ", "Io"),
-        ("Network Error: ", "Network"),
-        ("Filesystem Error: ", "Filesystem"),
-        ("Process Error: ", "Process"),
-        ("Authentication Error: ", "Authentication"),
-        ("Authorization Error: ", "Authorization"),
-        ("Internal Engine Error: ", "Internal"),
-    ];
-    KINDS
-        .iter()
-        .find(|(prefix, _)| display.starts_with(prefix))
-        .map_or_else(
-            || crate::susi_error::EaiError::protocol(display),
-            |(_, kind)| crate::susi_error::rewrap(kind, display.to_string()),
-        )
+    crate::susi_error::rewrap_display(display)
 }
 /// Topic constants exercised by core socket dispatch; per-plane topic catalogs live in Susi Commercial Apps.
 pub mod topics {

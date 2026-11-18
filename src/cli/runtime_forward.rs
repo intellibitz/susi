@@ -74,75 +74,67 @@ fn run(
 /// the original pathname was removed or replaced, rather than passing that
 /// link across the process boundary.
 fn core_executable(cache: impl FnOnce() -> PathBuf) -> Result<PathBuf> {
-    let current = std::env::current_exe()?;
-    #[cfg(target_os = "linux")]
-    {
-        use sha2::{Digest, Sha256};
-        use std::fs::{self, File, OpenOptions};
-        use std::io::{Read, Seek};
-        use std::os::unix::fs::MetadataExt;
+    use sha2::{Digest, Sha256};
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{Read, Seek};
+    use std::os::unix::fs::MetadataExt;
 
-        let mut original = File::open("/proc/self/exe")?;
-        let metadata = original.metadata()?;
-        if fs::metadata(&current)
-            .is_ok_and(|named| named.dev() == metadata.dev() && named.ino() == metadata.ino())
-        {
-            return Ok(current);
-        }
-        let mut hash = Sha256::new();
-        let mut bytes = [0; 65536];
-        loop {
-            let count = original.read(&mut bytes)?;
-            if count == 0 {
-                break;
-            }
-            hash.update(&bytes[..count]);
-        }
-        let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
-        let directory = std::path::absolute(cache())?
-            .join("core-launchers")
-            .join(&digest);
-        super::install_cli::directory(&directory)?;
-        let destination = directory.join("susi");
-        let verify = || -> Result<()> {
-            let meta = fs::symlink_metadata(&destination)?;
-            if !meta.is_file()
-                || meta.file_type().is_symlink()
-                || super::install_cli::digest(&destination)? != digest
-            {
-                return Err("retained launcher differs from the running core image".into());
-            }
-            Ok(())
-        };
-        if destination.try_exists()? {
-            verify()?;
-            return Ok(destination);
-        }
-        let staging = directory.join(format!(".staging-{}", std::process::id()));
-        let mut copy = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&staging)?;
-        original.rewind()?;
-        std::io::copy(&mut original, &mut copy)?;
-        copy.set_permissions(metadata.permissions())?;
-        copy.sync_all()?;
-        drop(copy);
-        let linked = fs::hard_link(&staging, &destination);
-        fs::remove_file(&staging)?;
-        if let Err(error) = linked {
-            if error.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(error.into());
-            }
-        }
-        verify()?;
-        Ok(destination)
-    }
-    #[cfg(not(target_os = "linux"))]
+    let current = std::env::current_exe()?;
+    let mut original = File::open("/proc/self/exe")?;
+    let metadata = original.metadata()?;
+    if fs::metadata(&current)
+        .is_ok_and(|named| named.dev() == metadata.dev() && named.ino() == metadata.ino())
     {
-        let _ = cache;
-        Ok(current)
+        return Ok(current);
     }
+    let mut hash = Sha256::new();
+    let mut bytes = [0; 65536];
+    loop {
+        let count = original.read(&mut bytes)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&bytes[..count]);
+    }
+    let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let directory = std::path::absolute(cache())?
+        .join("core-launchers")
+        .join(&digest);
+    super::install_cli::directory(&directory)?;
+    let destination = directory.join("susi");
+    let verify = || -> Result<()> {
+        let meta = fs::symlink_metadata(&destination)?;
+        if !meta.is_file()
+            || meta.file_type().is_symlink()
+            || super::install_cli::digest(&destination)? != digest
+        {
+            return Err("retained launcher differs from the running core image".into());
+        }
+        Ok(())
+    };
+    if destination.try_exists()? {
+        verify()?;
+        return Ok(destination);
+    }
+    let staging = directory.join(format!(".staging-{}", std::process::id()));
+    let mut copy = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&staging)?;
+    original.rewind()?;
+    std::io::copy(&mut original, &mut copy)?;
+    copy.set_permissions(metadata.permissions())?;
+    copy.sync_all()?;
+    drop(copy);
+    let linked = fs::hard_link(&staging, &destination);
+    fs::remove_file(&staging)?;
+    if let Err(error) = linked {
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(error.into());
+        }
+    }
+    verify()?;
+    Ok(destination)
 }
 
 #[cfg(all(test, target_os = "linux"))]

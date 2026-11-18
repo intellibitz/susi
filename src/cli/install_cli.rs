@@ -68,7 +68,7 @@ fn install(source: &Path, root: &Path) -> Result<PathBuf> {
         .write(true)
         .open(lock_path)?;
     lock.lock()?;
-    let destination = bin.join(if cfg!(windows) { "susi.exe" } else { "susi" });
+    let destination = bin.join("susi");
     let expected = digest(source)?;
     if let Ok(meta) = fs::symlink_metadata(&destination) {
         if !meta.is_file() || meta.file_type().is_symlink() || digest(&destination)? != expected {
@@ -184,9 +184,7 @@ mod tests {
             std::process::id()
         ));
         fs::create_dir_all(root.join("bin")).unwrap();
-        let existing = root
-            .join("bin")
-            .join(if cfg!(windows) { "susi.exe" } else { "susi" });
+        let existing = root.join("bin").join("susi");
         fs::write(&existing, b"existing production").unwrap();
         assert!(install(&env::current_exe().unwrap(), &root).is_err());
         assert_eq!(fs::read(&existing).unwrap(), b"existing production");
