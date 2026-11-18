@@ -1,0 +1,30 @@
+{
+  "id": "T-ANTIGRAVITYSLIM-4",
+  "title": "Update docs/harness-os.md module references after susi-harness migration",
+  "goal": "Vision: V-18. Update docs/harness-os.md under CEO Mandate 91 so migrated susi-harness implementation modules name their susi-commercial-apps host crate while keeping local links to core's contract modules (event.rs and money.rs).",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    "docs/harness-os.md",
+    ".agents/tasks/T-ANTIGRAVITYSLIM-4.json",
+    ".agents/claims/T-ANTIGRAVITYSLIM-4.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "created_by": "ANTIGRAVITYSLIM",
+  "created_unix": 1795045750,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Updated existing docs/harness-os.md in place per Mandate 91 rather than creating a second harness document."
+  },
+  "limitations": "Pre-existing storage-guard command references in docs/architecture.md and docs/git-storage-publisher.md are outside this task's scope.",
+  "progress": "2026-11-18: Updating docs/harness-os.md links for migrated susi-harness modules."
+}
