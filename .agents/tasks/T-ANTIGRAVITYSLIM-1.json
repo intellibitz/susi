@@ -1,0 +1,51 @@
+{
+  "id": "T-ANTIGRAVITYSLIM-1",
+  "title": "Slim relocated GMCP, Harness, A2A, ACP, ABI, core, config, and error owners",
+  "goal": "Vision: V-18. CEO directed susi core under 10k lines. Remove concrete implementations relocated to Susi Commercial Apps (H-ANTIGRAVITYSLIM-1 and existing pillar crates) across susi-gmcp, susi-harness, susi-gawd-a2a, susi-gawd-acp, susi-abi, susi-core (audit_export, zc_egress_allowlist, agent_types blackboard, dead plane_bus topics), susi-config (redaction, dead vault_exec runners), and susi-error leaf-service metrics endpoints.",
+  "size": "l",
+  "deps": [],
+  "scopes": [
+    "crates/susi-gmcp/",
+    "crates/susi-harness/",
+    "crates/susi-gawd-a2a/",
+    "crates/susi-gawd-acp/",
+    "crates/susi-abi/",
+    "crates/susi-core/Cargo.toml",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/audit_export.rs",
+    "crates/susi-core/src/zc_egress_allowlist.rs",
+    "crates/susi-core/src/agent_types.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-core/src/tests/audit_action_choke_point.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/redaction.rs",
+    "crates/susi-config/src/vault_exec.rs",
+    "crates/susi-error/src/lib.rs",
+    "crates/susi-error/src/contract.rs",
+    "tests/audit_action_choke_point.rs",
+    "tests/audit_action_completeness.rs",
+    "Cargo.lock",
+    ".agents/tasks/T-ANTIGRAVITYSLIM-1.json",
+    ".agents/claims/T-ANTIGRAVITYSLIM-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "ANTIGRAVITYSLIM",
+  "created_unix": 1795037033,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Verified commercial owners in intellibitz/susi-commercial-apps@e97dbf31dde9 (H-ANTIGRAVITYSLIM-1) and existing susi-gmcp/susi-harness crates."
+  },
+  "limitations": "Leaves T-CLAUDE25K-3 scopes (susi-paths, sink.rs, json_util.rs, process_probe.rs, plane_bus_ipc.rs) and xtask-referenced modules (plain_http.rs, installed_channel) for the next wave.",
+  "progress": "Claiming disjoint pillar, ABI, and unclaimed core/config/error scopes for Wave 2 reduction."
+}
