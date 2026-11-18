@@ -107,6 +107,14 @@ continues `V-6`, which the CEO set earlier the same day.
   ceiling on the whole socket, set by the CEO the same day.
 - **Mandates 69 and 78**: a change that makes core bigger used to need a
   measured reason. It is now not allowed while core is above the limit.
+- **Core ships for Linux only** (CEO decisions, 2026-11-18). Asked whether
+  the free core's own Windows installer should move to Susi Commercial Apps,
+  knowing a core-only Windows PC could then no longer set up or update its
+  Start Menu channel alone, the CEO chose "Move it to paid suite", then
+  directed "susi core only linux", confirmed as "Core ships Linux only".
+  Windows code leaves core piece by piece for Susi Commercial Apps under the
+  rule above: the Windows installed channel first (`susi-commercial
+  install-release`), then the Windows launcher, runtime and system boundaries.
 - **Vision `V-6`** stays the reduction program (task `T-CODEXCORE100K-1` and
   its follow-ups). Mandate 84 is the rule that keeps every step it wins.
 
@@ -121,6 +129,10 @@ continues `V-6`, which the CEO set earlier the same day.
   goal is met, each reduction lowers that ceiling to its measured size.
   The counting scope has not changed.
 - Main remains development source. Size acceptance is separate from protocol
-  conformance and exact-source Windows/Linux production qualification.
+  conformance and exact-source Linux production qualification.
+- Windows code still in core (the installed entry's launch path, the Windows
+  runtime and build shim, the Windows API facade and the Windows branches of
+  shared crates) is migration debt that only shrinks; Susi Commercial Apps
+  serves the Windows installed channel.
 - Runtime counts and qualification outcomes belong in local evidence records;
   this document states the current requirement, not a historical measurement.

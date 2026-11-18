@@ -1,6 +1,6 @@
 use super::package::{
     atomic_file, digest_bytes, directory, file_hash, id, is_reparse_or_symlink, link_or_copy,
-    regular, small, Package, Result, BIN_NAME, FLAT_051,
+    regular, small, Package, Result, BIN_NAME,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -364,24 +364,7 @@ fn version_output(exe: &Path) -> Result<String> {
     fs::create_dir(&scratch)?;
     let mut command = Command::new(exe.canonicalize()?);
     command.env_clear().current_dir(&scratch).arg("--version");
-    #[cfg(windows)]
-    {
-        let system = susi::channel_bindings::windows_root()?;
-        let drive = Path::new(&system)
-            .ancestors()
-            .last()
-            .ok_or("Windows volume is missing")?
-            .to_string_lossy();
-        command
-            .env("SystemRoot", &system)
-            .env("WINDIR", &system)
-            .env("SystemDrive", drive.trim_end_matches(['\\', '/']))
-            .env("PATH", Path::new(&system).join("System32"));
-    }
-    #[cfg(not(windows))]
-    {
-        command.env("PATH", "/usr/bin:/bin");
-    }
+    command.env("PATH", "/usr/bin:/bin");
     command
         .env("HOME", &scratch)
         .env("USERPROFILE", &scratch)
@@ -629,35 +612,6 @@ fn apply_managed(
     Ok(after)
 }
 
-// A packaged caller can read its own newly installed files while ordinary
-// Windows processes see an entirely different release at the same path.
-#[cfg(windows)]
-fn public_host_view(local: &Path) -> Result<bool> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_nanos();
-    let name = format!(".susi-host-view-{}-{nonce}", std::process::id());
-    let requested = local.join(&name);
-    // Probe a new write: existing public files can be visible in both views.
-    let _probe = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
-        .open(&requested)?;
-    let physical = requested.canonicalize()?;
-    let private_cache = physical.ancestors().any(|part| {
-        part.ends_with("LocalCache/Local")
-            && part
-                .parent()
-                .and_then(Path::parent)
-                .and_then(Path::parent)
-                .is_some_and(|parent| parent.ends_with("Packages"))
-    });
-    Ok(!private_cache && physical == local.canonicalize()?.join(name))
-}
-
 #[derive(Clone, Copy, Default)]
 pub(super) struct Request<'a> {
     pub release: Option<&'a str>,
@@ -670,10 +624,6 @@ pub(super) struct Request<'a> {
 
 pub(super) fn manage(request: Request<'_>, host_worker: bool) -> Result<()> {
     let result = manage_in_view(request, host_worker);
-    #[cfg(windows)]
-    if host_worker {
-        super::host_task::reply(&result)?;
-    }
     println!(
         "Installed verified Susi release {}. Open Susi or run susi.",
         result?
@@ -690,11 +640,6 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         status,
         expected,
     } = request;
-    #[cfg(windows)]
-    let local = PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA missing")?);
-    #[cfg(windows)]
-    let root = local.join("SusiLocal").join("production");
-    #[cfg(not(windows))]
     let root = match env::var_os("LOCALAPPDATA") {
         Some(dir) => PathBuf::from(dir).join("SusiLocal").join("production"),
         None => crate::get_home_dir()
@@ -706,24 +651,10 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
     if !root.is_absolute() {
         return Err("installed release root must be absolute".into());
     }
-    #[cfg(windows)]
-    if !public_host_view(&local)? {
-        if host_worker {
-            return Err("Windows host worker still sees a private filesystem view".into());
-        }
-        return super::host_task::run(request);
-    }
-    #[cfg(not(windows))]
     if host_worker {
         return Err("the installation host worker requires native Windows".into());
     }
     let register = |root: &Path| -> Result<()> {
-        #[cfg(windows)]
-        if susi::channel_bindings::register(root)? {
-            winapi::environment::notify_environment_changed()?;
-            susi::channel_bindings::notification_complete(root)?;
-        }
-        #[cfg(not(windows))]
         {
             let work = root.join("workspace");
             if !work.try_exists()? {
@@ -744,8 +675,6 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         if file_hash(&mut regular(&entry)?)? != controller_image(&root, &chosen.dispatcher)?.2 {
             return Err("installed dispatcher digest mismatch".into());
         }
-        #[cfg(windows)]
-        susi::channel_bindings::verify(&root)?;
         if version_output(&entry)? != version_output(&current.executable())? {
             return Err("ordinary entry point launches a different version".into());
         }
@@ -756,34 +685,8 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
         let id = release.ok_or("trusted release ID is required")?;
         let exe = env::current_exe()?;
         let path = exe.parent().ok_or("package directory missing")?;
-        if let Some(sha) = controller {
-            if !cfg!(all(windows, target_arch = "x86_64"))
-                || !super::package::id(sha)
-                || !super::package::id(id)
-                || id == FLAT_051
-            {
-                return Err("invalid Windows legacy import or controller digest".into());
-            }
-            let package = Package::open(&path.join("slots").join(id), id)?;
-            let flat = root
-                .parent()
-                .and_then(Path::parent)
-                .ok_or("missing per-user app root")?
-                .join("Susi/engine");
-            let prior = if flat.join(BIN_NAME).try_exists()? {
-                Package::open(&flat, FLAT_051)?
-            } else {
-                installed(&root, FLAT_051)?
-            };
-            prior.pinned_executable()?;
-            return Ok(apply_managed(
-                &root,
-                Some((&package, Some(&prior))),
-                &register,
-                None,
-                Some((&exe, sha)),
-            )?
-            .current);
+        if controller.is_some() {
+            return Err("the legacy Windows import is served by Susi Commercial Apps: run `susi-commercial install-release --import-legacy` with the same arguments and `--core <controller.exe>`".into());
         }
         let package = Package::open(path, id)?;
         package.verify_entry(&exe)?;
@@ -800,10 +703,6 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
     };
     Ok(selection.current)
 }
-
-#[cfg(all(test, windows))]
-#[path = "tests.rs"]
-mod tests;
 
 #[cfg(test)]
 mod cross_os_tests {

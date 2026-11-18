@@ -172,10 +172,13 @@ publication; retry a lost integration race against the new head.
 - Runtime, build/install/release tooling and shipped implementation dependencies
   must be Rust. A facade does not turn foreign runtime code into Rust. Installed
   compiler/linker tools and OS ABI calls are explicit platform boundaries.
-- Qualify releases only on the current native x86_64 Windows or Linux host.
-  Windows uses native MSVC and OS APIs with no Bash/WSL/MSYS, Python, Node or
-  container prerequisite. Keep portable source for other targets without adding
-  their builds, tests or release legs. Optional legacy scripts remain migration
+- Core ships for x86_64 Linux only (decision of 2026-11-18, `docs/ceo-mandate-84.md`);
+  qualify releases only on a native x86_64 Linux host. Windows is served by
+  Susi Commercial Apps, which installs and manages the Windows channel; the
+  Windows code still in core is migration debt that only shrinks. Development
+  on a Windows host uses native MSVC and OS APIs with no Bash/WSL/MSYS, Python,
+  Node or container prerequisite. Keep portable source for other targets
+  without adding their builds, tests or release legs. Optional legacy scripts remain migration
   debt, never prerequisites for native users.
 - Before building, inspect both repositories, suitable Apache-2.0 work, and the
   locked dependency graph. Prefer reuse of the needed part; delete what it
