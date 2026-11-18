@@ -1,0 +1,25 @@
+{
+  "id": "T-SLIM17FEATURES-3",
+  "title": "Retain native contracts after authority owner extraction",
+  "goal": "Vision: V-10. Reduce native core below 50000 physical runtime lines while preserving wire clients, public security contracts and all original owner tests in Commercial Apps.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "--all-targets"
+    ]
+  },
+  "created_by": "SLIM17FEATURES",
+  "created_unix": 1794954602,
+  "reuse": {
+    "decision": "harvest",
+    "searched": "Both repositories: the native core already owns the complete authority, signed MCP and original security tests; the commercial runtime already owns all production callers. Reuse these exact Apache-2.0 bodies rather than introduce a second implementation.",
+    "source": "https://github.com/intellibitz/susi.git@72759e24872a2ac88892470f3baab1a811fbfb3c"
+  },
+  "progress": "Authority owner compiled; original normal-parallel library corpus Windows342/Linux345 passed with one original ignored case, strict Clippy passed both platforms. Added original peer signing5 and public capability4 assertions passed Windows; Linux peer signing5 passed. CLI security test ports compile. Final combined native/config pin and paired daemon security fixture remain integration acceptance.",
+  "limitations": "Native deletion depends on separately coordinated generic nonce helper and final combined pin. Source checkpoint is not a production release qualification."
+}
