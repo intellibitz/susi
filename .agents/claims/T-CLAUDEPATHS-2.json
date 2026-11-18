@@ -1,1 +1,0 @@
-{"branch":"claudepaths","scopes":["crates/susi-paths/src/lib.rs","crates/susi-paths/src/weburl.rs","crates/susi-paths/src/shlex.rs","crates/susi-paths/src/sha1.rs","crates/susi-paths/tests/sha1_compatibility.rs","tests/lean_core_ceilings.rs"],"task":"T-CLAUDEPATHS-2","agent":"CLAUDEPATHS","claimed_unix":1794993852,"lease_until_unix":1794997452}
