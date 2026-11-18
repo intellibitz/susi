@@ -696,7 +696,7 @@ pub(in crate::local_workflow) fn free_space(path: &Path) -> Option<u64> {
     // On Windows `canonicalize` answers in verbatim form (`\\?\C:\...`),
     // which a mount point (`C:\`) is never a prefix of: compare the DOS form.
     let canonical = dos_path(&canonical);
-    susi_config::host_metrics::filesystem_of(&canonical).map(|fs| fs.available_bytes)
+    susi_config::disk_space::available(&canonical).map(|(available, _)| available)
 }
 
 /// `path` without Windows' verbatim prefix: `\\?\C:\x` becomes `C:\x` and

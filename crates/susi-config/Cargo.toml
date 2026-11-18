@@ -12,14 +12,10 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
-# Host metrics and process inspection on every OS (host_metrics,
-# process_probe): the one portable source instead of Linux-only /proc reads.
-
 # Process liveness and footprint (process_probe): Windows has no /proc, so a
 # lockfile holder's pid is asked about through the process object itself.
 [target.'cfg(windows)'.dependencies]
 winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
-windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }

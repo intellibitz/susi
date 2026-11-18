@@ -15,7 +15,6 @@
 pub use susi_error;
 pub mod config_bridge;
 pub mod disk_space;
-pub mod host_metrics;
 mod json_util;
 pub mod mcp;
 pub mod mcp_client;
