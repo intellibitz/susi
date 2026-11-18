@@ -7,4 +7,3 @@ pub mod api;
 pub mod event;
 pub mod money;
 pub use susi_core::plane_bus::daemon::harness as dispatch;
-pub use susi_core::susi_config::storage_guard;

@@ -60,7 +60,10 @@ fetch missing objects for ancestry checks but never pushes or changes local refs
 The storage remote is a bucket. Susi does not depend on a hosting provider's
 branch or tag protection, and `push-policy` is a
 client hook: a push with `--no-verify`, or from a clone whose hooks are off, is
-not checked. The guard closes that gap with Git alone:
+not checked. The guard closes that gap with Git alone. Susi Commercial Apps
+serves it (`susi-commercial workflow storage-guard [--witness] [<remote>]`,
+since 2026-11-18); core's command hands the check there, and without Susi
+Commercial Apps installed it refuses and says so:
 
 ```text
 cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]
@@ -167,11 +170,11 @@ contains the dropped commits republishes them with its normal fast-forward. A
 finding remains only when the lost commits are in no later submission, which
 is exactly when someone has to act.
 
-The harness publishes the same way. Its
-[`storage_guard`](../crates/susi-harness/src/storage_guard.rs) module preserves
-the public audit/report API, preferring MCP and using the native witness only
-after definitive provider absence; `xtask` reexports that adapter for
-`local-snapshot` and `local-workflow`.
+The witness is `susi-commercial workflow storage-guard --witness origin`, run
+in the publishing clone; `local-snapshot` and `local-workflow ship` call it
+through [`xtask/src/storage_guard.rs`](../xtask/src/storage_guard.rs). Without
+Susi Commercial Apps the publish still succeeds and prints that the guard did
+not run.
 `submit-main`, `integrate` and `release-promote` run the advisory witness after
 live publication, from the command line and through the daemon. A finding or
 unavailable-provider warning arrives beside the receipt without invalidating

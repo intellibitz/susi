@@ -8,7 +8,7 @@ use xtask::{git_publish, storage_guard};
 
 use std::process::ExitCode;
 
-const GUARD_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]\nChecks that the remote's main and release lines only moved forward and that no tag moved or vanished since this clone last looked. A deletion the CEO directed, listed in .agents/storage/directed-deletions.txt on the remote's main, is accepted; a listed ref that exists again is reported. Reads the remote and writes only local refs under refs/susi-guard/.";
+const GUARD_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]\nChecks that the remote's main and release lines only moved forward and that no tag moved or vanished since this clone last looked. A deletion the CEO directed, listed in .agents/storage/directed-deletions.txt on the remote's main, is accepted; a listed ref that exists again is reported. Reads the remote and writes only local refs under refs/susi-guard/. Served by Susi Commercial Apps (`susi-commercial workflow storage-guard`).";
 
 /// `guard [<remote>]`: a finding is an error exit.
 fn guard(root: &std::path::Path, args: &[String]) -> Result<String, String> {
@@ -17,13 +17,7 @@ fn guard(root: &std::path::Path, args: &[String]) -> Result<String, String> {
         [remote] if remote != "--help" => remote.as_str(),
         _ => return Err(GUARD_USAGE.to_owned()),
     };
-    let report = storage_guard::audit(root, remote)?;
-    let summary = report.summary(remote);
-    if report.findings.is_empty() {
-        Ok(summary)
-    } else {
-        Err(format!("{summary}\n{}", report.findings.join("\n")))
-    }
+    storage_guard::audit(root, remote)
 }
 
 fn main() -> ExitCode {

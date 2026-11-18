@@ -370,8 +370,8 @@ pub(in crate::local_workflow) fn run(args: &[String]) -> Result<()> {
 }
 
 /// After a ship, whatever its result, this clone witnesses the storage remote
-/// (`storage_guard`), in Susi core and in Susi Commercial Apps alike: lost
-/// history is reported on stderr and never changes the ship's result.
+/// through Susi Commercial Apps (`storage_guard`): lost history is reported on
+/// stderr and never changes the ship's result.
 pub(in crate::local_workflow) fn witness_storage(root: &Path) {
     if let Some(advisory) = storage_guard::witness(root, "origin") {
         eprintln!("local-workflow: {advisory}");

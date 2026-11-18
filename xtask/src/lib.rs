@@ -36,7 +36,7 @@ pub mod push_policy;
 pub mod release_lanes;
 pub mod release_qualification;
 pub mod release_version_guard;
-pub use susi_config::storage_guard;
+pub mod storage_guard;
 pub mod sysroot_sources;
 pub mod test_binary_evidence;
 #[cfg(test)]

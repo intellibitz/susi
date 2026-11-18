@@ -51,7 +51,11 @@ fn isolated<'a>(command: &'a mut Command, dir: &Path) -> &'a mut Command {
         .env("GIT_COMMITTER_NAME", "fixture")
         .env("GIT_COMMITTER_EMAIL", "fixture@localhost")
         .env("PATH", path_without_helper())
+        .env("SUSI_COMMERCIAL_BIN", ABSENT_COMMERCIAL)
 }
+
+/// No Susi Commercial Apps unless a test names one.
+const ABSENT_COMMERCIAL: &str = "no-such-susi-commercial";
 
 #[path = "../src/test_fixture_fs.rs"]
 mod test_fixture_fs;
@@ -480,61 +484,147 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
     assert_eq!(rel_status_json["remote_branch_state"], "local_only");
 }
 
-#[test]
-fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking() {
-    let _lock = test_lock();
-    let f = Fixture::new();
-    let seed = f.remote_main();
-    let worker = f.clone_worker("worker");
-    f.commit(&worker, "worker.txt", "first");
-    let other = f.advance_main_elsewhere("other");
-    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-one"]);
-    assert!(out.status.success(), "{}", text(&out));
-    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
-    let record = "refs/susi-guard/origin/heads/main";
-    let witnessed = f.remote_main();
-    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
-
-    // Another client with no hook rewinds main: the other agent's commit and
-    // the merge are gone, and this worker's own branch never contained them.
-    f.git(&f.remote, &["update-ref", "refs/heads/main", &seed]);
-    let second = f.commit(&worker, "worker.txt", "second");
-    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-two"]);
-    // The dump is never blocked; the loss is reported and the record is kept.
-    assert!(out.status.success(), "{}", text(&out));
-    assert!(f.contains(&second, &f.remote_main()));
-    assert!(!f.contains(&other, &f.remote_main()));
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
-    assert!(stderr.contains("did not block"), "{}", text(&out));
-    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
-    // What was lost is still in the witnessing clone.
-    assert!(isolated(&mut Command::new("git"), &worker)
-        .args(["merge-base", "--is-ancestor", &other, record])
+/// A stand-in for `susi-commercial`, which serves the storage guard: it logs
+/// each call with its working directory and reports one finding on stderr.
+fn fake_commercial(dir: &Path) -> PathBuf {
+    let source = dir.join("fake_commercial.rs");
+    std::fs::write(
+        &source,
+        r#"fn main() {
+    use std::io::Write;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cwd = std::env::current_dir().unwrap();
+    let log = std::env::var_os("SUSI_FAKE_GUARD_LOG").unwrap();
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(log).unwrap();
+    writeln!(log, "{} @ {}", args.join(" "), cwd.display()).unwrap();
+    eprintln!("storage guard: REWOUND refs/heads/main (stand-in)");
+}
+"#,
+    )
+    .unwrap();
+    let binary = dir.join(format!("fake-commercial{}", std::env::consts::EXE_SUFFIX));
+    assert!(Command::new("rustc")
+        .args(["--edition", "2021"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&binary)
         .status()
         .unwrap()
         .success());
+    binary
+}
 
-    let quiet = isolated(&mut Command::new(PUBLISHER), &worker)
-        .env("SUSI_NO_STORAGE_GUARD", "1")
-        .args(["retry-main", "witness-two"])
+fn calls(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every publish hands the storage guard to Susi Commercial Apps in the
+/// publishing clone and relays its finding without blocking; without Susi
+/// Commercial Apps it says the guard did not run. (The audit itself, with its
+/// rewound, moved and directed-deletion cases, is tested where it lives:
+/// Susi Commercial Apps' `storage_audit`.)
+#[test]
+fn every_submit_hands_the_storage_guard_to_commercial_without_blocking() {
+    let _lock = test_lock();
+    let f = Fixture::new();
+    let worker = f.clone_worker("worker");
+    let commercial = fake_commercial(&f.root);
+    let log = f.root.join("guard.log");
+    let publish = |name: &str, extra: &[(&str, &str)]| {
+        let mut command = Command::new(PUBLISHER);
+        isolated(&mut command, &worker)
+            .env("SUSI_COMMERCIAL_BIN", &commercial)
+            .env("SUSI_FAKE_GUARD_LOG", &log);
+        for (key, value) in extra {
+            command.env(key, value);
+        }
+        command.args(["submit", name]).output().unwrap()
+    };
+
+    f.commit(&worker, "worker.txt", "first");
+    let out = publish("witness-one", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(
+        stderr.contains("REWOUND refs/heads/main (stand-in)"),
+        "{}",
+        text(&out)
+    );
+    let first = calls(&log);
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert!(
+        first[0].starts_with("workflow storage-guard --witness origin @ "),
+        "{first:?}"
+    );
+
+    f.commit(&worker, "worker.txt", "second");
+    let quiet = publish("witness-two", &[("SUSI_NO_STORAGE_GUARD", "1")]);
+    assert!(quiet.status.success(), "{}", text(&quiet));
+    assert!(!String::from_utf8_lossy(&quiet.stderr).contains("storage guard"));
+    assert_eq!(calls(&log).len(), 1);
+
+    f.commit(&worker, "worker.txt", "third");
+    let absent = publish(
+        "witness-three",
+        &[("SUSI_COMMERCIAL_BIN", ABSENT_COMMERCIAL)],
+    );
+    assert!(absent.status.success(), "{}", text(&absent));
+    let stderr = String::from_utf8_lossy(&absent.stderr).into_owned();
+    assert!(
+        stderr.contains("storage guard not run") && stderr.contains("Susi Commercial Apps"),
+        "{}",
+        text(&absent)
+    );
+}
+
+/// `local-snapshot guard` is the same check on demand: its exit status and
+/// output are those of Susi Commercial Apps, and it refuses plainly without it.
+#[test]
+fn local_snapshot_guard_is_served_by_commercial() {
+    let _lock = test_lock();
+    let f = Fixture::new();
+    let worker = f.clone_worker("worker");
+    let commercial = fake_commercial(&f.root);
+    let log = f.root.join("guard.log");
+    let out = isolated(&mut Command::new(PUBLISHER), &worker)
+        .env("SUSI_COMMERCIAL_BIN", &commercial)
+        .env("SUSI_FAKE_GUARD_LOG", &log)
+        .args(["guard", "origin"])
         .output()
         .unwrap();
-    assert!(!String::from_utf8_lossy(&quiet.stderr).contains("storage guard"));
+    assert!(out.status.success(), "{}", text(&out));
+    assert_eq!(calls(&log).len(), 1);
+    assert!(calls(&log)[0].starts_with("workflow storage-guard origin @ "));
+
+    let absent = f.publish(Path::new(PUBLISHER), &worker, &["guard"]);
+    assert!(!absent.status.success(), "{}", text(&absent));
+    assert!(
+        String::from_utf8_lossy(&absent.stderr).contains("served by Susi Commercial Apps"),
+        "{}",
+        text(&absent)
+    );
 }
 
 /// `local-workflow ship` is the gated landing of Susi core and, through its
 /// cargo alias, of Susi Commercial Apps. Whatever the ship's result, the
-/// shipping clone witnesses the storage remote afterwards.
+/// shipping clone hands the storage guard to Susi Commercial Apps afterwards.
 #[test]
-fn a_ship_witnesses_the_remote_whatever_its_result() {
+fn a_ship_hands_the_storage_guard_to_commercial_whatever_its_result() {
     let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
-    let record = "refs/susi-guard/origin/heads/main";
+    let commercial = fake_commercial(&f.root);
+    let log = f.root.join("guard.log");
     let ship = |extra: &[(&str, &str)]| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_local-workflow"));
-        isolated(&mut command, &worker).args(["ship", "no-such-reservation"]);
+        isolated(&mut command, &worker)
+            .env("SUSI_COMMERCIAL_BIN", &commercial)
+            .env("SUSI_FAKE_GUARD_LOG", &log)
+            .args(["ship", "no-such-reservation"]);
         for (key, value) in extra {
             command.env(key, value);
         }
@@ -542,26 +632,16 @@ fn a_ship_witnesses_the_remote_whatever_its_result() {
     };
     let skipped = ship(&[("SUSI_NO_STORAGE_GUARD", "1")]);
     assert!(!skipped.status.success(), "{}", text(&skipped));
-    assert!(isolated(&mut Command::new("git"), &worker)
-        .args(["rev-parse", "-q", "--verify", record])
-        .output()
-        .unwrap()
-        .stdout
-        .is_empty());
+    assert!(calls(&log).is_empty());
 
     let out = ship(&[]);
     assert!(!out.status.success(), "{}", text(&out));
-    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
-    assert_eq!(f.git(&worker, &["rev-parse", record]), f.remote_main());
-
-    // History dropped behind this clone's back is reported by the next ship.
-    let lost = f.advance_main_elsewhere("other");
-    ship(&[]);
-    f.git(
-        &f.remote,
-        &["update-ref", "refs/heads/main", &format!("{lost}^")],
-    );
-    let out = ship(&[]);
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
+    assert!(
+        stderr.contains("REWOUND refs/heads/main (stand-in)"),
+        "{}",
+        text(&out)
+    );
+    assert_eq!(calls(&log).len(), 1);
+    assert!(calls(&log)[0].starts_with("workflow storage-guard --witness origin @ "));
 }
