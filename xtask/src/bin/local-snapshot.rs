@@ -1,7 +1,6 @@
 //! Submit development source and freeze qualification candidates using Git only.
 #![forbid(unsafe_code)]
 
-
 use xtask::{git_publish, storage_guard};
 
 use std::process::ExitCode;

@@ -11,7 +11,7 @@
 //! [`environment_var`]) read `/proc` on Linux (the raw `/proc/<pid>/exe`
 //! link carries the ` (deleted)` marker of a replaced binary, and trust
 //! checks must see it) and the Win32 process table, image path and PEB
-//! through the `winapi` facade's `host` module on Windows. Until 2026-11-07
+//! on Windows (now served by Susi Commercial Apps). Until 2026-11-07
 //! this went through the `sysinfo` facade (lean-core: 85 s of `windows`
 //! crate on every build's critical path).
 
@@ -30,7 +30,7 @@ pub fn pid_alive(pid: u32) -> Option<bool> {
     {
         windows::pid_alive(pid)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(target_os = "linux"))]
     {
         let _ = pid;
         None
@@ -114,7 +114,7 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
     {
         windows::rss_kb(pid)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(target_os = "linux"))]
     {
         let _ = pid;
         None
@@ -272,43 +272,7 @@ mod platform {
     }
 }
 
-#[cfg(windows)]
-mod platform {
-    use super::ProcessSnapshot;
-    use winapi::host;
-
-    pub(super) fn processes(with_cmd: bool) -> Vec<ProcessSnapshot> {
-        host::processes()
-            .into_iter()
-            .map(|entry| ProcessSnapshot {
-                pid: entry.pid,
-                parent_pid: Some(entry.parent_pid),
-                name: entry.name,
-                exe: host::process_image_path(entry.pid),
-                cmd: if with_cmd {
-                    host::process_command_line(entry.pid).unwrap_or_default()
-                } else {
-                    Vec::new()
-                },
-                rss_kb: super::windows::rss_kb(entry.pid).unwrap_or(0),
-            })
-            .collect()
-    }
-
-    pub(super) fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
-        host::process_image_path(pid)
-    }
-
-    pub(super) fn argv(pid: u32) -> Option<Vec<String>> {
-        host::process_command_line(pid)
-    }
-
-    pub(super) fn environment(pid: u32) -> Option<Vec<String>> {
-        host::process_environment(pid)
-    }
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(target_os = "linux"))]
 mod platform {
     use super::ProcessSnapshot;
 
@@ -326,105 +290,6 @@ mod platform {
 
     pub(super) fn environment(_pid: u32) -> Option<Vec<String>> {
         None
-    }
-}
-
-#[cfg(windows)]
-mod windows {
-    use winapi::shared::minwindef::{DWORD, FALSE};
-    use winapi::shared::winerror::{ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER};
-    use winapi::um::errhandlingapi::GetLastError;
-    use winapi::um::handleapi::CloseHandle;
-    use winapi::um::minwinbase::STILL_ACTIVE;
-    use winapi::um::processthreadsapi::{GetExitCodeProcess, OpenProcess};
-    use winapi::um::psapi::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-    use winapi::um::winnt::{HANDLE, PROCESS_QUERY_LIMITED_INFORMATION};
-
-    /// A process handle opened for limited query access, closed on drop.
-    struct Process(HANDLE);
-
-    impl Process {
-        /// Open `pid`, or the Win32 error that refused it.
-        #[allow(unsafe_code)]
-        fn open(pid: u32) -> Result<Self, DWORD> {
-            // SAFETY: OpenProcess takes only integer arguments and returns a
-            // new handle that this value then owns, or NULL on failure.
-            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) };
-            if handle.is_null() {
-                // SAFETY: GetLastError reads this thread's last-error value
-                // and takes no arguments.
-                Err(unsafe { GetLastError() })
-            } else {
-                Ok(Self(handle))
-            }
-        }
-
-        /// Whether the process is still running. A process that exited with
-        /// code 259 (`STILL_ACTIVE`) reads as running: the conservative side,
-        /// since a false "gone" would let a lock be stolen from a live holder.
-        #[allow(unsafe_code)]
-        fn running(&self) -> Option<bool> {
-            let mut code: DWORD = 0;
-            // SAFETY: `self.0` is a live handle with
-            // PROCESS_QUERY_LIMITED_INFORMATION access, owned by `self`; `code`
-            // is a writable DWORD that outlives the call.
-            let ok = unsafe { GetExitCodeProcess(self.0, &mut code) } != 0;
-            ok.then_some(code == STILL_ACTIVE)
-        }
-
-        /// Working-set size in bytes.
-        #[allow(unsafe_code)]
-        fn working_set_bytes(&self) -> Option<usize> {
-            let mut counters = PROCESS_MEMORY_COUNTERS {
-                cb: 0,
-                PageFaultCount: 0,
-                PeakWorkingSetSize: 0,
-                WorkingSetSize: 0,
-                QuotaPeakPagedPoolUsage: 0,
-                QuotaPagedPoolUsage: 0,
-                QuotaPeakNonPagedPoolUsage: 0,
-                QuotaNonPagedPoolUsage: 0,
-                PagefileUsage: 0,
-                PeakPagefileUsage: 0,
-            };
-            let size = DWORD::try_from(std::mem::size_of::<PROCESS_MEMORY_COUNTERS>()).ok()?;
-            counters.cb = size;
-            // SAFETY: `self.0` is a live handle with
-            // PROCESS_QUERY_LIMITED_INFORMATION access, owned by `self`;
-            // `counters` is a writable PROCESS_MEMORY_COUNTERS of exactly
-            // `size` bytes that outlives the call.
-            let ok = unsafe { K32GetProcessMemoryInfo(self.0, &mut counters, size) } != 0;
-            ok.then_some(counters.WorkingSetSize)
-        }
-    }
-
-    impl Drop for Process {
-        #[allow(unsafe_code)]
-        fn drop(&mut self) {
-            // SAFETY: `self.0` came non-NULL from OpenProcess and is closed
-            // exactly once, here.
-            unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    pub(super) fn pid_alive(pid: u32) -> Option<bool> {
-        match Process::open(pid) {
-            Ok(process) => process.running(),
-            // No process object has this id.
-            Err(ERROR_INVALID_PARAMETER) => Some(false),
-            // The process exists; it is just not ours to query.
-            Err(ERROR_ACCESS_DENIED) => Some(true),
-            Err(_) => None,
-        }
-    }
-
-    pub(super) fn rss_kb(pid: u32) -> Option<u64> {
-        let process = Process::open(pid).ok()?;
-        if !process.running()? {
-            return None;
-        }
-        let bytes = u64::try_from(process.working_set_bytes()?).ok()?;
-        Some(bytes / 1024)
     }
 }
 
@@ -471,7 +336,7 @@ mod tests {
         assert_eq!(rss_kb(pid), None, "exited pid {pid}");
     }
 
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn unknown_platforms_answer_none() {
         assert_eq!(pid_alive(std::process::id()), None);

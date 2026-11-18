@@ -167,9 +167,6 @@ fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
         .write_all(bytes)
         .and_then(|()| if sync { file.sync_all() } else { Ok(()) });
     drop(file);
-    #[cfg(windows)]
-    let result = result.and_then(|()| winapi::file_replace::replace_staged(&tmp_path, path));
-    #[cfg(not(windows))]
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp_path);

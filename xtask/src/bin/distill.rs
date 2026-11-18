@@ -3,7 +3,6 @@
 //! Changes no branch, ref, index or working tree; writes only `--out`.
 #![forbid(unsafe_code)]
 
-
 use xtask::distill;
 
 use std::process::ExitCode;

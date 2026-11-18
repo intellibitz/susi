@@ -32,8 +32,12 @@ mod elf_imports;
 mod gmcp_evidence;
 #[path = "../installed_delivery.rs"]
 mod installed_delivery;
+#[path = "../native_link.rs"]
+mod native_link;
 #[path = "../native_openssl.rs"]
 mod native_openssl;
+#[path = "../pe_imports.rs"]
+mod pe_imports;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
 #[path = "../release_coordinator.rs"]
@@ -44,10 +48,6 @@ mod sysroot_license;
 mod upstream_notices;
 #[path = "../vendor_regressions.rs"]
 mod vendor_regressions;
-#[path = "../pe_imports.rs"]
-mod pe_imports;
-#[path = "../native_link.rs"]
-mod native_link;
 
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())

@@ -1,7 +1,6 @@
 //! Shell-free structural validator for the GMCP completion roadmap.
 #![forbid(unsafe_code)]
 
-
 use xtask::gmcp_roadmap;
 
 use std::path::Path;

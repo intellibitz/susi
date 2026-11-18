@@ -3,7 +3,6 @@
 //! manifests, notices and audits (CEO Mandates 74 & 75).
 #![forbid(unsafe_code)]
 
-
 use xtask::harvest;
 
 use std::process::ExitCode;

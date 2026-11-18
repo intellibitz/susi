@@ -20,8 +20,7 @@ mod linux_link;
 mod console;
 
 fn main() {
-    linux_link::configure_all_bins()
-        .expect("Linux linker map configuration failed");
+    linux_link::configure_all_bins().expect("Linux linker map configuration failed");
     enable_repository_hooks();
 
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");

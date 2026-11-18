@@ -1,7 +1,6 @@
 //! Distill labelled development contributions and compose feature/release branches using Git only.
 #![forbid(unsafe_code)]
 
-
 use xtask::distill_compose;
 
 use std::process::ExitCode;

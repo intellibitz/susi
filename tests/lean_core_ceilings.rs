@@ -138,7 +138,9 @@ const WORKSPACE_CEILING: usize = 33;
 /// `VENDOR_FACADES` 17 -> 16).
 /// 2026-11-18: 49 -> 29 (SAES-9: delete susi-windows-runtime and
 /// susi-build-os-ucrt; Windows PE/UCRT live in Susi Commercial Apps).
-const WORKSPACE_MEMBERS_CEILING: usize = 29;
+/// 2026-11-18: 29 -> 28 (SAES-9: delete susi-vendor-winapi after commercial
+/// H-SAES9-2 / #124 owned it).
+const WORKSPACE_MEMBERS_CEILING: usize = 28;
 /// Total resolved packages in `Cargo.lock` (`cargo metadata` `packages`).
 /// 2026-11-12: 182 -> 181 (T-CARBONCLOUD-3: `susi-vendor-tempfile` leaves
 /// `Cargo.lock` alongside 8 workspace `[dev-dependencies]` facade edges).
@@ -194,7 +196,9 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 // The model Provider trait moved to Susi Commercial Apps.
 /// 2026-11-18: 27_066 -> 25_144 (SAES-9: delete susi-windows-runtime and
 /// susi-build-os-ucrt after commercial H-SAES9-1 / #123 owned them).
-const COMPLETE_SOCKET_CEILING: usize = 25_144;
+/// 2026-11-18: 25_144 -> 24_999 (SAES-9: delete susi-vendor-winapi after
+/// commercial H-SAES9-2 / #124; complete socket 23_144, at the CEO limit).
+const COMPLETE_SOCKET_CEILING: usize = 24_999;
 /// The CEO's limit: strictly below 25,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 24_999;
 

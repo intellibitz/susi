@@ -1,7 +1,6 @@
 //! Many agents advance one release line in parallel without conflicts (CEO Mandate 74).
 #![forbid(unsafe_code)]
 
-
 use xtask::release_lanes;
 
 use std::process::ExitCode;

@@ -131,7 +131,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-sha2",
     "susi-vendor-tokio",
     "susi-vendor-tracing",
-    "susi-vendor-winapi",
 ];
 
 #[test]

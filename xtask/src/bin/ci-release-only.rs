@@ -1,7 +1,6 @@
 //! Fail-closed recognition of an exact SUSI release-version-only Git diff.
 #![forbid(unsafe_code)]
 
-
 use std::collections::BTreeSet;
 use std::process::{Command, Stdio};
 

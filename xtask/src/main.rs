@@ -12,7 +12,6 @@
 
 use xtask::{build_time, extension_watch, fast_release, gate_receipt, local_build, test_runner};
 
-
 use serde_json::Value;
 use std::env;
 use std::fs;

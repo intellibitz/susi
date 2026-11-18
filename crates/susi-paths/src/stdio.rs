@@ -190,7 +190,6 @@ mod tests {
     }
 }
 
-
 /// Spawn a child without Windows stdio-handle inheritance surprises.
 ///
 /// On Linux this is `Command::spawn`. Core is Linux-only; the Windows PE

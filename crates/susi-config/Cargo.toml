@@ -15,7 +15,6 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 # Process liveness and footprint (process_probe): Windows has no /proc, so a
 # lockfile holder's pid is asked about through the process object itself.
 [target.'cfg(windows)'.dependencies]
-winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }

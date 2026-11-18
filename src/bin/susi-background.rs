@@ -1,7 +1,6 @@
 //! Windowless Windows logon entry point for the adjacent installed Susi.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-
 #[cfg(windows)]
 fn start() -> std::io::Result<std::process::ExitStatus> {
     let engine = std::env::current_exe()?.with_file_name("susi.exe");
