@@ -1,0 +1,19 @@
+{
+  "schema": "susi-harvest-trailer-corrections-v1",
+  "corrections": [
+    {
+      "commit": "10529ac4742e37e5376abcb0625f0ba20efec980",
+      "old_label": "original-apache-2.0",
+      "source_commit": "de73793214c04fda17618f4a97840968322459b9",
+      "files": [
+        {
+          "path": "crates/susi-vendor-winapi/src/socket.rs",
+          "commit_blob_sha1": "3132a96303013a018f5f708503922b9924edbccb",
+          "source_path": "crates/susi-daemon/src/server.rs",
+          "source_blob_sha1": "8334a70d0a95944dcd0d9fa9b630fa1a94a88226"
+        }
+      ],
+      "reason": "Nothing was imported. The commit moved Susi's own daemon SetHandleInformation call, present in its parent at crates/susi-daemon/src/server.rs, into the safe susi-vendor-winapi facade. Its task record says reuse of existing code. The Harvest label was a mislabel; the published commit is preserved and this binds the correction to its exact files and blobs."
+    }
+  ]
+}
