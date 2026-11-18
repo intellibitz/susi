@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDEBASELINE-1",
+  "title": "Keep unsafe baselines to their admission data, with scan proof outside source",
+  "goal": "Each committed unsafe baseline embeds two complete raw scans and a historical inventory (about 290,000 of its 302,000 lines) only so that every gate run can re-derive the allowances. Keep in source what admission reads: the allowances, the bound component review and the digests of the historical inventory and both scans. Keep the full re-derivation available as an explicit proof check against the digest-bound scan files, run when a baseline is written and on demand, and keep the scan proof recoverable outside checked-out source. No allowance, review, digest or admission rule changes.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    "crates/susi-unsafe-ratchet/",
+    ".agents/baseline/",
+    "docs/unsafe-baselines.md",
+    "docs/README.md",
+    "crates/susi-windows-runtime/UNSAFE-REVIEW.md",
+    ".agents/tasks/T-CLAUDEBASELINE-1.json",
+    ".agents/claims/T-CLAUDEBASELINE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet"
+    ]
+  },
+  "created_by": "CLAUDEBASELINE",
+  "created_unix": 1794989348
+}
