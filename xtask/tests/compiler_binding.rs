@@ -3,7 +3,7 @@
 
 #[cfg(windows)]
 #[allow(dead_code)] // This harness exercises the stdlib builder's Cargo factory, not its CLI.
-#[path = "../../toolchain/windows-stdlib/builder.rs"]
+#[path = "../../toolchain/stdlib/builder.rs"]
 mod builder;
 #[path = "../src/compiler_env.rs"]
 mod compiler_env;

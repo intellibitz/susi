@@ -64,8 +64,8 @@ verbatim (see the [GMCP completion roadmap](gmcp-roadmap.md)):
 - [Config layout](../config/README.md)
 - [susi-harness](../crates/susi-harness/README.md)
 - Windows PE process boundary: see Susi Commercial Apps `crates/susi-windows-runtime` (core is Linux-only)
-- [Windows product standard-library prototype](../toolchain/windows-stdlib/README.md)
-- [Native product standard library and release checks](../toolchain/windows-stdlib/NATIVE-BUILDS.md)
+- [Product standard-library builder](../toolchain/stdlib/README.md)
+- [Native product standard library and release checks](../toolchain/stdlib/NATIVE-BUILDS.md)
 
 ## Dated records
 

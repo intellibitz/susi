@@ -8,20 +8,23 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
+#[path = "../../toolchain/stdlib/native_target.rs"]
+mod native_target;
 
 fn target(compiler: &str) -> Result<&str> {
     let host = compiler
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .ok_or("missing compiler host")?;
-
+    if !native_target::supported(host) {
+        return Err("no native sysroot contract for compiler host".into());
+    }
     Ok(host)
 }
 const INPUTS: &[&str] = &[
     "builder.rs",
-    
-    
+    "native_target.rs",
+    "platform_unicode.rs",
     "consumer.rs",
     "Cargo.toml",
     "Cargo.lock",
@@ -66,9 +69,7 @@ fn identity(root: &Path, compiler: &str) -> Result<String> {
     let mut bytes = compiler.as_bytes().to_vec();
     bytes.extend_from_slice(include_bytes!("rust-src-1.99.0-authenticated.json"));
     for input in INPUTS {
-        bytes.extend_from_slice(&fs::read(
-            root.join("toolchain/windows-stdlib").join(input),
-        )?);
+        bytes.extend_from_slice(&fs::read(root.join("toolchain/stdlib").join(input))?);
     }
     Ok(super::sysroot_sources::hash(&bytes))
 }
@@ -130,7 +131,7 @@ fn source_check(root: &Path, destination: &Path, installed: &Path) -> Result<()>
     super::sysroot_sources::replacement(
         &destination.join("source/library"),
         &installed.join("lib/rustlib/src/rust/library"),
-        &root.join("toolchain/windows-stdlib/platform_unicode.rs"),
+        &root.join("toolchain/stdlib/platform_unicode.rs"),
     )?;
     Ok(())
 }
@@ -272,7 +273,7 @@ fn qualify_consumer(root: &Path, destination: &Path, output: &Path) -> Result<()
     super::compiler_env::apply(&mut execute);
     if !consumer
         .current_dir(root)
-        .arg("toolchain/windows-stdlib/consumer.rs")
+        .arg("toolchain/stdlib/consumer.rs")
         .args(["--test", "--edition", "2021", "--sysroot"])
         .arg(destination.join("sysroot"))
         .arg("-o")
@@ -371,7 +372,7 @@ pub fn prepare(root: &Path) -> Result<VerifiedSysroot> {
             "--offline",
             "--locked",
             "--manifest-path",
-            "toolchain/windows-stdlib/Cargo.toml",
+            "toolchain/stdlib/Cargo.toml",
             "--target-dir",
         ])
         .arg(&target)
@@ -477,7 +478,3 @@ mod tests {
         fs::remove_dir(directory).unwrap();
     }
 }
-
-
-
-
