@@ -6,6 +6,11 @@ typed errors, required `resultType`, per-request protocol/capability
 metadata, trace context, and deterministic unsupported-version behavior
 for every supported revision.
 
+Implementation location (2026-11-18): the MCP client and host implementation
+named below (`susi-wire-client`, the peer `mcp_client`, `susi-tools`, the
+`susi mcp` CLI and the GMCP server) lives in Susi Commercial Apps. Core keeps
+this contract and the GMCP wire model (`crates/susi-gmcp/src/mcp/model.rs`).
+
 This document is the contract for the vector. It binds the mastery
 target to pinned sources, names the canonical production path and data
 model, fixes the behavior baseline per revision, records every

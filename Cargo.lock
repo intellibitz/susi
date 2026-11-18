@@ -846,7 +846,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-winapi",
- "susi-wire-client",
 ]
 
 [[package]]
@@ -1102,14 +1101,6 @@ dependencies = [
 [[package]]
 name = "susi-windows-runtime"
 version = "0.1.0"
-
-[[package]]
-name = "susi-wire-client"
-version = "0.1.0"
-dependencies = [
- "susi-paths",
- "susi-vendor-serde-json",
-]
 
 [[package]]
 name = "syn"

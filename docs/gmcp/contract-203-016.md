@@ -3,6 +3,11 @@
 Status: **contract pinned** (requirement GMCP-203-016-01, vector VC-203-016)
 Baseline date: **2026-10-25**
 
+Implementation location (2026-11-18): the MCP client and host implementation
+named below (`susi-wire-client`, the peer `mcp_client`, `susi-tools`, the
+`susi mcp` CLI and the GMCP server) lives in Susi Commercial Apps. Core keeps
+this contract and the GMCP wire model (`crates/susi-gmcp/src/mcp/model.rs`).
+
 ## Normative clause
 
 Namespaced MCP extensions are first-class: the protocol data model carries

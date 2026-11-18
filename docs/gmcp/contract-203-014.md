@@ -3,6 +3,11 @@
 Status: **contract pinned** (requirement `GMCP-203-014-01`, vector `VC-203-014`)
 Baseline date: **2026-11-15**
 
+Implementation location (2026-11-18): the MCP client and host implementation
+named below (`susi-wire-client`, the peer `mcp_client`, `susi-tools`, the
+`susi mcp` CLI and the GMCP server) lives in Susi Commercial Apps. Core keeps
+this contract and the GMCP wire model (`crates/susi-gmcp/src/mcp/model.rs`).
+
 This contract binds every normative clause of vector `VC-203-014` (`T-CODEXGMCPROADMAP-100`) and defines the complete architecture, compatibility boundaries, threat model, resource budgets, fixtures, and resolved design decisions required before implementing `T-CODEXGMCPROADMAP-101` through `T-CODEXGMCPROADMAP-106`. Every row in the behavior table is normative and pinned verbatim against `.agents/gmcp/requirements-ledger.json` and `.agents/gmcp/sources.json`.
 
 ## Normative clause

@@ -10,7 +10,6 @@ members = [
     "crates/susi-core",
     "crates/susi-vendor-syn",
     "crates/susi-config",
-    "crates/susi-wire-client",
     "crates/susi-tools",
     "crates/susi-gemi-models",
     "crates/susi-gemi",
@@ -102,7 +101,6 @@ susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
-susi-wire-client = { path = "crates/susi-wire-client" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
 susi-gmcp = { path = "crates/susi-gmcp", default-features = false }

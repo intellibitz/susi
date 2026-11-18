@@ -46,8 +46,6 @@ pub use crate::susi_error::redact;
 pub mod bounded_cmd;
 pub mod bounded_io;
 pub mod native_board;
-/// Generic MCP session transport; peer signing and sealing live with the runtime.
-pub use susi_wire_client::mcp as mcp_client;
 pub mod scoped_tools;
 pub mod self_build;
 

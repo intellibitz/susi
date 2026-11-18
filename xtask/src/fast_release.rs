@@ -101,7 +101,6 @@ const HARNESS_SOAK_SKIP_FILTERS: &[&str] = &[
     "plain_http::tests::",
     "registry::tests::",
     "delegation_tests::the_ledger_is_bounded",
-    "mcp_client::tests::a_short_budget_bounds_the_handshake_too",
     "net_guard::tests::local_host_bearer_over_loopback_is_not_metered",
     "commit_log::tests::",
     "plane_bus_ipc::tests::",

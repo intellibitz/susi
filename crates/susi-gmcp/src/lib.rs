@@ -1,9 +1,8 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-//! Generic MCP client transport, wire model and tool socket dispatch.
-//! Catalog, server handlers and concrete tools live with the registered host.
-pub use susi_core::mcp_client;
+//! Generic MCP wire model and tool socket dispatch. The MCP client, catalog,
+//! server handlers and concrete tools live with the registered host.
 pub use susi_core::plane_bus::tools as plane_tools;
 pub mod mcp {
     pub mod model;

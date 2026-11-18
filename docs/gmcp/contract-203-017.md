@@ -3,6 +3,11 @@
 Status: **delivered** (requirements GMCP-203-017-01..06 + GMCP-203-017-M, vector VC-203-017)
 Baseline date: **2026-11-16**
 
+Implementation location (2026-11-18): the MCP client and host implementation
+named below (`susi-wire-client`, the peer `mcp_client`, `susi-tools`, the
+`susi mcp` CLI and the GMCP server) lives in Susi Commercial Apps. Core keeps
+this contract and the GMCP wire model (`crates/susi-gmcp/src/mcp/model.rs`).
+
 ## Normative clause
 
 GMCP is a full MCP host, not only a tool caller: one unified Rust API and `susi mcp`
@@ -358,7 +363,7 @@ authorities pinned in `.agents/gmcp/sources.json` and vendored under `.agents/gm
 ## Operations and non-claims
 
 - **Rollout & per-server isolation boundary**: `McpHost` isolates transport sessions, `HostPolicy` client identities/principals, `file://` root allow-lists, MRTR callback handlers, active SSE subscriptions, notification ring buffers, and `PersistedTaskHandleStore` files per server handle. Disconnecting, disabling, or resetting one server never interrupts sibling connected servers or mutates caller transcripts.
-- **Headless Core vs. Commercial UI boundary**: Susi Core ships the complete protocol-level MCP host, session engine, callback broker, headless `ui://` MCP Apps metadata/CSP validator, and `susi mcp` CLI with zero vendor MCP SDK crates (`rmcp`, `schemars`, `axum`, `tower`, `reqwest`, `ureq` absent), while interactive WebView/graphical MCP Apps surfaces live in Susi Commercial Apps.
+- **Headless host vs. Commercial UI boundary**: Susi Commercial Apps ships the complete protocol-level MCP host, session engine, callback broker, headless `ui://` MCP Apps metadata/CSP validator, and `susi mcp` CLI over core's GMCP contract and wire model, with zero vendor MCP SDK crates (`rmcp`, `schemars`, `axum`, `tower`, `reqwest`, `ureq` absent), while interactive WebView/graphical MCP Apps surfaces live in Susi Commercial Apps.
 
 ## Operations and incident runbook
 

@@ -1,8 +1,8 @@
 //! Blocking HTTP/1.1 client over `std::net::TcpStream`, plaintext
 //! `http://` only.
 //!
-//! This is the transport of `susi_core::mcp_client`, the peer
-//! channel between Susi hosts. It keeps `susi-core` off the async runtime and
+//! This is the transport of the ACP socket client and of the peer channel
+//! between Susi hosts, whose MCP client lives in Susi Commercial Apps. It keeps `susi-core` off the async runtime and
 //! the third-party HTTP stack: one request per connection
 //! (`Connection: close`), no pooling, no TLS, no proxy.
 //!
