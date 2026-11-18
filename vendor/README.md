@@ -14,6 +14,12 @@ See `native-tls/SUSI-PATCHES.md` for qualification, limitations and upstream
 source provenance. Non-Windows platform TLS boundaries must be evaluated
 separately; Windows evidence does not certify Linux builds.
 
+Core no longer builds it (2026-11-18, T-CLAUDETRANSPLANT-2): its last core users,
+the TLS and certificate facades, moved to Susi Commercial Apps, which patches
+`native-tls` from this directory at its pinned core revision. The source stays
+here, with its reviewed unsafe Windows boundary, until the CEO decides whether
+reviewed unsafe code may live in Susi Commercial Apps.
+
 ## esaxx-rs 0.1.10
 
 **Why:** tokenizers enables `esaxx-rs/cpp` via its default `esaxx_fast`

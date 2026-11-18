@@ -19,22 +19,18 @@ members = [
     "crates/susi-gawd-acp",
     "crates/susi-gawd", "crates/susi-daemon",
     "crates/susi-harness",
-    "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
     "crates/susi-vendor-ed25519-dalek",
     "crates/susi-vendor-getrandom",
     "crates/susi-vendor-hyper",
     "crates/susi-vendor-libc",
-    "crates/susi-vendor-rcgen",
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha2",
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
-    "crates/susi-vendor-tokio-rustls",
     "crates/susi-vendor-tracing",
-    "crates/susi-vendor-winapi",
-    "crates/susi-vendor-x25519-dalek"]
+    "crates/susi-vendor-winapi"]
 # Vendored, patched third-party crates (see vendor/README.md): not workspace
 # members, so workspace lints/clippy gates do not apply to upstream code.
 exclude = ["vendor"]
@@ -150,7 +146,6 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 [patch.crates-io]
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
-native-tls = { path = "vendor/native-tls" }
 hashbrown = { path = "vendor/hashbrown" }
 # Concrete model/tool feature selection belongs to the commercial runtime.
 [features]
