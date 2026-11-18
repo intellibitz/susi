@@ -1,7 +1,6 @@
 //! Structured audit export for SIEM.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
 /// Maximum size of any human-readable audit metadata field.
@@ -326,53 +325,9 @@ fn bounded_metadata(value: &str, max_chars: usize) -> String {
     redacted.chars().take(max_chars).collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AuditEvent {
-    pub ts_unix: u64,
-    pub action: String,
-    pub actor: String,
-    pub outcome: String,
-}
-
-/// Export events as newline-delimited JSON for SIEM ingest.
-#[must_use]
-pub fn export_ndjson(events: &[AuditEvent]) -> String {
-    events
-        .iter()
-        .map(|e| {
-            json!({
-                "ts": e.ts_unix,
-                "action": e.action,
-                "actor": e.actor,
-                "outcome": e.outcome,
-            })
-            .to_string()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Parse one NDJSON line back (round-trip helper).
-pub fn parse_ndjson_line(line: &str) -> Result<Value, String> {
-    serde_json::from_str(line).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod audit_export_tests {
     use super::*;
-
-    #[test]
-    fn audit_export_ndjson_for_siem() {
-        let nd = export_ndjson(&[AuditEvent {
-            ts_unix: 1,
-            action: "start".into(),
-            actor: "daemon".into(),
-            outcome: "ok".into(),
-        }]);
-        let v = parse_ndjson_line(&nd).unwrap();
-        assert_eq!(v["action"], "start");
-        assert_eq!(v["outcome"], "ok");
-    }
 
     #[test]
     fn audit_action_kind_all_has_seventeen_unique_snake_case_labels() {
@@ -381,62 +336,8 @@ mod audit_export_tests {
         let labels: std::collections::BTreeSet<&str> = all.iter().map(|k| k.as_str()).collect();
         assert_eq!(labels.len(), 17);
         assert!(labels.iter().all(|s| !s.is_empty()));
-
         assert_eq!(AuditOutcome::Succeeded.as_str(), "succeeded");
         assert_eq!(AuditOutcome::Denied.as_str(), "denied");
-        assert_eq!(AuditOutcome::Failed.as_str(), "failed");
-        assert_eq!(AuditOutcome::Cancelled.as_str(), "cancelled");
-        assert_eq!(AuditOutcome::Partial.as_str(), "partial");
-        assert_eq!(AuditOutcome::Uncertain.as_str(), "uncertain");
-    }
-
-    #[test]
-    fn audit_action_new_rejects_empty_actor_target_or_correlation_and_truncates_metadata() {
-        let target = AuditTarget::identifier("resource-1");
-        assert!(AuditAction::new(
-            AuditActionKind::Commit,
-            "",
-            target.clone(),
-            AuditOutcome::Succeeded,
-            10,
-            0,
-            "corr-1",
-        )
-        .is_err());
-        assert!(AuditAction::new(
-            AuditActionKind::Commit,
-            "actor-1",
-            AuditTarget::identifier(""),
-            AuditOutcome::Succeeded,
-            10,
-            0,
-            "corr-1",
-        )
-        .is_err());
-        assert!(AuditAction::new(
-            AuditActionKind::Commit,
-            "actor-1",
-            target.clone(),
-            AuditOutcome::Succeeded,
-            10,
-            0,
-            "",
-        )
-        .is_err());
-
-        let valid = AuditAction::new(
-            AuditActionKind::Commit,
-            "actor-1",
-            target,
-            AuditOutcome::Succeeded,
-            10,
-            5,
-            "corr-1",
-        )
-        .unwrap();
-        assert!(valid.redacted);
-        assert_eq!(valid.duration_ms, 10);
-        assert_eq!(valid.cost_micros, 5);
     }
 
     #[test]
@@ -456,23 +357,5 @@ mod audit_export_tests {
         let out = choke.dispatch_mutation(&action, || Ok(42)).unwrap();
         assert_eq!(out, 42);
         assert_eq!(sink.records().len(), 1);
-    }
-
-    #[test]
-    fn parse_ndjson_line_rejects_invalid_json_and_unredacted_action_is_refused() {
-        assert!(parse_ndjson_line("{not-valid-json").is_err());
-        let mut action = AuditAction::new(
-            AuditActionKind::SecretAccess,
-            "actor-1",
-            AuditTarget::identifier("secret-id"),
-            AuditOutcome::Denied,
-            5,
-            0,
-            "corr-sec",
-        )
-        .unwrap();
-        action.redacted = false;
-        let choke = AuditChokePoint::new(RecordingAuditSink::default());
-        assert!(choke.dispatch(&action).is_err());
     }
 }

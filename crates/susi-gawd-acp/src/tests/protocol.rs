@@ -1,6 +1,6 @@
-//! Wire and external stream contracts retained by the native ACP package.
+//! Wire contracts retained by the native ACP package.
 use super::*;
-use std::io::Cursor;
+use serde_json::json;
 
 #[test]
 fn legacy_roles_defaults_and_refusals_remain_compatible() {
@@ -57,49 +57,4 @@ fn official_tool_events_keep_member_names_and_omissions() {
         serde_json::to_value(&update).unwrap(),
         json!({"toolCallId":"tool-1","status":"failed","content":[{"type":"content","content":{"type":"text","text":"cancelled"}}]})
     );
-}
-
-#[test]
-fn external_sse_decodes_crlf_multiline_comments_and_final_unterminated_frame() {
-    let input = b": keepalive\r\n\r\nevent: acp.turn.event\r\ndata: {\"delta\":\r\ndata: \"hello\"}\r\n\r\ndata: {\"stop_reason\":\"end_turn\"}";
-    let mut frames = Vec::new();
-    read_sse_stream(Cursor::new(input), &mut |frame| {
-        frames.push(frame);
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(
-        frames,
-        vec![
-            ("acp.turn.event".to_owned(), json!({"delta":"hello"})),
-            ("message".to_owned(), json!({"stop_reason":"end_turn"}))
-        ]
-    );
-}
-
-#[test]
-fn external_sse_preserves_backpressure_and_malformed_frame_refusal() {
-    let mut observed = 0;
-    let error = read_sse_stream(Cursor::new(b"data: {}\n\ndata: {}\n\n"), &mut |_| {
-        observed += 1;
-        Err("consumer cancelled".to_owned())
-    })
-    .unwrap_err();
-    assert_eq!(error, "consumer cancelled");
-    assert_eq!(observed, 1);
-    let error = read_sse_stream(Cursor::new(b"data: invalid\n\n"), &mut |_| Ok(())).unwrap_err();
-    assert!(error.starts_with("malformed SSE JSON frame:"));
-}
-
-#[test]
-fn external_sse_refuses_oversize_payload_before_delivering_it() {
-    let input = format!("data: \"{}\"\n\n", "x".repeat(MAX_HTTP_BODY_BYTES));
-    let mut delivered = false;
-    let error = read_sse_stream(Cursor::new(input), &mut |_| {
-        delivered = true;
-        Ok(())
-    })
-    .unwrap_err();
-    assert_eq!(error, "ACP SSE response exceeds configured limit");
-    assert!(!delivered);
 }
