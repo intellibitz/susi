@@ -188,11 +188,25 @@ mod tests {
         let launcher = root.join("original core launcher");
         fs::copy(env::current_exe().unwrap(), &launcher).unwrap();
         let test = "cli::runtime_forward::tests::unlinked_launcher_survives_its_original_process";
-        let mut child = Command::new(&launcher)
-            .args(["--exact", test, "--nocapture"])
-            .env(CHILD, root)
-            .spawn()
-            .unwrap();
+        // A sibling test thread forking while `copy` still held the file open
+        // keeps a write descriptor to it until that child execs, so exec can
+        // briefly fail with ETXTBSY; wait that inherited descriptor out.
+        let spawn_deadline = Instant::now() + Duration::from_secs(10);
+        let mut child = loop {
+            match Command::new(&launcher)
+                .args(["--exact", test, "--nocapture"])
+                .env(CHILD, root)
+                .spawn()
+            {
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && Instant::now() < spawn_deadline =>
+                {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                spawned => break spawned.unwrap(),
+            }
+        };
         let deadline = Instant::now() + Duration::from_secs(15);
         while !root.join("ready").exists() {
             assert!(Instant::now() < deadline);
