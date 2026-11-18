@@ -632,7 +632,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let graph: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(graph["workspace_members"].as_array().unwrap().len(), 8);
+        assert_eq!(graph["workspace_members"].as_array().unwrap().len(), 7);
     }
 
     #[test]
