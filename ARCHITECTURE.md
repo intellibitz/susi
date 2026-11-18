@@ -11,9 +11,9 @@ The narrative architecture (the socket, its pillars, the plane bus and its
 loopback rendezvous, implementation services and protocol adapters, the lean-core
 direction and the command reference) is [`docs/architecture.md`](docs/architecture.md);
 verified claims and admitted gaps are [`docs/evidence.md`](docs/evidence.md).
-This file remains the enforceable contract. The one Wasm runtime in the
-workspace is Wasmi, inside the compatibility-named `susi-vendor-wasmtime`
-crate; no Wasmtime is linked.
+This file remains the enforceable contract. Core links no Wasm runtime: the
+Wasmi reflex sandbox (the compatibility-named `susi-vendor-wasmtime` crate) and
+its client are served by Susi Commercial Apps; no Wasmtime is linked.
 
 Constitutional source of truth for product claims remains
 [`.agents/identity.json`](.agents/identity.json). When this file and identity
@@ -110,12 +110,12 @@ commercial owners reuse those types rather than compiling a second contract copy
 
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
-| `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; the std-only cell TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` | std, serde, serde_json | all workspace crates | no | no | cell TCP when a cell binary serves |
+| `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame` | std, serde, serde_json | all workspace crates | no | no | cell TCP when a cell binary serves |
 | `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports` (host contract 9090–9094, gossip 9095, and the leaf-service defaults `PATHS_SERVICE`…`NATIVE_SERVICE` 18080–18084), `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
 | `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Generic protocol contracts, authorization, audit socket, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | shared wire types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-gawd-acp` for the public ACP compatibility path; std, serde, concurrency libs (no async runtime: the peer MCP session client runs on `plain_http`, a std `http://` HTTP/1.1 module, and provider futures are runtime-agnostic) | feature planes; HTTP client crates; `susi-adapters-llm`, `susi-http-transport`, tokio | providers/tools via registry | process registry | receipt archive paths |
-| `susi-vendor-wasmtime` | The one wasm crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses. Inputs are compiled binary `.wasm` only — the WebAssembly text format is a dev-dependency of this crate's own tests, never a host input | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmi, wasmparser, wasm-encoder (normal), `wat` (dev only) | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
-| `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | `susi-vendor-wasmtime`, feature planes | no | no | loopback HTTP |
+| `susi-vendor-wasmtime` (commercial) | The one wasm crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses. Inputs are compiled binary `.wasm` only — the WebAssembly text format is a dev-dependency of this crate's own tests, never a host input | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmi, wasmparser, wasm-encoder (normal), `wat` (dev only) | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
+| `susi-native-client` (commercial) | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | `susi-vendor-wasmtime`, feature planes | no | no | loopback HTTP |
 | `susi-config` | Configuration, extension packs, versioned JSON store and shared authorized MCP protocol client | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode`, `mcp`, `mcp_client`, `mcp_session` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP client libraries, everything above paths/error; applications supply HTTP transport | MCP providers through registry | config files, owned sessions | config I/O and authorized stdio; HTTP through injected transport |
 | `susi-leaf-services` (commercial) | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
@@ -189,8 +189,9 @@ the old `#[path]` mount a hard failure.
 
 **`susi-abi` is a Cargo dependency, not a mount.** Planes and cell binaries
 declare `susi-abi = { workspace = true }` and re-export it
-(`pub use susi_abi;`); the cell binaries serve through its std-only
-`cell_server` loop (one thread per connection, no async runtime). `susi_abi_is_never_source_mounted_into_a_consumer`
+(`pub use susi_abi;`); the cell binaries serve through the std-only
+`susi-cell-server` loop in Susi Commercial Apps (one thread per connection, no
+async runtime). `susi_abi_is_never_source_mounted_into_a_consumer`
 makes a regression of the old `#[path]` / `embedded.rs` mounts a hard failure.
 
 **`susi-gawd-agents` is a Cargo dependency, not a mount.** The swarm, A2A

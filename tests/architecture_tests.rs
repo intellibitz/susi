@@ -101,7 +101,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
-    ("susi-native-client", 2),
     // No SUSI dependencies: a leaf, reachable from every rank above it.
     // std + JSON only; body framing is shared through the paths leaf.
     ("susi-wire-client", 1),
@@ -110,7 +109,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // The GAWD ACP protocol crate depends on config. Core re-exports its API.
     ("susi-gawd-acp", 3),
     ("susi-core", 4),
-    ("susi-vendor-wasmtime", 2),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
@@ -460,24 +458,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-sandbox",
                 "susi-tools",
                 "susi-agents",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-daemon",
-                "susi-server",
-            ],
-        ),
-        (
-            "susi-vendor-wasmtime",
-            &[
-                "susi-core",
-                "susi-tools",
-                "susi-agents",
-                "susi-sandbox",
                 "susi-gemi",
                 "susi-gemi-models",
                 "susi-gmcp",

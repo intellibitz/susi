@@ -8,9 +8,7 @@ members = [
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-vendor-wasmtime",
     "crates/susi-vendor-syn",
-    "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-wire-client",
     "crates/susi-tools",
@@ -103,9 +101,7 @@ susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
-susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
-susi-native-client = { path = "crates/susi-native-client" }
 susi-wire-client = { path = "crates/susi-wire-client" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
@@ -137,7 +133,6 @@ susi-gawd-swarm = { workspace = true }
 
 [dependencies]
 susi-core = { workspace = true }
-susi-vendor-wasmtime = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }

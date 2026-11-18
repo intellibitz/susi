@@ -7,7 +7,8 @@
 #![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Resolve the actual target dependency graph, not historical facade names.
-//! Wasmi supplies Rust-only WebAssembly execution. Windows TLS uses Schannel,
+//! Core links no WebAssembly runtime: Susi Commercial Apps serves the Wasmi
+//! reflex sandbox over the socket. Windows TLS uses Schannel,
 //! Apple uses Security.framework, and Linux uses platform OpenSSL. These are
 //! explicit OS boundaries, not claims of pure Rust crypto implementations.
 //! Graph resolution is locked and offline and needs no cross-target compiler.
@@ -69,8 +70,8 @@ fn packages(tree: &str) -> std::collections::HashSet<&str> {
 fn assert_native_runtime_graph(tree: &str, model_runtime: bool) {
     let packages = packages(tree);
     assert!(
-        packages.contains("wasmi"),
-        "actual Wasmi runtime missing: {tree}"
+        !packages.contains("wasmi"),
+        "core must not link a Wasm runtime; Susi Commercial Apps serves the reflex sandbox: {tree}"
     );
     if model_runtime {
         assert!(

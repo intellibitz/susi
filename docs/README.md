@@ -63,7 +63,6 @@ verbatim (see the [GMCP completion roadmap](gmcp-roadmap.md)):
 - [Security Policy](../SECURITY.md)
 - [Config layout](../config/README.md)
 - [susi-harness](../crates/susi-harness/README.md)
-- [Rust-native Wasm substrate](../crates/susi-vendor-wasmtime/README.md)
 - [Original Rust Windows process boundary](../crates/susi-windows-runtime/README.md)
 - [Windows product standard-library prototype](../toolchain/windows-stdlib/README.md)
 - [Native product standard library and release checks](../toolchain/windows-stdlib/NATIVE-BUILDS.md)

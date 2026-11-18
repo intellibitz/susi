@@ -189,8 +189,8 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-// Measured when the CEO set the 25,000-line limit (2026-11-18).
-const COMPLETE_SOCKET_CEILING: usize = 48_198;
+// The Wasm reflex sandbox, its client and the cell server moved to Susi Commercial Apps.
+const COMPLETE_SOCKET_CEILING: usize = 45_315;
 /// The CEO's limit: strictly below 25,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 24_999;
 

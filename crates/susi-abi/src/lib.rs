@@ -10,11 +10,10 @@
 //!
 //! Designed with **zero compile-time dependencies** on any other SUSI workspace crate,
 //! enabling true decoupled microkernel and distributed swarm operation. The
-//! shared TCP cell loop ([`cell_server`]) is standard library only, so the
-//! crate needs no async runtime.
+//! cells' TCP loop that serves these contracts lives with the pillar cells in
+//! Susi Commercial Apps.
 
 pub mod cell;
-pub mod cell_server;
 pub mod evidence;
 pub mod memory;
 pub mod router;

@@ -419,13 +419,14 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    A damaged extension-pack `state.json` is never rewritten: startup runs on
    compiled defaults and load/unload refuse until the operator repairs it.
 10. **Sandbox** — Wasmi for Wasm: the pure-Rust interpreter inside the
-    compatibility-named `susi-vendor-wasmtime` crate runs both the Tier-0
+    compatibility-named `susi-vendor-wasmtime` crate (in Susi Commercial
+    Apps) runs both the Tier-0
     reflexes (`wasm::execute_reflex`) and the daemon's crown sandbox probes
     (`execute_untrusted_wasm`, `crates/susi-daemon/src/crown.rs`, check id
     `sandbox_wasmtime`, a historical identifier) with bounded fuel, memory
     and output and a capability-limited WASI; no Wasmtime, native JIT or
-    WASI-common runtime is linked (`Cargo.lock` holds `wasmi` and no
-    `wasmtime`, pinned by a test in that crate). Docker `sandbox_exec` when
+    WASI-common runtime is linked (pinned by a test in that crate). Docker
+    `sandbox_exec` when
     available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back

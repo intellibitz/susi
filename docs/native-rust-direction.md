@@ -83,7 +83,8 @@ marketed as durable memory.
   The prior ONNX Runtime and Oniguruma paths are removed from the default graph.
 - Wasmi replaces the Wasmtime/Cranelift stack. Its bounded WASI host preserves
   tested arguments, streams, clocks, randomness, exit and denied host access.
-  See the sandbox facade README for fuel, memory, output and compatibility limits.
+  The sandbox facade README in Susi Commercial Apps gives its fuel, memory,
+  output and compatibility limits.
 - Windows TLS uses Schannel and platform trust, including the MCP transport.
   Certificate/hostname failures are rejected, and remote identity failure cannot
   silently select plaintext. See `vendor/native-tls/SUSI-PATCHES.md` for importer,

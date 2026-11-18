@@ -33,11 +33,6 @@ pub mod error {
     pub use susi_error::*;
 }
 
-/// Native execution primitives
-pub mod native {
-    pub use susi_vendor_wasmtime::*;
-}
-
 /// Generic workspace paths. Concrete sandbox management is served by the commercial runtime.
 pub mod sandbox {
     /// XDG directory specifications

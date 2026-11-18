@@ -21,7 +21,7 @@ SUSI is designed with a governance-first local host architecture:
 3. **Credential Redaction**:
    - Host environment credentials (`*_API_KEY`, `*_TOKEN`, `*_SECRET`) and token patterns are redacted before writing to `.susi/last_blackboard.json`, `.susi/last_mission_trace.json`, `memory.jsonl`, and `error_metrics.jsonl`.
 4. **Wasm & Command Sandboxing**:
-   - Untrusted Tier-0 reflexes (`reflex_<slug>`) execute in a fuel-metered `Wasmi` sandbox (`susi-vendor-wasmtime`) with network capabilities stripped by default.
+   - Untrusted Tier-0 reflexes (`reflex_<slug>`) execute in a fuel-metered `Wasmi` sandbox (`susi-vendor-wasmtime`, served by Susi Commercial Apps) with network capabilities stripped by default.
    - Extension packs (`~/.susi/extensions/<id>/manifest.json`) enforce explicit permission declarations (`filesystem.read`, `filesystem.write`, `network.egress`, `process.exec`), path containment, SHA-256 checksums, and optional Ed25519 signatures.
 
 ## Reporting a Vulnerability

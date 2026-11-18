@@ -397,7 +397,7 @@ credential a cell could not forge.
 
 ## What the sandboxes bound
 
-**The Wasm cell** (`crates/susi-vendor-wasmtime`, which links the `wasmi`
+**The Wasm cell** (`susi-vendor-wasmtime` in Susi Commercial Apps, which links the `wasmi`
 interpreter despite its compatibility name) runs Tier 0 reflexes and
 `/wasm/execute` payloads with: fuel metering (`CELL_FUEL`), memory capped at
 256 MiB however large a module declares, 1,000,000 table elements, 64 MiB
