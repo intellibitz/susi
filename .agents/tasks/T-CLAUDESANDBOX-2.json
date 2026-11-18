@@ -1,7 +1,7 @@
 {
   "id": "T-CLAUDESANDBOX-2",
   "title": "Remove the Wasm reflex sandbox and pillar cell server from core",
-  "goal": "Vision: V-9. CEO direction 2026-11-18: core under 25,000 lines; keep the install channel and start with the plug-in sandbox. susi-vendor-wasmtime (the fuel-metered Wasmi reflex sandbox) and susi-abi's cell_server have no caller in core: the root crate only re-exports the sandbox as susi::native, and every user is in Susi Commercial Apps. Once Commercial Apps owns both with their tests (T-CLAUDESANDBOX-1), delete core's copies, the re-export and their lock entries; keep the ABI's cell, syscall, swarm and wire contracts; correct every document and check that names them; and lower COMPLETE_SOCKET_CEILING to the new measure.",
+  "goal": "Vision: V-9. CEO direction 2026-11-18: core under 25,000 lines; keep the install channel and start with the plug-in sandbox. susi-vendor-wasmtime (the fuel-metered Wasmi reflex sandbox), its client susi-native-client and susi-abi's cell_server have no caller in core: the root crate only re-exports the sandbox as susi::native, and every user is in Susi Commercial Apps. Once Commercial Apps owns both with their tests (T-CLAUDESANDBOX-1), delete core's copies, the re-export and their lock entries; keep the ABI's cell, syscall, swarm and wire contracts; correct every document and check that names them; and lower COMPLETE_SOCKET_CEILING to the new measure.",
   "size": "m",
   "deps": [],
   "scopes": [
@@ -17,7 +17,10 @@
     "docs/",
     "deny.toml",
     ".agents/tasks/T-CLAUDESANDBOX-2.json",
-    ".agents/claims/T-CLAUDESANDBOX-2.json"
+    ".agents/claims/T-CLAUDESANDBOX-2.json",
+    "crates/susi-native-client/",
+    "ARCHITECTURE.md",
+    "SECURITY.md"
   ],
   "accept": {
     "cmd": [
