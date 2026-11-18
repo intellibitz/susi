@@ -294,7 +294,8 @@ macro_rules! eai_bail {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        bundled_secret_tokens, redact_for_metrics, EaiError, EaiResult, ResultExt, VARIANT_SPECS,
+        bundled_secret_tokens, redact_for_metrics, Backtrace, EaiError, EaiResult, ResultExt,
+        VARIANT_SPECS,
     };
     use std::error::Error as _;
 
