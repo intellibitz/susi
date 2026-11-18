@@ -102,16 +102,6 @@ fn controlled(command: &mut Command) -> &mut Command {
         .stdin(Stdio::null())
 }
 
-fn native_host() -> &'static str {
-    if cfg!(all(windows, target_arch = "aarch64")) {
-        "aarch64-pc-windows-msvc"
-    } else if cfg!(windows) {
-        "x86_64-pc-windows-msvc"
-    } else {
-        "linux"
-    }
-}
-
 fn installed_sysroot() -> Result<PathBuf> {
     let selected = std::env::var_os("RUSTC").map(PathBuf::from);
     if selected.as_ref().is_some_and(|path| !path.is_absolute()) {
@@ -126,9 +116,7 @@ fn installed_sysroot() -> Result<PathBuf> {
     if !installed.is_absolute() {
         return Err("compiler reported a relative sysroot".into());
     }
-    let expected = installed
-        .join("bin")
-        .join(native_target::executable(native_host(), "rustc"));
+    let expected = installed.join("bin").join("rustc");
     if let Some(selected) = selected {
         if selected.canonicalize()? != expected.canonicalize()? {
             return Err("selected compiler does not belong to its reported sysroot".into());
@@ -139,14 +127,10 @@ fn installed_sysroot() -> Result<PathBuf> {
 
 pub(crate) fn sysroot_cargo(installed: &Path) -> Command {
     let bin = installed.join("bin");
-    let host = native_host();
-    let mut command = Command::new(bin.join(native_target::executable(host, "cargo")));
+    let mut command = Command::new(bin.join("cargo"));
     controlled(&mut command)
-        .env("RUSTC", bin.join(native_target::executable(host, "rustc")))
-        .env(
-            "RUSTDOC",
-            bin.join(native_target::executable(host, "rustdoc")),
-        )
+        .env("RUSTC", bin.join("rustc"))
+        .env("RUSTDOC", bin.join("rustdoc"))
         .env("RUSTC_BOOTSTRAP", "1")
         .env("CARGO_ENCODED_RUSTFLAGS", BASE_FLAGS);
     command
@@ -162,9 +146,7 @@ fn run() -> Result<()> {
         return Err("destination already exists; preserve it and choose a new directory".into());
     }
     let installed = installed_sysroot()?;
-    let compiler = installed
-        .join("bin")
-        .join(native_target::executable(native_host(), "rustc"));
+    let compiler = installed.join("bin").join("rustc");
     let version = controlled(Command::new(&compiler).args(["--version", "--verbose"])).output()?;
     let version_text = String::from_utf8(version.stdout.clone())?;
     let target = version_text
@@ -310,9 +292,7 @@ fn run() -> Result<()> {
     if artifacts.len() < 10 {
         return Err("incomplete compiler artifact set".into());
     }
-    let cargo = installed
-        .join("bin")
-        .join(native_target::executable(native_host(), "cargo"));
+    let cargo = installed.join("bin").join("cargo");
     let receipt = json!({
         "schema": "susi/product-stdlib-prototype/v1", "status": "requires-qualification",
         "target": target, "compiler_commit": COMMIT, "compiler_vV_sha256": hash(&version.stdout),
