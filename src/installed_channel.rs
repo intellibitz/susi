@@ -1,17 +1,15 @@
 //! Ordinary production launches follow one local selector. The controller supplies trusted
 //! release IDs, but launching the installed product needs neither Git nor a repository.
+//!
+//! Core ships for Linux only (Mandate 84). The Windows installed channel lives in
+//! Susi Commercial Apps (`susi-commercial install-release`).
 use crate::cli::defs::Commands;
 use std::process::ExitCode;
 
 #[path = "installed_channel/package.rs"]
 mod package;
-#[cfg(windows)]
-#[path = "installed_channel/runtime.rs"]
-mod runtime;
 #[path = "installed_channel/transaction.rs"]
 mod transaction;
-#[cfg(windows)]
-pub(crate) use runtime::paired_runtime;
 
 pub(crate) fn management(command: Option<&Commands>) -> Option<ExitCode> {
     command
@@ -20,9 +18,6 @@ pub(crate) fn management(command: Option<&Commands>) -> Option<ExitCode> {
 }
 
 pub(crate) fn manage(command: &Commands) -> ExitCode {
-    // Susi core ships for Linux only (Mandate 84, 2026-11-18). A Windows build
-    // names the suite that installs and manages the Windows channel instead of
-    // performing a partial install without its launch bindings.
     if cfg!(windows) {
         eprintln!("the Windows installed channel is served by Susi Commercial Apps: run `susi-commercial install-release` with the same arguments (and `--core <package>\\susi.exe` to install a package)");
         return ExitCode::FAILURE;
@@ -68,21 +63,6 @@ pub(crate) fn dispatch() -> Option<ExitCode> {
     }
     let mut args = std::env::args_os().skip(1);
     let command = args.next();
-    #[cfg(windows)]
-    if matches!(
-        command.as_deref().and_then(|value| value.to_str()),
-        Some("start" | "restart")
-    ) && args.next().is_none()
-    {
-        let restart = command.as_deref() == Some(std::ffi::OsStr::new("restart"));
-        return Some(match transaction::start_selected(&exe, restart) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("Installed Susi could not start: {error}");
-                ExitCode::FAILURE
-            }
-        });
-    }
     if command.as_deref() == Some(std::ffi::OsStr::new("install")) && args.next().is_none() {
         return Some(
             match transaction::manage(

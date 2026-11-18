@@ -18,7 +18,6 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 
 # Owner-only ACL on the plane-bus secret, set through Win32 (no `icacls`
 # process, which opened a console window from the windowless daemon).
-[target.'cfg(windows)'.dependencies]
 
 [lints]
 workspace = true

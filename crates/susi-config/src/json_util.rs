@@ -121,23 +121,7 @@ pub fn atomic_replace_unsynced(path: &Path, bytes: &[u8]) -> std::io::Result<()>
 }
 
 /// Read one complete snapshot of a file published by atomic replacement.
-/// On Windows a lookup that raced replacement can point to the retired file
-/// (ERROR_ACCESS_DENIED or ERROR_FILE_NOT_FOUND). Reopen the path
-/// a bounded number of times; a persistent permission error is returned.
 pub fn read_atomic_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
-    #[cfg(windows)]
-    for attempt in 0..4 {
-        match fs::read(path) {
-            Err(error) if matches!(error.raw_os_error(), Some(2 | 5)) => {
-                if attempt == 0 {
-                    std::thread::yield_now();
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-            result => return result,
-        }
-    }
     fs::read(path)
 }
 
@@ -396,19 +380,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn read_atomic_bytes_returns_persistent_access_errors() {
-        let dir = scratch("atomic-read-directory");
-        let expected = fs::read(&dir).unwrap_err();
-        assert_eq!(expected.kind(), std::io::ErrorKind::PermissionDenied);
-        assert_eq!(
-            read_atomic_bytes(&dir).unwrap_err().raw_os_error(),
-            expected.raw_os_error()
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
-
     #[cfg(unix)]
     #[test]
     fn atomic_replace_unsynced_keeps_new_and_replaced_files_private() {
@@ -428,29 +399,6 @@ mod tests {
             0o600
         );
         assert_eq!(entries(path.parent().unwrap()), ["endpoint.json"]);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn atomic_replace_unsynced_preserves_readonly_destination_on_failure() {
-        let dir = scratch("unsynced-readonly");
-        let path = dir.join("endpoint.json");
-        atomic_replace_unsynced(&path, b"keep readonly content").unwrap();
-        let original = fs::metadata(&path).unwrap().permissions();
-        let mut readonly = original.clone();
-        readonly.set_readonly(true);
-        fs::set_permissions(&path, readonly).unwrap();
-
-        let result = atomic_replace_unsynced(&path, b"never published");
-        let still_readonly = fs::metadata(&path).unwrap().permissions().readonly();
-        let content = fs::read(&path).unwrap();
-        let remaining = entries(&dir);
-        fs::set_permissions(&path, original).unwrap();
-        assert!(result.is_err());
-        assert!(still_readonly);
-        assert_eq!(content, b"keep readonly content");
-        assert_eq!(remaining, ["endpoint.json"]);
         let _ = fs::remove_dir_all(&dir);
     }
 
