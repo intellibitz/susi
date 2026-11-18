@@ -6,7 +6,8 @@
 //! file. The private child contains `.agents/receipts/<H>.json`, preserving
 //! the existing receipt schema and exact parent/tree binding. An ordinary
 //! clone does not fetch this local record; `--receipt <file>` accepts an
-//! explicitly supplied copy, and old committed receipts remain readable.
+//! explicitly supplied copy, and a historical receipt commit remains readable
+//! by naming that commit.
 //! Missing records never prove a passing gate or qualify a release.
 //!
 //! Receipts carry the observed commands, results, toolchain and lockfile digest.

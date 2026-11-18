@@ -17,8 +17,9 @@ file `.agents/receipts/<H>.json`. The local ref `refs/susi/receipts/<H>` retains
 Only `H` is pushed to `origin/main`. The worktree and published source gain no
 receipt file. The existing Git object database stores the receipt outside
 checked-out source, including its exact parent binding. A normal clone does not
-fetch these private refs. Historical source receipts remain readable, and
-`--receipt <file>` accepts a separately supplied copy.
+fetch these private refs. Receipts committed to source before this change were
+removed from the tree; each historical receipt commit remains readable by naming
+that commit, and `--receipt <file>` accepts a separately supplied copy.
 
 Publication is refused when the receipt cannot be built or verified, including
 unreadable results, a missing required lockfile, a failed gate or an absent local

@@ -10,7 +10,7 @@
 //! and the remote URL lives in configuration (`git remote`, an environment
 //! variable), never in code. Releases are tags plus committed records
 //! (`releases/<tag>.json`, `docs/releases.md`); a landing's record is its gate
-//! receipt (`.agents/receipts/`).
+//! receipt, retained under `refs/susi/receipts/`.
 //!
 //! This test scans every tracked file. The allow-list below is the only
 //! exception, and each entry says why it may quote a retired form.
