@@ -1,11 +1,12 @@
 //! Socket reach for the self-build harness (zero-UI plan B4 group 1):
 //! `susi harness status|budget|models|plan|author|run`.
 //!
-//! Each tool forwards to the daemon's `daemon.harness` topic, which calls
-//! `susi_harness::operator`, the library the CLI command calls. The socket
+//! Each tool forwards to the `daemon.harness` topic, which Susi Commercial
+//! Apps' plug host serves with the library the CLI command calls (Mandate 84);
+//! without a plug host the daemon names it. The socket
 //! has no caller working directory: paths are absolute, and `repo` (the
 //! CLI's working directory) is admitted by the MAC policy. A run is long,
-//! so `harness_run` starts it on a daemon thread and returns; `harness_runs`
+//! so `harness_run` starts it on a worker thread and returns; `harness_runs`
 //! and `harness_status` (with the run's `state`) report progress. Serving
 //! the harness API and the gateway stays with the CLI (process entry points).
 

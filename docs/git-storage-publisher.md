@@ -167,11 +167,12 @@ contains the dropped commits republishes them with its normal fast-forward. A
 finding remains only when the lost commits are in no later submission, which
 is exactly when someone has to act.
 
-The harness publishes the same way. Its
-[`storage_guard`](../crates/susi-harness/src/storage_guard.rs) module preserves
+The harness publishes the same way. The
+[`storage_guard`](../crates/susi-config/src/storage_guard.rs) module preserves
 the public audit/report API, preferring MCP and using the native witness only
-after definitive provider absence; `xtask` reexports that adapter for
-`local-snapshot` and `local-workflow`.
+after definitive provider absence; `xtask` reexports it from `susi-config` for
+`local-snapshot` and `local-workflow`, and the harness (in Susi Commercial Apps
+since Mandate 84) carries its own copy.
 `submit-main`, `integrate` and `release-promote` run the advisory witness after
 live publication, from the command line and through the daemon. A finding or
 unavailable-provider warning arrives beside the receipt without invalidating

@@ -1,17 +1,17 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! End-to-end integration of the three core pillars:
-//! GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow),
-//! GEMI (inference routing), and GMCP (MCP protocol/tool plane).
+//! GAWD (A2A and ACP), GEMI (inference routing), and GMCP (MCP protocol/tool
+//! plane). The Susi Harness parallel workflow section moved to Susi Commercial
+//! Apps with the harness (`crates/susi-harness/tests/parallel_workflow_end_to_end.rs`
+//! there; Mandate 84).
 //! The legacy filename is retained for existing test selectors.
 //! Protocol endpoints, imports and capabilities are unchanged.
 use serde_json::json;
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 use susi_gawd::acp::{
@@ -22,10 +22,6 @@ use susi_gawd::acp::{
 use susi_gawd::dag::MissionDag;
 use susi_gemi::models::coding_models::CodingModelManager;
 use susi_gmcp::protocol::GmcpService;
-use susi_harness::recursive::{ContainerRole, MIN_ISOLATED_PORT_STRIDE};
-use susi_harness::workflow_runner::{
-    ParallelAgentSpec, ParallelWorkflowHarness, RemoteReconcileConfig, RemoteSyncMode, WorkflowStep,
-};
 struct ScopedSandbox {
     dir: PathBuf,
 }
@@ -74,23 +70,8 @@ impl AcpTurnExecutor for PillarBridgeExecutor {
         Ok(vec![AcpContentBlock::text(summary)])
     }
 }
-fn run_git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .expect("git binary must execute");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed in {}: {}",
-        dir.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_owned()
-}
 #[test]
-fn three_core_pillars_cooperate_with_gawd_acp_and_harness_end_to_end() {
+fn three_core_pillars_cooperate_with_gawd_and_acp_end_to_end() {
     let sandbox = ScopedSandbox::new("five-pillars-workflow");
     // 1. GAWD: build a dependency-ordered swarm MissionDag.
     let mut dag = MissionDag::new("Verify three Apache-2.0 core pillars with GAWD capabilities");
@@ -184,166 +165,4 @@ fn three_core_pillars_cooperate_with_gawd_acp_and_harness_end_to_end() {
         .unwrap();
     assert_eq!(close_body.unwrap()["result"]["closed"], true);
     acp_server.shutdown();
-    // 5. Susi Harness: bare `origin` + primary + peer clones, parallel isolated wave,
-    // remote pull/merge on every step, distilled release ref, and offline fallback.
-    let origin = sandbox.path().join("origin.git");
-    let primary = sandbox.path().join("primary-repo");
-    let peer = sandbox.path().join("peer-repo");
-    fs::create_dir_all(&origin).unwrap();
-    run_git(&origin, &["init", "--bare", "--initial-branch=main"]);
-    run_git(
-        sandbox.path(),
-        &["clone", origin.to_str().unwrap(), primary.to_str().unwrap()],
-    );
-    for (k, v) in [
-        ("user.name", "Susi Harness"),
-        ("user.email", "harness@localhost"),
-        ("commit.gpgsign", "false"),
-    ] {
-        run_git(&primary, &["config", k, v]);
-    }
-    fs::write(primary.join("README.md"), "five-pillars-seed\n").unwrap();
-    run_git(&primary, &["add", "README.md"]);
-    run_git(
-        &primary,
-        &["commit", "-m", "chore: seed repo\n\nTask: T-SEED-PILLARS"],
-    );
-    run_git(&primary, &["push", "-u", "origin", "HEAD:refs/heads/main"]);
-    run_git(
-        sandbox.path(),
-        &["clone", origin.to_str().unwrap(), peer.to_str().unwrap()],
-    );
-    for (k, v) in [
-        ("user.name", "Remote Peer"),
-        ("user.email", "peer@localhost"),
-        ("commit.gpgsign", "false"),
-    ] {
-        run_git(&peer, &["config", k, v]);
-    }
-    // Advance origin/main from peer before `start` so `start` must pull + fast-forward.
-    fs::create_dir_all(peer.join("shared")).unwrap();
-    fs::write(peer.join("shared/upstream.txt"), "peer-v1\n").unwrap();
-    run_git(&peer, &["add", "shared/upstream.txt"]);
-    run_git(
-        &peer,
-        &["commit", "-m", "feat: upstream peer\n\nTask: T-UPSTREAM-1"],
-    );
-    run_git(&peer, &["push", "origin", "HEAD:refs/heads/main"]);
-    let harness = ParallelWorkflowHarness::new(
-        &primary,
-        sandbox.path().join("harness-isolated"),
-        RemoteReconcileConfig::default(),
-        4,
-    )
-    .unwrap();
-    let specs = vec![
-        ParallelAgentSpec {
-            agent: "pillar-a".to_owned(),
-            task_id: "T-PILLAR-A".to_owned(),
-            title: "Pillar A parallel worker".to_owned(),
-            deps: Vec::new(),
-            scopes: vec!["pillars/a".to_owned()],
-        },
-        ParallelAgentSpec {
-            agent: "pillar-b".to_owned(),
-            task_id: "T-PILLAR-B".to_owned(),
-            title: "Pillar B parallel worker".to_owned(),
-            deps: Vec::new(),
-            scopes: vec!["pillars/b".to_owned()],
-        },
-    ];
-    let slots = Mutex::new(Vec::new());
-    let report = harness
-        .execute_parallel_plan(&specs, Some("v0-21-61-pillars"), |ws| {
-            assert_eq!(ws.driver_contract.role, ContainerRole::Driver);
-            assert_eq!(ws.engine_contract.role, ContainerRole::Engine);
-            assert!(ws.worktree_dir.join("shared/upstream.txt").is_file());
-            slots.lock().unwrap().push((
-                ws.worktree_dir.clone(),
-                ws.target_dir.clone(),
-                ws.susi_home_dir.clone(),
-                ws.port_offset,
-            ));
-            let suffix = ws.agent.strip_prefix("pillar-").unwrap_or("x");
-            let dir = ws.worktree_dir.join("pillars").join(suffix);
-            fs::create_dir_all(&dir).unwrap();
-            fs::write(
-                dir.join("mod.rs"),
-                format!("pub const ID: &str = {suffix:?};\n"),
-            )
-            .unwrap();
-            if ws.agent == "pillar-a" {
-                fs::write(peer.join("shared/midwave.txt"), "peer-v2\n").unwrap();
-                run_git(&peer, &["add", "shared/midwave.txt"]);
-                run_git(
-                    &peer,
-                    &["commit", "-m", "feat: midwave peer\n\nTask: T-UPSTREAM-2"],
-                );
-                run_git(&peer, &["push", "origin", "HEAD:refs/heads/main"]);
-            }
-            Ok(format!("feat({}): isolated completion", ws.agent))
-        })
-        .unwrap();
-    let recorded = slots.lock().unwrap();
-    assert_eq!(recorded.len(), 2);
-    assert_ne!(recorded[0].0, recorded[1].0);
-    assert_ne!(recorded[0].1, recorded[1].1);
-    assert_ne!(recorded[0].2, recorded[1].2);
-    assert!(recorded[0].3.abs_diff(recorded[1].3) >= MIN_ISOLATED_PORT_STRIDE);
-    let steps: BTreeSet<WorkflowStep> = report.step_receipts.iter().map(|r| r.step).collect();
-    assert_eq!(
-        steps,
-        [
-            WorkflowStep::Start,
-            WorkflowStep::Sync,
-            WorkflowStep::Commit,
-            WorkflowStep::Ship,
-            WorkflowStep::Release,
-            WorkflowStep::Distill,
-        ]
-        .into_iter()
-        .collect()
-    );
-    assert!(report
-        .step_receipts
-        .iter()
-        .all(|r| r.remote_sync.reached_remote()));
-    assert!(report
-        .step_receipts
-        .iter()
-        .any(|r| matches!(r.remote_sync, RemoteSyncMode::MergedThreeWay { .. })));
-    let distilled = report.distilled_release.expect("distill snapshot emitted");
-    assert_eq!(distilled.branch_ref, "refs/heads/release/v0-21-61-pillars");
-    assert!(distilled.included_tasks.contains(&"T-PILLAR-A".to_owned()));
-    assert!(distilled.included_tasks.contains(&"T-PILLAR-B".to_owned()));
-    // Verify offline fallback when remote disconnects.
-    run_git(
-        &primary,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            sandbox
-                .path()
-                .join("unreachable-origin.git")
-                .to_str()
-                .unwrap(),
-        ],
-    );
-    let (_, offline_start) = harness
-        .step_start(
-            &ParallelAgentSpec {
-                agent: "pillar-offline".to_owned(),
-                task_id: "T-PILLAR-OFFLINE".to_owned(),
-                title: "Offline fallback check".to_owned(),
-                deps: Vec::new(),
-                scopes: vec!["pillars/offline".to_owned()],
-            },
-            2,
-        )
-        .unwrap();
-    assert!(matches!(
-        offline_start.remote_sync,
-        RemoteSyncMode::OfflineFallback { .. }
-    ));
 }

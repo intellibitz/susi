@@ -846,7 +846,6 @@ dependencies = [
  "susi-gawd-swarm",
  "susi-gemi",
  "susi-gmcp",
- "susi-harness",
  "susi-leaf-services",
  "susi-paths",
  "susi-sandbox-client",
@@ -952,7 +951,7 @@ dependencies = [
  "susi-gawd-a2a",
  "susi-gemi",
  "susi-gmcp",
- "susi-harness",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "susi-server",
@@ -1137,26 +1136,6 @@ dependencies = [
  "susi-vendor-syn",
  "susi-vendor-tokio",
  "susi-wire-client",
-]
-
-[[package]]
-name = "susi-harness"
-version = "0.21.71"
-dependencies = [
- "susi-adapters-llm",
- "susi-build-os-ucrt",
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-paths",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
- "susi-vendor-tokio",
- "susi-vendor-winapi",
- "susi-vendor-windows-registry",
- "susi-windows-runtime",
 ]
 
 [[package]]

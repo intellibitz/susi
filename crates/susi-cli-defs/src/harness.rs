@@ -9,7 +9,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 /// Where `--ledger` points when it is not given, in `susi_harness::fleet::ledger_for`'s
-/// order. One text for every command that takes it: the three copies said
+/// order (in Susi Commercial Apps, which runs the commands). One text for every command that takes it: the three copies said
 /// the workspace came before `SUSI_HARNESS_LEDGER`, the reverse of the code,
 /// so a user with the setting looked for spend and refusals in the wrong
 /// file.

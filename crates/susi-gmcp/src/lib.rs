@@ -35,6 +35,8 @@ pub mod embed_provider;
 pub mod extensions;
 pub mod jsonrpc_gate;
 pub mod mcp_call_budgets;
+pub mod mcp_probe;
+pub mod mcp_profile;
 pub mod mcp_registry_trust;
 pub mod mcp_wrapper;
 pub mod protocol;
@@ -72,6 +74,9 @@ mod protocol_tests;
 #[cfg(test)]
 #[path = "tests/resource_surface.rs"]
 mod resource_surface_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_086_mastery.rs"]
+mod vc_201_086_mastery_tests;
 
 #[cfg(test)]
 pub(crate) mod test_isolation {

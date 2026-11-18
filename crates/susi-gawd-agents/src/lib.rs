@@ -35,6 +35,8 @@ pub mod agents;
 pub mod agents_plane_handler;
 pub mod axiom;
 pub mod brain;
+pub mod cloud_budget;
+pub mod cloud_intent;
 pub mod dag_hooks;
 pub mod external;
 pub mod external_peers;

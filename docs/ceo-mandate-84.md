@@ -104,20 +104,22 @@ continues `V-6`, which the CEO set earlier the same day.
 
 ## 4. Implementation truth
 
-- **Not met today.** Measured on 2026-11-17 with `susi harness` forwarded
-  (core `T-CORESIZEVAULT-15` step 1), the complete socket has 282,657 physical
-  Rust lines, including 276,203 first-party runtime lines and 6,454 vendor
-  facade lines. Reaching 99,999 requires removing 182,658 lines. The pillar
-  crates account for 125,947 lines and the remaining socket crates for 156,710.
-  The same run reports 136,482 test lines, 72,683 tooling lines and 216,164
-  lines of third-party `vendor/` source separately. Core's outbound MCP
-  client transport has moved to the Susi Commercial Apps plug host
-  (`ecosystem_hub.mcp.call`); core authorizes and forwards the call. So have
-  `susi harness` (`susi-commercial core-harness`) and the daemon's
-  `daemon.harness` topic (`susi-plug-host`); core parses and forwards them.
+- **Not met today.** Measured on 2026-11-18 after the harness left core
+  (core `T-CORESIZEVAULT-15`), the complete socket has 250,908 physical Rust
+  lines, including 244,454 first-party runtime lines and 6,454 vendor facade
+  lines. Reaching 99,999 requires removing 150,909 lines. The pillar crates
+  (GAWD, GEMI and GMCP) account for 93,774 lines and the remaining socket
+  crates for 157,134. The same run reports 121,176 test lines, 72,682 tooling
+  lines and 216,164 lines of third-party `vendor/` source separately. Core's
+  outbound MCP client transport has moved to the Susi Commercial Apps plug
+  host (`ecosystem_hub.mcp.call`); core authorizes and forwards the call. The
+  harness (`crates/susi-harness`) lives there too: `susi harness`
+  (`susi-commercial core-harness`) and the daemon's `daemon.harness` topic
+  (`susi-plug-host`) are forwarded, and core keeps their clap definitions,
+  the MCP tools and the topic name.
 - **Enforced:** `repository_size_is_reported_and_unsafe_baselines_do_not_multiply`
   in `tests/lean_core_ceilings.rs` fails when the complete socket exceeds
-  `COMPLETE_SOCKET_CEILING`, pinned at 282,657 at that revision. The suite runs in the ordinary
+  `COMPLETE_SOCKET_CEILING`, pinned at 250,908 at that revision. The suite runs in the ordinary
   test run and in core's fast release pipeline (`xtask/src/fast_release.rs`),
   so a core that grew cannot be released until the growth is paid for. A
   compile-time check keeps the ceiling from being pinned below 99,999.

@@ -41,6 +41,7 @@ pub use susi_daemon_runtime::hot_reload_coverage;
 pub use susi_daemon_runtime::nat;
 pub use susi_daemon_runtime::orchestrator;
 pub use susi_daemon_runtime::os_provision;
+pub mod mcp_http_transport;
 pub mod os_status;
 pub mod peer_channel_host;
 pub mod plane_handler;

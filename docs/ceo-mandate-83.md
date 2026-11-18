@@ -158,7 +158,7 @@ Everything else in those mandates stands.
   command: enter it and run `susi-commercial workflow check`, which pulls it up
   to date. Rule 9 in how the Susi Harness launches engines: its default engine
   commands use each tool's full-permission flag
-  (`crates/susi-harness/src/adaptive.rs`), and a governed profile replaces that
+  (`crates/susi-harness/src/adaptive.rs` in Susi Commercial Apps), and a governed profile replaces that
   flag where an operator selects it. Rule 8 through `susi keys vault`.
 - **Not enforced:** rules 1, 2, 4 and 10 are conduct. The tool cannot see an
   agent waiting, idle or silent about a fix; rule 2 is enforced only through

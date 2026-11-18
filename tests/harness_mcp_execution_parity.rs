@@ -1,6 +1,8 @@
 //! Opt-in, offline execution proof. Build the genuine coordinator first:
 //! `cargo build --offline --locked -p xtask --bin local-workflow`, then run
 //! `cargo test --offline --locked -p susi --test harness_mcp_execution_parity -- --ignored --nocapture`.
+//! Core forwards `susi harness` to Susi Commercial Apps, so `susi-commercial` (with
+//! `core-harness`) must be on PATH or named by SUSI_COMMERCIAL_BIN.
 //! Requires the reviewed compiler and authenticated rust-src used by `susi local`.
 //! `SUSI_HARNESS_MCP_PROVIDER` selects an absolute standard stdio provider
 //! executable exposing the worker filesystem tool contracts.
@@ -60,6 +62,9 @@ impl Fixture {
             "WINDIR",
             "PATHEXT",
             "ComSpec",
+            // `susi harness` runs in Susi Commercial Apps (Mandate 84): core
+            // finds `susi-commercial` here or on PATH.
+            "SUSI_COMMERCIAL_BIN",
         ] {
             if let Some(value) = std::env::var_os(key) {
                 cmd.env(key, value);
@@ -381,10 +386,15 @@ impl Fixture {
     }
 
     fn ledger(&self) -> Value {
-        let (entries, skipped) =
-            susi_harness::ledger::read_entries_lenient(&self.root.join("ledger.jsonl"));
-        assert_eq!(skipped, 0);
-        let mut value = serde_json::to_value(entries).unwrap();
+        // The ledger's rows as written; none may be torn. (The harness and its
+        // ledger reader live in Susi Commercial Apps since Mandate 84.)
+        let text = fs::read_to_string(self.root.join("ledger.jsonl")).unwrap_or_default();
+        let mut value = Value::Array(
+            text.lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect(),
+        );
         for row in value.as_array_mut().unwrap() {
             let row = row.as_object_mut().unwrap();
             row.remove("started_unix_ms");

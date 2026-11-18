@@ -123,7 +123,7 @@ fn execute_worker(manager: &AgentManager, id: &str) -> Result<(RunRecord, Option
     let workspace =
         susi_paths::native_path::encode(manager.workspace()).map_err(crate::anyhow::Error::msg)?;
     let args = json!({"workspace": workspace, "kind": kind, "run_id": id});
-    susi_harness::register_tool_backend();
+    susi_daemon::mcp_http_transport::register();
     let reply = susi_config::mcp_session::try_call_reply_with_info(
         REGISTERED_WORKER,
         &args,

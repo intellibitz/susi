@@ -2090,11 +2090,11 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         !daemon_manifest.contains("parking_lot") && !daemon_manifest.contains("parking-lot"),
         "susi-daemon must not depend on unused parking_lot"
     );
-    let harness_manifest = std::fs::read_to_string(root.join("crates/susi-harness/Cargo.toml"))
-        .expect("read susi-harness Cargo.toml");
+    // The harness (and with it its memory stub) left core for Susi Commercial
+    // Apps (Mandate 84); its crate must not come back.
     assert!(
-        !harness_manifest.contains("susi-vendor-fastembed"),
-        "susi-harness must not depend on susi-vendor-fastembed after pruning unpersisted memory stub"
+        !root.join("crates/susi-harness").exists(),
+        "crates/susi-harness lives in Susi Commercial Apps since Mandate 84 and must not return"
     );
     let root_manifest =
         std::fs::read_to_string(root.join("Cargo.toml")).expect("read root Cargo.toml");
@@ -3176,11 +3176,11 @@ fn ui_and_plugins_live_in_commercial_apps() {
             "{member} must not be a workspace member"
         );
     }
-    let harness_lib = std::fs::read_to_string(root.join("crates/susi-harness/src/lib.rs"))
-        .expect("read susi-harness lib.rs");
+    // The harness plugin manifest module left core with the harness itself
+    // (Mandate 84); neither may return.
     assert!(
-        !harness_lib.contains("pub mod plugins;"),
-        "the harness plugin manifest module must not return"
+        !root.join("crates/susi-harness").exists(),
+        "the harness and its plugin manifest module live in Susi Commercial Apps"
     );
 }
 

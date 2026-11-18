@@ -24,7 +24,7 @@ susi-gawd-a2a = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-server = { workspace = true }
 susi-tools = { workspace = true }
-susi-harness = { workspace = true }
+susi-http-transport = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }

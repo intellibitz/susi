@@ -12,18 +12,23 @@ five seams that let anyone plug in a model, a tool or an agent, or point an
 external client at its API, without recompiling it. Core itself ships no UI
 and bundles no plugins; those live in Susi Commercial Apps.
 
+Since 2026-11-17 the harness source lives in Susi Commercial Apps
+(`crates/susi-harness` there; Mandate 84). Core's `susi harness` and the
+daemon's `daemon.harness` topic forward to it. The module names below are files
+under that crate's `src/`.
+
 ## The kernel model
 
 | OS concept | In `susi-harness` | Job |
 |---|---|---|
-| Kernel | [`supervisor`](../crates/susi-harness/src/supervisor.rs), [`scheduler`](../crates/susi-harness/src/scheduler.rs), [`lifecycle`](../crates/susi-harness/src/lifecycle.rs) | Run lifecycle, durable resume, concurrency, escalation |
-| Resource manager | [`budget`](../crates/susi-harness/src/budget.rs), [`money`](../crates/susi-harness/src/money.rs), [`ledger`](../crates/susi-harness/src/ledger.rs), [`policy`](../crates/susi-harness/src/policy.rs) | Admission before dispatch; cost per accepted task |
-| Drivers | [`router`](../crates/susi-harness/src/router.rs) | Model I/O over provider endpoints |
-| Syscalls | [`worker`](../crates/susi-harness/src/worker.rs) | Tools, filesystem, process, verification |
-| Processes | one agent turn per task ([`executor`](../crates/susi-harness/src/executor.rs)) | Isolated, budgeted unit of work |
-| IPC | [`event`](../crates/susi-harness/src/event.rs), [`control`](../crates/susi-harness/src/control.rs) | Typed messages, operator commands, journal |
-| Filesystem | [`adapter`](../crates/susi-harness/src/adapter.rs) | Worktree, claim, acceptance, finish |
-| Operator API | [`cockpit`](../crates/susi-harness/src/cockpit.rs), [`api`](../crates/susi-harness/src/api.rs) (JSON/SSE only; no UI) | Status, control, spend, replay |
+| Kernel | `supervisor`, `scheduler`, `lifecycle` | Run lifecycle, durable resume, concurrency, escalation |
+| Resource manager | `budget`, `money`, `ledger`, `policy` | Admission before dispatch; cost per accepted task |
+| Drivers | `router` | Model I/O over provider endpoints |
+| Syscalls | `worker` | Tools, filesystem, process, verification |
+| Processes | one agent turn per task (`executor`) | Isolated, budgeted unit of work |
+| IPC | `event`, `control` | Typed messages, operator commands, journal |
+| Filesystem | `adapter` | Worktree, claim, acceptance, finish |
+| Operator API | `cockpit`, `api` (JSON/SSE only; no UI) | Status, control, spend, replay |
 
 Four invariants hold the model together:
 
@@ -46,7 +51,7 @@ Four invariants hold the model together:
   expected cost per *accepted* task, learned from the ledger.
 - **A metering gateway.** Buffered and streamed completions are priced from the
   provider's own usage (cache hits included) before the answer is returned.
-- **Native routing.** [`router.rs`](../crates/susi-harness/src/router.rs) reaches
+- **Native routing.** `router.rs` reaches
   DeepSeek, SiliconFlow, DeepInfra, DashScope, Gemini, Moonshot, Anthropic,
   OpenAI and OpenRouter directly — no Python proxy — and falls back to the
   configured upstream for any model it does not know. `SUSI_HARNESS_PREFER`
@@ -55,7 +60,7 @@ Four invariants hold the model together:
   registry, with the prices it publishes, as an overlay to adopt; and a
   provider that states a call's cost (DeepInfra) has that figure, not the
   catalogue's, on the ledger row.
-- **A native worker.** [`worker.rs`](../crates/susi-harness/src/worker.rs) is an
+- **A native worker.** `worker.rs` is an
   in-process tool loop (`view_file`, `write_to_file`, `append_to_file`,
   `replace_file_content`, `run_command`, `list_dir`), 25 turns, sanitized
   paths. It is the only
@@ -74,13 +79,13 @@ network call:
 
 | Capability | Owner |
 |---|---|
-| Model list, provider keys, aliases | [`providers.rs`](../crates/susi-harness/src/providers.rs) — registry records, capability handshake, `coder`/`cheap`/`planner`/`reasoner` aliases |
-| Provider routing | [`router.rs`](../crates/susi-harness/src/router.rs) — direct HTTPS per wire, explicit upstream override, `direct` mode |
-| Auth, per-key budgets, `/v1/models` | [`gateway.rs`](../crates/susi-harness/src/gateway.rs) + [`ingress.rs`](../crates/susi-harness/src/ingress.rs) — bearer accounts, admission, OpenAI-compatible list, `402`/`401` before dispatch |
-| Response cache | [`cache.rs`](../crates/susi-harness/src/cache.rs) — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
-| Spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
-| The worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph |
-| MCP tools | Shared [`mcp_client`](../crates/susi-config/src/mcp_client.rs) and [`mcp_session`](../crates/susi-config/src/mcp_session.rs), with harness [`mcp.rs`](../crates/susi-harness/src/mcp.rs) compatibility/HTTP composition and [`tools.rs`](../crates/susi-harness/src/tools.rs) records/approval policy; five filesystem tools prefer admitted providers and retain standalone fallbacks after definitive absence; `run_command` keeps local policy |
+| Model list, provider keys, aliases | `providers.rs` — registry records, capability handshake, `coder`/`cheap`/`planner`/`reasoner` aliases |
+| Provider routing | `router.rs` — direct HTTPS per wire, explicit upstream override, `direct` mode |
+| Auth, per-key budgets, `/v1/models` | `gateway.rs` + `ingress.rs` — bearer accounts, admission, OpenAI-compatible list, `402`/`401` before dispatch |
+| Response cache | `cache.rs` — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
+| Spend caps and routing policy | `budget.rs` + `policy.rs` — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
+| The worker loop | `worker.rs` + `agents.rs` — in-process tool loop and agent graph |
+| MCP tools | Shared [`mcp_client`](../crates/susi-config/src/mcp_client.rs) and [`mcp_session`](../crates/susi-config/src/mcp_session.rs), with harness `mcp.rs` compatibility/HTTP composition and `tools.rs` records/approval policy; five filesystem tools prefer admitted providers and retain standalone fallbacks after definitive absence; `run_command` keeps local policy |
 | Plugin manifests | Retracted: the harness plugin registry (`plugins.rs`, `harness.plugins.json`) was removed; core admits installed extension packs through `susi extensions` and MCP servers through `susi mcp-add`, and plugins live in Susi Commercial Apps |
 
 ## The seams that were missing

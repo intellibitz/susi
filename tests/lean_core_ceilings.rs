@@ -13,13 +13,16 @@
 //!
 //! The reach is measured from `cargo metadata` (normal and build edges, the
 //! way the linked product is built; dev edges excluded), so the numbers are
-//! what a clean clone compiles for GAWD, GEMI, GMCP and the harness.
+//! what a clean clone compiles for GAWD, GEMI and GMCP (the harness left core
+//! for Susi Commercial Apps on 2026-11-17).
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const CLOSURE_ROOTS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness"];
+/// The harness left core for Susi Commercial Apps on 2026-11-17 (Mandate 84,
+/// T-CORESIZEVAULT-15); its reach and size are no longer core's.
+const CLOSURE_ROOTS: [&str; 3] = ["susi-gawd", "susi-gemi", "susi-gmcp"];
 
 /// Third-party (non-workspace) crates the four pillars compile. 2026-11-07:
 /// 331 before the lean-core program began, 313 after wave 1 (rayon, flume
@@ -131,16 +134,22 @@ const THIRD_PARTY_CEILING: usize = 96;
 /// 2026-11-12: 33 unchanged on T-CARBONCLOUD-3 (`susi-vendor-tempfile` was a
 /// `[dev-dependencies]`-only leaf across 8 crates; `WORKSPACE_MEMBERS_CEILING`
 /// ratchets 50 -> 49 and `CARGO_LOCK_PACKAGES_CEILING` ratchets 182 -> 181).
-const WORKSPACE_CEILING: usize = 33;
+/// 2026-11-17: the harness left core for Susi Commercial Apps (Mandate 84,
+/// T-CORESIZEVAULT-15); measured after the cut: 33 -> 31.
+const WORKSPACE_CEILING: usize = 31;
 /// Total workspace members in `Cargo.toml` (`cargo metadata` `workspace_members`).
 /// 2026-11-12: 50 -> 49 (T-CARBONCLOUD-3: fold `susi-vendor-tempfile` into
 /// `susi_paths::tempfile` and delete `crates/susi-vendor-tempfile`;
 /// `VENDOR_FACADES` 17 -> 16).
-const WORKSPACE_MEMBERS_CEILING: usize = 49;
+/// 2026-11-17: the harness left core for Susi Commercial Apps (Mandate 84,
+/// T-CORESIZEVAULT-15); measured after the cut: 49 -> 48.
+const WORKSPACE_MEMBERS_CEILING: usize = 48;
 /// Total resolved packages in `Cargo.lock` (`cargo metadata` `packages`).
 /// 2026-11-12: 182 -> 181 (T-CARBONCLOUD-3: `susi-vendor-tempfile` leaves
 /// `Cargo.lock` alongside 8 workspace `[dev-dependencies]` facade edges).
-const CARGO_LOCK_PACKAGES_CEILING: usize = 181;
+/// 2026-11-17: the harness left core for Susi Commercial Apps (Mandate 84,
+/// T-CORESIZEVAULT-15); measured after the cut: 181 -> 180.
+const CARGO_LOCK_PACKAGES_CEILING: usize = 180;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -166,9 +175,11 @@ const CARGO_LOCK_PACKAGES_CEILING: usize = 181;
 /// removed 8 `[dev-dependencies]` facade edges across `susi-core`, `susi-gawd`,
 /// `susi-gemi-models`, `susi-gemi`, `susi-gmcp`, `susi-harness`,
 /// `susi-leaf-services` and `susi-tools`).
-const DIRECT_FACADE_EDGES_CEILING: usize = 9;
+/// 2026-11-17: the harness left core for Susi Commercial Apps (Mandate 84,
+/// T-CORESIZEVAULT-15); measured after the cut: 9 -> 7.
+const DIRECT_FACADE_EDGES_CEILING: usize = 7;
 /// The pillar crates whose shipped source size is reported.
-const PILLAR_CRATES: [&str; 8] = [
+const PILLAR_CRATES: [&str; 7] = [
     "susi-gawd",
     "susi-gawd-swarm",
     "susi-gawd-agents",
@@ -176,7 +187,6 @@ const PILLAR_CRATES: [&str; 8] = [
     "susi-gemi",
     "susi-gemi-models",
     "susi-gmcp",
-    "susi-harness",
 ];
 
 /// Unsafe-exposure baselines under `.agents/baseline/` may not multiply. A file
@@ -189,9 +199,7 @@ const UNSAFE_BASELINE_FILES_CEILING: usize = 2;
 /// this pinned ceiling. A change that shrinks core lowers it to the new measure,
 /// or to `COMPLETE_SOCKET_LIMIT` once core is below that. Only a CEO decision
 /// recorded in `docs/ceo-mandate-84.md` raises it.
-// Final merge with origin/main's storage-guard relocation: 282,657 -> 280,791.
-// The earlier branch-only 280,723 measurement preceded that concurrent change.
-const COMPLETE_SOCKET_CEILING: usize = 280_791;
+const COMPLETE_SOCKET_CEILING: usize = 250_908;
 /// The CEO's limit: strictly below 100,000 physical lines.
 const COMPLETE_SOCKET_LIMIT: usize = 99_999;
 

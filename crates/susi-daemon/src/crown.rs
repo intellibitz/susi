@@ -25,6 +25,30 @@ struct UspCheck {
     detail: String,
 }
 
+/// The SOVA arbitrage proof from the plug host's `daemon.harness`, and whether a
+/// plug host answered at all.
+fn sova_proof() -> (bool, Result<String, String>) {
+    use susi_core::plane_bus::{PlaneBus, topics::DAEMON_HARNESS};
+    let reply = PlaneBus::global().request(
+        DAEMON_HARNESS,
+        serde_json::json!({"action": "verify_sova_invariants"}),
+    );
+    match crate::plug_forward::call(reply, DAEMON_HARNESS) {
+        Err(error) if error == crate::plug_forward::absent(DAEMON_HARNESS) => (false, Err(error)),
+        Err(error) => (true, Err(error)),
+        Ok(reply) => match reply["proof"].as_str() {
+            Some(proof) => (true, Ok(proof.to_string())),
+            None => (
+                true,
+                Err(reply["error"]
+                    .as_str()
+                    .unwrap_or("no SOVA proof in the reply")
+                    .to_string()),
+            ),
+        },
+    }
+}
+
 fn check(id: &'static str, critical: bool, holds: bool, detail: impl Into<String>) -> UspCheck {
     UspCheck {
         id,
@@ -633,11 +657,14 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- USP ROI & SOVA Algorithmic Arbitrage ---
-    let sova = susi_harness::roi::verify_sova_invariants();
+    // The proof runs where the harness runs since it left core (Mandate 84): the
+    // plug host's `daemon.harness`. Without a plug host that is host state, like
+    // Docker, and not a crown failure; a proof the plug host refuses still fails.
+    let (sova_reached, sova) = sova_proof();
     let tier0_roi = susi_gemi::pulse::SusiPulse::roi_summary(workspace);
     out.push(check(
         "usp_roi_arbitrage",
-        true,
+        sova_reached,
         sova.is_ok(),
         match sova {
             Ok(proof) => format!(

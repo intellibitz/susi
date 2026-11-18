@@ -511,7 +511,8 @@ workspace, else `harness/ledger.jsonl` in the data home (`~/.susi`, or
 ## Reliability behaviours
 
 A mission is a metered agent in a git worktree. These behaviours decide what it will do when
-something goes wrong; each is covered by tests in `crates/susi-harness`.
+something goes wrong; each is covered by tests in `crates/susi-harness`, in Susi Commercial
+Apps since Mandate 84.
 
 - **Prescriptive prompt.** A roadmap task whose acceptance names a `gmcp_req_`/`gmcp_vc_` test is
   told to find the sibling test one requirement earlier, append its own test inside the first five
