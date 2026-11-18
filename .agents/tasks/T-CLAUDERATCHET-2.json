@@ -1,0 +1,40 @@
+{
+  "id": "T-CLAUDERATCHET-2",
+  "title": "Move the unsafe-code ratchet out of core",
+  "goal": "Vision: V-9. CEO decision 2026-11-18 (Tier 2, option A): the unsafe-code ratchet leaves core for Susi Commercial Apps (T-CLAUDERATCHET-1). Core's release coordinator builds unsafe_measure and unsafe_ratchet from the newest released v* tag of a Susi Commercial Apps checkout that contains the crate (--tools-repo, SUSI_COMMERCIAL_CHECKOUT or the sibling clone), keeping held, digest-pinned, read-only tools and the same gate checks. Core keeps its reviewed baselines and the build-time UCRT crate (core cannot build without it). Delete the crate, move the test of core's CI scripts into core's tests, forward the owed-receipts script, correct the contract and documents, and lower COMPLETE_SOCKET_CEILING.",
+  "size": "l",
+  "deps": [],
+  "scopes": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/susi-unsafe-ratchet/",
+    "xtask/src/release_coordinator.rs",
+    "scripts/owed-task-receipts.sh",
+    "tests/ci_changed_crates.rs",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "docs/",
+    ".agents/tasks/T-CLAUDERATCHET-2.json",
+    ".agents/claims/T-CLAUDERATCHET-2.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--lib",
+      "release_coordinator"
+    ]
+  },
+  "created_by": "CLAUDERATCHET",
+  "created_unix": 1794998265,
+  "reuse": {
+    "decision": "existing",
+    "searched": "Core's susi-unsafe-ratchet, release coordinator and gate, CI scripts and contract; Susi Commercial Apps' release tags. Delete and redirect: no new dependency."
+  }
+}
