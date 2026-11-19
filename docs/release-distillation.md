@@ -115,9 +115,7 @@ one on its own.
 
 Composed commits are new commits on the release base, so development commits
 are not their ancestors. Evidence that binds itself to the commit its check
-ran on (current GMCP records under `.susi/records/gmcp/evidence`, with legacy
-source records still readable, checked by
-`tests/gmcp_requirements.rs`) follows the composed commits' provenance: a
+ran on follows the composed commits' provenance: a
 `tested_commit` counts as in HEAD's history when it is an ancestor of HEAD or
 of a commit named in a `Source-Commits:` line of a commit that also carries
 `Distilled-Task:`. The evidence's files must still be byte-identical at the
@@ -126,14 +124,9 @@ as it does on main.
 
 ## Evidence bound to a commit is re-recorded, not carried
 
-GMCP vector proof binds the exact tested source and artifact digest. Refresh
-it on the candidate using `local-release record-gmcp`, then
-`local-release record-gmcp --mastery`, before `release-qualify`. Both phases
-use the same clean committed source tree and retain current snapshots under
-ignored `.susi/records/gmcp/evidence/`; no source commit is needed for the records.
-Mastery also binds the exact requirement records it consumed. Missing or stale
-local evidence fails qualification, and required artifact provenance remains
-with the qualified artifact independently of optional operational history.
+Evidence that binds an exact tested source is re-recorded on the candidate, not
+carried from development commits. GMCP vector proof is recorded and checked in
+Susi Commercial Apps against the MCP specification text pinned in core.
 
 Legacy source JSONL remains readable, including its supersession and committed
 input checks. The historical distillation allowance for source evidence files

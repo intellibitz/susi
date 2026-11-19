@@ -173,7 +173,7 @@ describes available commands and migration limits.
 - [docs/architecture.md](docs/architecture.md): pillars, Tier S invariants, plane bus and its loopback rendezvous, implementation services and protocol adapters, the lean-core direction, the command reference.
 - [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
-- [docs/gmcp-roadmap.md](docs/gmcp-roadmap.md): the standards-traceable GMCP completion program; current contract metadata under [`.agents/`](.agents/) is described in [docs/architecture.md](docs/architecture.md#genome).
+- [.agents/gmcp/SPEC-PROVENANCE.md](.agents/gmcp/SPEC-PROVENANCE.md): the pinned third-party MCP specification text core keeps; GMCP certification (requirements ledger, contracts, roadmap and evidence) is maintained in Susi Commercial Apps.
 - [docs/lean-core.md](docs/lean-core.md#repository-line-accounting): tracked repository line accounting by category (separating first-party runtime Rust from tests, tooling, vendored sources, and audit/evidence trails), measured and printed by [`tests/lean_core_ceilings.rs`](tests/lean_core_ceilings.rs). The complete socket ceiling only decreases until the under-100,000 goal is met.
 - [docs/extension-pack.md](docs/extension-pack.md), [docs/harness.md](docs/harness.md), [VISION.md](VISION.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 

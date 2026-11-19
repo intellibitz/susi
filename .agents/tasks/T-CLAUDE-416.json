@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-416",
+  "title": "Hand GMCP certification to Commercial Apps; keep the pinned spec",
+  "goal": "Vision: V-18. CEO decision 2026-11-20 (split GMCP): Susi Commercial Apps now owns the GMCP certification corpus (requirements ledger, sources pins, fixtures, evidence, VC-203 contracts, roadmap and GMCP scripts; Commercial harvest H-CLAUDE-1, T-CLAUDE-18). Core removes those copies, keeps the MCP socket and the pinned third-party MCP specification text with a provenance note, and updates its docs and tests to match.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--workspace"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1795128999
+}

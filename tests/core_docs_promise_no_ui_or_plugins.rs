@@ -244,11 +244,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "docs/step1-acceptance.md",
         "arm64 windows (aarch64-pc-windows-msvc) portable source support exists",
     ),
-    // The client-agnostic GMCP contract: "a dashboard" is any reader.
-    (
-        "docs/gmcp/contract-203-001.md",
-        "so a dashboard or operator sees one canonical shape",
-    ),
     // The `auto-install` helper module of `susi-sandbox-client`.
     (
         "ARCHITECTURE.md",

@@ -20,7 +20,6 @@ for a new one in the same change. The rules agents work by are in
 - [Native Rust Susi: delivery contract and evidence](native-rust-direction.md)
 - [Step 1: Susi builds, tests, improves and uses itself](step1-acceptance.md)
 - [Provider-neutral qualification inputs](provider-neutral-inputs.md)
-- [GMCP completion roadmap](gmcp-roadmap.md)
 
 ## Harness and agents
 
@@ -55,12 +54,11 @@ repository.
 - [Releases](releases.md)
 - [Git storage publisher: first portable slice](git-storage-publisher.md)
 
-## GMCP contracts
+## GMCP
 
-One contract per GMCP vector, each quoting its pinned specification clauses
-verbatim (see the [GMCP completion roadmap](gmcp-roadmap.md)):
-
-[203-001](gmcp/contract-203-001.md) · [203-002](gmcp/contract-203-002.md) · [203-003](gmcp/contract-203-003.md) · [203-004](gmcp/contract-203-004.md) · [203-005](gmcp/contract-203-005.md) · [203-006](gmcp/contract-203-006.md) · [203-007](gmcp/contract-203-007.md) · [203-008](gmcp/contract-203-008.md) · [203-009](gmcp/contract-203-009.md) · [203-010](gmcp/contract-203-010.md) · [203-011](gmcp/contract-203-011.md) · [203-012](gmcp/contract-203-012.md) · [203-013](gmcp/contract-203-013.md) · [203-014](gmcp/contract-203-014.md) · [203-016](gmcp/contract-203-016.md) · [203-017](gmcp/contract-203-017.md) · [203-020](gmcp/contract-203-020.md)
+GMCP certification (the requirements ledger, one contract per vector, the
+roadmap and the evidence) is maintained in Susi Commercial Apps. Core keeps the
+MCP socket and the [pinned MCP specification text](../.agents/gmcp/SPEC-PROVENANCE.md).
 
 ## Elsewhere in the repository
 

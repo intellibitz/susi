@@ -3,9 +3,6 @@
 # Roadmap narratives: merged per vector id, so two agents editing
 # different vectors never conflict (scripts/merge-roadmap.py).
 .agents/roadmap.json merge=roadmap
-# Legacy source evidence merges remain compatible. New operational records
-# use ignored local snapshots and never append to these historical files.
-.agents/gmcp/evidence/*.jsonl merge=union
 # Classify vendored dependencies, generated/append-only agent records, and docs
 # separately from first-party runtime Rust while preserving offline builds and auditability.
 vendor/** linguist-vendored
