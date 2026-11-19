@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-414",
+  "title": "Re-pin docs/gmcp-roadmap.md in the GMCP ledger",
+  "goal": "Vision: V-18. 1c36f4f38 edited docs/gmcp-roadmap.md without re-pinning it; sources.json and the ledger CLAIM rows still carry the old sha256 and bytes, so the ledger verifier refuses the corpus and 67 Commercial GMCP requirement tests fail. Re-pin both to the current document. Limitation: core no longer has a ledger test (the GMCP tests moved to Commercial), so acceptance here is core's architecture tests; the re-pinned ledger was verified from Commercial's gmcp_requirements with SUSI_CORE_CHECKOUT pointing at this tree.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1795117944
+}

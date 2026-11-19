@@ -540,8 +540,8 @@
  "repository_documents": [
   {
    "document": "docs/gmcp-roadmap.md",
-   "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
-   "bytes": 24748
+   "sha256": "ef6fb416661a5c9416693902a0fdb7cc82de187cbf0b8a5f12e74dbe348eca92",
+   "bytes": 24673
   }
  ],
  "external_authorities": [
