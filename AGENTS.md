@@ -174,7 +174,7 @@ publication; retry a lost integration race against the new head.
 - Runtime, build/install/release tooling and shipped implementation dependencies
   must be Rust. A facade does not turn foreign runtime code into Rust. Installed
   compiler/linker tools and OS ABI calls are explicit platform boundaries.
-- Core ships for x86_64 Linux only (decision of 2026-11-18, `docs/ceo-mandate-84.md`);
+- Core ships for x86_64 Linux only (decision of 2026-11-18, Mandate 84);
   qualify releases only on a native x86_64 Linux host. Windows is served by
   Susi Commercial Apps, which installs and manages the Windows channel; the
   Windows code still in core is migration debt that only shrinks. Development
