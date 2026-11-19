@@ -74,39 +74,15 @@ fn xtask_bins() -> &'static XtaskBins {
         ];
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         if !bins_are_fresh(&workspace_root, &bin_paths) {
-            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-            let target_dir = profile_dir.parent().expect("target root directory");
-            let mut build_cmd = Command::new(cargo);
-            build_cmd
-                .current_dir(&workspace_root)
-                .env("CARGO_TARGET_DIR", target_dir)
-                .args([
-                    "build",
-                    "--offline",
-                    "--locked",
-                    "-p",
-                    "xtask",
-                    "--bin",
+            common::build_core_xtask_bins(
+                &workspace_root,
+                profile_dir,
+                &[
                     "distill",
-                    "--bin",
                     "local-distill",
-                    "--bin",
                     "local-harvest",
-                    "--bin",
                     "release-qualify",
-                ]);
-            if let Some(profile_name) = profile_dir.file_name().and_then(|n| n.to_str()) {
-                if profile_name == "release" {
-                    build_cmd.arg("--release");
-                } else if profile_name != "debug" {
-                    build_cmd.args(["--profile", profile_name]);
-                }
-            }
-            let out = build_cmd.output().expect("build xtask binaries");
-            assert!(
-                out.status.success(),
-                "building xtask binaries failed: {}",
-                String::from_utf8_lossy(&out.stderr)
+                ],
             );
         }
         for bin in bin_paths {

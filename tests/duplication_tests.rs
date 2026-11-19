@@ -310,12 +310,13 @@ fn susi_vendor_candle_is_never_source_mounted_into_a_consumer() {
 #[test]
 fn checked_in_rust_implementations_are_not_byte_duplicates() {
     let root = workspace_root();
-    let mut pending = vec![
-        root.join("crates"),
-        root.join("src"),
-        root.join("tests"),
-        root.join("xtask"),
-    ];
+    // `xtask/` moved to Susi Commercial Apps (`tools/core-xtask`); only scan
+    // directories that still exist in the slim core checkout.
+    let mut pending: Vec<PathBuf> = ["crates", "src", "tests", "toolchain"]
+        .into_iter()
+        .map(|name| root.join(name))
+        .filter(|path| path.is_dir())
+        .collect();
     let mut unique = std::collections::HashMap::<Vec<u8>, PathBuf>::new();
     let mut duplicates = Vec::new();
 

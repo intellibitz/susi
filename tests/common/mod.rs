@@ -301,6 +301,36 @@ pub fn newest_mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
     newest
 }
 
+/// Locate the Susi Commercial Apps checkout that owns `tools/core-xtask`
+/// (moved out of core on 2026-11-19). Order: `SUSI_COMMERCIAL_CHECKOUT`, a
+/// sibling `../susi-commercial-apps`, then the cloud workspace path.
+pub fn commercial_apps_root(workspace_root: &std::path::Path) -> PathBuf {
+    if let Some(raw) = std::env::var_os("SUSI_COMMERCIAL_CHECKOUT") {
+        let path = PathBuf::from(raw);
+        if path.join("tools/core-xtask/Cargo.toml").is_file() {
+            return path;
+        }
+    }
+    let sibling = workspace_root
+        .parent()
+        .map(|parent| parent.join("susi-commercial-apps"))
+        .filter(|path| path.join("tools/core-xtask/Cargo.toml").is_file());
+    if let Some(path) = sibling {
+        return path;
+    }
+    let cloud = PathBuf::from("/agent/repos/susi-commercial-apps");
+    assert!(
+        cloud.join("tools/core-xtask/Cargo.toml").is_file(),
+        "Susi Commercial Apps checkout with tools/core-xtask is required; set SUSI_COMMERCIAL_CHECKOUT"
+    );
+    cloud
+}
+
+/// Manifest for core's relocated development/release tools.
+pub fn core_xtask_manifest(workspace_root: &std::path::Path) -> PathBuf {
+    commercial_apps_root(workspace_root).join("tools/core-xtask/Cargo.toml")
+}
+
 /// Whether every prebuilt xtask binary in `bins` is newer than the sources it is built from.
 pub fn bins_are_fresh(workspace_root: &std::path::Path, bins: &[&std::path::Path]) -> bool {
     let mut oldest_bin: Option<std::time::SystemTime> = None;
@@ -322,7 +352,6 @@ pub fn bins_are_fresh(workspace_root: &std::path::Path, bins: &[&std::path::Path
     let watched = [
         "Cargo.toml",
         "Cargo.lock",
-        "xtask",
         "crates/susi-paths",
         "crates/susi-config",
         "crates/susi-vendor-sha2",
@@ -339,7 +368,53 @@ pub fn bins_are_fresh(workspace_root: &std::path::Path, bins: &[&std::path::Path
             }
         }
     }
+    // Tools live in commercial; also invalidate when that tree moves.
+    let tools = commercial_apps_root(workspace_root).join("tools/core-xtask");
+    if tools.exists() {
+        let Some(src_mtime) = newest_mtime(&tools) else {
+            return false;
+        };
+        if src_mtime > oldest_bin {
+            return false;
+        }
+    }
     true
+}
+
+/// Build selected `tools/core-xtask` binaries into `profile_dir`'s target root.
+pub fn build_core_xtask_bins(
+    workspace_root: &std::path::Path,
+    profile_dir: &std::path::Path,
+    bins: &[&str],
+) {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let target_dir = profile_dir.parent().expect("target root directory");
+    let manifest = core_xtask_manifest(workspace_root);
+    let mut build_cmd = std::process::Command::new(cargo);
+    build_cmd
+        .current_dir(workspace_root)
+        .env("CARGO_TARGET_DIR", target_dir)
+        .args(["build", "--locked", "--manifest-path"])
+        .arg(&manifest);
+    for bin in bins {
+        build_cmd.args(["--bin", bin]);
+    }
+    if let Some(profile_name) = profile_dir.file_name().and_then(|n| n.to_str()) {
+        if profile_name == "release" {
+            build_cmd.arg("--release");
+        } else if profile_name != "debug" {
+            build_cmd.args(["--profile", profile_name]);
+        }
+    }
+    let out = build_cmd
+        .output()
+        .expect("build commercial tools/core-xtask binaries");
+    assert!(
+        out.status.success(),
+        "building tools/core-xtask binaries failed: {}\n{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
 
 /// Recursively copies `src` into `dst`, keeping file permissions.

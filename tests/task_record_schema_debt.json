@@ -1,18 +1,6 @@
 {
   "schema": "susi/task-schema-debt/v1",
   "source_commit": "fa616c19632049b657ad924285fb5eebbcde93d9",
-  "note": "Unresolved legacy task records, pinned by SHA-256 after CRLF-to-LF normalization only. Remove entries when repaired or deleted. Do not add or refresh entries to permit new invalid data. This snapshot is not acceptance evidence.",
-  "records": {
-    ".agents/tasks/T-COUNT1102-1.json": "300432a49447952294df16a25a33369eef4755972e307d10e1d0e6824f863525",
-    ".agents/tasks/T-MODELREAD-1.json": "53e954782abddddb6e02978fc3ba89ef444cfd36c639b599538b14f6bae6cfea",
-    ".agents/tasks/T-STEP1ACCEPTANCE-1.json": "9b0b69e5e318d2e9addc05a2f1c061560fd094b2535a0bbb46ae69496d29a649",
-    ".agents/tasks/T-STEP1ACCEPTANCE-2.json": "ab1d830e5f6acff182f054ff59b88b408f47740266ec238aa8ef0ce3f9396a8c",
-    ".agents/tasks/T-STEP1ACCEPTANCE-3.json": "798a6567afc087d24047f319bca51ec87c6460a7ae6086025180c57be7e0058d",
-    ".agents/tasks/T-STEP1ACCEPTANCE-4.json": "e5ac205c48626cc2789e9ee7b4861c272ef037111e71c989a37bf87739d470ba",
-    ".agents/tasks/T-STEP1ACCEPTANCE-5.json": "844aef114521db01a026f2121c8309aeca2dddaa35b0301dc994809b41c239d7",
-    ".agents/tasks/T-STEP1ACCEPTANCE-6.json": "33fe27adabeff2fb7eb960d24fd59af0bcd2d9da3c898e23df5ccfc46bb00b16",
-    ".agents/tasks/T-STEP1ACCEPTANCE-7.json": "ddf11129fc083935a490aa2658a2bc81520f74f57052f522a5284b310f1cabc5",
-    ".agents/tasks/T-STEP1UNICODE-1.json": "e74489e1d822ae348a3b69e585c8baaebf957180ad75e1dedd294a425c684d38",
-    ".agents/tasks/T-VERSIONPATH-1.json": "d339c0d7a5413f0e90367f9b2813e4a2f06a610346a372896a338ea75fc16ab0"
-  }
+  "note": "Unresolved legacy task records, pinned by SHA-256 after CRLF-to-LF normalization only. Remove entries when repaired or deleted. Do not add or refresh entries to permit new invalid data. This snapshot is not acceptance evidence. SAES-22: removed deleted-task paths left behind after a6b0056d8 task cleanup.",
+  "records": {}
 }

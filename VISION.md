@@ -12,7 +12,8 @@ The free Apache-2.0 core is a pure CLI plus standards socket
 engineered for a `<10s` warm build+test+release loop and organized around **three
 primary core pillars** on `susi-core`: GAWD (A2A, ACP and Susi Harness parallel multi-agent workflow), GEMI (model inference routing), GMCP (MCP and governed tools): it has no UI, bundles
 no plugin content, starts no third-party software on its own, and is released
-only for x86_64 Windows and Linux (the source stays portable). Core's target is
+only for x86_64 Linux (the source stays portable; Windows is served by Susi
+Commercial Apps). Core's target is
 a generic protocol socket. Product implementations, integrations, governance
 workflows, and visual interfaces belong in Susi Commercial Apps and reach core
 through public protocols. Existing implementations leave core only after a

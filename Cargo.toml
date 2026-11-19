@@ -26,8 +26,8 @@ members = [
     "crates/susi-vendor-sha2",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tracing"]
-# Vendored, patched third-party crates (see vendor/README.md): not workspace
-# members, so workspace lints/clippy gates do not apply to upstream code.
+# Historical `vendor/` tree is gone (model/TLS patches moved with their plugs).
+# Keep the exclude so a stray directory never becomes a workspace member.
 exclude = ["vendor"]
 
 [package]
@@ -128,8 +128,8 @@ sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 [build-dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
-# Ship the exact patched sources with Susi: a fresh checkout must not need
-# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
+# No crates.io patches in the slim socket. Implementations that needed local
+# patches live in Susi Commercial Apps and resolve there.
 [patch.crates-io]
 # Concrete model/tool feature selection belongs to the commercial runtime.
 [features]

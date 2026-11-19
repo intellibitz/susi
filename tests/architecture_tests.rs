@@ -1539,10 +1539,16 @@ fn zc_quickstart_budget() {
     );
 }
 
-/// Patched sources ship with the checkout: development must not fetch GitHub.
+/// Core no longer ships a `vendor/` tree: model/TLS patches moved with their
+/// implementations. Any remaining `[patch.crates-io]` entry must still be a
+/// local path (never a Git host), and the lockfile must stay git-free.
 #[test]
 fn vendor_patches_are_local_and_preserve_upstream_licenses() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !root.join("vendor").exists(),
+        "core must not grow a vendor/ tree again after the socket slim"
+    );
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
     let patch = manifest
         .split("[patch.crates-io]")
@@ -1556,7 +1562,10 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
     {
-        assert!(line.contains("path = \"vendor/"), "nonlocal patch: {line}");
+        assert!(
+            line.contains("path = \""),
+            "nonlocal patch (path required): {line}"
+        );
         assert!(!line.contains("git ="), "GitHub-dependent patch: {line}");
     }
     let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
@@ -1568,27 +1577,11 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         !lock.contains("[[patch.unused]]"),
         "Cargo.lock must not carry unused [patch.crates-io] entries"
     );
-    for retired in ["reqwest", "fluent-uri"] {
-        assert!(
-            !root.join("vendor").join(retired).exists(),
-            "retired unused vendor patch directory returned: vendor/{retired}"
-        );
-    }
-    for (name, license) in [
-        ("esaxx-rs", "LICENSE"),
-        ("native-tls", "LICENSE-APACHE"),
-        ("native-tls", "LICENSE-MIT"),
-    ] {
-        assert!(root.join("vendor").join(name).join("Cargo.toml").is_file());
-        assert!(root.join("vendor").join(name).join(license).is_file());
-    }
 }
 /// The lockfile carries no `zip` with GitHub's five Dependabot advisories
-/// (GHSA-m665-v7pm-7grj and four more, all fixed in 9.0.5), and the candle
-/// crates that pull it in come from crates.io, not a git revision: candle
-/// 0.11.1 wants zip ^9.1.3 and tokenizers ^0.23, which is why the git patch
-/// that kept the workspace on one tokenizers could go. A registry crate is
-/// also a compiler-cache hit where a git one never is.
+/// (GHSA-m665-v7pm-7grj and four more, all fixed in 9.0.5). Candle and
+/// tokenizers belong in commercial model plugs, not the slim core socket, so
+/// they must stay out of this lockfile and out of any core path patch.
 #[test]
 fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
     let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock")).unwrap();
@@ -1635,9 +1628,10 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
     }
     let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
     assert!(!manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
-    assert!(workspace_root()
-        .join("vendor/candle-core/LICENSE")
-        .is_file());
+    assert!(
+        !workspace_root().join("vendor/candle-core").exists(),
+        "vendor/candle-core must stay out of core after the model stack moved"
+    );
 }
 
 /// The release installer builds the newest tag from source on this host (CEO
