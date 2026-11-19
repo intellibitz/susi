@@ -628,12 +628,14 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
     // Owner-only from birth (`0600` on Linux): no other handle can be opened
     // before the key is written, and a failure creates nothing.
     let created = {
-        use std::os::unix::fs::OpenOptionsExt;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        opts.open(&path)
     };
     if let Ok(mut f) = created {
         if f.write_all(candidate.as_bytes()).is_ok() {

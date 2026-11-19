@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -52,7 +51,12 @@ fn create_staging_file(dir: &Path, path: &Path) -> std::io::Result<(PathBuf, fs:
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
         ));
         let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true).mode(0o600);
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
         match options.open(&tmp_path) {
             Ok(file) => return Ok((tmp_path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -81,7 +85,11 @@ pub fn atomic_replace_unsynced(path: &Path, bytes: &[u8]) -> std::io::Result<()>
     if result.is_err() {
         let _ = fs::remove_file(&tmp_path);
     } else {
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        }
     }
     result
 }
@@ -122,13 +130,21 @@ mod tests {
         let parent = dir.join("nested");
         let path = parent.join("endpoint.json");
         atomic_replace_unsynced(&path, b"first, longer").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
         atomic_replace_unsynced(&path, b"{}").unwrap();
         assert_eq!(read_atomic_bytes(&path).unwrap(), b"{}");
-        assert_eq!(
-            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
 
         fs::remove_file(&path).unwrap();
         fs::remove_dir(&parent).unwrap();
