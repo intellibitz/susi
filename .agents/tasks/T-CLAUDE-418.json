@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-418",
+  "title": "Exec the commercial runtime from the core launcher on Unix",
+  "goal": "Vision: V-18. Core's launcher started the Commercial Apps runtime as a child and waited, so a daemon started through susi ran under a different pid than the launcher: supervisors and tests that wait for ports.json naming the launcher pid never saw it (host_only_privacy, peer_channel_hub), and stopping the launcher left the runtime running. On Unix the launcher now replaces itself with the runtime (exec).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--workspace"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1795131437
+}

@@ -65,8 +65,17 @@ fn run(
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?.wait()?;
-    Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
+    // Become the runtime on Unix: the daemon keeps this pid for supervisors,
+    // ports.json and signals, and stopping this process stops the runtime.
+    #[cfg(unix)]
+    return Err(std::os::unix::process::CommandExt::exec(&mut command).into());
+    #[cfg(not(unix))]
+    Ok(ExitCode::from(
+        susi_paths::stdio::spawn_without_inheriting_stdio(&mut command)?
+            .wait()?
+            .code()
+            .unwrap_or(1) as u8,
+    ))
 }
 
 /// A detached worker may start after this invocation has exited. A Linux
