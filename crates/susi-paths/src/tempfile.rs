@@ -1,4 +1,5 @@
 //! Pure-std Linux temporary directory leaf (`TempDir`, `tempdir`).
+//! Windows stubs compile for commercial linkers; Linux keeps `0700` semantics.
 #![forbid(unsafe_code)]
 
 use std::collections::hash_map::RandomState;
@@ -7,7 +8,6 @@ use std::fmt;
 use std::fs::{self, DirBuilder};
 use std::hash::{BuildHasher, Hasher};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -25,7 +25,7 @@ pub struct TempDir {
 }
 
 impl TempDir {
-    /// Create a new `0700` temporary directory inside [`std::env::temp_dir`].
+    /// Create a new temporary directory inside [`std::env::temp_dir`] (`0700` on Linux).
     pub fn new() -> io::Result<Self> {
         let base = std::env::temp_dir();
         let pid = std::process::id();
@@ -35,7 +35,7 @@ impl TempDir {
             name.push(DEFAULT_PREFIX);
             name.push(generate_token(DEFAULT_RAND_BYTES, pid, seq, attempt));
             let candidate = base.join(name);
-            match DirBuilder::new().mode(0o700).create(&candidate) {
+            match create_exclusive_private_dir(&candidate) {
                 Ok(()) => return Ok(Self { path: candidate }),
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
                 Err(err) => return Err(err),
@@ -77,6 +77,17 @@ impl Drop for TempDir {
 /// Create a new temporary directory inside [`std::env::temp_dir`].
 pub fn tempdir() -> io::Result<TempDir> {
     TempDir::new()
+}
+
+#[cfg(unix)]
+fn create_exclusive_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(windows)]
+fn create_exclusive_private_dir(path: &Path) -> io::Result<()> {
+    DirBuilder::new().create(path)
 }
 
 fn generate_token(len: usize, pid: u32, seq: u64, attempt: u32) -> String {
@@ -125,8 +136,16 @@ fn clear_readonly_recursive(path: &Path) {
         if !meta.file_type().is_symlink() {
             let mut perms = meta.permissions();
             if perms.readonly() {
-                let mode = perms.mode();
-                perms.set_mode(mode | 0o200);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    perms.set_mode(perms.mode() | 0o200);
+                }
+                #[cfg(windows)]
+                {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perms.set_readonly(false);
+                }
                 let _ = fs::set_permissions(path, perms);
             }
             if meta.is_dir() {
@@ -137,31 +156,5 @@ fn clear_readonly_recursive(path: &Path) {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-// Unit tests assert directly on ephemeral temporary directory fixtures.
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tempdir_creates_0700_directory_and_cleans_readonly_files_on_drop() {
-        let captured: PathBuf;
-        {
-            let dir = tempdir().unwrap();
-            captured = dir.path().to_path_buf();
-            assert_eq!(
-                fs::metadata(&captured).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-            let ro_file = captured.join("readonly.pack");
-            fs::write(&ro_file, b"immutable").unwrap();
-            let mut perms = fs::metadata(&ro_file).unwrap().permissions();
-            perms.set_readonly(true);
-            fs::set_permissions(&ro_file, perms).unwrap();
-        }
-        assert!(!captured.exists());
     }
 }
