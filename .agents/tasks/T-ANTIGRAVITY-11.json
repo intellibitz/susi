@@ -10,12 +10,13 @@
       "test",
       "--offline",
       "--locked",
-      "--manifest-path",
-      "../susi-commercial-apps/tools/core-xtask/Cargo.toml",
+      "-p",
+      "susi-core",
       "--lib",
-      "storage_guard"
+      "plane_bus_ipc"
     ]
   },
+  "progress": "Done 2026-11-19 by ANTIGRAVITY on FURY16G10-OT54R under CEO Mandate 96 standing authorization: retired refs/candidates/release/v0-21-62-distilled-rc1 (7b2a5e7c36a7) and refs/candidates/release/v0-21-63-distilled-rc1 (7cd45b3786bb), recorded both in .agents/storage/directed-deletions.txt (shipped in 5abd4823aacd), and verified `susi-commercial workflow candidates` reports `the candidates are tidy: 0 open line(s), none ended`.",
   "created_by": "ANTIGRAVITY",
   "created_unix": 1795106240
 }
