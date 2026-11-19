@@ -1,1 +1,0 @@
-{"branch":"claude25k","scopes":["crates/susi-paths/","crates/susi-error/src/sink.rs","crates/susi-config/src/json_util.rs","crates/susi-config/src/process_probe.rs","crates/susi-core/src/plane_bus_ipc.rs",".agents/tasks/T-CLAUDE25K-3.json",".agents/claims/T-CLAUDE25K-3.json"],"task":"T-CLAUDE25K-3","agent":"CLAUDE25K","claimed_unix":1795028201,"lease_until_unix":1795042601}
