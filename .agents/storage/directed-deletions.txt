@@ -134,3 +134,7 @@ e3c3e0feabf2e30d517e46a6ba39eef95a543137 refs/tags/susi-snapshot/v0-21-63-toolca
 # FURY16G10-OT54R by one atomic --force-with-lease push (2026-11-17).
 90daead4568eff5e471ddc2bf664b120a2570ed7 refs/candidates/release/v0-21-65-distilled-rc1 2026-11-16 T-AGENTCLAUDEDIRECTEDDELETION-1
 5436c616c740086cf18190d0cbff188319b1791e refs/candidates/release/v0.21.62 2026-11-16 T-AGENTCLAUDEDIRECTEDDELETION-1
+
+# 2026-11-19, T-ANTIGRAVITY-11: candidate lines retired under CEO Mandate 96 (ended: released, superseded or merged into a release).
+7b2a5e7c36a75f65634fd4010a16996eb0882f3e refs/candidates/release/v0-21-62-distilled-rc1 2026-11-19 T-ANTIGRAVITY-11
+7cd45b3786bbe85a085a1bf47afb23eeb08c5429 refs/candidates/release/v0-21-63-distilled-rc1 2026-11-19 T-ANTIGRAVITY-11

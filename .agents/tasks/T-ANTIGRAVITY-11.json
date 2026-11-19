@@ -1,0 +1,21 @@
+{
+  "id": "T-ANTIGRAVITY-11",
+  "title": "Retire two ended core release candidate lines under Mandate 96",
+  "goal": "Retire released candidate refs release/v0-21-62-distilled-rc1 and release/v0-21-63-distilled-rc1 under CEO Mandate 96 standing direction and record both in .agents/storage/directed-deletions.txt.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "../susi-commercial-apps/tools/core-xtask/Cargo.toml",
+      "--lib",
+      "storage_guard"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1795106240
+}
