@@ -1,12 +1,12 @@
 //! Unattended command launch helpers (`background_command`, `without_window`,
 //! `apply_non_interactive_env`).
+//!
+//! Core ships for Linux only. Windows console-window creation flags lived here;
+//! that ownership is in Susi Commercial Apps. `without_window` remains a no-op
+//! so callers keep one launch path.
 
 use std::ffi::OsStr;
 use std::process::Command;
-
-/// `CREATE_NO_WINDOW` (`0x0800_0000`): the child gets a console without a
-/// window. Ignored for GUI programs; Windows only.
-pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A [`Command`] for `program` that never opens a console window.
 #[must_use]
@@ -16,19 +16,15 @@ pub fn background_command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
-/// Make an existing `command` start without a console window (Windows); a
-/// no-op elsewhere.
+/// Make an existing `command` start without a console window.
+///
+/// On Linux this is a no-op: there is no console-window creation flag.
 pub fn without_window(command: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
     command
 }
 
 /// Canonical environment pairs that suppress interactive terminal, SSH, GPG/GCM GUI,
-/// and cloud-CLI prompts across Linux, macOS, Windows, and containers.
+/// and cloud-CLI prompts across Linux hosts and containers.
 pub const NON_INTERACTIVE_ENV: [(&str, &str); 6] = [
     ("GIT_TERMINAL_PROMPT", "0"),
     ("GCM_INTERACTIVE", "never"),

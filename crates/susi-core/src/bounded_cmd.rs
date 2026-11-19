@@ -10,11 +10,9 @@ use std::time::{Duration, Instant};
 /// closed (a prompting program sees EOF), stdout/stderr are drained
 /// concurrently, and on expiry the child is killed and reaped and
 /// `ErrorKind::TimedOut` is returned.
-/// Windows probes run without a console window. This helper owns their creation
-/// flags; callers must not request an interactive console or different flags.
+/// Unattended probes: non-interactive env and the shared without-window helper
+/// (a no-op on Linux). Callers must not request an interactive console.
 pub fn output_within(cmd: &mut Command, timeout: Duration) -> std::io::Result<Output> {
-    // Redirected probes are unattended: no console window and non-interactive
-    // env (one owner of the flags, `susi_paths::console`).
     susi_paths::console::without_window(cmd);
     susi_paths::console::apply_non_interactive_env(cmd);
     let mut child = cmd
@@ -66,18 +64,9 @@ mod inline_tests {
     use super::*;
 
     fn echo_cmd(msg: &str) -> Command {
-        #[cfg(windows)]
-        {
-            let mut c = Command::new("cmd");
-            c.args(["/C", &format!("echo {msg}")]);
-            c
-        }
-        #[cfg(not(windows))]
-        {
-            let mut c = Command::new("sh");
-            c.args(["-c", &format!("printf '%s\\n' '{msg}'")]);
-            c
-        }
+        let mut c = Command::new("sh");
+        c.args(["-c", &format!("printf '%s\\n' '{msg}'")]);
+        c
     }
 
     #[test]
@@ -98,13 +87,6 @@ mod inline_tests {
 
     #[test]
     fn output_within_captures_nonzero_exit_status() {
-        #[cfg(windows)]
-        let mut cmd = {
-            let mut c = Command::new("cmd");
-            c.args(["/C", "exit 7"]);
-            c
-        };
-        #[cfg(not(windows))]
         let mut cmd = {
             let mut c = Command::new("sh");
             c.args(["-c", "exit 7"]);
@@ -116,13 +98,6 @@ mod inline_tests {
 
     #[test]
     fn output_within_drains_stderr_cleanly() {
-        #[cfg(windows)]
-        let mut cmd = {
-            let mut c = Command::new("cmd");
-            c.args(["/C", "echo err-msg 1>&2"]);
-            c
-        };
-        #[cfg(not(windows))]
         let mut cmd = {
             let mut c = Command::new("sh");
             c.args(["-c", "printf 'err-msg\\n' >&2"]);
@@ -135,13 +110,6 @@ mod inline_tests {
 
     #[test]
     fn output_within_kills_and_returns_timed_out_for_slow_command() {
-        #[cfg(windows)]
-        let mut cmd = {
-            let mut c = Command::new("cmd");
-            c.args(["/C", "ping -n 5 127.0.0.1 >nul"]);
-            c
-        };
-        #[cfg(not(windows))]
         let mut cmd = {
             let mut c = Command::new("sh");
             c.args(["-c", "sleep 5"]);

@@ -2,7 +2,7 @@ use std::path::Path;
 use susi_config::disk_space;
 
 #[test]
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 fn native_probe_returns_real_capacity_and_caller_availability(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (free, total) =
@@ -38,19 +38,4 @@ fn unix_native_probe_preserves_rejection_of_non_utf8_and_nul_paths() {
         None
     );
     assert_eq!(disk_space::available(Path::new("/\0")), None);
-}
-
-#[test]
-#[cfg(windows)]
-fn windows_probe_keeps_nearest_existing_ancestor_resolution(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let root = std::env::temp_dir();
-    let child = root.join(format!("susi-disk-probe-absent-{}", std::process::id()));
-    assert!(!child.exists());
-    let (_, parent_total) = disk_space::available(&root).ok_or("parent volume probe failed")?;
-    let (free, child_total) =
-        disk_space::available(&child).ok_or("ancestor volume probe failed")?;
-    assert_eq!(parent_total, child_total);
-    assert!(free <= child_total);
-    Ok(())
 }

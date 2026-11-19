@@ -158,15 +158,9 @@ fn bootstrap_parser_errors_and_help_create_no_runtime_instance() {
 
 #[test]
 fn non_unicode_arguments_keep_the_public_refusal_before_runtime_launch() {
-    #[cfg(unix)]
     let argument = {
         use std::os::unix::ffi::OsStringExt;
         std::ffi::OsString::from_vec(vec![0xff])
-    };
-    #[cfg(windows)]
-    let argument = {
-        use std::os::windows::ffi::OsStringExt;
-        std::ffi::OsString::from_wide(&[0xdcff])
     };
     let temp = susi_paths::tempfile::tempdir().unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));

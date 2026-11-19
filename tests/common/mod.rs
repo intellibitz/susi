@@ -142,61 +142,15 @@ impl Drop for HomeGuard {
 
 /// The POSIX shell that runs the repository's `.sh` scripts and git hooks.
 ///
-/// On Windows that is Git for Windows' bash, found from git itself
-/// (`git --exec-path` is `<git>/<mingw64|ucrt64>/libexec/git-core`, the shell
-/// is `<git>/bin/bash.exe`): `bash.exe` or `sh.exe` on PATH can be WSL's
-/// launcher in System32 or a package manager's shim, not the shell git runs
-/// its hooks with. Elsewhere it is `bash` on PATH.
+/// Core ships for Linux only; Windows harness helpers live in commercial.
 pub fn posix_shell() -> PathBuf {
-    #[cfg(windows)]
-    {
-        static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-        SHELL
-            .get_or_init(|| {
-                let out = std::process::Command::new("git")
-                    .arg("--exec-path")
-                    .output()
-                    .expect("git must run to locate Git for Windows bash");
-                assert!(
-                    out.status.success(),
-                    "git --exec-path failed: {}",
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-                let bash = exec_path
-                    .ancestors()
-                    .nth(3)
-                    .unwrap_or_else(|| panic!("unexpected git exec path {exec_path:?}"))
-                    .join("bin")
-                    .join("bash.exe");
-                assert!(
-                    bash.is_file(),
-                    "Git for Windows bash not found at {}",
-                    bash.display()
-                );
-                bash
-            })
-            .clone()
-    }
-    #[cfg(not(windows))]
-    {
-        PathBuf::from("bash")
-    }
+    PathBuf::from("bash")
 }
 
-/// A command that runs `script` the way git and the operator do: directly on
-/// Unix (shebang and exec bit), under [`posix_shell`] on Windows.
+/// A command that runs `script` the way git and the operator do (shebang and
+/// exec bit on Linux).
 pub fn script_command(script: &std::path::Path) -> std::process::Command {
-    #[cfg(windows)]
-    {
-        let mut command = std::process::Command::new(posix_shell());
-        command.arg(script);
-        command
-    }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new(script)
-    }
+    std::process::Command::new(script)
 }
 
 /// How long one script, hook or git invocation of a fixture may run. Whole

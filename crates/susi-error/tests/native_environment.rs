@@ -1,20 +1,12 @@
-#![cfg(any(unix, windows))]
+#![cfg(unix)]
 
 use std::ffi::OsString;
 
 fn native(value: &str) -> OsString {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStringExt;
-        let mut bytes = value.as_bytes().to_vec();
-        bytes.insert(0, 0xff);
-        OsString::from_vec(bytes)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStringExt;
-        OsString::from_wide(&[vec![0xd800], value.encode_utf16().collect()].concat())
-    }
+    use std::os::unix::ffi::OsStringExt;
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.insert(0, 0xff);
+    OsString::from_vec(bytes)
 }
 
 #[test]

@@ -1,12 +1,10 @@
-//! Source guard: no unattended console launch opens a window.
+//! Source guard: unattended launches go through one helper.
 //!
-//! The detached daemon has no console, so a console program it launches
-//! (`icacls`, `tasklist`, `netstat`, `taskkill`, `nvidia-smi`) gets a new,
-//! visible console window from Windows (CEO, 2026-11-09: error 0x800700e8
-//! launching `icacls` on `node.key`). Owner-only ACLs must not be set by
-//! spawning `icacls`/`cacls`; every helper that starts a console program
-//! goes through `susi_paths::console::background_command`, which owns
-//! `CREATE_NO_WINDOW`.
+//! Core ships for Linux only. Windows console-window ownership lived here;
+//! that ownership is in Susi Commercial Apps. Every helper that starts a
+//! console program still goes through `susi_paths::console::background_command`
+//! / `without_window` so launch sites share one path; the helper is a no-op on
+//! Linux and must not reintroduce Windows creation flags here.
 //!
 //! The guard tokenizes every first-party Rust source in the repository (crate
 //! sources with their inline test modules and `tests.rs` files, crate and root
@@ -963,11 +961,7 @@ fn the_launches_held_by_other_claims_are_exactly_the_recorded_ones() {
     }
 }
 
-/// Files other claims hold that write the flag's value instead of calling
-/// the helper: `(file, count, holder)`. Exact, like [`HELD_BY_OTHER_CLAIMS`].
-const HELD_FLAG_LITERALS: [(&str, usize, &str); 0] = [];
-
-/// Whether a token is the numeric literal for `CREATE_NO_WINDOW`.
+/// Whether a token is the numeric literal formerly used for Windows no-window.
 fn is_create_no_window(token: &Token) -> bool {
     let Tok::Id(text) = &token.tok else {
         return false;
@@ -988,13 +982,21 @@ fn is_create_no_window(token: &Token) -> bool {
 }
 
 #[test]
-fn the_helper_owns_create_no_window() {
+fn linux_core_has_no_create_no_window_flag() {
     let console = fs::read_to_string(root().join("crates/susi-paths/src/console.rs"))
         .expect("console helper source");
-    assert!(console.contains("pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;"));
-    assert!(console.contains("creation_flags(CREATE_NO_WINDOW)"));
-    // No other first-party source (tests included) writes the flag's value,
-    // except the recorded ones held by other claims.
+    assert!(
+        !console.contains("CREATE_NO_WINDOW"),
+        "Windows no-window flag belongs in commercial, not core console.rs"
+    );
+    assert!(
+        !console.contains("creation_flags"),
+        "core without_window must stay a Linux no-op without creation_flags"
+    );
+    assert!(
+        console.contains("pub fn without_window"),
+        "without_window remains the shared launch helper"
+    );
     let mut strays = Vec::new();
     for entry in cached_sources() {
         let tokens = entry
@@ -1002,17 +1004,13 @@ fn the_helper_owns_create_no_window() {
             .as_ref()
             .unwrap_or_else(|e| panic!("{}: {e}", entry.file));
         let count = tokens.iter().filter(|t| is_create_no_window(t)).count();
-        let held = HELD_FLAG_LITERALS
-            .iter()
-            .find(|(f, _, _)| *f == entry.file)
-            .map_or(0, |(_, n, _)| *n);
-        if entry.file != "crates/susi-paths/src/console.rs" && count != held {
-            strays.push((entry.file.clone(), count, held));
+        if count != 0 {
+            strays.push((entry.file.clone(), count));
         }
     }
     assert!(
         strays.is_empty(),
-        "CREATE_NO_WINDOW belongs to susi_paths::console only (file, found, recorded as held by          another claim; a holder that fixed theirs deletes the entry): {strays:?}"
+        "Windows no-window numeric literal must not appear in Linux core (file, count): {strays:?}"
     );
 }
 

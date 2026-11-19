@@ -11,10 +11,10 @@ use std::path::Path;
 #[path = "toolchain/linux_link.rs"]
 mod linux_link;
 
-// The one `CREATE_NO_WINDOW` owner, compiled here from its single source: a
-// build script run by a windowless supervisor must not open a console window
-// for `nvidia-smi` (and a build dependency on `susi-paths` would put the whole
-// crate in every build graph for one probe).
+// Shared unattended-launch helper, compiled here from its single source so a
+// build dependency on `susi-paths` is not pulled into every build graph for
+// git/hook probes. On Linux `without_window` is a no-op; Windows console flags
+// live in Susi Commercial Apps.
 #[allow(dead_code)] // only `background_command` is used by this script
 #[path = "crates/susi-paths/src/console.rs"]
 mod console;

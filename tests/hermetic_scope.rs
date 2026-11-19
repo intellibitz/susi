@@ -138,29 +138,6 @@ impl World {
     }
 }
 
-#[cfg(windows)]
-#[test]
-fn windows_native_config_and_build_caches_are_redirected() {
-    let w = World::new("windows-paths", false);
-    let (code, out) = w.run(&["-p", "susi"]);
-    assert_eq!(code, 0, "{out}");
-    let paths = std::fs::read_to_string(&w.paths).unwrap();
-    let real_appdata = std::env::var("APPDATA").unwrap_or_default().to_lowercase();
-    let real_local = std::env::var("LOCALAPPDATA")
-        .unwrap_or_default()
-        .to_lowercase();
-    let paths: Vec<_> = paths.lines().map(str::to_lowercase).collect();
-    assert_eq!(paths.len(), 3, "{paths:?}");
-    assert_ne!(paths[0], real_appdata, "{paths:?}");
-    assert_ne!(paths[1], real_local, "{paths:?}");
-    assert!(paths[0].ends_with("\\appdata\\roaming"), "{paths:?}");
-    assert!(paths[1].ends_with("\\appdata\\local"), "{paths:?}");
-    assert!(
-        paths[2].ends_with("\\appdata\\local\\ort-cache"),
-        "{paths:?}"
-    );
-}
-
 impl Drop for World {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
