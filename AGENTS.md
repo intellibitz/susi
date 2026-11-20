@@ -104,7 +104,10 @@ the requester to inspect code or perform routine engineering steps.
    one-way storage mirrors that only receive `main` and release tags from the
    canonical server's storage sync. Never fetch from, push to or depend on a
    mirror: clone, build, test and release must succeed with every mirror and
-   the internet unreachable. Only `refs/heads/main` is published
+   the internet unreachable. A cloud agent, which cannot reach the canonical
+   server, pushes only to `refs/inbox/<agent>/<topic>` on a private mirror;
+   the storage sync brings that lane in without forcing, and local agents
+   review and merge it. Only `refs/heads/main` is published
    as a branch. Agent handoffs use `refs/agents/<agent>`; qualified release lines
    use fast-forward-only `refs/candidates/release/<name>`. Release tags are
    immutable. Preserve the source, artifact and license binding of each release.
