@@ -98,7 +98,13 @@ the requester to inspect code or perform routine engineering steps.
    pull request, patch or commit. Everyone is free to fork under the license;
    the license grants code rights, not rights to the Susi name or marks.
 8. Use portable Git storage, without hosting-service APIs, hosted CI, hosted
-   pull requests or required remote review. Only `refs/heads/main` is published
+   pull requests or required remote review. The local canonical Git server is
+   the source of truth and the `origin` of every clone and worktree (reached as
+   `https://git.susi.local/intellibitz/susi.git`); GitHub and GitLab are
+   one-way storage mirrors that only receive `main` and release tags from the
+   canonical server's storage sync. Never fetch from, push to or depend on a
+   mirror: clone, build, test and release must succeed with every mirror and
+   the internet unreachable. Only `refs/heads/main` is published
    as a branch. Agent handoffs use `refs/agents/<agent>`; qualified release lines
    use fast-forward-only `refs/candidates/release/<name>`. Release tags are
    immutable. Preserve the source, artifact and license binding of each release.
