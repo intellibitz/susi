@@ -54,6 +54,12 @@ the requester to inspect code or perform routine engineering steps.
    place. Reuse your own idle worktrees where appropriate. Before creating a
    fresh worktree, first remove your own old finished worktrees (rule 10;
    `susi-commercial workflow prune --apply`); CEO decision of 2026-11-20.
+   `git worktree add` runs the post-checkout hook, which lists the finished
+   worktrees (advice; git cannot refuse a checkout). The pre-commit and
+   commit-msg hooks run `.githooks/mandate-checks`, shared byte-for-byte with
+   Susi Commercial Apps: they refuse a new blob of 1 MiB or more, a
+   secret-shaped line, an added `dbg!`, a new numbered mandate document and a
+   subject of only `wip` or `update`, and advise on a long subject.
 2. Inspect current changes and active claims before editing. Reserve disjoint
    scopes using available native `local-workflow` tooling (core's development
    and release tools are built from Susi Commercial Apps' `tools/core-xtask`

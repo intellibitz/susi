@@ -8,6 +8,10 @@
 # commit that the full formatter accepts. Clippy and tests are not hook work:
 # main is unqualified development; release branches run the full gates.
 
+# Mandate checks shared with Susi Commercial Apps (plain bash and git; see the
+# script's header): large blobs, secrets, dbg!, no new numbered mandates.
+"$(dirname "$0")/mandate-checks" pre-commit || exit 1
+
 "$(dirname "$0")/workflow-guard" commit || exit 1
 
 top=$(git rev-parse --show-toplevel) || exit 1

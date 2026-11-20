@@ -14,6 +14,14 @@ if [ -n "$staged" ] && [ -z "$(echo "$staged" | grep -v '^\.agents/tasks/')" ]; 
     exit 0
 fi
 
+# Subject shape (Mandate 94), shared with Susi Commercial Apps.
+"$(dirname "$0")/mandate-checks" commit-msg "$msg_file" || exit 1
+
+# `Task: T-<AGENT>-<n>`, or a native `Task: LOCAL-<name>` (AGENTS.md rule 9),
+# which has no task file in .agents/tasks to check.
+if grep -Eq '^Task: LOCAL-[A-Za-z0-9._-]+[[:space:]]*$' "$msg_file"; then
+    exit 0
+fi
 task=$(sed -n 's/^Task: \(T-[A-Z0-9][A-Z0-9]*-[0-9][0-9]*\)[[:space:]]*$/\1/p' "$msg_file" | head -1)
 if [ -z "$task" ]; then
     cat >&2 <<'MSG'
@@ -21,7 +29,7 @@ if [ -z "$task" ]; then
    Work comes from the queue:   susi-commercial tasks add '<title>' --accept '<cmd>'
                                 susi-commercial tasks claim <id>
    then end the commit message with a trailer:
-                                Task: T-<AGENT>-<n>
+                                Task: T-<AGENT>-<n>   (or a native Task: LOCAL-<name>)
 MSG
     exit 1
 fi

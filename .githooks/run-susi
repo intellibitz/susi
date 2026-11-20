@@ -11,7 +11,7 @@
 #
 # The workflow guard is the agent workflow's own rule set, not this open
 # repository's: with no binary that has `workflow guard`, the hook says so and
-# lets git go on. The gated landing (`cargo local-workflow`) never runs these
+# refuses (it fails closed, so an unguarded commit never slips through). The gated landing (`cargo local-workflow`) never runs these
 # hooks and judges every change itself.
 set -u
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$(cd "$(dirname "$0")/.." && pwd)

@@ -26,4 +26,7 @@ if { [ -L "$top/target" ] || { [ "$new" = 1 ] && [ ! -e "$top/target" ]; }; } &&
         "${BASH:-bash}" "$top/scripts/seed-target.sh" --background "$top" </dev/null
     ) || true
 fi
+# Mandate 98: `git worktree add` just made this checkout; list the finished
+# worktrees to remove first (advice: post-checkout cannot refuse).
+"$(dirname "$0")/mandate-checks" post-checkout "${1:-}" "${2:-}" "${3:-}" || true
 exit 0

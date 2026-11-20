@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# Mandate checks shared by intellibitz/susi and intellibitz/susi-commercial-apps
+# (the same file in both repositories; keep them byte-identical). Plain bash
+# and git: no network, no build, no workflow tool, well under a second.
+#
+#   mandate-checks pre-commit                 staged change (refuses)
+#   mandate-checks commit-msg <message-file>  commit message (refuses)
+#   mandate-checks post-checkout <old> <new> <flag>   new worktree (advises)
+#   mandate-checks replay-msg <commit>        message rules on a past commit
+#   mandate-checks replay-diff <commit>       change rules on a past commit
+#
+# Only deterministic, offline rules refuse. A merge is never refused (the
+# contracts say so), and neither is a revert. What refuses:
+#   - Mandate 94 (commits tidy): a staged blob of 1 MiB or more; a subject
+#     that is only "wip" or "update". A subject over 72 characters or ending
+#     in a period is advised, not refused: the workflow tool's own generated
+#     subjects (e.g. "Close T-... after ...") can run longer.
+#   - Secrets (commercial sections 5 and 6, core "Secrets, testing and
+#     releases"): an added line holding a private-key block, a license token
+#     or a well-known API-token shape.
+#   - Mandate 93 (code tidy): an added `dbg!(` in Rust.
+#   - Mandate 90 (mandates tidy), commercial: every docs/ceo-mandate-N.md has
+#     its index row, its AGENTS.md section and its CLAUDE.md link, and
+#     CLAUDE.md and GEMINI.md stay byte-identical. Core: no new numbered
+#     mandate document (core keeps its rules in its one active contract).
+#   - Mandate 50, commercial: a commit names its task (`Task: T-<AGENT>-<n>`
+#     or `Task: LOCAL-<name>`), as core's commit-msg hook already requires.
+# Mandate 98 (remove old worktrees before starting a fresh one) cannot be
+# refused by git; post-checkout lists your finished worktrees when
+# `git worktree add` makes a new one.
+set -u
+
+die=0
+refuse() {
+    printf '❌ %s\n' "$*" >&2
+    die=1
+}
+warn() {
+    printf '⚠ %s\n' "$*" >&2
+}
+
+{ read -r top && read -r git_dir; } < <(git rev-parse --show-toplevel --git-dir 2>/dev/null) || exit 0
+commercial=0
+[ -f "$top/LICENSE-COMMERCIAL.md" ] && commercial=1
+
+in_merge() { [ -f "$git_dir/MERGE_HEAD" ]; }
+
+exempt_subject() {
+    case "$1" in
+    "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) return 0 ;;
+    esac
+    return 1
+}
+
+# --- message rules -------------------------------------------------------
+# $1: message text (comments already stripped); $2: staged paths, one per line.
+check_message() {
+    local msg=$1 paths=$2 subject
+    subject=$(printf '%s\n' "$msg" | sed -n '/[^[:space:]]/{p;q;}')
+    exempt_subject "$subject" && return 0
+    if [ "${#subject}" -gt 72 ]; then
+        warn "Mandate 94: the subject is ${#subject} characters; keep it to 72 or fewer (advice)."
+    fi
+    case "$subject" in
+    *.) warn "Mandate 94: the subject ends with a period; drop it (advice)." ;;
+    esac
+    case "$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')" in
+    wip | update | wip: | update:) refuse "Mandate 94: say what the commit does, not \"$subject\"." ;;
+    esac
+    if [ "$commercial" = 1 ]; then
+        case "$subject" in "chore: release v"*) return 0 ;; esac
+        if [ -n "$paths" ] && [ -z "$(printf '%s\n' "$paths" | grep -v '^\.agents/tasks/')" ]; then
+            return 0
+        fi
+        if ! printf '%s\n' "$msg" | grep -Eq '^Task: (T-[A-Z0-9]+-[0-9]+|LOCAL-[A-Za-z0-9._-]+)[[:space:]]*$'; then
+            refuse "Mandate 50: this commit names no task. Add one (susi-commercial tasks add '<title>' --accept '<cmd>') and end the message with: Task: T-<AGENT>-<n>"
+        fi
+    fi
+}
+
+# --- change rules --------------------------------------------------------
+# $1: unified diff with zero context; $2: "path<TAB>size<TAB>status" lines.
+check_change() {
+    local diff=$1 files=$2 hits
+    while IFS=$'\t' read -r path size status; do
+        [ -n "$path" ] || continue
+        if [ "$size" -ge 1048576 ] 2>/dev/null; then
+            # A new large blob is refused; a file that is already that large
+            # in history is only advised about, so the tooling that maintains
+            # it (e.g. a generated ledger) keeps working.
+            if [ "$status" = A ]; then
+                refuse "Mandate 94: $path is $size bytes; blobs of 1 MiB or more stay out of source."
+            else
+                warn "Mandate 94: $path is $size bytes; move it out of source or shrink it (advice)."
+            fi
+        fi
+        if [ "$commercial" = 0 ] && [ "$status" = A ]; then
+            case "$path" in
+            docs/ceo-mandate-*.md) refuse "Core keeps its rules in AGENTS.md, the one active contract: change it in place instead of adding $path." ;;
+            esac
+        fi
+    done <<<"$files"
+
+    # Added lines only, with the file each belongs to. Vendored upstream code
+    # (vendor/) and test fixtures (dummy keys a TLS test needs) are left as
+    # their authors wrote them.
+    local added
+    added=$(printf '%s\n' "$diff" | awk '
+        /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); skip = (f ~ /(^|\/)vendor\// || f ~ /\/tests\/fixtures\//); next }
+        /^\+/ && !skip { print f "\t" substr($0, 2) }')
+    # A private-key header counts only alone on its line (as in a key file),
+    # so scanners and docs that name the header are not refused.
+    hits=$(printf '%s\n' "$added" | grep -E $'\t''([[:space:]]*-----BEGIN ([A-Z]+ )?PRIVATE KEY-----[[:space:]]*$|.*(SUSI-(ENT|CUST)-v1[.:][A-Za-z0-9+/=_-]{40,}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|sk-ant-[A-Za-z0-9_-]{30,}|AKIA[0-9A-Z]{16}))' | cut -f1 | sort -u)
+    if [ -n "$hits" ]; then
+        refuse "Secrets never enter source (rotate any that did): a key, license token or API token in: $(printf '%s ' $hits)"
+    fi
+    hits=$(printf '%s\n' "$added" | grep -E $'^[^\t]*\\.rs\t(.*[^A-Za-z0-9_])?dbg!\\(' | cut -f1 | sort -u)
+    if [ -n "$hits" ]; then
+        refuse "Mandate 93: remove dbg! from: $(printf '%s ' $hits)"
+    fi
+}
+
+# Commercial Mandate 90, against the index (the staged tree).
+check_mandate_index() {
+    [ "$commercial" = 1 ] || return 0
+    local agents claude gemini n
+    agents=$(git show :AGENTS.md 2>/dev/null) || return 0
+    claude=$(git show :CLAUDE.md 2>/dev/null)
+    gemini=$(git show :GEMINI.md 2>/dev/null)
+    if [ "$claude" != "$gemini" ]; then
+        refuse "Mandate 90: CLAUDE.md and GEMINI.md must stay byte-identical pointers."
+    fi
+    for n in $(git ls-files 'docs/ceo-mandate-*.md' | sed -n 's|^docs/ceo-mandate-\([0-9][0-9]*\)\.md$|\1|p'); do
+        printf '%s\n' "$agents" | grep -q "^| $n | " ||
+            refuse "Mandate 90: docs/ceo-mandate-$n.md has no row in AGENTS.md's mandate index."
+        printf '%s\n' "$agents" | grep -Eq "^## CEO Mandate ([0-9]+ & Mandate )?$n[ (:]" ||
+            refuse "Mandate 90: docs/ceo-mandate-$n.md has no '## CEO Mandate $n' section in AGENTS.md."
+        printf '%s\n' "$claude" | grep -Fq "[$n](docs/ceo-mandate-$n.md)" ||
+            refuse "Mandate 90: CLAUDE.md and GEMINI.md do not list docs/ceo-mandate-$n.md."
+    done
+}
+
+# "path<TAB>size<TAB>status" from raw diff lines (":m m blob blob status<TAB>path"),
+# sizing every blob with one `git cat-file --batch-check`, not a process per file.
+sized_files() {
+    local raw
+    raw=$(cat)
+    [ -n "$raw" ] || return 0
+    paste <(printf '%s\n' "$raw" | cut -f2) \
+        <(printf '%s\n' "$raw" | cut -f1 | awk '{print $4}' |
+            git cat-file --batch-check='%(objectsize)' | sed 's/.* missing$/0/') \
+        <(printf '%s\n' "$raw" | cut -f1 | awk '{print substr($5, 1, 1)}')
+}
+
+staged_files() {
+    git diff --cached --raw --no-abbrev --no-renames --diff-filter=ACMR | sized_files
+}
+
+commit_files() {
+    git diff-tree -r --raw --no-abbrev --no-commit-id --no-renames --diff-filter=ACMR "$1" | sized_files
+}
+
+# --- Mandate 98 advice ---------------------------------------------------
+advise_finished_worktrees() {
+    local here wt branch head list="" first=1
+    here=$(cd "$top" && pwd -P)
+    git rev-parse -q --verify origin/main >/dev/null || return 0
+    while read -r key value; do
+        case "$key" in
+        worktree) wt=$value; head=""; branch="" ;;
+        HEAD) head=$value ;;
+        branch) branch=${value#refs/heads/} ;;
+        "")
+            [ -n "${wt:-}" ] || continue
+            # The first entry is the primary checkout: never a candidate.
+            if [ "$first" = 1 ]; then
+                first=0
+                wt=""
+                continue
+            fi
+            [ -n "${branch:-}" ] || { wt=""; continue; }
+            [ "$(cd "$wt" 2>/dev/null && pwd -P)" = "$here" ] && continue
+            [ "$branch" = main ] && continue
+            git merge-base --is-ancestor "$head" origin/main 2>/dev/null || continue
+            [ -z "$(git -C "$wt" status --porcelain 2>/dev/null | head -1)" ] || continue
+            list="$list    $wt ($branch)"$'\n'
+            wt=""
+            ;;
+        esac
+    done < <(git worktree list --porcelain; echo)
+    [ -n "$list" ] || return 0
+    printf '%s\n' "⚠ Mandate 98: remove finished worktrees before starting a fresh one." \
+        "  These are clean and fully on origin/main (check they are yours first):" >&2
+    printf '%s' "$list" >&2
+    printf '%s\n' "  Remove yours with: susi-commercial workflow prune --apply" \
+        "  (or: git worktree remove <path> && git branch -d <branch>)" >&2
+}
+
+case "${1:-}" in
+pre-commit)
+    in_merge && exit 0
+    files=$(staged_files)
+    [ -n "$files" ] || exit 0
+    check_change "$(git diff --cached -U0 --no-color --no-renames --diff-filter=ACMR)" "$files"
+    if printf '%s\n' "$files" | cut -f1 | grep -Eq '^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|docs/ceo-mandate-[0-9]+\.md)$'; then
+        check_mandate_index
+    fi
+    ;;
+commit-msg)
+    in_merge && exit 0
+    check_message "$(grep -v '^#' "$2")" "$(git diff --cached --name-only)"
+    ;;
+post-checkout)
+    case "${2:-}" in '' | *[!0]*) exit 0 ;; esac
+    advise_finished_worktrees
+    exit 0
+    ;;
+replay-msg)
+    [ "$(git rev-list --no-walk --count --merges "$2")" = 0 ] || exit 0
+    check_message "$(git log -1 --format=%B "$2")" "$(git diff-tree -r --no-commit-id --name-only "$2")"
+    ;;
+replay-diff)
+    [ "$(git rev-list --no-walk --count --merges "$2")" = 0 ] || exit 0
+    check_change "$(git show -U0 --no-color --no-renames --format= "$2")" "$(commit_files "$2")"
+    ;;
+*)
+    echo "usage: mandate-checks pre-commit | commit-msg <file> | post-checkout <old> <new> <flag>" >&2
+    exit 2
+    ;;
+esac
+exit "$die"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mandate 49: any git activity by any agent keeps the primary checkout's main
-# current. Called by post-commit, post-merge, post-checkout and pre-push. It is
+# current. Called by post-commit, post-merge and post-checkout. It is
 # silent, never fails the caller, and is throttled (SUSI_SYNC_INTERVAL seconds,
 # default 30) so a burst of commits fetches once. It runs
 # `park-primary.sh --sync-only`, which only ever fast-forwards a clean `main`

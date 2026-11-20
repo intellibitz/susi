@@ -2,11 +2,11 @@
 # Git's compatibility boundary only. All policy lives in the native Rust tool:
 # transport safety (no force, no unsafe deletion, real ancestry), no tests, no
 # network. Core's tools, push-policy among them, are built from Susi Commercial
-# Apps (tools/core-xtask) since 2026-11-19. A push never stops because the tool
-# is not installed: push-policy on PATH, else this checkout's earlier build,
-# else a build in a Susi Commercial Apps checkout beside this one, else it is
-# built once there (offline) and used from then on. Only a tool that cannot be
-# found or built fails closed.
+# Apps (tools/core-xtask) since 2026-11-19. It is looked for in order:
+# push-policy on PATH, else this checkout's earlier build, else a build in a
+# Susi Commercial Apps checkout beside this one, else it is built once there
+# (offline) and used from then on. With no such checkout beside this one, or a
+# tool that cannot be built, the push is refused (it fails closed).
 if command -v push-policy >/dev/null 2>&1; then
     exec push-policy "$@"
 fi
