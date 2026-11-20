@@ -100,14 +100,15 @@ the requester to inspect code or perform routine engineering steps.
    Core improves on a weekly cycle: a change proven in dependent work enters
    only when it helps a single developer on its own, is not paid-only value,
    is fresh code written here under this license, adds no net lines past the
-   size ceiling and passes the Linux gates. A cycle that lands anything ships a
+   size ceiling and passes the Linux gates and the offline test with every
+   mirror cut off. A cycle that lands anything ships a
    signed release with plain notes; public mirrors receive only signed release
    tags.
 8. Use portable Git storage, without hosting-service APIs, hosted CI, hosted
    pull requests or required remote review. The local canonical Git server is
    the source of truth and the `origin` of every clone and worktree (reached via
    the configured `https://git.susi.local/<org>/susi.git` canonical URL); GitHub and GitLab are
-   one-way storage mirrors that only receive `main` and release tags from the
+   one-way storage mirrors that only receive `main` and signed release tags from the
    canonical server's storage sync. Never fetch from, push to or depend on a
    mirror: clone, build, test and release must succeed with every mirror and
    the internet unreachable. A cloud agent, which cannot reach the canonical
@@ -314,7 +315,7 @@ artifact, including interruption and native file locks. Never install an
 unqualified candidate as production. A release qualified for this host is complete
 only when the installed binary, `susi.build.json` and live daemon are synchronized
 and healthy. Reuse the qualified artifact after digest verification; keep
-scheduled Windows tasks at `RunLevel=Limited`. Keep the installed release current
+any scheduled task unprivileged (`RunLevel=Limited` where Windows code remains). Keep the installed release current
 when a newer release is already qualified for this host, its remote is reachable
 and no client is mid-mission; verify its artifact and retain rollback. Source
 publication, a model claim
