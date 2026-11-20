@@ -101,7 +101,8 @@ the requester to inspect code or perform routine engineering steps.
    only when it helps a single developer on its own, is not paid-only value,
    is fresh code written here under this license, adds no net lines past the
    size ceiling and passes the Linux gates and the offline test with every
-   mirror cut off. A cycle that lands anything ships a
+   mirror cut off; from a Windows host the Linux gates run in WSL2 under the
+   same blackout. A cycle that lands anything ships a
    signed release with plain notes; public mirrors receive only signed release
    tags.
 8. Use portable Git storage, without hosting-service APIs, hosted CI, hosted
