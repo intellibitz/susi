@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-419",
+  "title": "Require removing old worktrees before starting a fresh one",
+  "goal": "CEO 2026-11-20: before starting a fresh worktree, agents must remove their old finished worktrees",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1795163754
+}

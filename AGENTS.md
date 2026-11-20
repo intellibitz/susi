@@ -51,7 +51,9 @@ the requester to inspect code or perform routine engineering steps.
    Keep source, build targets, runtime homes, scratch files and ports private.
    Never edit the primary checkout, another agent's files or the requester's
    working directory. Roots never nest or overlap; register an existing root in
-   place. Reuse your own idle worktrees where appropriate.
+   place. Reuse your own idle worktrees where appropriate. Before creating a
+   fresh worktree, first remove your own old finished worktrees (rule 10;
+   `susi-commercial workflow prune --apply`); CEO decision of 2026-11-20.
 2. Inspect current changes and active claims before editing. Reserve disjoint
    scopes using available native `local-workflow` tooling (core's development
    and release tools are built from Susi Commercial Apps' `tools/core-xtask`
