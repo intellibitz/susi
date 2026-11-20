@@ -1,6 +1,6 @@
 //! Ordinary production launches follow one local selector. Release activation,
-//! promotion and rollback live in Susi Commercial Apps (`susi-commercial install-release`);
-//! launching and verifying the admitted entry needs neither Git nor `susi-commercial`.
+//! promotion and rollback delegate to an external runtime host when configured;
+//! launching and verifying the admitted entry needs neither Git nor any host binary.
 use crate::cli::defs::Commands;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -153,15 +153,17 @@ pub(crate) fn manage(command: &Commands) -> ExitCode {
     else {
         return ExitCode::FAILURE;
     };
-    let Some(program) = susi_config::vault_exec::commercial_executable() else {
-        eprintln!("the installed channel is served by Susi Commercial Apps: run `susi-commercial install-release` with the same arguments (and `--core <package>/susi` to install a package)");
+    let Some(program) = susi_config::vault_exec::runtime_host_executable() else {
+        eprintln!("no runtime host configured for install-release (set SUSI_RUNTIME_HOST or install a compatible plug host such as `susi-commercial install-release`)");
         return ExitCode::FAILURE;
     };
     let Ok(core) = env::current_exe() else {
         return ExitCode::FAILURE;
     };
     let mut cmd = Command::new(&program);
-    cmd.arg("install-release").env("SUSI_CORE_BIN", &core);
+    cmd.arg("install-release")
+        .env("SUSI_CORE_BIN", &core)
+        .env(susi_config::vault_exec::RUNTIME_HOST_ENV, &program);
     if let Some(v) = id {
         cmd.args(["--id", v]).arg("--core").arg(&core);
     }

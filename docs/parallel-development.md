@@ -127,7 +127,7 @@ or activate the unfinished workspace runner.
 
 ## Measurements and verification limits
 
-2026-11-10, DESKTOP-53DT8GM: Windows x86_64, 8 logical CPUs, 68,492,570,624 bytes
+2026-11-10, reference Windows host: Windows x86_64, 8 logical CPUs, 68,492,570,624 bytes
 physical memory. Final native command suite: 25 passed, zero failed/ignored,
 2.79 seconds executing tests, 11.480 seconds including the warm rebuild. Strict
 Clippy passed in 2.938 seconds and the executable build passed in 3.158 seconds.
@@ -154,7 +154,7 @@ are separate verification obligations. No released artifact or full 100-agent
 readiness follows from these focused results.
 
 The exact std-only capacity source from commit `cc143901d` also passed all nine
-Linux tests on Fury with pinned rustc 1.99.0. Its SHA-256 was verified unchanged
+Linux tests on an x86_64 Linux host with pinned rustc 1.99.0. Its SHA-256 was verified unchanged
 from Windows: `382153f29a261a19540193abed3da4deeab053dc737d63bd42e10c2021d7e5c4`.
 Compilation took 0.219 seconds and execution 0.054 seconds, both at verified
 niceness 19 with no competing build. This validates the capacity module's Linux

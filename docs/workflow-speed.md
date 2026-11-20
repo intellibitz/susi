@@ -103,18 +103,18 @@ slowest leg.
 
 ## What the operator must do (one-time, this machine)
 
-Real-time protection excludes `F:\src\github.com\intellibitz\susi` (the
+Real-time protection excludes `<dev-root>\susi` (the
 primary checkout) but not the sibling worktrees every agent actually builds
-and tests in (`F:\src\github.com\intellibitz\susi-<name>`). `MsMpEng.exe` was
+and tests in (`<dev-root>\susi-<name>`). `MsMpEng.exe` was
 the top CPU consumer on the machine (49 000 CPU-seconds) while the gates ran.
 Exclude the parent directory once, as administrator:
 
 ```powershell
-Add-MpPreference -ExclusionPath 'F:\src\github.com\intellibitz'
+Add-MpPreference -ExclusionPath '<dev-root>'
 ```
 
 Also running: `SearchIndexer` (21 800 CPU-seconds) and `Everything`
-(20 300) index the same tree. Exclude `F:\src` from Windows Search, and from
+(20 300) index the same tree. Exclude `<dev-root>` from Windows Search, and from
 Everything's index if it is not needed there.
 
 ## A compiler cache across worktrees (2026-10-31)

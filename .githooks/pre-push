@@ -1,14 +1,14 @@
 #!/bin/sh
-# Git's compatibility boundary only. All policy lives in the native Rust tool:
-# transport safety (no force, no unsafe deletion, real ancestry), no tests, no
-# network. Core's tools, push-policy among them, are built from Susi Commercial
-# Apps (tools/core-xtask) since 2026-11-19. It is looked for in order:
-# push-policy on PATH, else this checkout's earlier build, else a build in a
-# Susi Commercial Apps checkout beside this one, else it is built once there
-# (offline) and used from then on. With no such checkout beside this one, or a
-# tool that cannot be built, the push is refused (it fails closed).
-# Standalone pure-local public-core boundary firewall: buffer push ref lines
-# so both core-boundary-guard and push-policy see the exact stdin git provided.
+# Standalone public-core pre-push hook (pure local Git transport safety +
+# public-core boundary firewall; zero sibling-repo or external-tool dependency).
+#
+# 1. Always runs `core-boundary-guard pre-push` (blocks proprietary markers,
+#    secrets, and private board ref pushes).
+# 2. If an optional native `push-policy` binary is installed on PATH or in this
+#    checkout's target/, delegates to it.
+# 3. Otherwise enforces transport safety directly with POSIX sh + git:
+#    refuses branch deletion, non-fast-forward branch updates, and moved or
+#    deleted tags (or fails closed when SUSI_REQUIRE_PUSH_POLICY=1 is set).
 _susi_push_in=$(cat; printf .)
 _susi_push_in=${_susi_push_in%.}
 if [ -x "$(dirname "$0")/core-boundary-guard" ]; then
@@ -28,32 +28,42 @@ for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe" \
         exit $?
     fi
 done
-tools=
-for manifest in "$top"/../*/tools/core-xtask/Cargo.toml; do
-    [ -f "$manifest" ] || continue
-    tools=$(dirname "$manifest")
-    for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe" \
-        "$tools/target/release/push-policy" "$tools/target/release/push-policy.exe"; do
-        if [ -x "$bin" ]; then
-            printf '%s' "$_susi_push_in" | "$bin" "$@"
-            exit $?
-        fi
-    done
-done
-if [ -z "$tools" ]; then
-    echo "pre-push: push-policy is not on PATH and no Susi Commercial Apps checkout is beside this one; refusing the push (transport safety)" >&2
+if [ "${SUSI_REQUIRE_PUSH_POLICY:-0}" = "1" ]; then
+    echo "pre-push: SUSI_REQUIRE_PUSH_POLICY=1 and push-policy is not installed; refusing the push (transport safety)" >&2
     exit 1
 fi
-echo "pre-push: building push-policy once in $tools" >&2
-(cd "$tools" && cargo build --offline --locked --quiet --bin push-policy </dev/null >&2) || {
-    echo "pre-push: push-policy could not be built; refusing the push (transport safety)" >&2
+
+zero="0000000000000000000000000000000000000000"
+refuse_push() {
+    printf 'pre-push: %s; refusing the push (transport safety)\n' "$*" >&2
     exit 1
 }
-for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe"; do
-    if [ -x "$bin" ]; then
-        printf '%s' "$_susi_push_in" | "$bin" "$@"
-        exit $?
-    fi
-done
-echo "pre-push: push-policy missing after build; refusing the push" >&2
-exit 1
+
+# Pure-local transport safety when push-policy is not installed:
+# refuse branch deletion, non-fast-forward branch updates, and moved/deleted tags.
+printf '%s' "$_susi_push_in" | while read -r local_ref local_sha remote_ref remote_sha || [ -n "${local_ref:-}" ]; do
+    [ -n "${local_ref:-}" ] || continue
+    case "$remote_ref" in
+    refs/heads/*)
+        if [ "$local_sha" = "$zero" ]; then
+            refuse_push "deleting branch $remote_ref is forbidden"
+        fi
+        if [ "$remote_sha" != "$zero" ] && [ "$remote_sha" != "$local_sha" ]; then
+            if ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null ||
+                ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+                refuse_push "non-fast-forward update to $remote_ref ($remote_sha -> $local_sha)"
+            fi
+        fi
+        ;;
+    refs/tags/*)
+        if [ "$remote_sha" != "$zero" ]; then
+            if [ "$local_sha" = "$zero" ]; then
+                refuse_push "deleting existing tag $remote_ref is forbidden"
+            elif [ "$local_sha" != "$remote_sha" ]; then
+                refuse_push "moving existing tag $remote_ref ($remote_sha -> $local_sha) is forbidden"
+            fi
+        fi
+        ;;
+    esac
+done || exit 1
+exit 0

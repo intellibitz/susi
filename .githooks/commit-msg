@@ -26,16 +26,15 @@ task=$(sed -n 's/^Task: \(T-[A-Z0-9][A-Z0-9]*-[0-9][0-9]*\)[[:space:]]*$/\1/p' "
 if [ -z "$task" ]; then
     cat >&2 <<'MSG'
 ❌ Mandate 50: this commit has no task.
-   Work comes from the queue:   susi-commercial tasks add '<title>' --accept '<cmd>'
-                                susi-commercial tasks claim <id>
-   then end the commit message with a trailer:
-                                Task: T-<AGENT>-<n>   (or a native Task: LOCAL-<name>)
+   End the commit message with a task trailer:
+                                Task: LOCAL-<name>    (standalone core work)
+                                Task: T-<AGENT>-<n>   (queued task in .agents/tasks/)
 MSG
     exit 1
 fi
 root=$(git rev-parse --show-toplevel)
 if [ -f "$root/.agents/tasks/done/$task.json" ]; then
-    echo "❌ Mandate 50: $task is already closed; add a new task (susi-commercial tasks add) for new work." >&2
+    echo "❌ Mandate 50: $task is already closed; add a new task or use Task: LOCAL-<name> for new work." >&2
     exit 1
 fi
 if [ ! -f "$root/.agents/tasks/$task.json" ]; then

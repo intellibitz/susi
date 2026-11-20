@@ -53,6 +53,7 @@ fn launch(
     command
         .args(["--", "a goal with spaces", "tab\targument", "literal;$()"])
         .current_dir(cwd)
+        .env_remove("SUSI_RUNTIME_HOST")
         .env("SUSI_COMMERCIAL_BIN", runtime)
         .env("SUSI_FORWARD_TEST_CALLER", "verbatim value")
         .env("SUSI_XDG", "1")
@@ -144,6 +145,7 @@ fn bootstrap_parser_errors_and_help_create_no_runtime_instance() {
             .env_remove("SUSI_HOME")
             .env_remove("SUSI_INSTALLED_RELEASE")
             .env_remove("SUSI_WORKER_GUARD")
+            .env_remove("SUSI_RUNTIME_HOST")
             .env("SUSI_COMMERCIAL_BIN", root.join("missing-runtime"))
             .output()
             .unwrap();
@@ -168,6 +170,7 @@ fn non_unicode_arguments_keep_the_public_refusal_before_runtime_launch() {
     let result = command
         .arg(argument)
         .env_remove("SUSI_INSTALLED_RELEASE")
+        .env_remove("SUSI_RUNTIME_HOST")
         .env("SUSI_COMMERCIAL_BIN", temp.path().join("missing-runtime"))
         .output()
         .unwrap();
@@ -177,4 +180,112 @@ fn non_unicode_arguments_keep_the_public_refusal_before_runtime_launch() {
         String::from_utf8(result.stderr).unwrap().trim(),
         "command arguments must be valid UTF-8"
     );
+}
+
+#[test]
+fn generic_runtime_host_env_forwards_without_commercial_env_and_takes_precedence() {
+    let temp = susi_paths::tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let source = root.join("generic_host.rs");
+    let host = root.join(format!("susi-runtime-host{}", std::env::consts::EXE_SUFFIX));
+    fs::write(
+        &source,
+        r#"
+use std::env;
+fn main() {
+    let args: Vec<_> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("core-parse") { std::process::exit(64); }
+    println!("args={}", args.join("|"));
+    println!("host={}", env::var("SUSI_RUNTIME_HOST").unwrap_or_default());
+    println!("compat={}", env::var("SUSI_COMMERCIAL_BIN").unwrap_or_default());
+    println!("ready={}", env::var("SUSI_CORE_INSTANCE_READY").unwrap_or_default());
+    std::process::exit(42);
+}
+"#,
+    )
+    .unwrap();
+    assert!(Command::new("rustc")
+        .args(["--edition", "2021"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&host)
+        .status()
+        .unwrap()
+        .success());
+
+    let home = root.join("home");
+    fs::create_dir(&home).unwrap();
+    let core = Path::new(env!("CARGO_BIN_EXE_susi"));
+
+    // 1. Works purely via SUSI_RUNTIME_HOST with SUSI_COMMERCIAL_BIN unset.
+    let mut cmd = Command::new(core);
+    susi_paths::test_env::isolate_home(&mut cmd, &home);
+    let out = cmd
+        .args(["top", "--json"])
+        .env("SUSI_HOME", &home)
+        .env("SUSI_RUNTIME_HOST", &host)
+        .env_remove("SUSI_COMMERCIAL_BIN")
+        .env_remove("SUSI_INSTALLED_RELEASE")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("args=core-runtime|top|--json\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("host={}\n", host.display())),
+        "{stdout}"
+    );
+    assert!(stdout.contains("ready=1\n"), "{stdout}");
+
+    // 2. SUSI_RUNTIME_HOST takes precedence over a missing SUSI_COMMERCIAL_BIN.
+    let mut cmd2 = Command::new(core);
+    susi_paths::test_env::isolate_home(&mut cmd2, &home);
+    let out2 = cmd2
+        .args(["setup", "plan"])
+        .env("SUSI_HOME", &home)
+        .env("SUSI_RUNTIME_HOST", &host)
+        .env("SUSI_COMMERCIAL_BIN", root.join("absent-legacy"))
+        .env_remove("SUSI_INSTALLED_RELEASE")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out2.status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&out2.stderr)
+    );
+    let stdout2 = String::from_utf8(out2.stdout).unwrap();
+    assert!(
+        stdout2.contains("args=core-runtime|setup|plan\n"),
+        "{stdout2}"
+    );
+    assert!(
+        stdout2.contains(&format!("compat={}\n", host.display())),
+        "{stdout2}"
+    );
+
+    // 3. When neither runtime host is present, error names SUSI_RUNTIME_HOST.
+    let mut cmd3 = Command::new(core);
+    susi_paths::test_env::isolate_home(&mut cmd3, &home);
+    let out3 = cmd3
+        .args(["top", "--json"])
+        .env("PATH", &home)
+        .env("SUSI_HOME", &home)
+        .env("SUSI_RUNTIME_HOST", root.join("absent-host"))
+        .env_remove("SUSI_COMMERCIAL_BIN")
+        .env_remove("SUSI_INSTALLED_RELEASE")
+        .output()
+        .unwrap();
+    assert!(!out3.status.success());
+    let stderr3 = String::from_utf8_lossy(&out3.stderr);
+    assert!(stderr3.contains("SUSI_RUNTIME_HOST"), "{stderr3}");
+    assert!(stderr3.contains("susi-commercial top"), "{stderr3}");
 }

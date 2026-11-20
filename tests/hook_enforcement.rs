@@ -82,13 +82,19 @@ impl Fixture {
         // The real hooks, and every script they call.
         let src = Path::new(env!("CARGO_MANIFEST_DIR"));
         std::fs::create_dir_all(work.join(".githooks")).unwrap();
-        for name in ["commit-msg", "mandate-checks"] {
+        for name in [
+            "commit-msg",
+            "mandate-checks",
+            "pre-push",
+            "core-boundary-guard",
+        ] {
             std::fs::copy(
                 src.join(".githooks").join(name),
                 work.join(".githooks").join(name),
             )
             .unwrap();
         }
+        std::fs::write(work.join(".susi-repo-role"), "public-core\n").unwrap();
         std::fs::create_dir_all(work.join("scripts")).unwrap();
         for name in ["check-task-scope.sh", "check-worker-identity.sh"] {
             std::fs::copy(
@@ -157,4 +163,162 @@ fn a_trailer_naming_an_open_task_is_accepted() {
     let (code, _, err) = hook(&f.work, "commit-msg", &[&msg], "", &[]);
     assert_ne!(code, 0);
     assert!(err.contains("already closed"), "{err}");
+}
+
+#[test]
+fn standalone_pre_push_allows_ff_and_blocks_force_delete_tag_move_and_board_refs() {
+    let f = Fixture::new("prepush");
+    // Strip PATH down to system essentials without any push-policy binary, and
+    // run in an isolated temp root with zero sibling commercial checkout.
+    let empty_bin = f.root.join("no-tools");
+    std::fs::create_dir_all(&empty_bin).unwrap();
+    let base_sha = command(&f.work, "git", &["rev-parse", "HEAD"], "", &[])
+        .1
+        .trim()
+        .to_string();
+    git(
+        &f.work,
+        &[
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "feat: standalone prepush fixture",
+            "-m",
+            "Task: LOCAL-prepush-fixture",
+        ],
+    );
+    let head_sha = command(&f.work, "git", &["rev-parse", "HEAD"], "", &[])
+        .1
+        .trim()
+        .to_string();
+    let zero = "0000000000000000000000000000000000000000";
+
+    // Filter out any directory containing push-policy from PATH so the
+    // standalone pure-local fallback inside .githooks/pre-push always executes.
+    let clean_path = std::env::var_os("PATH")
+        .map(|raw| {
+            std::env::join_paths(std::env::split_paths(&raw).filter(|dir| {
+                !dir.join("push-policy").exists() && !dir.join("push-policy.exe").exists()
+            }))
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+        })
+        .unwrap_or_default();
+    let envs = [("PATH", clean_path.as_str())];
+
+    // 1. Clean fast-forward push on main succeeds standalone.
+    let ff = format!("refs/heads/main {head_sha} refs/heads/main {base_sha}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &ff,
+        &envs,
+    );
+    assert_eq!(code, 0, "standalone FF push must succeed: {err}");
+
+    // 2. Non-fast-forward (rewind) push is refused.
+    let non_ff = format!("refs/heads/main {base_sha} refs/heads/main {head_sha}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &non_ff,
+        &envs,
+    );
+    assert_ne!(code, 0, "non-FF push must be refused");
+    assert!(
+        err.contains("refusing the push (transport safety)"),
+        "{err}"
+    );
+
+    // 3. Branch deletion is refused.
+    let del_branch = format!("(delete) {zero} refs/heads/main {head_sha}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &del_branch,
+        &envs,
+    );
+    assert_ne!(code, 0, "branch deletion must be refused");
+    assert!(
+        err.contains("refusing the push (transport safety)"),
+        "{err}"
+    );
+
+    // 4. Moving or deleting an existing tag is refused; creating a new tag succeeds.
+    let new_tag = format!("refs/tags/v0.1.0 {head_sha} refs/tags/v0.1.0 {zero}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &new_tag,
+        &envs,
+    );
+    assert_eq!(code, 0, "new tag push must succeed: {err}");
+
+    let move_tag = format!("refs/tags/v0.1.0 {head_sha} refs/tags/v0.1.0 {base_sha}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &move_tag,
+        &envs,
+    );
+    assert_ne!(code, 0, "moving an existing tag must be refused");
+    assert!(
+        err.contains("refusing the push (transport safety)"),
+        "{err}"
+    );
+
+    let del_tag = format!("(delete) {zero} refs/tags/v0.1.0 {head_sha}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &del_tag,
+        &envs,
+    );
+    assert_ne!(code, 0, "deleting an existing tag must be refused");
+    assert!(
+        err.contains("refusing the push (transport safety)"),
+        "{err}"
+    );
+
+    // 5. Private board refs are refused by core-boundary-guard.
+    let board_name = ["refs", "board", "item-1"].join("/");
+    let board_ref = format!("{board_name} {head_sha} {board_name} {zero}\n");
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &board_ref,
+        &envs,
+    );
+    assert_ne!(code, 0, "private board ref push must be refused");
+    assert!(err.contains("core-boundary-guard"), "{err}");
+
+    // 6. Opt-in strict mode fails closed without push-policy.
+    let strict_envs = [
+        ("PATH", clean_path.as_str()),
+        ("SUSI_REQUIRE_PUSH_POLICY", "1"),
+    ];
+    let (code, _, err) = hook(
+        &f.work,
+        "pre-push",
+        &["origin", "file:///tmp/bare"],
+        &ff,
+        &strict_envs,
+    );
+    assert_ne!(
+        code, 0,
+        "SUSI_REQUIRE_PUSH_POLICY=1 must refuse when push-policy is absent"
+    );
+    assert!(
+        err.contains("refusing the push (transport safety)"),
+        "{err}"
+    );
 }

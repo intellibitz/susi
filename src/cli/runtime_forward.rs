@@ -22,29 +22,26 @@ fn run(
     words: &[OsString],
     prepare_instance: impl FnOnce() -> std::io::Result<()>,
 ) -> Result<ExitCode> {
-    let program: Option<PathBuf> = None;
-    let program = program
-        .or_else(susi_config::vault_exec::commercial_executable)
-        .ok_or_else(|| {
-            let entry = words
-                .first()
-                .and_then(|word| word.to_str())
-                .filter(|command| matches!(*command, "setup" | "top" | "peers" | "commits"))
-                .unwrap_or("core-runtime");
-            format!("this command is served by Susi Commercial Apps: install it and run `susi-commercial {entry} <arguments>` (or repeat the same `susi` command)")
-        })?;
+    let program = susi_config::vault_exec::runtime_host_executable().ok_or_else(|| {
+        let entry = words
+            .first()
+            .and_then(|word| word.to_str())
+            .filter(|command| matches!(*command, "setup" | "top" | "peers" | "commits"))
+            .unwrap_or("core-runtime");
+        format!("no runtime host configured (set SUSI_RUNTIME_HOST or install a compatible plug host such as `susi-commercial {entry}`)")
+    })?;
     let launcher = core_executable(susi_paths::SusiDirs::cache_dir)?;
     if program.canonicalize()? == launcher.canonicalize()? {
-        return Err("the commercial runtime resolves to the public core launcher".into());
+        return Err("the runtime host resolves to the public core launcher".into());
     }
-    // Keep the same admitted image pinned while its parser handles help and
-    // errors before allocating any instance or consuming the caller's stdin.
+    // Pin the admitted image while its parser handles help/errors before instance setup.
     let mut parser = Command::new(&program);
     parser
         .arg("core-parse")
         .args(words)
         .env("SUSI_CORE_BIN", &launcher)
-        .env("SUSI_COMMERCIAL_BIN", &program)
+        .env(susi_config::vault_exec::RUNTIME_HOST_ENV, &program)
+        .env(susi_config::vault_exec::COMMERCIAL_BIN_ENV, &program)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -58,9 +55,8 @@ fn run(
         .arg("core-runtime")
         .args(words)
         .env("SUSI_CORE_BIN", launcher)
-        .env("SUSI_COMMERCIAL_BIN", &program)
-        // Core already selected the original instance at its original startup
-        // point. In particular, an installed XDG instance keeps SUSI_HOME unset.
+        .env(susi_config::vault_exec::RUNTIME_HOST_ENV, &program)
+        .env(susi_config::vault_exec::COMMERCIAL_BIN_ENV, &program)
         .env("SUSI_CORE_INSTANCE_READY", "1")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

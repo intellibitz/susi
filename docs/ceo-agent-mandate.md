@@ -203,7 +203,7 @@ targets a blazing-fast `<10s` (`total_ms < 10_000`) warm `build + test + release
 pipeline budget (with cold and warm measurements recorded separately and
 honestly). All add-on features, enterprise packs, SSO/RBAC, FinOps, corporate
 fleet governance, and visual interfaces (all UIs and visual views live in Susi
-Commercial Apps) are closed-source, licensed (`SUSI-ENT-v1` / `SUSI-CUST-v1`),
+Commercial Apps) are closed-source, cryptographically licensed,
 and paid software for commercial entities and corporates in
 `intellibitz/susi-commercial-apps`. Do not embed vendor products into core or
 shift commercial code into the public repository. Ratchet measured source,
