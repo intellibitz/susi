@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-420",
+  "title": "Keep mandates consistent across both repositories and enforce them in local git hooks",
+  "goal": "CEO 2026-11-20: check all mandates are consistent in both susi and commercial apps; make local git enforce these mandates where possible",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "three_pillars_governance"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1795172174,
+  "reuse": {
+    "decision": "existing",
+    "searched": "both repositories' .githooks (pre-commit, commit-msg, pre-push, post-checkout), susi-dev-workflow mandates/guard/freshness/reuse modules and scripts/check-*.sh; new checks extend the existing hooks in plain sh and git"
+  }
+}

@@ -1,5 +1,9 @@
 # CEO Mandate 82: Commit, Push, Merge and Pull About Every Ten Minutes
 
+> **History, superseded.** This record is kept for its reasoning only. The
+> rules that bind agents today are in [`AGENTS.md`](../AGENTS.md), the one
+> active contract; where this record differs, `AGENTS.md` wins.
+
 Effective 2026-11-16, amended the same day by rule 6 of Mandate 83
 ([`docs/ceo-mandate-83.md`](ceo-mandate-83.md)): it covers committing and
 pushing as well as merging and pulling, it is a cadence and not a hard limit,

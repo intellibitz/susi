@@ -1,5 +1,9 @@
 # CEO Mandate 80: Step 1, three core pillars and synchronized delivery
 
+> **History, superseded.** This record is kept for its reasoning only. The
+> rules that bind agents today are in [`AGENTS.md`](../AGENTS.md), the one
+> active contract; where this record differs, `AGENTS.md` wins.
+
 Effective 2026-11-15. This directive supersedes only the older four/five-pillar
 taxonomy and delivery cadence, not release, safety, license or ownership rules.
 

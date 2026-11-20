@@ -630,7 +630,7 @@
         {
           "id": 64,
           "title": "Native platform qualification",
-          "imperative": "Qualify Windows on native x86_64 MSVC with native services, processes, paths and updates, without shell/emulation/container prerequisites. Exercise clean-machine setup, drive/UNC and Unicode paths, reserved names, junctions, locking, interruption and atomic promotion. Actual native artifacts/tests are required; cross-compilation and inspection alone are insufficient. Git's own thin native-tool hook handoff is the compatibility boundary."
+          "imperative": "Core releases qualify Linux only; Windows qualification uses native x86_64 MSVC with native services, processes, paths and updates, without shell/emulation/container prerequisites. Exercise clean-machine setup, drive/UNC and Unicode paths, reserved names, junctions, locking, interruption and atomic promotion. Actual native artifacts/tests are required; cross-compilation and inspection alone are insufficient. Git's own thin native-tool hook handoff is the compatibility boundary."
         },
         {
           "id": 65,

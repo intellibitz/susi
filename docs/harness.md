@@ -1,4 +1,4 @@
-> **Current governing contract:** follow `AGENTS.md` and the mandates in `.agents/identity.json`.
+> **Current governing contract:** follow `AGENTS.md`, the one active contract (`.agents/identity.json` only keeps stable mandate ids for tooling).
 > This document includes existing harness behavior and legacy remote/script
 > adapters. They are migration status, not mandatory prerequisites for agent
 > development. The required harness owns native local integration and release

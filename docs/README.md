@@ -23,7 +23,7 @@ for a new one in the same change. The rules agents work by are in
 
 ## Harness and agents
 
-- [> **Current governing contract:** follow `AGENTS.md` and the mandates in `.agents/identity.json`.](harness.md)
+- [> **Current governing contract:** follow `AGENTS.md`, the one active contract (`.agents/identity.json` only keeps stable mandate ids for tooling).](harness.md)
 - [SUSI harness as an AI OS](harness-os.md)
 - [Harness coordination across hosts: the repository is the shared state](harness-coordination.md)
 - [Harness runbook](harness-runbook.md)

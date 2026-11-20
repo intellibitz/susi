@@ -1,5 +1,9 @@
 # CEO Mandate 84: Susi Core Stays Under 10,000 Lines
 
+> **History, superseded.** This record is kept for its reasoning only. The
+> rules that bind agents today are in [`AGENTS.md`](../AGENTS.md), the one
+> active contract; where this record differs, `AGENTS.md` wins.
+
 Effective 2026-11-16; limit tightened to 50,000, 25,000, and then 10,000 on 2026-11-18. Binding on every agent in the Susi AI ecosystem — local,
 cloud, external (`Claude`, `Codex`, `Antigravity` / `Carbon`, `Grok`, `DeepSeek`,
 `Qwen` and others) and the `Susi Harness` itself — on every change to

@@ -1,5 +1,9 @@
 # CEO Mandate 78: Never Reinvent the Wheel — Reuse Apache-2.0 Work First
 
+> **History, superseded.** This record is kept for its reasoning only. The
+> rules that bind agents today are in [`AGENTS.md`](../AGENTS.md), the one
+> active contract; where this record differs, `AGENTS.md` wins.
+
 Effective 2026-11-12. Binding on every agent in the Susi AI ecosystem — local,
 cloud, external (`Claude`, `Codex`, `Antigravity` / `Carbon`, `Grok`, `DeepSeek`,
 `Qwen` and others) and the `Susi Harness` itself — across both `intellibitz/susi`

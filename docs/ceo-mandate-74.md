@@ -1,5 +1,9 @@
 # CEO Mandate 74: Autonomous CTO Ecosystem Mandate — <10s Core, 3 Pillars, Remote Pull & Merge, Distilled Releases, and Open-World Harvest
 
+> **History, superseded.** This record is kept for its reasoning only. The
+> rules that bind agents today are in [`AGENTS.md`](../AGENTS.md), the one
+> active contract; where this record differs, `AGENTS.md` wins.
+
 Effective 2026-11-11 (extended 2026-11-12 by [CEO Mandate 75](ceo-mandate-75.md),
 which codifies the **Raw Source (`main`) -> Distill (`release`)** pipeline,
 autonomous cloud raw-source feature pickup with Core-vs-Commercial routing, and

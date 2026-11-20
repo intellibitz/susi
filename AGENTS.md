@@ -58,7 +58,9 @@ the requester to inspect code or perform routine engineering steps.
    scopes using available native `local-workflow` tooling (core's development
    and release tools are built from Susi Commercial Apps' `tools/core-xtask`
    and run from a core checkout). Keep one live
-   claim per worker and renew active progress. Do not hold a claim for work you
+   claim per worker and renew active progress; a claim's lease is one hour,
+   renewed by publishing work on the task or `susi-commercial tasks renew <id>`.
+   Do not hold a claim for work you
    have stopped, handed off or completed; release it in the same step. The lease
    is a last resort, not the release. Preserve unpublished work or deliberately
    abandon it with explicit authority; never silently discard it.
@@ -71,6 +73,9 @@ the requester to inspect code or perform routine engineering steps.
    commit if reachable. Resolve conflicts while preserving accepted work; do
    not rebase or overwrite shared history. Offline local development remains
    available. A failed remote is reported, not mistaken for synchronization.
+   The commit guard refuses a commit more than 20 commits behind `origin/main`
+   (`git config susi.maxBehind <n>` sets the limit); an unreachable remote
+   never refuses, and a merge is never refused.
 5. Commit, push, merge and pull about every ten minutes, meaningfully. This is
    a cadence against drift, not a hard limit: no empty commits or noise, no
    refusal merely because time elapsed. Use serialized integration and normal
