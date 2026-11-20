@@ -35,6 +35,32 @@ if [ "$1 $2" = "workflow guard" ]; then
             exec "$bin" board guard "$@"
         fi
     done
+    if [ "$#" -ge 1 ]; then
+        stage=$1
+        git_dir=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 1
+        common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 1
+        case "$stage" in
+        commit)
+            if [ "$git_dir" = "$common_dir" ] && [ "${SUSI_ALLOW_PRIMARY:-0}" != "1" ]; then
+                echo "❌ workflow guard: refusing commit in the primary checkout; use a linked worktree (SUSI_ALLOW_PRIMARY=1 to override)." >&2
+                exit 1
+            fi
+            branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
+            if [ "$branch" = "main" ] && [ ! -f "$git_dir/MERGE_HEAD" ] && [ "${SUSI_ALLOW_MAIN:-0}" != "1" ]; then
+                echo "❌ workflow guard: refusing plain commit directly on main; use a feature branch in a linked worktree (SUSI_ALLOW_MAIN=1 to override)." >&2
+                exit 1
+            fi
+            exit 0
+            ;;
+        merge)
+            if [ "$git_dir" = "$common_dir" ] && [ "${SUSI_ALLOW_PRIMARY:-0}" != "1" ]; then
+                echo "❌ workflow guard: refusing merge in the primary checkout; use a linked worktree (SUSI_ALLOW_PRIMARY=1 to override)." >&2
+                exit 1
+            fi
+            exit 0
+            ;;
+        esac
+    fi
     echo "❌ workflow guard failed closed: no binary with \`workflow guard\` or \`susi board guard\` found (build \`susi\` or install \`susi-commercial\`)." >&2
     exit 1
 fi

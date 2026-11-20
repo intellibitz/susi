@@ -8,3 +8,6 @@
 vendor/** linguist-vendored
 .agents/** linguist-generated
 docs/** linguist-documentation
+# Keep Git hooks and POSIX shell scripts on LF across Windows and Linux checkouts.
+.githooks/* text eol=lf
+*.sh text eol=lf

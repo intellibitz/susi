@@ -1,5 +1,14 @@
 # Step 1: Susi builds, tests, improves and uses itself
 
+> **Current platform & zero-GitHub scope (2026-11-20):** Core standalone binary
+> releases target native `x86_64` Linux only (since 2026-11-18; Option 2A).
+> Windows desktop apps, installers, and runtime qualification live in Susi
+> Commercial Apps. All development, integration, and release qualification run
+> over zero-GitHub canonical Git transport (local or self-hosted bare Git +
+> local/self-hosted Cargo crate mirror; `tests/no_github_coupling.rs`). The
+> dated 2026-11-01 through 2026-11-15 Windows acceptance entries below are
+> retained as historical Step 1 records.
+
 This is the CEO's first step of a 100-step vision. Finish and measure this
 step before treating later capabilities as delivered. Agents own the entire
 engineering loop; the CEO does not inspect code, configure the environment,
@@ -7,13 +16,16 @@ repair installations or perform technical approval. Standing Git commit,
 push and merge authority does not waive evidence, credential, spending,
 privacy or destructive-action boundaries.
 
-Acceptance requires a real native Windows/MSVC build, an isolated local agent
-change, serialized integration of the combined tree, debug and optimized
-production artifacts, license/native-source checks, fresh-user operation,
-first-goal inference, health verification and a demonstrated rollback. Each
-receipt must identify source, dependency lock, toolchain, target, artifact
-digest and actual commands/results. GitHub is optional. A fixture proving
-the release machinery is not evidence that Susi itself is production-ready.
+Acceptance requires a real native qualification build (`x86_64` Linux for
+standalone core; native Windows/MSVC builds and installers live in Susi
+Commercial Apps), an isolated local agent change, serialized integration of the
+combined tree, debug and optimized production artifacts, license/native-source
+checks, fresh-user operation, first-goal inference, health verification and a
+demonstrated rollback. Each receipt must identify source, dependency lock,
+toolchain, target, artifact digest and actual commands/results. GitHub is never
+required (canonical development runs on portable self-hosted/local Git with zero
+GitHub dependency). A fixture proving the release machinery is not evidence that
+Susi itself is production-ready.
 
 The production qualifier runs formatting, strict license checks, workspace
 Clippy, workspace tests and an optimized native build against the immutable
@@ -156,15 +168,14 @@ also a mandatory standalone regression gate alongside IDNA and identifiers.
 
 ### Initial clean-machine access constraint (2026-11-01)
 
-Before explicit Hyper-V elevation authorization, the Windows host,
-`FURY16G10-OT54R`, supported successful fresh-profile
+Before explicit Hyper-V elevation authorization, the Windows qualification host
+supported successful fresh-profile
 installation and inference checks, but these are not clean virtual-machine
 proof. A read-only host inspection found the Hyper-V PowerShell commands;
 `Get-VM` and `Get-VMHost` both returned “You do not have the required permission
 to complete this task” for the current execution token. `WindowsSandbox.exe`
-was absent from command discovery. Existing Windows installation images were
-found at `E:/opt/install-media/windows/Windows11.iso` and
-`E:/opt/install-media/windows/Win11_25H2_English_x64_v2.iso`; their authenticity,
+was absent from command discovery. Existing local Windows 11 installation ISO
+images were found on host media; their authenticity,
 licensing and suitability were not verified, and neither image was mounted or
 used. No virtual machine or host feature was changed.
 

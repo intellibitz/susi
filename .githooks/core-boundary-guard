@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Standalone pure-local boundary firewall for the public Apache-2.0 core repo.
+# Zero network, zero external binaries (plain bash + git only).
+#
+#   core-boundary-guard pre-commit
+#   core-boundary-guard pre-push [remote_name [remote_url]]
+#
+# Refuses proprietary commercial markers, commercial license tokens, signing
+# secrets, raw private-key/API-token leaks, and refs/board/* pushes from or to
+# public-core.
+set -u
+
+die=0
+refuse() {
+    printf '❌ core-boundary-guard: %s\n' "$*" >&2
+    die=1
+}
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+
+# Only enforce in public-core repositories.
+if [ -f "$top/.susi-repo-role" ]; then
+    role=$(tr -d '\r\n ' <"$top/.susi-repo-role" 2>/dev/null || true)
+    [ "$role" = "public-core" ] || exit 0
+elif git ls-files --error-unmatch LICENSE-COMMERCIAL.md >/dev/null 2>&1; then
+    exit 0
+fi
+
+FORBIDDEN_CONTENT_RE='(LicenseRef-IntelliBitz-Commercial|LICENSE-COMMERCIAL\.md|SUSI-(ENT|CUST)-v1|SUSI_COMMERCIAL_SECRET|refs/board/)'
+FORBIDDEN_SECRET_RE='([[:space:]]*-----BEGIN ([A-Z]+ )?PRIVATE KEY-----[[:space:]]*$|.*(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|sk-ant-[A-Za-z0-9_-]{30,}|AKIA[0-9A-Z]{16}))'
+
+check_paths() {
+    local ctx=$1 paths=$2 p
+    while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        case "$p" in
+        LICENSE-COMMERCIAL.md | */LICENSE-COMMERCIAL.md)
+            refuse "$ctx: proprietary license file '$p' is forbidden in public-core."
+            ;;
+        .secrets | */.secrets | *.secrets)
+            refuse "$ctx: secret file '$p' is forbidden in public-core."
+            ;;
+        esac
+    done <<<"$paths"
+}
+
+check_diff() {
+    local ctx=$1 diff=$2 added hits
+    [ -n "$diff" ] || return 0
+    added=$(printf '%s\n' "$diff" | awk '
+        /^\+\+\+ / {
+            f = substr($0, 5)
+            sub(/^b\//, "", f)
+            skip = (f == ".githooks/core-boundary-guard" || f == ".githooks/mandate-checks" || f == "tests/no_github_coupling.rs" || f ~ /(^|\/)vendor\// || f ~ /\/tests\/fixtures\//)
+            next
+        }
+        /^\+/ && !/^\+\+\+ / && !skip { print f "\t" substr($0, 2) }
+    ')
+    [ -n "$added" ] || return 0
+
+    hits=$(printf '%s\n' "$added" | grep -E $'\t.*'"$FORBIDDEN_CONTENT_RE" | cut -f1 | sort -u)
+    if [ -n "$hits" ]; then
+        refuse "$ctx: proprietary/board/commercial marker (LicenseRef-IntelliBitz-Commercial, LICENSE-COMMERCIAL.md, SUSI-(ENT|CUST)-v1, SUSI_COMMERCIAL_SECRET, or refs/board/) in: $(printf '%s ' $hits)"
+    fi
+
+    hits=$(printf '%s\n' "$added" | grep -E $'\t'"$FORBIDDEN_SECRET_RE" | cut -f1 | sort -u)
+    if [ -n "$hits" ]; then
+        refuse "$ctx: secret or private-key material detected in: $(printf '%s ' $hits)"
+    fi
+}
+
+case "${1:-}" in
+pre-commit)
+    staged_paths=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+    [ -n "$staged_paths" ] || exit 0
+    check_paths "pre-commit" "$staged_paths"
+    staged_diff=$(git diff --cached -U0 --no-color --no-renames --diff-filter=ACMR 2>/dev/null || true)
+    check_diff "pre-commit" "$staged_diff"
+    ;;
+pre-push)
+    zero="0000000000000000000000000000000000000000"
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        [ -n "${local_ref:-}" ] || continue
+        case "$local_ref" in
+        refs/board/*)
+            refuse "pre-push: refusing push of private board ref '$local_ref' from public-core."
+            ;;
+        esac
+        case "${remote_ref:-}" in
+        refs/board/*)
+            refuse "pre-push: refusing push to private board ref '$remote_ref' on public-core."
+            ;;
+        esac
+        [ "${local_sha:-$zero}" = "$zero" ] && continue
+        if [ "${remote_sha:-$zero}" = "$zero" ]; then
+            commits=$(git rev-list "$local_sha" --not --remotes 2>/dev/null || git rev-list "$local_sha" 2>/dev/null || true)
+        else
+            commits=$(git rev-list "${remote_sha}..${local_sha}" 2>/dev/null || true)
+        fi
+        for c in $commits; do
+            c_paths=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=ACMR -m --first-parent "$c" 2>/dev/null || true)
+            check_paths "pre-push ($c)" "$c_paths"
+            c_diff=$(git show --root -U0 --no-color --no-renames --first-parent --format= "$c" 2>/dev/null || true)
+            check_diff "pre-push ($c)" "$c_diff"
+        done
+    done
+    ;;
+*)
+    echo "usage: core-boundary-guard pre-commit | pre-push [remote [url]]" >&2
+    exit 2
+    ;;
+esac
+
+exit "$die"

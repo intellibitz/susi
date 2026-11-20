@@ -77,9 +77,9 @@
       "output": 600000
     },
     "deepseek-pro": {
-      "input_hit": 28000,
-      "input_miss": 280000,
-      "output": 420000
+      "input_hit": 44000,
+      "input_miss": 1320000,
+      "output": 3960000
     },
     "gemini-flash": {
       "input_hit": 30000,

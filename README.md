@@ -14,9 +14,10 @@ workflow policies and product integrations belong in separately hosted packages,
 including Susi Commercial Apps, connected through the same standard sockets.
 Core ships no UI and bundles no plugin content. Existing implementations in core
 are migration debt: each must have a working, compatible destination before
-removal. The complete core must stay below 100,000 physical runtime Rust lines;
-that goal remains unmet. Neither the architectural goal nor a passing build
-certifies complete protocol conformance.
+removal. The complete core stays strictly below 10,000 physical runtime Rust
+lines (`COMPLETE_SOCKET_CEILING = 9_999` in `tests/lean_core_ceilings.rs`,
+currently met at `9,971` lines via `cargo core-size`). Neither the architectural
+goal nor a passing build certifies complete protocol conformance.
 
 Use the socket to connect protocol clients, inspect routing decisions and run
 authorized agents on the host. It is a substrate on the host, not a replacement
@@ -52,7 +53,9 @@ The full command reference is in
 ## Host contract
 
 External clients can trust these ports; the daemon never silently drifts them.
-Verify a running host with `cargo run -p susi-conformance`.
+Verify a running host with the external black-box conformance checker
+([docs/host-contract-conformance.md](docs/host-contract-conformance.md);
+`susi-conformance` lives in Susi Commercial Apps rather than this workspace).
 
 | Port | Surface |
 |------|---------|
@@ -101,16 +104,17 @@ installed journey, promotion, health and rollback checks. The separate warm
 `xtask fast-release` budget is <10 s; it does not replace full release
 qualification. The cold compile target is <60 s. Report current-tree measurements
 and platform coverage explicitly; retained historical timings are not current
-qualification. Core releases target native x86_64 Linux only (Windows is
-served by Susi Commercial Apps since 2026-11-18); other platforms remain
-portable source without release qualification.
+qualification. Core releases target native x86_64 Linux only (since 2026-11-18). Windows
+desktop apps, installers and runtime distribution live in Susi Commercial Apps;
+other platforms remain portable source without core release qualification.
 
 ## Install
 
-Agents obtain an identified native artifact and invoke its Rust installer with
-`susi install`. It discovers the user profile, verifies the staged executable,
-and installs without replacing a different existing executable. No shell script,
-hosting-service connection or user-written configuration is required for placement.
+Agents obtain an identified native Linux `x86_64` artifact and invoke its Rust
+installer with `susi install`. It discovers the user profile, verifies the staged
+executable, and installs without replacing a different existing executable. No
+shell script, hosting-service connection or user-written configuration is
+required for placement.
 Susi never downloads a model by itself: cloud models work right away, and
 `susi os manage model install starter` downloads the licensed local starter
 model (about 429 MB) when you ask. A local goal without it says so and names
@@ -118,21 +122,19 @@ that command.
 Native installation does not by itself qualify a candidate for production;
 qualification, promotion and rollback have separate evidence gates.
 
-From source, install with `install.sh` (x86_64 Linux) or
-`install.ps1` (x86_64 Windows) from a clone of this repository. This needs Git
-and a Rust toolchain from [rustup](https://rustup.rs): the release tag pins its
-compiler in `rust-toolchain.toml` (for example, 1.99.0), and when that
+From source on `x86_64` Linux, install with `install.sh` from a clone of this
+repository (Windows installers and desktop binaries live in Susi Commercial
+Apps; `install.ps1` remains in this tree only as legacy migration debt). This
+needs Git and a Rust toolchain from [rustup](https://rustup.rs): the release tag
+pins its compiler in `rust-toolchain.toml` (for example, 1.99.0), and when that
 toolchain is missing the installer stops and prints the `rustup toolchain
 install` command. It never installs software for you and downloads no binary.
 
-Replace `REPOSITORY_URL` below with the selected source repository URL.
+Replace `REPOSITORY_URL` below with the selected canonical Git repository URL
+(local bare repo, self-hosted Git remote, or read-only mirror).
 
 ```sh
 git clone REPOSITORY_URL susi && cd susi && ./install.sh
-```
-
-```powershell
-git clone REPOSITORY_URL susi; cd susi; ./install.ps1
 ```
 
 The installer builds the newest release tag of the clone's `origin` (or of
@@ -152,8 +154,9 @@ isolated worktree with disjoint scopes (`local-workflow start <agent>
 are built from Susi Commercial Apps' `tools/core-xtask`) and private
 build/runtime state.
 
-Use portable Git transport and reconcile the current remote before work and
-commits. Commit, push, merge and pull meaningful work about every ten minutes.
+Use portable, zero-GitHub Git transport (canonical local or self-hosted Git
+remote) and reconcile the current remote before work and commits. Commit, push,
+merge and pull meaningful work about every ten minutes.
 Each commit carries `Task: T-<AGENT>-<n>`. Main is unqualified development;
 release integration verifies the actual combined tree before a release ref
 moves, and published release tags remain immutable. Keep source publication
@@ -174,12 +177,12 @@ describes available commands and migration limits.
 - [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
 - [.agents/gmcp/SPEC-PROVENANCE.md](.agents/gmcp/SPEC-PROVENANCE.md): the pinned third-party MCP specification text core keeps; GMCP certification (requirements ledger, contracts, roadmap and evidence) is maintained in Susi Commercial Apps.
-- [docs/lean-core.md](docs/lean-core.md#repository-line-accounting): tracked repository line accounting by category (separating first-party runtime Rust from tests, tooling, vendored sources, and audit/evidence trails), measured and printed by [`tests/lean_core_ceilings.rs`](tests/lean_core_ceilings.rs). The complete socket ceiling only decreases until the under-100,000 goal is met.
+- [docs/lean-core.md](docs/lean-core.md#repository-line-accounting): tracked repository line accounting by category (separating first-party runtime Rust from tests, tooling, vendored sources, and audit/evidence trails), measured and printed by [`tests/lean_core_ceilings.rs`](tests/lean_core_ceilings.rs). The complete socket stays strictly below the 10,000-line ceiling (`COMPLETE_SOCKET_CEILING = 9_999`, met at `9,971` lines via `cargo core-size`).
 - [docs/extension-pack.md](docs/extension-pack.md), [docs/harness.md](docs/harness.md), [VISION.md](VISION.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE). Provided as-is, without warranty; users run the engine and its agents at their own risk.
+Apache License 2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [REUSE.toml](REUSE.toml). Provided as-is, without warranty; users run the engine and its agents at their own risk.
 
 The repository is published one way: the designated publisher alone holds push
 authority, and authorized agents act within that scope. This grants no additional

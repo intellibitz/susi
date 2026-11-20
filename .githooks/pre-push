@@ -7,13 +7,26 @@
 # Susi Commercial Apps checkout beside this one, else it is built once there
 # (offline) and used from then on. With no such checkout beside this one, or a
 # tool that cannot be built, the push is refused (it fails closed).
+# Standalone pure-local public-core boundary firewall: buffer push ref lines
+# so both core-boundary-guard and push-policy see the exact stdin git provided.
+_susi_push_in=$(cat; printf .)
+_susi_push_in=${_susi_push_in%.}
+if [ -x "$(dirname "$0")/core-boundary-guard" ]; then
+    printf '%s' "$_susi_push_in" | "$(dirname "$0")/core-boundary-guard" pre-push "$@" || exit 1
+fi
 if command -v push-policy >/dev/null 2>&1; then
-    exec push-policy "$@"
+    printf '%s' "$_susi_push_in" | (
+        exec push-policy "$@"
+    )
+    exit $?
 fi
 top=$(git rev-parse --show-toplevel) || exit 1
 for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe" \
     "$top/target/release/push-policy" "$top/target/release/push-policy.exe"; do
-    [ -x "$bin" ] && exec "$bin" "$@"
+    if [ -x "$bin" ]; then
+        printf '%s' "$_susi_push_in" | "$bin" "$@"
+        exit $?
+    fi
 done
 tools=
 for manifest in "$top"/../*/tools/core-xtask/Cargo.toml; do
@@ -21,7 +34,10 @@ for manifest in "$top"/../*/tools/core-xtask/Cargo.toml; do
     tools=$(dirname "$manifest")
     for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe" \
         "$tools/target/release/push-policy" "$tools/target/release/push-policy.exe"; do
-        [ -x "$bin" ] && exec "$bin" "$@"
+        if [ -x "$bin" ]; then
+            printf '%s' "$_susi_push_in" | "$bin" "$@"
+            exit $?
+        fi
     done
 done
 if [ -z "$tools" ]; then
@@ -34,7 +50,10 @@ echo "pre-push: building push-policy once in $tools" >&2
     exit 1
 }
 for bin in "$tools/target/debug/push-policy" "$tools/target/debug/push-policy.exe"; do
-    [ -x "$bin" ] && exec "$bin" "$@"
+    if [ -x "$bin" ]; then
+        printf '%s' "$_susi_push_in" | "$bin" "$@"
+        exit $?
+    fi
 done
 echo "pre-push: push-policy missing after build; refusing the push" >&2
 exit 1

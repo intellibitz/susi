@@ -3,12 +3,17 @@
 A Susi core release is two things in git and nothing else: an annotated tag
 `vX.Y.Z`, and the committed release record `releases/<tag>.json` on the
 default branch. No hosting service's release page, asset list or API is part of
-a release (CEO mandate 2026-11-09, "GitHub is storage only"), so the
-repositories can move to any git host by changing a remote URL.
+a release (CEO mandate 2026-11-09, "GitHub is storage only"). Canonical
+development and release transport use zero-GitHub portable Git storage (a local
+or self-hosted bare Git remote, with an optional one-way public mirror of
+`refs/heads/main` and signed `refs/tags/v*` only), so the repositories never
+depend on GitHub.
 
-Binaries are not committed and are not downloaded. Every install and every
-upgrade builds the tag from source on the host that will run it (CEO decision
-2026-11-09 00:22).
+Core standalone releases target native `x86_64` Linux only (since 2026-11-18;
+Option 2A). Windows desktop apps, installers, and Windows runtime qualification
+live in Susi Commercial Apps. Binaries are not committed and are not downloaded
+from GitHub. Every core install and upgrade builds the tag from source on the
+host that will run it (CEO decision 2026-11-09 00:22).
 
 ## The record: `releases/<tag>.json`
 
@@ -27,7 +32,7 @@ record on every gate run.
 | `build.command` | the full command, for people |
 | `reproducible` | `false` today: no byte-for-byte reproducibility is claimed |
 | `assets[]` | one line per reference binary: `file`, `target`, `package`, `bin`, `sha256` |
-| `missing_targets[]` | each released target (x86_64 Windows, x86_64 Linux) with no reference build, and why |
+| `missing_targets[]` | any released target with no reference build and why (active core releases target `x86_64` Linux only; historical records through `v0.21.71` also listed `x86_64` Windows before Windows distribution moved to Susi Commercial Apps) |
 | `checks` | the checks run on the reference build, what passed, what did not run and why; `locally_qualified` says whether the release was qualified on its build host |
 | `provenance` | where each fact in the record came from |
 
@@ -226,12 +231,17 @@ bump.
 
 ## Installing and upgrading
 
-All three paths resolve the newest tag with `git ls-remote --tags` against a
-configured remote, check that tag out, read its record from the remote's
-default branch, build `susi` natively with the recorded profile, features and
-environment, and install the result only when it reports the tag's version.
+Core standalone installation and upgrades target native `x86_64` Linux (Option
+2A; Windows desktop apps and installers live in Susi Commercial Apps, and
+`install.ps1` stays in this repository only as legacy migration debt). Both
+active Linux paths resolve the newest tag with `git ls-remote --tags` against a
+configured zero-GitHub canonical or mirror Git remote, check that tag out, read
+its record from the remote's default branch, build `susi` natively with the
+recorded profile, features and environment, and install the result only when it
+reports the tag's version.
 
-They need git and a Rust toolchain installed through rustup. The tag's
+They need git and a Rust toolchain installed through rustup (plus a local or
+self-hosted Cargo crate mirror when building completely offline). The tag's
 `rust-toolchain.toml` pins the compiler (for example, 1.99.0); when that
 toolchain is not installed the installers stop and print the
 `rustup toolchain install` command. They never install system software.
@@ -239,8 +249,8 @@ toolchain is not installed the installers stop and print the
 | Path | Remote |
 |---|---|
 | `install.sh` (Linux x86_64) | `SUSI_SOURCE_REPO`, else the `origin` of the checkout the script runs from |
-| `install.ps1` (Windows x86_64) | `SUSI_SOURCE_REPO`, else the `origin` of the checkout the script runs from |
-| `scripts/susi-release-sync.sh` (upgrades, Windows and Linux; it installs its own next copy from the default branch, not from the tag) | `SUSI_RELEASE_REMOTE`, else the `origin` of the private release checkout `~/.susi/release-src` that the installer or an earlier sync made |
+| `scripts/susi-release-sync.sh` (Linux x86_64 upgrades; installs its own next copy from the default branch, not from the tag) | `SUSI_RELEASE_REMOTE`, else the `origin` of the private release checkout `~/.susi/release-src` that the installer or an earlier sync made |
+| `install.ps1` (legacy Windows migration debt; active Windows installers live in Susi Commercial Apps) | `SUSI_SOURCE_REPO`, else the `origin` of the checkout the script runs from |
 
 `SUSI_RELEASE_TAG` (installers) and `--tag` (sync) pin a specific release.
 There is no built-in default remote: a script that finds none says which

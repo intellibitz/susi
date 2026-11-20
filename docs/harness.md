@@ -77,20 +77,45 @@ tool and MCP layer and an agent graph — is in
 
 DeepSeek Pro orchestrates; the flash tier works and the pro tier backs it up.
 The registry carries exactly the ids the providers advertise — `deepseek-pro`
-(backend `deepseek-v4-pro`, the orchestrator), `deepseek-flash`, `gemini-flash`,
+(backend `deepseek-v4-pro`, the orchestrator), `siliconflow-deepseek-flash`
+(backend `deepseek-ai/DeepSeek-V4.1-Flash`, 1M context), `deepseek-flash`
+(direct DeepSeek, 128k context), `gemini-flash`,
 `gemini-pro`, `kimi-flash` (backend `kimi-k2.7-code-highspeed`), `kimi-k3-pro`
 (backend `kimi-k3.1-pro-highspeed`) — and the policy above them is an alias, so
-rerouting the fleet never touches a plan:
+rerouting the fleet never touches a plan. Under Option 3A BYOK routing, the
+default `coder` and `flash` aliases route to `siliconflow-deepseek-flash` (1M
+context, flat rate) whenever `SILICONFLOW_API_KEY` is configured, falling back
+automatically to direct `deepseek-flash` when only `DEEPSEEK_API_KEY` is set:
 
 | Alias | Model | Role |
 |---|---|---|
 | `orchestrator`, `primary` | `deepseek-pro` | the orchestrator |
-| `coder`, `flash` | `deepseek-flash` | a worker |
+| `coder`, `flash` | `siliconflow-deepseek-flash` (fallback: `deepseek-flash`) | default flash worker (1M ctx on SiliconFlow when `SILICONFLOW_API_KEY` is set; falls back to direct DeepSeek) |
 | `worker`, `cheap` | `gemini-flash` | the primary worker (large context, vision) |
 | `kimi` | `kimi-flash` | a worker |
 | `backup`, `backup-worker`, `planner`, `pro` | `deepseek-pro` | backup worker (escalation) |
 | `delegate`, `reviewer` | `gemini-pro` | second opinion and backup worker |
 | `kimi-pro` | `kimi-k3-pro` | backup worker |
+
+### Verified DeepSeek & SiliconFlow pricing (`deploy/harness/prices.json`)
+
+Checked-in rates in [deploy/harness/prices.json](../deploy/harness/prices.json)
+are integer micro-USD (`µUSD`) per 1M tokens (verified against official
+`api-docs.deepseek.com/quick_start/pricing/` and SiliconFlow rate cards on
+2026-11-20):
+
+- **`deepseek-pro` (`deepseek-v4-pro`)**: `44000 / 1320000 / 3960000`
+  (`$0.044` cache hit / `$1.32` cache miss / `$3.96` output per 1M — DeepSeek's
+  Peak rate, used conservatively so `Budget::estimate` never under-budgets
+  during Mon–Fri `01:00–04:00` & `06:00–10:00` UTC peak windows; DeepSeek
+  Off-Peak is 50% lower at `$0.022 / $0.66 / $1.98`).
+- **`siliconflow-deepseek-flash` (`DeepSeek-V4.1-Flash`, 1M ctx)**:
+  `3000 / 150000 / 600000` (`$0.003` hit / `$0.15` miss / `$0.60` output flat).
+- **`deepseek-flash` (`DeepSeek-V4.1-Flash`, 128k ctx)**:
+  `3000 / 150000 / 600000` (`$0.003 / $0.15 / $0.60` Off-Peak; DeepSeek Peak
+  windows are 2x at `$0.006 / $0.30 / $1.20`).
+- **`siliconflow-deepseek-pro` (`DeepSeek-V4-Pro`, 1M ctx)**:
+  `135000 / 1501620 / 3135000` (`$0.135 / $1.50162 / $3.135`).
 
 ### Automatic ladder from the environment
 
@@ -448,11 +473,15 @@ planned: one whose record carries a `status` past `claimed` (`in_progress`,
 being merely `claimed`. `--roadmap VC-…`
 narrows a batch to one vector.
 
-Mandate 61 requires the harness to own the complete native local loop. The
-legacy `workflow finish` publication path described above is implementation
-history; it cannot remain a GitHub prerequisite. The available native
-`local-workflow` and `xtask local-build` commands are migration building
-blocks. Agents complete missing coordination and verification without handing
+Mandate 61 requires the harness to own the complete native local loop over
+zero-GitHub canonical Git storage (a local or self-hosted bare Git remote plus
+a local/self-hosted Cargo crate mirror; zero GitHub APIs, Actions, or hosted
+PRs). The legacy `workflow finish` publication path described above is
+implementation history; it cannot remain a GitHub prerequisite. The available
+native `local-workflow` and `xtask local-build` commands (in Susi Commercial
+Apps' `tools/core-xtask`) are migration building blocks, and Mandate 98
+worktree hygiene prunes clean merged worktrees before creating new ones.
+Agents complete missing coordination and verification without handing
 engineering work to the requester or weakening acceptance.
 
 ## Self-build scorecard
@@ -510,8 +539,12 @@ workspace, else `harness/ledger.jsonl` in the data home (`~/.susi`, or
 
 ## Reliability behaviours
 
-A mission is a metered agent in a git worktree. These behaviours decide what it will do when
-something goes wrong; each is covered by tests in `crates/susi-harness`.
+A mission is a metered agent in a git worktree. Core's `crates/susi-harness`
+retains the Apache-2.0 wire contract (`MicroUsd` and plane-bus dispatch), while
+the concrete harness runtime (supervisor, scheduler, gateway, provider router,
+and these behavioural test suites) lives in Susi Commercial Apps
+(`crates/susi-harness`). These behaviours decide what it will do when
+something goes wrong:
 
 - **Prescriptive prompt.** A roadmap task whose acceptance names a `gmcp_req_`/`gmcp_vc_` test is
   told to find the sibling test one requirement earlier, append its own test inside the first five

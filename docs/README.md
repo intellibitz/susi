@@ -16,7 +16,7 @@ for a new one in the same change. The rules agents work by are in
 - [Agent-operated local Windows channels](local-channels.md)
 - [Table-free Rust identifier classification](identifier-platform.md)
 - [Unicode platform boundary](unicode-platform.md)
-- [Lean core: complete standards socket below 100,000 lines](lean-core.md)
+- [Lean core: complete standards socket below 10,000 lines](lean-core.md)
 - [Native Rust Susi: delivery contract and evidence](native-rust-direction.md)
 - [Step 1: Susi builds, tests, improves and uses itself](step1-acceptance.md)
 - [Provider-neutral qualification inputs](provider-neutral-inputs.md)
