@@ -53,7 +53,7 @@ the requester to inspect code or perform routine engineering steps.
    working directory. Roots never nest or overlap; register an existing root in
    place. Reuse your own idle worktrees where appropriate. Before creating a
    fresh worktree, first remove your own old finished worktrees (rule 10;
-   `susi-commercial workflow prune --apply`); CEO decision of 2026-11-20.
+   `susi-commercial workflow prune --apply`); decision of 2026-11-20.
    `git worktree add` runs the post-checkout hook, which lists the finished
    worktrees (advice; git cannot refuse a checkout). The pre-commit and
    commit-msg hooks run `.githooks/mandate-checks`, shared byte-for-byte with
@@ -99,8 +99,8 @@ the requester to inspect code or perform routine engineering steps.
    the license grants code rights, not rights to the Susi name or marks.
 8. Use portable Git storage, without hosting-service APIs, hosted CI, hosted
    pull requests or required remote review. The local canonical Git server is
-   the source of truth and the `origin` of every clone and worktree (reached as
-   `https://git.susi.local/intellibitz/susi.git`); GitHub and GitLab are
+   the source of truth and the `origin` of every clone and worktree (reached via
+   the configured `https://git.susi.local/<org>/susi.git` canonical URL); GitHub and GitLab are
    one-way storage mirrors that only receive `main` and release tags from the
    canonical server's storage sync. Never fetch from, push to or depend on a
    mirror: clone, build, test and release must succeed with every mirror and

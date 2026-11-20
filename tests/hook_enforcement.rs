@@ -82,11 +82,13 @@ impl Fixture {
         // The real hooks, and every script they call.
         let src = Path::new(env!("CARGO_MANIFEST_DIR"));
         std::fs::create_dir_all(work.join(".githooks")).unwrap();
-        std::fs::copy(
-            src.join(".githooks").join("commit-msg"),
-            work.join(".githooks").join("commit-msg"),
-        )
-        .unwrap();
+        for name in ["commit-msg", "mandate-checks"] {
+            std::fs::copy(
+                src.join(".githooks").join(name),
+                work.join(".githooks").join(name),
+            )
+            .unwrap();
+        }
         std::fs::create_dir_all(work.join("scripts")).unwrap();
         for name in ["check-task-scope.sh", "check-worker-identity.sh"] {
             std::fs::copy(
