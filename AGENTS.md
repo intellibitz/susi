@@ -97,6 +97,12 @@ the requester to inspect code or perform routine engineering steps.
    their scope; this policy grants no additional write access. Accept no outside
    pull request, patch or commit. Everyone is free to fork under the license;
    the license grants code rights, not rights to the Susi name or marks.
+   Core improves on a weekly cycle: a change proven in dependent work enters
+   only when it helps a single developer on its own, is not paid-only value,
+   is fresh code written here under this license, adds no net lines past the
+   size ceiling and passes the Linux gates. A cycle that lands anything ships a
+   signed release with plain notes; public mirrors receive only signed release
+   tags.
 8. Use portable Git storage, without hosting-service APIs, hosted CI, hosted
    pull requests or required remote review. The local canonical Git server is
    the source of truth and the `origin` of every clone and worktree (reached via
