@@ -17,5 +17,10 @@
   "reuse": {
     "decision": "existing",
     "searched": "both repositories' .githooks (pre-commit, commit-msg, pre-push, post-checkout), susi-dev-workflow mandates/guard/freshness/reuse modules and scripts/check-*.sh; new checks extend the existing hooks in plain sh and git"
-  }
+  },
+  "progress": "Landed on main 2026-11-20 (e7b061263 contract and history fixes, cb6029fe6 shared mandate-checks hooks; the same script is on Susi Commercial Apps main). Hooks were replayed over the last 200 core commits (none would have been refused) and exercised in a scratch clone. Open only because its acceptance has not run.",
+  "limitations": [
+    "The acceptance (cargo test --test three_pillars_governance) needs a Linux host: core's suite does not build on Windows. Run it there, together with tests/architecture_tests.rs, which pins the edited contract and identity texts; then close this task.",
+    "On a host without a susi-commercial build that has `workflow guard`, core's pre-commit fails closed before the new checks matter; that choice is the CEO's to change, not this task's."
+  ]
 }
